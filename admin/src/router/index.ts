@@ -227,9 +227,7 @@ router.beforeEach(async (to, _from, next) => {
       routesGenerated = true
 
       accessRoutes.forEach((route) => {
-        if (route.name && !router.hasRoute(route.name)) {
-          router.addRoute(route)
-        }
+        router.addRoute(route)
       })
 
       // 重新跳转以确保动态路由生效
