@@ -51,10 +51,12 @@
     <transition name="slide-fade">
       <div v-show="!collapsed" class="sidebar-footer">
         <div class="footer-card">
-          <div class="footer-dot"></div>
+          <div class="footer-dot" :class="{ pulse: true }"></div>
           <div class="footer-text">
             <div class="footer-title">系统运行中</div>
-            <div class="footer-sub">v1.0.0 · 已连接</div>
+            <div class="footer-sub">
+              在线设备: {{ appStore.onlineDevices }} 台
+            </div>
           </div>
         </div>
       </div>
@@ -63,10 +65,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { usePermissionStore } from '@/stores/permission'
+import { getDashboardOverviewApi } from '@/api/dashboard'
 import SidebarItem from './SidebarItem.vue'
 
 const route = useRoute()
@@ -82,9 +85,26 @@ const activeMenu = computed(() => {
   return (meta.activeMenu as string) || path
 })
 
+async function loadSystemStatus() {
+  try {
+    const res = await getDashboardOverviewApi()
+    if (res.data) {
+      appStore.setSystemStatus({
+        onlineDevices: res.data.online_devices
+      })
+    }
+  } catch (e) {
+    // 静默失败，不影响侧边栏显示
+  }
+}
+
 function goDashboard() {
   router.push('/dashboard')
 }
+
+onMounted(() => {
+  loadSystemStatus()
+})
 </script>
 
 <style lang="scss" scoped>

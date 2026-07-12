@@ -24,7 +24,7 @@
             @keyup.enter="checkOnline"
           />
           <el-button :loading="checking" @click="checkOnline">
-            <el-icon><Search /></el-icon>
+            <el-icon><SearchIcon /></el-icon>
             检查在线
           </el-button>
         </div>
@@ -159,7 +159,7 @@
     <template #footer>
       <el-button @click="visible = false">关闭</el-button>
       <el-button type="primary" :loading="sending" @click="sendTest">
-        <el-icon><Promotion /></el-icon>
+        <el-icon><PromotionIcon /></el-icon>
         发送测试推送
       </el-button>
     </template>
@@ -169,7 +169,7 @@
 <script setup lang="ts">
 import { reactive, ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Promotion } from '@element-plus/icons-vue'
+import { Search as SearchIcon, Promotion as PromotionIcon } from '@element-plus/icons-vue'
 import { sendTestPushApi, checkOnlineApi } from '@/api/push'
 import type { TestPushResult } from '@/api/types'
 

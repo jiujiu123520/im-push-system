@@ -9,13 +9,13 @@
         <p class="welcome-sub">欢迎使用 Push 即时消息推送管理平台</p>
       </div>
       <div class="header-actions">
-        <el-button :icon="Refresh" round @click="refreshAll" :loading="refreshing">
+        <el-button :icon="RefreshIcon" round @click="refreshAll" :loading="refreshing">
           刷新数据
         </el-button>
-        <el-button :icon="Monitor" round @click="testPushVisible = true">
+        <el-button :icon="MonitorIcon" round @click="testPushVisible = true">
           测试推送
         </el-button>
-        <el-button type="primary" :icon="Promotion" round @click="goPush">
+        <el-button type="primary" :icon="PromotionIcon" round @click="goPush">
           发起推送
         </el-button>
       </div>
@@ -41,8 +41,8 @@
           </div>
           <div class="stat-trend">
             <el-icon :class="card.trend >= 0 ? 'up' : 'down'">
-              <CaretTop v-if="card.trend >= 0" />
-              <CaretBottom v-else />
+              <CaretTopIcon v-if="card.trend >= 0" />
+              <CaretBottomIcon v-else />
             </el-icon>
             <span :class="card.trend >= 0 ? 'up' : 'down'">
               {{ Math.abs(card.trend) }}%
@@ -115,32 +115,32 @@
           <p class="chart-sub">最近 5 条推送任务</p>
         </div>
         <el-button text type="primary" @click="$router.push('/push-logs')">
-          查看全部<el-icon class="el-icon--right"><ArrowRight /></el-icon>
+          查看全部<el-icon class="el-icon--right"><ArrowRightIcon /></el-icon>
         </el-button>
       </div>
       <el-table :data="recentPush" style="width: 100%">
-        <el-table-column prop="title" label="推送标题" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="platform" label="平台" width="100">
+        <el-table-column prop="title" label="推送标题" min-width="200" show-overflow-tooltip />
+        <el-table-column label="目标类型" width="110">
           <template #default="{ row }">
-            <el-tag :type="platformTag(row.platform)" effect="light" round>
-              {{ row.platform }}
+            <el-tag :type="targetTypeTag(row.target_type)" effect="light" round size="small">
+              {{ targetTypeLabel(row.target_type) }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="送达" width="160">
           <template #default="{ row }">
-            <span class="success-text">{{ row.successCount }}</span>
-            <span class="muted"> / {{ row.successCount + row.failCount }}</span>
+            <span class="success-text">{{ row.success_count }}</span>
+            <span class="muted"> / {{ row.success_count + row.fail_count }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="100">
+        <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="statusTag(row.status)" effect="plain" round size="small">
-              {{ statusLabel(row.status) }}
+            <el-tag :type="statusTag(row.success_count, row.fail_count)" effect="plain" round size="small">
+              {{ statusLabel(row.success_count, row.fail_count) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="createdAt" label="时间" width="180" />
+        <el-table-column prop="created_at" label="时间" width="180" />
       </el-table>
     </div>
 
@@ -150,8 +150,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, markRaw, onMounted, ref, shallowRef } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, markRaw, onMounted, ref, watch } from 'vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart, BarChart, PieChart } from 'echarts/charts'
@@ -164,19 +163,28 @@ import {
 } from 'echarts/components'
 import VChart from 'vue-echarts'
 import {
-  Refresh,
-  Promotion,
-  ArrowRight,
-  CaretTop,
-  CaretBottom,
-  Cellphone,
-  Bell,
-  Key,
-  User,
-  Monitor
+  Refresh as RefreshIcon,
+  Promotion as PromotionIcon,
+  ArrowRight as ArrowRightIcon,
+  CaretTop as CaretTopIcon,
+  CaretBottom as CaretBottomIcon,
+  Cellphone as CellphoneIcon,
+  Bell as BellIcon,
+  Key as KeyIcon,
+  User as UserIcon,
+  Monitor as MonitorIcon
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
+import {
+  getDashboardOverviewApi,
+  getOnlineTrendApi,
+  getTodayPushApi,
+  getKeyDistributionApi,
+  getDevicePlatformApi,
+  getRecentPushApi,
+  type RecentPushItem
+} from '@/api/dashboard'
 import TestPushDialog from './TestPushDialog.vue'
 
 // 注册 ECharts
@@ -192,7 +200,6 @@ use([
   DataZoomComponent
 ])
 
-const router = useRouter()
 const userStore = useUserStore()
 const appStore = useAppStore()
 
@@ -213,41 +220,61 @@ const greeting = computed(() => {
   return '晚上好'
 })
 
-// 数据卡片
-const statCards = ref([
-  {
-    title: '在线设备',
-    value: 12860,
-    unit: '台',
-    trend: 12.5,
-    icon: markRaw(Cellphone),
-    iconBg: 'bg-primary'
-  },
-  {
-    title: '今日推送量',
-    value: 86420,
-    unit: '条',
-    trend: 8.3,
-    icon: markRaw(Bell),
-    iconBg: 'bg-cyan'
-  },
-  {
-    title: '活跃 Key 数',
-    value: 356,
-    unit: '个',
-    trend: 5.2,
-    icon: markRaw(Key),
-    iconBg: 'bg-success'
-  },
-  {
-    title: '注册用户',
-    value: 24580,
-    unit: '人',
-    trend: -2.1,
-    icon: markRaw(User),
-    iconBg: 'bg-warm'
-  }
-])
+// 概览数据
+const overview = ref({
+  online_devices: 0,
+  today_push: 0,
+  yesterday_push: 0,
+  active_keys: 0,
+  total_keys: 0,
+  total_users: 0,
+  today_new_users: 0,
+  today_new_devices: 0
+})
+
+// 数据卡片（根据概览数据动态生成）
+const statCards = computed(() => {
+  const todayPush = overview.value.today_push
+  const yesterdayPush = overview.value.yesterday_push
+  const pushTrend = yesterdayPush > 0
+    ? Math.round(((todayPush - yesterdayPush) / yesterdayPush) * 1000) / 10
+    : 0
+
+  return [
+    {
+      title: '在线设备',
+      value: overview.value.online_devices,
+      unit: '台',
+      trend: overview.value.today_new_devices > 0 ? 5.2 : 0,
+      icon: markRaw(CellphoneIcon),
+      iconBg: 'bg-primary'
+    },
+    {
+      title: '今日推送量',
+      value: todayPush,
+      unit: '条',
+      trend: pushTrend,
+      icon: markRaw(BellIcon),
+      iconBg: 'bg-cyan'
+    },
+    {
+      title: '活跃 Key 数',
+      value: overview.value.active_keys,
+      unit: '个',
+      trend: 0,
+      icon: markRaw(KeyIcon),
+      iconBg: 'bg-success'
+    },
+    {
+      title: '注册用户',
+      value: overview.value.total_users,
+      unit: '人',
+      trend: overview.value.today_new_users > 0 ? 2.1 : 0,
+      icon: markRaw(UserIcon),
+      iconBg: 'bg-warm'
+    }
+  ]
+})
 
 // 主题色（响应暗色）
 const isDark = computed(() => appStore.theme === 'dark')
@@ -258,12 +285,10 @@ const splitLineColor = computed(() =>
 )
 
 // 在线设备趋势数据
-const onlineDates7 = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-const onlineData7 = [8200, 9320, 9016, 10340, 11890, 12900, 12860]
-const onlineDates30 = Array.from({ length: 30 }, (_, i) => `${i + 1}日`)
-const onlineData30 = Array.from({ length: 30 }, (_, i) =>
-  Math.round(8000 + Math.random() * 6000 + i * 80)
-)
+const onlineTrendData = ref<{ dates: string[]; values: number[] }>({
+  dates: [],
+  values: []
+})
 
 const onlineOption = computed(() => ({
   tooltip: {
@@ -276,7 +301,7 @@ const onlineOption = computed(() => ({
   grid: { left: 50, right: 24, top: 30, bottom: 40 },
   xAxis: {
     type: 'category',
-    data: onlineRange.value === '7' ? onlineDates7 : onlineDates30,
+    data: onlineTrendData.value.dates,
     axisLine: { lineStyle: { color: axisLineColor.value } },
     axisLabel: { color: textColor.value, fontSize: 12 },
     axisTick: { show: false }
@@ -290,7 +315,7 @@ const onlineOption = computed(() => ({
   },
   series: [
     {
-      data: onlineRange.value === '7' ? onlineData7 : onlineData30,
+      data: onlineTrendData.value.values,
       type: 'line',
       smooth: true,
       symbol: 'circle',
@@ -319,58 +344,64 @@ const onlineOption = computed(() => ({
 }))
 
 // 今日推送量（柱状）
-const todayPushOption = computed(() => {
-  const hours = Array.from({ length: 24 }, (_, i) => `${i}:00`)
-  const data = hours.map((_, i) => {
-    // 模拟工作时段高峰
-    const base = i >= 9 && i <= 22 ? 4000 : 800
-    return Math.round(base + Math.random() * 3000)
-  })
-  return {
-    tooltip: {
-      trigger: 'axis',
-      backgroundColor: isDark.value ? '#161830' : '#fff',
-      borderColor: isDark.value ? '#2a2d4a' : '#e8e9f2',
-      textStyle: { color: isDark.value ? '#e8eaf6' : '#1a1d2e' },
-      axisPointer: { type: 'shadow' }
-    },
-    grid: { left: 50, right: 16, top: 20, bottom: 40 },
-    xAxis: {
-      type: 'category',
-      data: hours,
-      axisLine: { lineStyle: { color: axisLineColor.value } },
-      axisLabel: { color: textColor.value, fontSize: 11, interval: 3 },
-      axisTick: { show: false }
-    },
-    yAxis: {
-      type: 'value',
-      axisLine: { show: false },
-      axisTick: { show: false },
-      axisLabel: { color: textColor.value, fontSize: 11 },
-      splitLine: { lineStyle: { color: splitLineColor.value, type: 'dashed' } }
-    },
-    series: [
-      {
-        data,
-        type: 'bar',
-        barWidth: '60%',
-        itemStyle: {
-          borderRadius: [6, 6, 0, 0],
-          color: {
-            type: 'linear',
-            x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [
-              { offset: 0, color: '#9b5cff' },
-              { offset: 1, color: '#5cb8ff' }
-            ]
-          }
-        }
-      }
-    ]
-  }
+const todayPushData = ref<{ hours: string[]; values: number[] }>({
+  hours: [],
+  values: []
 })
 
-// Key 状态分布（环形）
+const todayPushOption = computed(() => ({
+  tooltip: {
+    trigger: 'axis',
+    backgroundColor: isDark.value ? '#161830' : '#fff',
+    borderColor: isDark.value ? '#2a2d4a' : '#e8e9f2',
+    textStyle: { color: isDark.value ? '#e8eaf6' : '#1a1d2e' },
+    axisPointer: { type: 'shadow' }
+  },
+  grid: { left: 50, right: 16, top: 20, bottom: 40 },
+  xAxis: {
+    type: 'category',
+    data: todayPushData.value.hours,
+    axisLine: { lineStyle: { color: axisLineColor.value } },
+    axisLabel: { color: textColor.value, fontSize: 11, interval: 3 },
+    axisTick: { show: false }
+  },
+  yAxis: {
+    type: 'value',
+    axisLine: { show: false },
+    axisTick: { show: false },
+    axisLabel: { color: textColor.value, fontSize: 11 },
+    splitLine: { lineStyle: { color: splitLineColor.value, type: 'dashed' } }
+  },
+  series: [
+    {
+      data: todayPushData.value.values,
+      type: 'bar',
+      barWidth: '60%',
+      itemStyle: {
+        borderRadius: [6, 6, 0, 0],
+        color: {
+          type: 'linear',
+          x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: '#9b5cff' },
+            { offset: 1, color: '#5cb8ff' }
+          ]
+        }
+      }
+    }
+  ]
+}))
+
+// Key 状态分布颜色映射
+const keyStatusColors: Record<string, string> = {
+  '活跃': '#6d5cff',
+  '已禁用': '#ffb547',
+  '闲置': '#5cb8ff',
+  '已过期': '#ff5a6e'
+}
+
+const keyDistData = ref<{ name: string; value: number }[]>([])
+
 const keyDistOption = computed(() => ({
   tooltip: {
     trigger: 'item',
@@ -405,17 +436,25 @@ const keyDistOption = computed(() => ({
           color: isDark.value ? '#e8eaf6' : '#1a1d2e'
         }
       },
-      data: [
-        { value: 356, name: '活跃', itemStyle: { color: '#6d5cff' } },
-        { value: 82, name: '闲置', itemStyle: { color: '#5cb8ff' } },
-        { value: 24, name: '已禁用', itemStyle: { color: '#ffb547' } },
-        { value: 8, name: '已过期', itemStyle: { color: '#ff5a6e' } }
-      ]
+      data: keyDistData.value.map((item) => ({
+        ...item,
+        itemStyle: { color: keyStatusColors[item.name] || '#6d5cff' }
+      }))
     }
   ]
 }))
 
-// 设备平台分布（玫瑰图）
+// 设备平台分布颜色映射
+const platformColors: Record<string, string> = {
+  'Android': '#6d5cff',
+  'iOS': '#5cb8ff',
+  'Web': '#18c29c',
+  'HarmonyOS': '#ffb547',
+  '其他': '#909399'
+}
+
+const platformData = ref<{ name: string; value: number }[]>([])
+
 const platformOption = computed(() => ({
   tooltip: {
     trigger: 'item',
@@ -437,114 +476,118 @@ const platformOption = computed(() => ({
       itemStyle: { borderRadius: 8 },
       label: { color: textColor.value, fontSize: 11 },
       labelLine: { lineStyle: { color: axisLineColor.value } },
-      data: [
-        { value: 6420, name: 'Android', itemStyle: { color: '#6d5cff' } },
-        { value: 3850, name: 'iOS', itemStyle: { color: '#5cb8ff' } },
-        { value: 1820, name: 'Web', itemStyle: { color: '#18c29c' } },
-        { value: 770, name: 'HarmonyOS', itemStyle: { color: '#ffb547' } }
-      ]
+      data: platformData.value.map((item) => ({
+        ...item,
+        itemStyle: { color: platformColors[item.name] || '#6d5cff' }
+      }))
     }
   ]
 }))
 
 // 最新推送记录
-const recentPush = shallowRef([
-  {
-    title: '【系统通知】v2.5.0 版本更新公告',
-    platform: 'Android',
-    successCount: 6120,
-    failCount: 80,
-    status: 'success',
-    createdAt: '2026-07-12 14:23:08'
-  },
-  {
-    title: '限时活动：夏季大促倒计时 3 天',
-    platform: 'iOS',
-    successCount: 3840,
-    failCount: 12,
-    status: 'success',
-    createdAt: '2026-07-12 13:50:42'
-  },
-  {
-    title: '安全提醒：检测到新设备登录',
-    platform: 'Web',
-    successCount: 1820,
-    failCount: 0,
-    status: 'success',
-    createdAt: '2026-07-12 11:18:30'
-  },
-  {
-    title: '运营推广：新功能邀您体验',
-    platform: 'HarmonyOS',
-    successCount: 540,
-    failCount: 230,
-    status: 'partial',
-    createdAt: '2026-07-12 10:02:15'
-  },
-  {
-    title: '紧急维护通知：今晚 23:00 停机升级',
-    platform: 'Android',
-    successCount: 0,
-    failCount: 0,
-    status: 'sending',
-    createdAt: '2026-07-12 09:30:00'
-  }
-])
+const recentPush = ref<RecentPushItem[]>([])
 
 // 工具函数
 function formatNum(n: number): string {
   return n.toLocaleString('zh-CN')
 }
 
-function platformTag(p: string): any {
+function targetTypeTag(type: string): string {
   const map: Record<string, string> = {
-    Android: 'primary',
-    iOS: 'success',
-    Web: 'info',
-    HarmonyOS: 'warning'
+    all: 'primary',
+    key: 'success',
+    user: 'warning',
+    device: 'info',
+    api: 'danger'
   }
-  return map[p] || ''
+  return map[type] || 'info'
 }
 
-function statusTag(s: string): any {
+function targetTypeLabel(type: string): string {
   const map: Record<string, string> = {
-    success: 'success',
-    partial: 'warning',
-    failed: 'danger',
-    sending: 'primary',
-    pending: 'info'
+    all: '全员推送',
+    key: 'Key推送',
+    user: '用户推送',
+    device: '设备推送',
+    api: 'API推送'
   }
-  return map[s] || 'info'
+  return map[type] || type
 }
 
-function statusLabel(s: string): string {
-  const map: Record<string, string> = {
-    success: '成功',
-    partial: '部分成功',
-    failed: '失败',
-    sending: '发送中',
-    pending: '等待中'
-  }
-  return map[s] || s
+function statusTag(successCount: number, failCount: number): string {
+  if (failCount === 0 && successCount > 0) return 'success'
+  if (successCount === 0 && failCount === 0) return 'info'
+  if (failCount > 0 && successCount > 0) return 'warning'
+  return 'danger'
+}
+
+function statusLabel(successCount: number, failCount: number): string {
+  if (failCount === 0 && successCount > 0) return '成功'
+  if (successCount === 0 && failCount === 0) return '无数据'
+  if (failCount > 0 && successCount > 0) return '部分成功'
+  return '失败'
 }
 
 function goPush() {
-  router.push('/push-logs')
+  testPushVisible.value = true
+}
+
+// 加载所有仪表盘数据
+async function loadAllData() {
+  refreshing.value = true
+  try {
+    const [overviewRes, trendRes, todayPushRes, keyDistRes, platformRes, recentRes] = await Promise.all([
+      getDashboardOverviewApi(),
+      getOnlineTrendApi(Number(onlineRange.value)),
+      getTodayPushApi(),
+      getKeyDistributionApi(),
+      getDevicePlatformApi(),
+      getRecentPushApi(5)
+    ])
+
+    if (overviewRes.data) {
+      overview.value = overviewRes.data
+      appStore.setSystemStatus({
+        onlineDevices: overviewRes.data.online_devices
+      })
+    }
+    if (trendRes.data) {
+      onlineTrendData.value = trendRes.data
+    }
+    if (todayPushRes.data) {
+      todayPushData.value = todayPushRes.data
+    }
+    if (keyDistRes.data?.data) {
+      keyDistData.value = keyDistRes.data.data
+    }
+    if (platformRes.data?.data) {
+      platformData.value = platformRes.data.data
+    }
+    if (recentRes.data?.list) {
+      recentPush.value = recentRes.data.list
+    }
+  } catch (err) {
+    console.error('加载仪表盘数据失败:', err)
+  } finally {
+    refreshing.value = false
+  }
 }
 
 async function refreshAll() {
-  refreshing.value = true
-  // 模拟刷新
-  await new Promise((r) => setTimeout(r, 800))
-  statCards.value = statCards.value.map((c) => ({
-    ...c,
-    value: c.value + Math.round(Math.random() * 200)
-  }))
-  refreshing.value = false
+  await loadAllData()
 }
 
+// 切换时间范围时重新加载趋势数据
+watch(onlineRange, () => {
+  getOnlineTrendApi(Number(onlineRange.value)).then((res) => {
+    if (res.data) {
+      onlineTrendData.value = res.data
+    }
+  }).catch(() => {})
+})
+
 onMounted(() => {
-  // 数据初始化已完成
+  loadAllData()
 })
 </script>
 

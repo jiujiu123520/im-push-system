@@ -161,6 +161,16 @@ if ($runWs) {
         $router->delete('/admin/blacklist/{id}',  [\App\Controller\BlacklistController::class, 'delete']);
 
         // ============================================================
+        // 仪表盘统计（管理员鉴权）
+        // ============================================================
+        $router->get('/admin/dashboard/overview',        [\App\Controller\DashboardController::class, 'overview']);
+        $router->get('/admin/dashboard/online-trend',    [\App\Controller\DashboardController::class, 'onlineTrend']);
+        $router->get('/admin/dashboard/today-push',      [\App\Controller\DashboardController::class, 'todayPush']);
+        $router->get('/admin/dashboard/key-distribution',[\App\Controller\DashboardController::class, 'keyDistribution']);
+        $router->get('/admin/dashboard/device-platform', [\App\Controller\DashboardController::class, 'devicePlatform']);
+        $router->get('/admin/dashboard/recent-push',     [\App\Controller\DashboardController::class, 'recentPush']);
+
+        // ============================================================
         // 消息记录与导出（管理员鉴权）
         // ============================================================
         $router->get('/admin/messages',          [\App\Controller\MessageController::class, 'index']);

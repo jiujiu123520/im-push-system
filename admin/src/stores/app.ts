@@ -9,6 +9,9 @@ interface AppState {
   visitedViews: AppView[]
   cachedViews: string[]
   device: 'desktop' | 'mobile'
+  // 系统状态
+  onlineDevices: number
+  systemStatusLoaded: boolean
 }
 
 interface AppView {
@@ -28,10 +31,18 @@ export const useAppStore = defineStore('app', {
     theme: (localStorage.getItem(THEME_KEY) as ThemeMode) || 'light',
     visitedViews: [],
     cachedViews: [],
-    device: 'desktop'
+    device: 'desktop',
+    onlineDevices: 0,
+    systemStatusLoaded: false
   }),
 
   actions: {
+    // 更新系统状态
+    setSystemStatus(status: { onlineDevices: number }) {
+      this.onlineDevices = status.onlineDevices
+      this.systemStatusLoaded = true
+    },
+
     // 切换侧边栏折叠
     toggleSidebar() {
       this.sidebarCollapsed = !this.sidebarCollapsed
