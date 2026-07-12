@@ -184,6 +184,7 @@ import {
 } from '@element-plus/icons-vue'
 import { exportPushLogsApi } from '@/api/push'
 import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi } from '@/api/key'
+import type { KeyForm } from '@/api/types'
 
 interface FieldConfig {
   prop: string
