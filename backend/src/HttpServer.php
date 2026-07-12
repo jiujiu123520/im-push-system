@@ -6,7 +6,7 @@ namespace App;
 use App\Service\Config;
 use App\Service\Response;
 use Swoole\Http\Request;
-use Swoole\Http\Response;
+use Swoole\Http\Response as SwooleResponse;
 use Swoole\Http\Server;
 use Throwable;
 
@@ -141,10 +141,10 @@ class HttpServer
      * HTTP 请求事件
      *
      * @param Request $request
-     * @param Response $response
+     * @param SwooleResponse $response
      * @return void
      */
-    public function onRequest(Request $request, Response $response): void
+    public function onRequest(Request $request, SwooleResponse $response): void
     {
         try {
             // 处理 CORS 预检请求（OPTIONS）
