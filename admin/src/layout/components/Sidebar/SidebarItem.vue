@@ -64,8 +64,10 @@ const visibleChildren = computed(() => {
 // 图标组件（从导入的 Icons 中获取，避免与自动导入组件名冲突）
 const iconComponent = computed(() => {
   const name = props.item.meta?.icon as string | undefined
-  if (!name || !Icons[name]) return null
-  return Icons[name]
+  if (!name) return null
+  const iconMap = Icons as Record<string, any>
+  if (!iconMap[name]) return null
+  return iconMap[name]
 })
 
 // 解析路径

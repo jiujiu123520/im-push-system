@@ -150,7 +150,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, markRaw, onMounted, ref, watch } from 'vue'
+import { computed, markRaw, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart, BarChart, PieChart } from 'echarts/charts'
@@ -162,6 +162,7 @@ import {
   DataZoomComponent
 } from 'echarts/components'
 import VChart from 'vue-echarts'
+import { ElMessage } from 'element-plus'
 import {
   Refresh as RefreshIcon,
   Promotion as PromotionIcon,
@@ -204,6 +205,10 @@ const userStore = useUserStore()
 const appStore = useAppStore()
 
 const refreshing = ref(false)
+
+// 自动刷新定时器
+let autoRefreshTimer: number | null = null
+const AUTO_REFRESH_INTERVAL = 60000 // 60秒自动刷新一次
 
 // 测试推送对话框
 const testPushVisible = ref(false)
@@ -492,8 +497,10 @@ function formatNum(n: number): string {
   return n.toLocaleString('zh-CN')
 }
 
-function targetTypeTag(type: string): string {
-  const map: Record<string, string> = {
+type TagType = 'primary' | 'success' | 'warning' | 'info' | 'danger'
+
+function targetTypeTag(type: string): TagType {
+  const map: Record<string, TagType> = {
     all: 'primary',
     key: 'success',
     user: 'warning',
@@ -514,7 +521,7 @@ function targetTypeLabel(type: string): string {
   return map[type] || type
 }
 
-function statusTag(successCount: number, failCount: number): string {
+function statusTag(successCount: number, failCount: number): TagType {
   if (failCount === 0 && successCount > 0) return 'success'
   if (successCount === 0 && failCount === 0) return 'info'
   if (failCount > 0 && successCount > 0) return 'warning'
@@ -533,7 +540,7 @@ function goPush() {
 }
 
 // 加载所有仪表盘数据
-async function loadAllData() {
+async function loadAllData(showError = false) {
   refreshing.value = true
   try {
     const [overviewRes, trendRes, todayPushRes, keyDistRes, platformRes, recentRes] = await Promise.all([
@@ -568,13 +575,32 @@ async function loadAllData() {
     }
   } catch (err) {
     console.error('加载仪表盘数据失败:', err)
+    if (showError) {
+      ElMessage.error('数据加载失败，请稍后重试')
+    }
   } finally {
     refreshing.value = false
   }
 }
 
 async function refreshAll() {
-  await loadAllData()
+  await loadAllData(true)
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  autoRefreshTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      loadAllData(false)
+    }
+  }, AUTO_REFRESH_INTERVAL)
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshTimer !== null) {
+    clearInterval(autoRefreshTimer)
+    autoRefreshTimer = null
+  }
 }
 
 // 切换时间范围时重新加载趋势数据
@@ -587,7 +613,17 @@ watch(onlineRange, () => {
 })
 
 onMounted(() => {
-  loadAllData()
+  loadAllData(false)
+  startAutoRefresh()
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      loadAllData(false)
+    }
+  })
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefresh()
 })
 </script>
 

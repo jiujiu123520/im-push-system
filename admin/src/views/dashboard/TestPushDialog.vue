@@ -226,9 +226,9 @@ async function checkOnline() {
       value: form.target_value.trim(),
     })
     onlineChecked.value = true
-    onlineStatus.value = res.online
-    onlineCount.value = res.online_count
-    onlineDetail.value = res.detail
+    onlineStatus.value = res.data.online
+    onlineCount.value = res.data.online_count
+    onlineDetail.value = res.data.detail
   } catch (err) {
     ElMessage.error('检查失败')
   } finally {

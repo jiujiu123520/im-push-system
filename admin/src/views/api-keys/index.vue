@@ -141,7 +141,7 @@
             <el-button
               link
               type="primary"
-              :icon="CopyDocument"
+              :icon="CopyDocumentIcon"
               @click="copyKey(row.accessKey)"
             >
               复制

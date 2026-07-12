@@ -65,7 +65,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { usePermissionStore } from '@/stores/permission'
@@ -85,6 +85,8 @@ const activeMenu = computed(() => {
   return (meta.activeMenu as string) || path
 })
 
+let refreshTimer: number | null = null
+
 async function loadSystemStatus() {
   try {
     const res = await getDashboardOverviewApi()
@@ -98,12 +100,38 @@ async function loadSystemStatus() {
   }
 }
 
+function startRefreshTimer() {
+  stopRefreshTimer()
+  refreshTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      loadSystemStatus()
+    }
+  }, 30000)
+}
+
+function stopRefreshTimer() {
+  if (refreshTimer !== null) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+}
+
 function goDashboard() {
   router.push('/dashboard')
 }
 
 onMounted(() => {
   loadSystemStatus()
+  startRefreshTimer()
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      loadSystemStatus()
+    }
+  })
+})
+
+onBeforeUnmount(() => {
+  stopRefreshTimer()
 })
 </script>
 

@@ -48,24 +48,16 @@ class DashboardController
 
         $redis = Redis::getInstance();
 
-        // 1. 在线设备数（从 Redis 实时统计：遍历所有 ws:device:* 集合）
-        // 注意：设备量大时应使用 Redis HyperLogLog 或独立计数器，
-        //       此处遍历 SCARD 对于中小规模（万级以下）足够准确。
+        // 1. 在线设备数（从 Redis 实时统计）
+        // 使用 device:key 哈希统计在线设备数（每个在线设备有一条记录）
         $onlineDevices = 0;
         try {
-            $iterator = null;
-            while (($keys = $redis->sScan('ws:device:*', $iterator, '*', 100)) !== false) {
-                foreach ($keys as $key) {
-                    // sScan 返回的可能是集合成员而非 key 名，改用 keys 方式获取在线 key 数
-                }
-                if ($iterator === 0) break;
-            }
+            $onlineDevices = (int)$redis->hLen('device:key');
         } catch (\Throwable $e) {
+            // Redis 不可用时降级到数据库查询
+            $onlineDevicesRow = Database::fetch("SELECT COUNT(*) as cnt FROM devices WHERE status = 1");
+            $onlineDevices = (int)($onlineDevicesRow['cnt'] ?? 0);
         }
-
-        // 更可靠的方式：从 devices 表统计 status=1（在线）
-        $onlineDevicesRow = Database::fetch("SELECT COUNT(*) as cnt FROM devices WHERE status = 1");
-        $onlineDevices = (int)($onlineDevicesRow['cnt'] ?? 0);
 
         // 2. 今日推送量 & 昨日推送量
         $today = date('Y-m-d');
