@@ -652,7 +652,7 @@ fi
 # 安装后端依赖
 info "安装后端依赖..."
 cd "${PROJECT_DIR}/backend"
-COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader --no-audit
+COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader --no-security-blocking
 
 # 构建管理后台
 info "构建管理后台..."
