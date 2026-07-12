@@ -338,16 +338,39 @@ if [[ -z "${SKIP_APP_BUILD}" ]]; then
     fi
     info "Java 版本: $(java -version 2>&1 | head -n1)"
 
-    # 安装 Gradle 8.x（使用阿里云镜像）
+    # 安装 Gradle 8.x
     if ! command -v gradle >/dev/null 2>&1; then
         info "安装 Gradle 8.10..."
         GRADLE_VERSION="8.10"
-        GRADLE_URL="https://mirrors.aliyun.com/gradle/gradle-${GRADLE_VERSION}-bin.zip"
         mkdir -p /opt/gradle
-        curl -sSL "${GRADLE_URL}" -o /tmp/gradle.zip
-        unzip -q /tmp/gradle.zip -d /opt/gradle
-        rm -f /tmp/gradle.zip
-        ln -sf "/opt/gradle/gradle-${GRADLE_VERSION}/bin/gradle" /usr/local/bin/gradle
+
+        # 多源尝试下载（阿里云镜像 -> 腾讯云镜像 -> 官方源）
+        GRADLE_URLS=(
+            "https://mirrors.aliyun.com/macports/distfiles/gradle/gradle-${GRADLE_VERSION}-bin.zip"
+            "https://mirrors.cloud.tencent.com/gradle/gradle-${GRADLE_VERSION}-bin.zip"
+            "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
+        )
+
+        GRADLE_DOWNLOADED=false
+        for url in "${GRADLE_URLS[@]}"; do
+            info "尝试下载: ${url}"
+            if curl -fsSL "${url}" -o /tmp/gradle.zip && unzip -tq /tmp/gradle.zip >/dev/null 2>&1; then
+                GRADLE_DOWNLOADED=true
+                info "下载成功"
+                break
+            fi
+            warn "下载失败或文件损坏，尝试下一个源..."
+            rm -f /tmp/gradle.zip
+        done
+
+        if [[ "${GRADLE_DOWNLOADED}" == "true" ]]; then
+            unzip -q /tmp/gradle.zip -d /opt/gradle
+            rm -f /tmp/gradle.zip
+            ln -sf "/opt/gradle/gradle-${GRADLE_VERSION}/bin/gradle" /usr/local/bin/gradle
+        else
+            error "Gradle 下载失败，请手动安装后重新运行部署"
+            exit 1
+        fi
     fi
     info "Gradle 版本: $(gradle -v 2>&1 | head -n1)"
 
