@@ -60,11 +60,11 @@ class HttpServer
     {
         $this->server->set([
             'worker_num'      => swoole_cpu_num(),
-            'task_worker_num' => 4,
+            'task_worker_num' => 0,
             'daemonize'       => false,
-            'log_file'        => dirname(__DIR__, 2) . '/runtime/logs/http_server.log',
-            'pid_file'        => dirname(__DIR__, 2) . '/runtime/http_server.pid',
-            'document_root'   => dirname(__DIR__, 2) . '/public',
+            'log_file'        => BASE_PATH . '/runtime/logs/http_server.log',
+            'pid_file'        => BASE_PATH . '/runtime/http_server.pid',
+            'document_root'   => BASE_PATH . '/public',
             'enable_static_handler' => true,
             'static_handler_locations' => ['/static'],
         ]);

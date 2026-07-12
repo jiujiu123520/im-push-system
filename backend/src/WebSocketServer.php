@@ -111,8 +111,8 @@ class WebSocketServer
             'worker_num'             => swoole_cpu_num(),
             'task_worker_num'        => 4,
             'daemonize'              => false,
-            'log_file'               => dirname(__DIR__, 2) . '/runtime/logs/websocket_server.log',
-            'pid_file'               => dirname(__DIR__, 2) . '/runtime/websocket_server.pid',
+            'log_file'               => BASE_PATH . '/runtime/logs/websocket_server.log',
+            'pid_file'               => BASE_PATH . '/runtime/websocket_server.pid',
             'open_websocket_close_frame' => true,
         ]);
     }
