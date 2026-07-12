@@ -191,6 +191,7 @@ interface FieldConfig {
   type: 'input' | 'textarea' | 'number' | 'select' | 'switch'
   options?: { label: string; value: any }[]
   required?: boolean
+  placeholder?: string
 }
 
 interface ColumnConfig {

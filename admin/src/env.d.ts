@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 declare module '*.vue' {
   import type { DefineComponent } from 'vue'
   const component: DefineComponent<{}, {}, any>
@@ -5,6 +7,8 @@ declare module '*.vue' {
 }
 
 declare module 'nprogress'
+
+import 'vue-router'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -18,4 +22,14 @@ declare module 'vue-router' {
     breadcrumb?: boolean
     module?: string
   }
+}
+
+interface ImportMetaEnv {
+  readonly VITE_API_BASE_URL: string
+  readonly DEV: boolean
+  readonly PROD: boolean
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv
 }

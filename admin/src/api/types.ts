@@ -48,6 +48,8 @@ export interface LoginResult {
 export interface UserInfo {
   id: number
   username: string
+  nickname?: string
+  avatar?: string
   role: string
   status: number
   created_at?: string

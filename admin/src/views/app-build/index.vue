@@ -543,8 +543,8 @@ async function fetchHistory() {
 }
 
 // 状态映射
-function statusTagType(status: string) {
-  const map: Record<string, string> = {
+function statusTagType(status: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' {
+  const map: Record<string, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
     pending: 'info',
     building: 'primary',
     success: 'success',

@@ -269,7 +269,7 @@
       <div class="setting-card" v-loading="loading">
         <div class="card-head">
           <div class="head-icon icon-mail">
-            <el-icon><Mail /></el-icon>
+            <el-icon><Message /></el-icon>
           </div>
           <div class="head-text">
             <h3 class="card-title">邮件通知配置</h3>
@@ -577,8 +577,8 @@ import {
   Histogram,
   Clock,
   CircleCheckFilled,
-  Mail,
-  Send
+  Message,
+  Promotion
 } from '@element-plus/icons-vue'
 import {
   getSettingsApi,
@@ -897,7 +897,7 @@ async function testMail() {
   }
   testing.mail = true
   try {
-    const res = await testMailApi({
+    const res = await testMailConfigApi({
       host: captchaForm.mailHost,
       port: captchaForm.mailPort,
       from: captchaForm.mailFrom

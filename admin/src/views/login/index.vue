@@ -98,10 +98,10 @@
             />
           </el-form-item>
 
-          <el-form-item prop="captcha">
+          <el-form-item prop="captcha_input">
             <div class="captcha-row">
               <el-input
-                v-model="form.captcha"
+                v-model="form.captcha_input"
                 placeholder="请输入验证码"
                 :prefix-icon="Key"
                 clearable

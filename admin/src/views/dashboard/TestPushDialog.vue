@@ -252,10 +252,10 @@ async function sendTest() {
       content: form.content || undefined,
       priority: form.priority,
     })
-    result.value = res
-    if (res.success_count > 0) {
-      ElMessage.success(`测试推送成功，送达 ${res.success_count} 台设备`)
-    } else if (res.online_count === 0) {
+    result.value = res.data
+    if (res.data?.success_count > 0) {
+      ElMessage.success(`测试推送成功，送达 ${res.data.success_count} 台设备`)
+    } else if (res.data?.online_count === 0) {
       ElMessage.warning('目标设备离线，消息已存为离线消息')
     } else {
       ElMessage.error('推送失败，请检查设备连接状态')
