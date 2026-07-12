@@ -23,6 +23,12 @@
 #   方式4: 自定义参数
 #     sudo bash deploy/deploy.sh --project-dir=/www/push-system --domain=push.example.com
 #
+#   方式5: 断点续装（从上次失败的步骤继续）
+#     sudo bash deploy/deploy.sh --resume
+#
+#   方式6: 重新开始（清除进度记录）
+#     sudo bash deploy/deploy.sh --restart
+#
 # 配置参数（可通过环境变量或命令行参数）:
 #   PROJECT_DIR   - 项目目录（默认 /www/push-system）
 #   DB_NAME       - 数据库名（默认 im_push）
@@ -63,6 +69,55 @@ error() { echo -e "${COLOR_RED}[ERROR]${COLOR_RESET} $*" >&2; }
 step()  { echo -e "\n${COLOR_BLUE}===== [$1] $2 =====${COLOR_RESET}"; }
 
 # ------------------------------------------------------------
+# 断点续装：进度文件 & 辅助函数
+# ------------------------------------------------------------
+PROGRESS_FILE="/tmp/push-deploy-progress.env"
+RESUME_MODE=""
+
+# 检查步骤是否已完成（断点续装时跳过已完成步骤）
+step_done() {
+    local step_name="$1"
+    [[ "${RESUME_MODE}" == "1" ]] || return 1
+    [[ -f "${PROGRESS_FILE}" ]] || return 1
+    grep -q "^${step_name}=done$" "${PROGRESS_FILE}" 2>/dev/null
+}
+
+# 标记步骤完成
+mark_done() {
+    local step_name="$1"
+    echo "${step_name}=done" >> "${PROGRESS_FILE}"
+}
+
+# 清除进度记录
+clear_progress() {
+    rm -f "${PROGRESS_FILE}"
+}
+
+# 部署失败时输出恢复提示
+deploy_failed() {
+    local exit_code=$?
+    if [[ ${exit_code} -ne 0 ]]; then
+        echo ""
+        error "============================================================"
+        error "  部署失败！错误码: ${exit_code}"
+        error "============================================================"
+        warn  "已完成的步骤已保存，修复问题后可断点续装："
+        echo  ""
+        echo  -e "  ${COLOR_YELLOW}sudo bash deploy/deploy.sh --resume${COLOR_RESET}"
+        echo  ""
+        warn  "或重新开始完整部署："
+        echo  -e "  ${COLOR_YELLOW}sudo bash deploy/deploy.sh --restart${COLOR_RESET}"
+        echo  ""
+        info  "进度文件: ${PROGRESS_FILE}"
+        cat "${PROGRESS_FILE}" 2>/dev/null | grep '=done$' | while read -r line; do
+            echo -e "  ${COLOR_GREEN}✓${COLOR_RESET} ${line%%=*}"
+        done
+        echo  ""
+    fi
+}
+trap deploy_failed EXIT
+
+# ------------------------------------------------------------
 # 解析命令行参数（环境变量优先级：命令行 > 环境变量 > 默认值）
 # ------------------------------------------------------------
 PROJECT_DIR="${PROJECT_DIR:-/www/push-system}"
@@ -87,8 +142,27 @@ for arg in "$@"; do
         --http-port=*) HTTP_PORT="${arg#*=}" ;;
         --ws-port=*) WS_PORT="${arg#*=}" ;;
         --skip-app-build) SKIP_APP_BUILD="1" ;;
+        --resume) RESUME_MODE="1" ;;
+        --restart) clear_progress; RESUME_MODE="" ;;
     esac
 done
+
+# 断点续装：检查是否有进度记录
+if [[ "${RESUME_MODE}" == "1" ]]; then
+    if [[ ! -f "${PROGRESS_FILE}" ]]; then
+        warn "未找到进度文件，将从头开始部署"
+        RESUME_MODE=""
+    else
+        info "断点续装模式：以下步骤已完成，将跳过"
+        grep '=done$' "${PROGRESS_FILE}" 2>/dev/null | while read -r line; do
+            echo -e "  ${COLOR_GREEN}✓${COLOR_RESET} ${line%%=*}"
+        done
+    fi
+elif [[ -f "${PROGRESS_FILE}" ]]; then
+    info "检测到上次部署的进度记录，使用 --resume 断点续装或 --restart 重新开始"
+    info "本次将重新开始完整部署"
+    clear_progress
+fi
 
 # ------------------------------------------------------------
 # 前置检查
@@ -118,85 +192,98 @@ fi
 # ============================================================
 # 步骤 1: 安装系统基础依赖
 # ============================================================
-step "1/8" "安装系统基础依赖"
+if step_done "step1_system_deps"; then
+    info "跳过步骤 1: 系统基础依赖（已完成）"
+else
+    step "1/8" "安装系统基础依赖"
 
-# 检测系统版本代号
-if [[ "$PKG_MANAGER" == "apt-get" ]]; then
-    if [[ -f /etc/os-release ]]; then
-        . /etc/os-release
-        OS_CODENAME="${VERSION_CODENAME:-}"
-        OS_ID="${ID:-}"
-    fi
-    if [[ -z "${OS_CODENAME}" ]]; then
-        OS_CODENAME="$(lsb_release -cs 2>/dev/null || echo "jammy")"
-    fi
-    info "系统版本代号: ${OS_CODENAME}"
+    # 检测系统版本代号
+    if [[ "$PKG_MANAGER" == "apt-get" ]]; then
+        if [[ -f /etc/os-release ]]; then
+            . /etc/os-release
+            OS_CODENAME="${VERSION_CODENAME:-}"
+            OS_ID="${ID:-}"
+        fi
+        if [[ -z "${OS_CODENAME}" ]]; then
+            OS_CODENAME="$(lsb_release -cs 2>/dev/null || echo "jammy")"
+        fi
+        info "系统版本代号: ${OS_CODENAME}"
 
-    info "配置阿里云镜像源..."
-    cp /etc/apt/sources.list /etc/apt/sources.list.bak 2>/dev/null || true
-    if [[ "${OS_ID}" == "debian" ]]; then
-        cat > /etc/apt/sources.list << EOF
+        info "配置阿里云镜像源..."
+        cp /etc/apt/sources.list /etc/apt/sources.list.bak 2>/dev/null || true
+        if [[ "${OS_ID}" == "debian" ]]; then
+            cat > /etc/apt/sources.list << EOF
 deb http://mirrors.aliyun.com/debian/ ${OS_CODENAME} main contrib non-free
 deb http://mirrors.aliyun.com/debian/ ${OS_CODENAME}-updates main contrib non-free
 deb http://mirrors.aliyun.com/debian/ ${OS_CODENAME}-backports main contrib non-free
 deb http://mirrors.aliyun.com/debian-security ${OS_CODENAME}-security main contrib non-free
 EOF
-    else
-        cat > /etc/apt/sources.list << EOF
+        else
+            cat > /etc/apt/sources.list << EOF
 deb http://mirrors.aliyun.com/ubuntu/ ${OS_CODENAME} main restricted universe multiverse
 deb http://mirrors.aliyun.com/ubuntu/ ${OS_CODENAME}-updates main restricted universe multiverse
 deb http://mirrors.aliyun.com/ubuntu/ ${OS_CODENAME}-backports main restricted universe multiverse
 deb http://mirrors.aliyun.com/ubuntu/ ${OS_CODENAME}-security main restricted universe multiverse
 EOF
-    fi
-    apt-get update -y
-    apt-get install -y software-properties-common ca-certificates curl wget git unzip tar
+        fi
+        apt-get update -y
+        apt-get install -y software-properties-common ca-certificates curl wget git unzip tar
 
-elif [[ "$PKG_MANAGER" == "yum" ]]; then
-    info "配置阿里云 CentOS 镜像源..."
-    cp /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.bak 2>/dev/null || true
-    curl -sSL http://mirrors.aliyun.com/repo/Centos-8.repo > /etc/yum.repos.d/CentOS-Base.repo 2>/dev/null || true
-    yum clean all
-    yum makecache -y
-    yum install -y epel-release ca-certificates curl wget git unzip tar
+    elif [[ "$PKG_MANAGER" == "yum" ]]; then
+        info "配置阿里云 CentOS 镜像源..."
+        cp /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.bak 2>/dev/null || true
+        curl -sSL http://mirrors.aliyun.com/repo/Centos-8.repo > /etc/yum.repos.d/CentOS-Base.repo 2>/dev/null || true
+        yum clean all
+        yum makecache -y
+        yum install -y epel-release ca-certificates curl wget git unzip tar
+    fi
+    mark_done "step1_system_deps"
 fi
 
 # ============================================================
 # 步骤 2: 安装 PHP 8.2 + Swoole
 # ============================================================
-step "2/8" "安装 PHP 8.2 + Swoole 扩展"
+if step_done "step2_php_swoole"; then
+    info "跳过步骤 2: PHP 8.2 + Swoole（已完成）"
+else
+    step "2/8" "安装 PHP 8.2 + Swoole 扩展"
 
-if [[ "$PKG_MANAGER" == "apt-get" ]]; then
-    add-apt-repository -y ppa:ondrej/php
-    apt-get update -y
-    
-    apt-get install -y \
-        php8.2 php8.2-cli php8.2-common \
-        php8.2-mysql php8.2-redis php8.2-curl \
-        php8.2-mbstring php8.2-xml php8.2-zip \
-        php8.2-bcmath php8.2-gd php8.2-intl \
-        php8.2-swoole php-pear php8.2-dev libssl-dev
+    if [[ "$PKG_MANAGER" == "apt-get" ]]; then
+        add-apt-repository -y ppa:ondrej/php
+        apt-get update -y
 
-elif [[ "$PKG_MANAGER" == "yum" ]]; then
-    yum install -y "https://rpms.remirepo.net/enterprise/remi-release-8.rpm" || true
-    yum module reset -y php || true
-    yum module enable -y php:remi-8.2
+        apt-get install -y \
+            php8.2 php8.2-cli php8.2-common \
+            php8.2-mysql php8.2-redis php8.2-curl \
+            php8.2-mbstring php8.2-xml php8.2-zip \
+            php8.2-bcmath php8.2-gd php8.2-intl \
+            php8.2-swoole php-pear php8.2-dev libssl-dev
 
-    yum install -y \
-        php php-cli php-common \
-        php-mysqlnd php-pecl-redis5 php-curl \
-        php-mbstring php-xml php-zip \
-        php-bcmath php-gd php-intl \
-        php-pecl-swoole5 php-pear php-devel openssl-devel
+    elif [[ "$PKG_MANAGER" == "yum" ]]; then
+        yum install -y "https://rpms.remirepo.net/enterprise/remi-release-8.rpm" || true
+        yum module reset -y php || true
+        yum module enable -y php:remi-8.2
+
+        yum install -y \
+            php php-cli php-common \
+            php-mysqlnd php-pecl-redis5 php-curl \
+            php-mbstring php-xml php-zip \
+            php-bcmath php-gd php-intl \
+            php-pecl-swoole5 php-pear php-devel openssl-devel
+    fi
+
+    info "PHP 版本: $(php -v | head -n1)"
+    info "Swoole 版本: $(php -r "echo swoole_version();")"
+    mark_done "step2_php_swoole"
 fi
-
-info "PHP 版本: $(php -v | head -n1)"
-info "Swoole 版本: $(php -r "echo swoole_version();")"
 
 # ============================================================
 # 步骤 3: 安装 MySQL / Redis / Nginx
 # ============================================================
-step "3/8" "安装 MySQL / Redis / Nginx"
+if step_done "step3_mysql_redis_nginx"; then
+    info "跳过步骤 3: MySQL / Redis / Nginx（已完成）"
+else
+    step "3/8" "安装 MySQL / Redis / Nginx"
 
 if [[ "$PKG_MANAGER" == "apt-get" ]]; then
     apt-get install -y mysql-server redis-server nginx
@@ -279,11 +366,16 @@ fi
 info "MySQL 版本: $(mysql -V)"
 info "Redis 版本: $(redis-server --version | head -n1)"
 info "Nginx 版本: $(nginx -v 2>&1)"
+    mark_done "step3_mysql_redis_nginx"
+fi
 
 # ============================================================
 # 步骤 4: 安装 Node.js + Composer（国内镜像加速）
 # ============================================================
-step "4/8" "安装 Node.js + Composer"
+if step_done "step4_nodejs_composer"; then
+    info "跳过步骤 4: Node.js + Composer（已完成）"
+else
+    step "4/8" "安装 Node.js + Composer"
 
 # 安装 Node.js 20.x LTS（使用 npmmirror 二进制镜像）
 if ! command -v node >/dev/null 2>&1; then
@@ -320,10 +412,15 @@ info "Composer 镜像源: $(composer config -g repo.packagist --list 2>/dev/null
 info "Node 版本: $(node -v)"
 info "npm 版本: $(npm -v)"
 info "Composer 版本: $(composer -V)"
+    mark_done "step4_nodejs_composer"
+fi
 
 # ============================================================
 # 步骤 5: 安装 APP 构建环境（JDK + Gradle + Android SDK）
 # ============================================================
+if step_done "step5_app_build_env"; then
+    info "跳过步骤 5: APP 构建环境（已完成）"
+else
 if [[ -z "${SKIP_APP_BUILD}" ]]; then
     step "5/8" "安装 APP 构建环境（JDK 17 + Gradle + Android SDK）"
 
@@ -390,14 +487,51 @@ allprojects {
 EOF
     info "Gradle 镜像配置完成"
 
-    # 安装 Android SDK（使用阿里云镜像，统一路径 /opt/android-sdk）
+    # 安装 Android SDK（多源尝试，统一路径 /opt/android-sdk）
     ANDROID_SDK_ROOT="/opt/android-sdk"
     if [[ ! -d "${ANDROID_SDK_ROOT}" ]]; then
         info "安装 Android SDK..."
-        mkdir -p "${ANDROID_SDK_ROOT}"
-        ANDROID_SDK_URL="https://mirrors.aliyun.com/android/repository/commandlinetools-linux-11076708_latest.zip"
-        curl -sSL "${ANDROID_SDK_URL}" -o /tmp/android-sdk.zip
         mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools"
+
+        # 备用下载源列表（国内优先）
+        ANDROID_SDK_URLS=(
+            "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+            "https://mirrors.cloud.tencent.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+            "https://mirrors.huaweicloud.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+            "https://mirrors.aliyun.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+        )
+
+        # 依次尝试各镜像源
+        DOWNLOAD_OK=false
+        for url in "${ANDROID_SDK_URLS[@]}"; do
+            info "  尝试下载: ${url}"
+            curl -sSL --connect-timeout 10 --max-time 120 "${url}" -o /tmp/android-sdk.zip 2>/dev/null
+            if [[ $? -ne 0 ]]; then
+                warn "  下载失败，尝试下一个源..."
+                rm -f /tmp/android-sdk.zip
+                continue
+            fi
+            # 校验文件是否为有效 zip（最小 1MB，且文件头为 PK）
+            FILE_SIZE=$(stat -c%s /tmp/android-sdk.zip 2>/dev/null || echo 0)
+            FILE_HEADER=$(head -c 4 /tmp/android-sdk.zip 2>/dev/null | xxd -p 2>/dev/null || echo "")
+            if [[ ${FILE_SIZE} -gt 1048576 && "${FILE_HEADER:0:4}" == "504b" ]]; then
+                info "  下载成功，文件大小: $((FILE_SIZE / 1024 / 1024)) MB"
+                DOWNLOAD_OK=true
+                break
+            else
+                warn "  文件损坏（大小: ${FILE_SIZE} 字节），尝试下一个源..."
+                rm -f /tmp/android-sdk.zip
+            fi
+        done
+
+        if [[ "${DOWNLOAD_OK}" != "true" ]]; then
+            error "Android SDK 下载失败，所有镜像源均不可用"
+            error "请手动下载 commandlinetools-linux 并解压到 ${ANDROID_SDK_ROOT}/cmdline-tools/latest/"
+            rm -f /tmp/android-sdk.zip
+            exit 1
+        fi
+
+        # 解压
         unzip -q /tmp/android-sdk.zip -d "${ANDROID_SDK_ROOT}/cmdline-tools"
         rm -f /tmp/android-sdk.zip
 
@@ -428,11 +562,16 @@ else
     step "5/8" "跳过 APP 构建环境安装"
     warn "如需构建 Android APP，请手动安装 JDK 17 + Gradle + Android SDK"
 fi
+    mark_done "step5_app_build_env"
+fi
 
 # ============================================================
 # 步骤 6: 创建数据库与项目目录
 # ============================================================
-step "6/8" "创建数据库与项目目录"
+if step_done "step6_database_project"; then
+    info "跳过步骤 6: 创建数据库与项目目录（已完成）"
+else
+    step "6/8" "创建数据库与项目目录"
 
 # 创建项目目录
 mkdir -p "${PROJECT_DIR}"
@@ -446,11 +585,16 @@ GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'${DB_HOST}';
 FLUSH PRIVILEGES;
 EOF
 info "数据库创建完成。"
+    mark_done "step6_database_project"
+fi
 
 # ============================================================
 # 步骤 7: 拉取代码并配置
 # ============================================================
-step "7/8" "拉取代码并配置"
+if step_done "step7_code_config"; then
+    info "跳过步骤 7: 拉取代码并配置（已完成）"
+else
+    step "7/8" "拉取代码并配置"
 
 # 拉取代码（使用 HTTPS）
 if [[ ! -d "${PROJECT_DIR}/.git" ]]; then
@@ -533,11 +677,16 @@ if [[ ${#sql_files[@]} -gt 0 ]]; then
         mysql -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" < "${sql_file}"
     done
 fi
+    mark_done "step7_code_config"
+fi
 
 # ============================================================
 # 步骤 8: 配置服务并启动
 # ============================================================
-step "8/8" "配置服务并启动"
+if step_done "step8_services_start"; then
+    info "跳过步骤 8: 配置服务并启动（已完成）"
+else
+    step "8/8" "配置服务并启动"
 
 # 检测运行用户
 if [[ "$PKG_MANAGER" == "apt-get" ]]; then
@@ -614,6 +763,10 @@ sleep 1
 systemctl restart push-websocket
 sleep 1
 systemctl restart push-build-worker
+fi
+
+mark_done "step8_services_start"
+clear_progress
 
 # ============================================================
 # 部署完成
