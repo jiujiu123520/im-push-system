@@ -10,9 +10,9 @@
           @command="handleExport"
           style="margin-right: 12px"
         >
-          <el-button :icon="Download" :loading="exporting">
+          <el-button :icon="DownloadIcon" :loading="exporting">
             导出
-            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            <el-icon class="el-icon--right"><ArrowDownIcon /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
@@ -21,7 +21,7 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        <el-button type="primary" :icon="Plus" @click="openDialog()">
+        <el-button type="primary" :icon="PlusIcon" @click="openDialog()">
           新增{{ moduleTitle }}
         </el-button>
       </div>
@@ -32,7 +32,7 @@
       <el-input
         v-model="query.keyword"
         placeholder="搜索关键词"
-        :prefix-icon="Search"
+        :prefix-icon="SearchIcon"
         clearable
         style="width: 220px"
         @keyup.enter="handleSearch"
@@ -41,8 +41,8 @@
         <el-option label="启用" :value="1" />
         <el-option label="禁用" :value="0" />
       </el-select>
-      <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
-      <el-button :icon="RefreshLeft" @click="handleReset">重置</el-button>
+      <el-button type="primary" :icon="SearchIcon" @click="handleSearch">查询</el-button>
+      <el-button :icon="RefreshLeftIcon" @click="handleReset">重置</el-button>
     </div>
 
     <!-- 表格 -->
@@ -82,8 +82,8 @@
 
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button text type="primary" :icon="Edit" @click="openDialog(row)">编辑</el-button>
-            <el-button text type="danger" :icon="Delete" @click="handleDelete(row)">删除</el-button>
+            <el-button text type="primary" :icon="EditIcon" @click="openDialog(row)">编辑</el-button>
+            <el-button text type="danger" :icon="DeleteIcon" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -174,13 +174,13 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
-  Plus,
-  Search,
-  RefreshLeft,
-  Edit,
-  Delete,
-  Download,
-  ArrowDown
+  Plus as PlusIcon,
+  Search as SearchIcon,
+  RefreshLeft as RefreshLeftIcon,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
+  Download as DownloadIcon,
+  ArrowDown as ArrowDownIcon
 } from '@element-plus/icons-vue'
 import { exportPushLogsApi } from '@/api/push'
 import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi } from '@/api/key'

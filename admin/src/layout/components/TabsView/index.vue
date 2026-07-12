@@ -18,7 +18,7 @@
               class="tab-close"
               @click.stop="closeTab(tab)"
             >
-              <Close />
+              <CloseIcon />
             </el-icon>
           </div>
         </div>
@@ -28,24 +28,24 @@
     <!-- 操作按钮 -->
     <el-dropdown trigger="click" @command="handleCommand" class="tabs-actions">
       <div class="actions-btn">
-        <el-icon><ArrowDown /></el-icon>
+        <el-icon><ArrowDownIcon /></el-icon>
       </div>
       <template #dropdown>
         <el-dropdown-menu>
           <el-dropdown-item command="refresh">
-            <el-icon><Refresh /></el-icon>刷新当前
+            <el-icon><RefreshIcon /></el-icon>刷新当前
           </el-dropdown-item>
           <el-dropdown-item command="closeOthers">
-            <el-icon><CircleClose /></el-icon>关闭其他
+            <el-icon><CircleCloseIcon /></el-icon>关闭其他
           </el-dropdown-item>
           <el-dropdown-item command="closeLeft">
-            <el-icon><Back /></el-icon>关闭左侧
+            <el-icon><BackIcon /></el-icon>关闭左侧
           </el-dropdown-item>
           <el-dropdown-item command="closeRight">
-            <el-icon><Right /></el-icon>关闭右侧
+            <el-icon><RightIcon /></el-icon>关闭右侧
           </el-dropdown-item>
           <el-dropdown-item command="closeAll" divided>
-            <el-icon><Delete /></el-icon>关闭全部
+            <el-icon><DeleteIcon /></el-icon>关闭全部
           </el-dropdown-item>
         </el-dropdown-menu>
       </template>
@@ -60,16 +60,16 @@
         @click.stop
       >
         <li @click="refreshCurrent">
-          <el-icon><Refresh /></el-icon>刷新
+          <el-icon><RefreshIcon /></el-icon>刷新
         </li>
         <li v-if="!currentTab?.affix" @click="closeCurrent">
-          <el-icon><Close /></el-icon>关闭
+          <el-icon><CloseIcon /></el-icon>关闭
         </li>
         <li @click="closeOthers">
-          <el-icon><CircleClose /></el-icon>关闭其他
+          <el-icon><CircleCloseIcon /></el-icon>关闭其他
         </li>
         <li @click="closeAll">
-          <el-icon><Delete /></el-icon>关闭全部
+          <el-icon><DeleteIcon /></el-icon>关闭全部
         </li>
       </ul>
     </transition>
@@ -81,13 +81,13 @@ import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  Close,
-  ArrowDown,
-  Refresh,
-  CircleClose,
-  Back,
-  Right,
-  Delete
+  Close as CloseIcon,
+  ArrowDown as ArrowDownIcon,
+  Refresh as RefreshIcon,
+  CircleClose as CircleCloseIcon,
+  Back as BackIcon,
+  Right as RightIcon,
+  Delete as DeleteIcon
 } from '@element-plus/icons-vue'
 import { useAppStore, type AppView } from '@/stores/app'
 

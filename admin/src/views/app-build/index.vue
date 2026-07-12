@@ -26,7 +26,7 @@
             }"
           >
             <div class="step-dot">
-              <el-icon v-if="currentStep > idx"><Check /></el-icon>
+              <el-icon v-if="currentStep > idx"><CheckIcon /></el-icon>
               <span v-else>{{ idx + 1 }}</span>
             </div>
             <div class="step-label">{{ step.label }}</div>
@@ -42,7 +42,7 @@
       <div class="form-card">
         <div class="card-header-row">
           <div class="header-icon">
-            <el-icon><EditPen /></el-icon>
+            <el-icon><EditPenIcon /></el-icon>
           </div>
           <div>
             <h3 class="card-title">应用配置</h3>
@@ -63,13 +63,13 @@
               <el-input
                 v-model="form.name"
                 placeholder="例如：Push 推送客户端"
-                :prefix-icon="Cellphone"
+                :prefix-icon="CellphoneIcon"
                 clearable
               />
               <el-button
                 type="primary"
                 plain
-                :icon="MagicStick"
+                :icon="MagicStickIcon"
                 @click="randomizeName"
                 title="随机名称"
               >
@@ -84,13 +84,13 @@
               <el-input
                 v-model="form.packageName"
                 placeholder="例如：com.push.app"
-                :prefix-icon="Box"
+                :prefix-icon="BoxIcon"
                 clearable
               />
               <el-button
                 type="primary"
                 plain
-                :icon="MagicStick"
+                :icon="MagicStickIcon"
                 @click="randomizePackageName"
                 title="随机包名"
               >
@@ -111,7 +111,7 @@
               allow-create
               default-first-option
               style="width: 100%"
-              :prefix-icon="Key"
+              :prefix-icon="KeyIconComp"
             >
               <el-option
                 v-for="k in keyOptions"
@@ -128,7 +128,7 @@
               <el-input
                 v-model="form.serverAddress"
                 placeholder="https://api.push.com"
-                :prefix-icon="Link"
+                :prefix-icon="LinkIcon"
                 clearable
               />
             </el-form-item>
@@ -136,7 +136,7 @@
               <el-input
                 v-model="form.websocketAddress"
                 placeholder="wss://ws.push.com"
-                :prefix-icon="Connection"
+                :prefix-icon="ConnectionIcon"
                 clearable
               />
             </el-form-item>
@@ -151,7 +151,7 @@
                   :class="{ active: iconMode === 'upload' }"
                   @click="iconMode = 'upload'"
                 >
-                  <el-icon><Picture /></el-icon>
+                  <el-icon><PictureIcon /></el-icon>
                   <span>自定义上传</span>
                 </div>
                 <div
@@ -159,7 +159,7 @@
                   :class="{ active: iconMode === 'auto' }"
                   @click="iconMode = 'auto'"
                 >
-                  <el-icon><Brush /></el-icon>
+                  <el-icon><BrushIcon /></el-icon>
                   <span>自动生成</span>
                 </div>
               </div>
@@ -176,12 +176,12 @@
                   <div v-if="form.appIcon" class="icon-preview">
                     <img :src="form.appIcon" alt="应用图标" />
                     <div class="icon-mask">
-                      <el-icon><Refresh /></el-icon>
+                      <el-icon><RefreshIcon /></el-icon>
                       <span>更换</span>
                     </div>
                   </div>
                   <div v-else class="icon-placeholder">
-                    <el-icon class="upload-icon"><Plus /></el-icon>
+                    <el-icon class="upload-icon"><PlusIcon /></el-icon>
                     <span>上传图标</span>
                   </div>
                 </el-upload>
@@ -192,7 +192,7 @@
                     v-if="form.appIcon"
                     link
                     type="danger"
-                    :icon="Delete"
+                    :icon="DeleteIcon"
                     @click="form.appIcon = ''"
                   >
                     移除
@@ -210,7 +210,7 @@
                   <el-button
                     link
                     type="primary"
-                    :icon="Refresh"
+                    :icon="RefreshIcon"
                     :loading="generatingIcon"
                     @click="generateIcon"
                   >
@@ -227,18 +227,18 @@
               <el-input
                 v-model="form.version"
                 placeholder="例如：2.5.0"
-                :prefix-icon="PriceTag"
+                :prefix-icon="PriceTagIcon"
                 clearable
               />
             </el-form-item>
             <el-form-item label="平台" prop="platform">
               <el-radio-group v-model="form.platform" class="platform-radio">
                 <el-radio-button value="android">
-                  <el-icon><Cellphone /></el-icon>
+                  <el-icon><CellphoneIcon /></el-icon>
                   Android
                 </el-radio-button>
                 <el-radio-button value="ios">
-                  <el-icon><Monitor /></el-icon>
+                  <el-icon><MonitorIcon /></el-icon>
                   iOS
                 </el-radio-button>
               </el-radio-group>
@@ -262,7 +262,7 @@
                   <div class="type-name">{{ opt.label }}</div>
                   <div class="type-desc">{{ opt.desc }}</div>
                 </div>
-                <el-icon class="type-check"><CircleCheckFilled /></el-icon>
+                <el-icon class="type-check"><CircleCheckFilledIcon /></el-icon>
               </div>
             </div>
           </el-form-item>
@@ -274,7 +274,7 @@
             class="random-all-btn"
             type="success"
             plain
-            :icon="MagicStick"
+            :icon="MagicStickIcon"
             :loading="randomizing"
             @click="randomizeAll"
           >
@@ -289,7 +289,7 @@
             type="primary"
             size="large"
             :loading="submitting"
-            :icon="Promotion"
+            :icon="PromotionIcon"
             @click="handleGenerate"
           >
             {{ submitting ? '正在提交构建...' : '生成安装包' }}
@@ -301,7 +301,7 @@
       <div class="history-card">
         <div class="card-header-row">
           <div class="header-icon history-icon">
-            <el-icon><Clock /></el-icon>
+            <el-icon><ClockIcon /></el-icon>
           </div>
           <div>
             <h3 class="card-title">构建历史</h3>
@@ -310,7 +310,7 @@
           <el-button
             class="refresh-btn"
             text
-            :icon="Refresh"
+            :icon="RefreshIcon"
             :loading="historyLoading"
             @click="fetchHistory"
           >
@@ -320,7 +320,7 @@
 
         <div v-loading="historyLoading" class="history-list">
           <div v-if="!historyList.length && !historyLoading" class="empty-state">
-            <el-icon class="empty-icon"><Files /></el-icon>
+            <el-icon class="empty-icon"><FilesIcon /></el-icon>
             <p>暂无构建记录</p>
             <span>完成左侧配置后点击「生成安装包」</span>
           </div>
@@ -345,18 +345,18 @@
                     v-if="item.status === 'processing'"
                     class="loading-icon"
                   >
-                    <Loading />
+                    <LoadingIcon />
                   </el-icon>
                   {{ statusLabel(item.status) }}
                 </el-tag>
               </div>
               <div class="item-meta">
                 <span class="meta-item">
-                  <el-icon><Cellphone /></el-icon>
+                  <el-icon><CellphoneIcon /></el-icon>
                   Android
                 </span>
                 <span class="meta-item">
-                  <el-icon><Clock /></el-icon>
+                  <el-icon><ClockIcon /></el-icon>
                   {{ formatTime(item.created_at) }}
                 </span>
               </div>
@@ -366,7 +366,7 @@
                 v-if="item.status === 'success'"
                 type="primary"
                 size="small"
-                :icon="Download"
+                :icon="DownloadIcon"
                 round
                 @click="handleDownload(item)"
               >
@@ -374,7 +374,7 @@
               </el-button>
               <el-button
                 size="small"
-                :icon="Document"
+                :icon="DocumentIcon"
                 round
                 @click="openLog(item)"
               >
@@ -383,7 +383,7 @@
               <el-button
                 v-if="item.status === 'failed'"
                 size="small"
-                :icon="RefreshRight"
+                :icon="RefreshRightIcon"
                 round
                 @click="handleRetry(item)"
               >
@@ -406,7 +406,7 @@
       <template #header>
         <div class="drawer-header">
           <div class="drawer-title">
-            <el-icon class="title-icon"><Document /></el-icon>
+            <el-icon class="title-icon"><DocumentIcon /></el-icon>
             <span>构建日志</span>
           </div>
           <el-tag
@@ -450,7 +450,7 @@
         <div class="terminal-body">
           <pre v-if="logContent">{{ logContent }}</pre>
           <div v-else class="terminal-empty">
-            <el-icon class="loading-icon"><Loading /></el-icon>
+            <el-icon class="loading-icon"><LoadingIcon /></el-icon>
             <span>正在加载日志...</span>
           </div>
         </div>
@@ -463,31 +463,31 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadFile } from 'element-plus'
 import {
-  Cellphone,
-  Key,
-  Link,
-  Connection,
-  Plus,
-  Refresh,
-  Delete,
-  EditPen,
-  PriceTag,
-  Promotion,
-  Clock,
-  Files,
-  Document,
-  Download,
-  RefreshRight,
-  Check,
-  Loading,
-  CircleCheckFilled,
-  Cpu,
-  Coin,
-  Monitor,
-  MagicStick,
-  Box,
-  Picture,
-  Brush
+  Cellphone as CellphoneIcon,
+  Key as KeyIconComp,
+  Link as LinkIcon,
+  Connection as ConnectionIcon,
+  Plus as PlusIcon,
+  Refresh as RefreshIcon,
+  Delete as DeleteIcon,
+  EditPen as EditPenIcon,
+  PriceTag as PriceTagIcon,
+  Promotion as PromotionIcon,
+  Clock as ClockIcon,
+  Files as FilesIcon,
+  Document as DocumentIcon,
+  Download as DownloadIcon,
+  RefreshRight as RefreshRightIcon,
+  Check as CheckIcon,
+  Loading as LoadingIcon,
+  CircleCheckFilled as CircleCheckFilledIcon,
+  Cpu as CpuIcon,
+  Coin as CoinIcon,
+  Monitor as MonitorIcon,
+  MagicStick as MagicStickIcon,
+  Box as BoxIcon,
+  Picture as PictureIcon,
+  Brush as BrushIcon
 } from '@element-plus/icons-vue'
 import {
   getAppBuildListApi,
@@ -596,8 +596,8 @@ async function fetchKeyOptions() {
 
 // 打包类型选项
 const buildTypes = [
-  { value: 'release', label: 'Release', desc: '正式版 · 优化性能', icon: Cpu },
-  { value: 'debug', label: 'Debug', desc: '调试版 · 含日志输出', icon: Coin }
+  { value: 'release', label: 'Release', desc: '正式版 · 优化性能', icon: CpuIcon },
+  { value: 'debug', label: 'Debug', desc: '调试版 · 含日志输出', icon: CoinIcon }
 ] as const
 
 // 图标上传处理

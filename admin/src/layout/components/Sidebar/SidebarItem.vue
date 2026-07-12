@@ -6,8 +6,8 @@
       v-if="visibleChildren.length === 1 && !visibleChildren[0].children"
     >
       <el-menu-item :index="resolvePath(visibleChildren[0].path)">
-        <el-icon v-if="iconName">
-          <component :is="iconName" />
+        <el-icon v-if="iconComponent">
+          <component :is="iconComponent" />
         </el-icon>
         <template #title>
           <span>{{ visibleChildren[0].meta?.title || item.meta?.title }}</span>
@@ -18,8 +18,8 @@
     <!-- 无可见子项，渲染自身 -->
     <template v-else-if="visibleChildren.length === 0">
       <el-menu-item :index="resolvePath(item.path)">
-        <el-icon v-if="iconName">
-          <component :is="iconName" />
+        <el-icon v-if="iconComponent">
+          <component :is="iconComponent" />
         </el-icon>
         <template #title>
           <span>{{ item.meta?.title }}</span>
@@ -30,8 +30,8 @@
     <!-- 多子菜单 - 折叠分组 -->
     <el-sub-menu v-else :index="resolvePath(item.path)">
       <template #title>
-        <el-icon v-if="iconName">
-          <component :is="iconName" />
+        <el-icon v-if="iconComponent">
+          <component :is="iconComponent" />
         </el-icon>
         <span>{{ item.meta?.title }}</span>
       </template>
@@ -55,19 +55,17 @@ const props = defineProps<{
   basePath: string
 }>()
 
-const iconNames = new Set(Object.keys(Icons))
-
 // 过滤可见的子路由
 const visibleChildren = computed(() => {
   const children = props.item.children || []
   return children.filter((c) => !c.meta?.hidden)
 })
 
-// 图标组件名（首字母大写）
-const iconName = computed(() => {
+// 图标组件（从导入的 Icons 中获取，避免与自动导入组件名冲突）
+const iconComponent = computed(() => {
   const name = props.item.meta?.icon as string | undefined
-  if (!name || !iconNames.has(name)) return ''
-  return name
+  if (!name || !Icons[name]) return null
+  return Icons[name]
 })
 
 // 解析路径

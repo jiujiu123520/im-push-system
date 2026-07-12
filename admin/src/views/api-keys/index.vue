@@ -10,7 +10,7 @@
       <div class="intro-content">
         <div class="intro-left">
           <div class="intro-tag">
-            <el-icon><Connection /></el-icon>
+            <el-icon><ConnectionIcon /></el-icon>
             <span>OPEN API</span>
           </div>
           <h2 class="intro-title">开放 API 管理</h2>
@@ -21,17 +21,17 @@
           <div class="intro-actions">
             <el-button
               type="primary"
-              :icon="Plus"
+              :icon="PlusIcon"
               round
               @click="openCreateDialog"
             >
               创建 API Key
             </el-button>
-            <el-button :icon="Document" round @click="scrollToExamples">
+            <el-button :icon="DocumentIcon" round @click="scrollToExamples">
               查看示例
             </el-button>
             <el-button
-              :icon="Link"
+              :icon="LinkIcon"
               round
               tag="a"
               href="https://element-plus.org"
@@ -60,7 +60,7 @@
         <el-input
           v-model="query.keyword"
           placeholder="搜索名称 / AccessKey"
-          :prefix-icon="Search"
+          :prefix-icon="SearchIcon"
           clearable
           class="search-input"
           @keyup.enter="handleSearch"
@@ -74,10 +74,10 @@
           <el-option label="启用" :value="1" />
           <el-option label="禁用" :value="0" />
         </el-select>
-        <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
-        <el-button :icon="RefreshLeft" @click="handleReset">重置</el-button>
+        <el-button type="primary" :icon="SearchIcon" @click="handleSearch">查询</el-button>
+        <el-button :icon="RefreshLeftIcon" @click="handleReset">重置</el-button>
       </div>
-      <el-button type="primary" :icon="Plus" @click="openCreateDialog">
+      <el-button type="primary" :icon="PlusIcon" @click="openCreateDialog">
         新建 Key
       </el-button>
     </div>
@@ -96,7 +96,7 @@
           <template #default="{ row }">
             <div class="name-cell">
               <div class="name-icon">
-                <el-icon><Key /></el-icon>
+                <el-icon><KeyIcon /></el-icon>
               </div>
               <span class="name-text">{{ row.name }}</span>
             </div>
@@ -108,7 +108,7 @@
               <code class="key-text">{{ maskKey(row.accessKey) }}</code>
               <el-button
                 link
-                :icon="CopyDocument"
+                :icon="CopyDocumentIcon"
                 @click="copyKey(row.accessKey)"
               >
                 复制
@@ -149,7 +149,7 @@
             <el-button
               link
               :type="row.status === 1 ? 'warning' : 'success'"
-              :icon="row.status === 1 ? Lock : Unlock"
+              :icon="row.status === 1 ? LockIcon : UnlockIcon"
               @click="handleToggleStatus(row)"
             >
               {{ row.status === 1 ? '禁用' : '启用' }}
@@ -157,7 +157,7 @@
             <el-button
               link
               type="danger"
-              :icon="Delete"
+              :icon="DeleteIcon"
               @click="handleDelete(row)"
             >
               删除
@@ -199,7 +199,7 @@
           <el-input
             v-model="form.name"
             placeholder="例如：移动端调用"
-            :prefix-icon="EditPen"
+            :prefix-icon="EditPenIcon"
             clearable
           />
         </el-form-item>
@@ -227,22 +227,22 @@
       <!-- 创建成功后展示密钥 -->
       <div v-if="createdSecret" class="secret-result">
         <div class="secret-head">
-          <el-icon class="success-icon"><CircleCheckFilled /></el-icon>
+          <el-icon class="success-icon"><CircleCheckFilledIcon /></el-icon>
           <span>创建成功，请妥善保存以下密钥信息</span>
         </div>
         <div class="secret-block">
           <div class="secret-row">
             <span class="label">AccessKey:</span>
             <code>{{ createdSecret.accessKey }}</code>
-            <el-button link :icon="CopyDocument" @click="copyKey(createdSecret.accessKey)">复制</el-button>
+            <el-button link :icon="CopyDocumentIcon" @click="copyKey(createdSecret.accessKey)">复制</el-button>
           </div>
           <div class="secret-row">
             <span class="label">SecretKey:</span>
             <code>{{ createdSecret.secretKey }}</code>
-            <el-button link :icon="CopyDocument" @click="copyKey(createdSecret.secretKey)">复制</el-button>
+            <el-button link :icon="CopyDocumentIcon" @click="copyKey(createdSecret.secretKey)">复制</el-button>
           </div>
           <div class="secret-warn">
-            <el-icon><WarningFilled /></el-icon>
+            <el-icon><WarningFilledIcon /></el-icon>
             SecretKey 仅在创建时显示一次，离开后将无法再次查看。
           </div>
         </div>
@@ -264,7 +264,7 @@
       <div class="examples-head" @click="examplesOpen = !examplesOpen">
         <div class="head-left">
           <div class="head-icon">
-            <el-icon><Document /></el-icon>
+            <el-icon><DocumentIcon /></el-icon>
           </div>
           <div>
             <h3 class="card-title">API 调用示例</h3>
@@ -272,7 +272,7 @@
           </div>
         </div>
         <el-icon class="toggle-icon" :class="{ open: examplesOpen }">
-          <ArrowDown />
+          <ArrowDownIcon />
         </el-icon>
       </div>
 
@@ -283,7 +283,7 @@
               <div class="code-block">
                 <div class="code-header">
                   <span class="code-lang">bash</span>
-                  <el-button link :icon="CopyDocument" @click="copyCode(curlExample)">复制</el-button>
+                  <el-button link :icon="CopyDocumentIcon" @click="copyCode(curlExample)">复制</el-button>
                 </div>
                 <pre><code v-html="highlightBash(curlExample)"></code></pre>
               </div>
@@ -292,7 +292,7 @@
               <div class="code-block">
                 <div class="code-header">
                   <span class="code-lang">json</span>
-                  <el-button link :icon="CopyDocument" @click="copyCode(jsonExample)">复制</el-button>
+                  <el-button link :icon="CopyDocumentIcon" @click="copyCode(jsonExample)">复制</el-button>
                 </div>
                 <pre><code v-html="highlightJson(jsonExample)"></code></pre>
               </div>
@@ -301,7 +301,7 @@
               <div class="code-block">
                 <div class="code-header">
                   <span class="code-lang">javascript</span>
-                  <el-button link :icon="CopyDocument" @click="copyCode(jsExample)">复制</el-button>
+                  <el-button link :icon="CopyDocumentIcon" @click="copyCode(jsExample)">复制</el-button>
                 </div>
                 <pre><code v-html="highlightJs(jsExample)"></code></pre>
               </div>
@@ -310,15 +310,15 @@
 
           <div class="example-tips">
             <div class="tip-item">
-              <el-icon class="tip-icon"><InfoFilled /></el-icon>
+              <el-icon class="tip-icon"><InfoFilledIcon /></el-icon>
               <span>请求头需携带 <code>X-Access-Key</code> 与 <code>X-Signature</code>（HMAC-SHA256 签名）</span>
             </div>
             <div class="tip-item">
-              <el-icon class="tip-icon"><InfoFilled /></el-icon>
+              <el-icon class="tip-icon"><InfoFilledIcon /></el-icon>
               <span>所有接口返回统一 JSON 结构：<code>{ code, message, data }</code></span>
             </div>
             <div class="tip-item">
-              <el-icon class="tip-icon"><InfoFilled /></el-icon>
+              <el-icon class="tip-icon"><InfoFilledIcon /></el-icon>
               <span>频率限制：默认 100 次/分钟，可在 Key 配置中调整</span>
             </div>
           </div>
@@ -333,22 +333,22 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { useClipboard } from '@vueuse/core'
 import {
-  Connection,
-  Plus,
-  Document,
-  Link,
-  Search,
-  RefreshLeft,
-  Key,
-  CopyDocument,
-  Lock,
-  Unlock,
-  Delete,
-  EditPen,
-  CircleCheckFilled,
-  WarningFilled,
-  ArrowDown,
-  InfoFilled
+  Connection as ConnectionIcon,
+  Plus as PlusIcon,
+  Document as DocumentIcon,
+  Link as LinkIcon,
+  Search as SearchIcon,
+  RefreshLeft as RefreshLeftIcon,
+  Key as KeyIcon,
+  CopyDocument as CopyDocumentIcon,
+  Lock as LockIcon,
+  Unlock as UnlockIcon,
+  Delete as DeleteIcon,
+  EditPen as EditPenIcon,
+  CircleCheckFilled as CircleCheckFilledIcon,
+  WarningFilled as WarningFilledIcon,
+  ArrowDown as ArrowDownIcon,
+  InfoFilled as InfoFilledIcon
 } from '@element-plus/icons-vue'
 import {
   getApiKeyListApi,

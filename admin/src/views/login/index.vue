@@ -37,21 +37,21 @@
 
       <div class="feature-list">
         <div class="feature-item">
-          <div class="feature-icon"><el-icon><Lightning /></el-icon></div>
+          <div class="feature-icon"><el-icon><LightningIcon /></el-icon></div>
           <div>
             <div class="feature-name">毫秒级送达</div>
             <div class="feature-sub">长连接保活，平均送达 &lt; 300ms</div>
           </div>
         </div>
         <div class="feature-item">
-          <div class="feature-icon"><el-icon><DataLine /></el-icon></div>
+          <div class="feature-icon"><el-icon><DataLineIcon /></el-icon></div>
           <div>
             <div class="feature-name">高并发支持</div>
             <div class="feature-sub">单集群可承载百万级并发推送</div>
           </div>
         </div>
         <div class="feature-item">
-          <div class="feature-icon"><el-icon><Monitor /></el-icon></div>
+          <div class="feature-icon"><el-icon><MonitorIcon /></el-icon></div>
           <div>
             <div class="feature-name">全平台覆盖</div>
             <div class="feature-sub">Android · iOS · Web · HarmonyOS</div>
@@ -82,7 +82,7 @@
             <el-input
               v-model="form.username"
               placeholder="请输入账号"
-              :prefix-icon="User"
+              :prefix-icon="UserIcon"
               clearable
             />
           </el-form-item>
@@ -92,7 +92,7 @@
               v-model="form.password"
               type="password"
               placeholder="请输入密码"
-              :prefix-icon="Lock"
+              :prefix-icon="LockIcon"
               show-password
               clearable
             />
@@ -103,13 +103,13 @@
               <el-input
                 v-model="form.captcha_input"
                 placeholder="请输入验证码"
-                :prefix-icon="Key"
+                :prefix-icon="KeyIcon"
                 clearable
               />
               <div class="captcha-img" @click="refreshCaptcha" title="点击刷新">
                 <img v-if="captchaImage" :src="captchaImage" alt="验证码" />
                 <span v-else class="captcha-placeholder">
-                  <el-icon><Loading /></el-icon>
+                  <el-icon><LoadingIcon /></el-icon>
                 </span>
               </div>
             </div>
@@ -145,13 +145,13 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import {
-  User,
-  Lock,
-  Key,
-  Loading,
-  Lightning,
-  DataLine,
-  Monitor
+  User as UserIcon,
+  Lock as LockIcon,
+  Key as KeyIcon,
+  Loading as LoadingIcon,
+  Lightning as LightningIcon,
+  DataLine as DataLineIcon,
+  Monitor as MonitorIcon
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { getCaptchaApi } from '@/api/auth'

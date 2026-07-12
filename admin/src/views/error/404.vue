@@ -33,10 +33,10 @@
       <p class="nf-desc">抱歉，您访问的页面不存在或已被移除</p>
       <div class="nf-actions">
         <el-button type="primary" round size="large" @click="goHome">
-          <el-icon><HomeFilled /></el-icon>返回首页
+          <el-icon><HomeFilledIcon /></el-icon>返回首页
         </el-button>
         <el-button round size="large" @click="goBack">
-          <el-icon><Back /></el-icon>返回上一页
+          <el-icon><BackIcon /></el-icon>返回上一页
         </el-button>
       </div>
     </div>
@@ -45,7 +45,7 @@
 
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { HomeFilled, Back } from '@element-plus/icons-vue'
+import { HomeFilled as HomeFilledIcon, Back as BackIcon } from '@element-plus/icons-vue'
 
 const router = useRouter()
 

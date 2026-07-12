@@ -4,13 +4,13 @@
       <!-- 折叠按钮 -->
       <div class="collapse-btn" @click="appStore.toggleSidebar">
         <el-icon :class="{ 'is-rotate': appStore.sidebarCollapsed }">
-          <Fold v-if="!appStore.sidebarCollapsed" />
-          <Expand v-else />
+          <FoldIcon v-if="!appStore.sidebarCollapsed" />
+          <ExpandIcon v-else />
         </el-icon>
       </div>
 
       <!-- 面包屑 -->
-      <el-breadcrumb :separator-icon="ArrowRight" class="breadcrumb">
+      <el-breadcrumb :separator-icon="ArrowRightIcon" class="breadcrumb">
         <transition-group name="breadcrumb">
           <el-breadcrumb-item
             v-for="item in breadcrumbs"
@@ -27,21 +27,21 @@
       <!-- 搜索 -->
       <el-tooltip content="全局搜索" placement="bottom">
         <div class="nav-action" @click="handleSearch">
-          <el-icon><Search /></el-icon>
+          <el-icon><SearchIcon /></el-icon>
         </div>
       </el-tooltip>
 
       <!-- 刷新 -->
       <el-tooltip content="刷新页面" placement="bottom">
         <div class="nav-action" :class="{ 'is-loading': refreshing }" @click="handleRefresh">
-          <el-icon><Refresh /></el-icon>
+          <el-icon><RefreshIcon /></el-icon>
         </div>
       </el-tooltip>
 
       <!-- 全屏 -->
       <el-tooltip :content="isFullscreen ? '退出全屏' : '全屏'" placement="bottom">
         <div class="nav-action" @click="toggleFullscreen">
-          <el-icon><FullScreen v-if="!isFullscreen" /><Aim v-else /></el-icon>
+          <el-icon><FullScreenIcon v-if="!isFullscreen" /><AimIcon v-else /></el-icon>
         </div>
       </el-tooltip>
 
@@ -49,8 +49,8 @@
       <el-tooltip :content="appStore.theme === 'dark' ? '亮色模式' : '暗色模式'" placement="bottom">
         <div class="nav-action theme-toggle" @click="appStore.toggleTheme">
           <el-icon class="theme-icon">
-            <Sunny v-if="appStore.theme === 'dark'" />
-            <Moon v-else />
+            <SunnyIcon v-if="appStore.theme === 'dark'" />
+            <MoonIcon v-else />
           </el-icon>
         </div>
       </el-tooltip>
@@ -59,7 +59,7 @@
       <el-badge :value="3" class="nav-badge">
         <el-tooltip content="消息通知" placement="bottom">
           <div class="nav-action">
-            <el-icon><Bell /></el-icon>
+            <el-icon><BellIcon /></el-icon>
           </div>
         </el-tooltip>
       </el-badge>
@@ -76,18 +76,18 @@
             <div class="user-name">{{ userStore.userInfo?.nickname || userStore.username }}</div>
             <div class="user-role">{{ roleLabel }}</div>
           </div>
-          <el-icon class="dropdown-arrow"><ArrowDown /></el-icon>
+          <el-icon class="dropdown-arrow"><ArrowDownIcon /></el-icon>
         </div>
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item command="profile">
-              <el-icon><User /></el-icon>个人中心
+              <el-icon><UserIcon /></el-icon>个人中心
             </el-dropdown-item>
             <el-dropdown-item command="password">
-              <el-icon><Lock /></el-icon>修改密码
+              <el-icon><LockIcon /></el-icon>修改密码
             </el-dropdown-item>
             <el-dropdown-item divided command="logout">
-              <el-icon><SwitchButton /></el-icon>退出登录
+              <el-icon><SwitchButtonIcon /></el-icon>退出登录
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
@@ -101,20 +101,20 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import {
-  ArrowRight,
-  ArrowDown,
-  Fold,
-  Expand,
-  Search,
-  Refresh,
-  FullScreen,
-  Aim,
-  Sunny,
-  Moon,
-  Bell,
-  User,
-  Lock,
-  SwitchButton
+  ArrowRight as ArrowRightIcon,
+  ArrowDown as ArrowDownIcon,
+  Fold as FoldIcon,
+  Expand as ExpandIcon,
+  Search as SearchIcon,
+  Refresh as RefreshIcon,
+  FullScreen as FullScreenIcon,
+  Aim as AimIcon,
+  Sunny as SunnyIcon,
+  Moon as MoonIcon,
+  Bell as BellIcon,
+  User as UserIcon,
+  Lock as LockIcon,
+  SwitchButton as SwitchButtonIcon
 } from '@element-plus/icons-vue'
 import { useFullscreen } from '@vueuse/core'
 import { useAppStore } from '@/stores/app'

@@ -20,7 +20,7 @@
           <div class="stat-mini">
             <span class="stat-label">系统状态</span>
             <span class="stat-value status-ok">
-              <el-icon><CircleCheckFilled /></el-icon>
+              <el-icon><CircleCheckFilledIcon /></el-icon>
               正常
             </span>
           </div>
@@ -33,7 +33,7 @@
       <div class="setting-card" v-loading="loading">
         <div class="card-head">
           <div class="head-icon icon-server">
-            <el-icon><Monitor /></el-icon>
+            <el-icon><MonitorIcon /></el-icon>
           </div>
           <div class="head-text">
             <h3 class="card-title">服务器配置</h3>
@@ -79,7 +79,7 @@
           <div class="form-actions">
             <el-button
               type="primary"
-              :icon="Check"
+              :icon="CheckIcon"
               :loading="saving.server"
               @click="saveSection('server')"
             >
@@ -93,7 +93,7 @@
       <div class="setting-card" v-loading="loading">
         <div class="card-head">
           <div class="head-icon icon-push">
-            <el-icon><Promotion /></el-icon>
+            <el-icon><PromotionIcon /></el-icon>
           </div>
           <div class="head-text">
             <h3 class="card-title">推送配置</h3>
@@ -151,7 +151,7 @@
           <div class="form-actions">
             <el-button
               type="primary"
-              :icon="Check"
+              :icon="CheckIcon"
               :loading="saving.push"
               @click="saveSection('push')"
             >
@@ -165,7 +165,7 @@
       <div class="setting-card" v-loading="loading">
         <div class="card-head">
           <div class="head-icon icon-captcha">
-            <el-icon><Message /></el-icon>
+            <el-icon><MessageIcon /></el-icon>
           </div>
           <div class="head-text">
             <h3 class="card-title">验证码配置</h3>
@@ -193,8 +193,8 @@
               >
                 <template #suffix>
                   <el-icon class="toggle-eye" @click="toggleSecret('smsApiKey')">
-                    <View v-if="!showSecret.smsApiKey" />
-                    <Hide v-else />
+                    <ViewIcon v-if="!showSecret.smsApiKey" />
+                    <HideIcon v-else />
                   </el-icon>
                 </template>
               </el-input>
@@ -234,8 +234,8 @@
               >
                 <template #suffix>
                   <el-icon class="toggle-eye" @click="toggleSecret('mailPassword')">
-                    <View v-if="!showSecret.mailPassword" />
-                    <Hide v-else />
+                    <ViewIcon v-if="!showSecret.mailPassword" />
+                    <HideIcon v-else />
                   </el-icon>
                 </template>
               </el-input>
@@ -247,7 +247,7 @@
 
           <div class="form-actions">
             <el-button
-              :icon="Promotion"
+              :icon="PromotionIcon"
               :loading="testing.mail"
               @click="testMail"
             >
@@ -255,7 +255,7 @@
             </el-button>
             <el-button
               type="primary"
-              :icon="Check"
+              :icon="CheckIcon"
               :loading="saving.captcha"
               @click="saveSection('captcha')"
             >
@@ -269,7 +269,7 @@
       <div class="setting-card" v-loading="loading">
         <div class="card-head">
           <div class="head-icon icon-mail">
-            <el-icon><Message /></el-icon>
+            <el-icon><MessageIcon /></el-icon>
           </div>
           <div class="head-text">
             <h3 class="card-title">邮件通知配置</h3>
@@ -324,8 +324,8 @@
               >
                 <template #suffix>
                   <el-icon class="toggle-eye" @click="toggleSecret('mailNotifyPassword')">
-                    <View v-if="!showSecret.mailNotifyPassword" />
-                    <Hide v-else />
+                    <ViewIcon v-if="!showSecret.mailNotifyPassword" />
+                    <HideIcon v-else />
                   </el-icon>
                 </template>
               </el-input>
@@ -362,7 +362,7 @@
 
           <div class="form-actions">
             <el-button
-              :icon="Promotion"
+              :icon="PromotionIcon"
               :loading="testing.mailNotify"
               @click="testMailNotify"
               :disabled="!mailForm.enabled || !mailForm.username || !mailForm.password"
@@ -371,7 +371,7 @@
             </el-button>
             <el-button
               type="primary"
-              :icon="Check"
+              :icon="CheckIcon"
               :loading="saving.mail"
               @click="saveMailConfig"
             >
@@ -385,7 +385,7 @@
       <div class="setting-card" v-loading="loading">
         <div class="card-head">
           <div class="head-icon icon-security">
-            <el-icon><Lock /></el-icon>
+            <el-icon><LockIcon /></el-icon>
           </div>
           <div class="head-text">
             <h3 class="card-title">安全配置</h3>
@@ -408,12 +408,12 @@
             >
               <template #suffix>
                 <el-icon class="toggle-eye" @click="toggleSecret('jwtSecret')">
-                  <View v-if="!showSecret.jwtSecret" />
-                  <Hide v-else />
-                </el-icon>
+                    <ViewIcon v-if="!showSecret.jwtSecret" />
+                    <HideIcon v-else />
+                  </el-icon>
               </template>
               <template #append>
-                <el-button :icon="Refresh" @click="regenerateSecret('jwtSecret')">重新生成</el-button>
+                <el-button :icon="RefreshIcon" @click="regenerateSecret('jwtSecret')">重新生成</el-button>
               </template>
             </el-input>
           </el-form-item>
@@ -426,12 +426,12 @@
             >
               <template #suffix>
                 <el-icon class="toggle-eye" @click="toggleSecret('aesKey')">
-                  <View v-if="!showSecret.aesKey" />
-                  <Hide v-else />
+                  <ViewIcon v-if="!showSecret.aesKey" />
+                  <HideIcon v-else />
                 </el-icon>
               </template>
               <template #append>
-                <el-button :icon="Refresh" @click="regenerateSecret('aesKey')">重新生成</el-button>
+                <el-button :icon="RefreshIcon" @click="regenerateSecret('aesKey')">重新生成</el-button>
               </template>
             </el-input>
           </el-form-item>
@@ -460,7 +460,7 @@
           <div class="form-actions">
             <el-button
               type="primary"
-              :icon="Check"
+              :icon="CheckIcon"
               :loading="saving.security"
               @click="saveSection('security')"
             >
@@ -474,13 +474,13 @@
       <div class="setting-card system-info-card" v-loading="systemInfoLoading">
         <div class="card-head">
           <div class="head-icon icon-info">
-            <el-icon><Cpu /></el-icon>
+            <el-icon><CpuIcon /></el-icon>
           </div>
           <div class="head-text">
             <h3 class="card-title">系统信息</h3>
             <p class="card-sub">运行环境与服务状态</p>
           </div>
-          <el-button text :icon="Refresh" :loading="systemInfoLoading" @click="fetchSystemInfo">
+          <el-button text :icon="RefreshIcon" :loading="systemInfoLoading" @click="fetchSystemInfo">
             刷新
           </el-button>
         </div>
@@ -488,28 +488,28 @@
         <div class="info-grid">
           <div class="info-item">
             <div class="info-label">
-              <el-icon><InfoFilled /></el-icon>
+              <el-icon><InfoFilledIcon /></el-icon>
               系统版本
             </div>
             <div class="info-value mono">{{ systemInfo.version || '-' }}</div>
           </div>
           <div class="info-item">
             <div class="info-label">
-              <el-icon><Cpu /></el-icon>
+              <el-icon><CpuIcon /></el-icon>
               PHP 版本
             </div>
             <div class="info-value mono">{{ systemInfo.phpVersion || '-' }}</div>
           </div>
           <div class="info-item">
             <div class="info-label">
-              <el-icon><Lightning /></el-icon>
+              <el-icon><LightningIcon /></el-icon>
               Swoole 版本
             </div>
             <div class="info-value mono">{{ systemInfo.swooleVersion || '-' }}</div>
           </div>
           <div class="info-item">
             <div class="info-label">
-              <el-icon><Coin /></el-icon>
+              <el-icon><CoinIcon /></el-icon>
               Redis 状态
             </div>
             <div class="info-value">
@@ -519,7 +519,7 @@
           </div>
           <div class="info-item">
             <div class="info-label">
-              <el-icon><DataLine /></el-icon>
+              <el-icon><DataLineIcon /></el-icon>
               MySQL 状态
             </div>
             <div class="info-value">
@@ -529,7 +529,7 @@
           </div>
           <div class="info-item">
             <div class="info-label">
-              <el-icon><Histogram /></el-icon>
+              <el-icon><HistogramIcon /></el-icon>
               磁盘空间
             </div>
             <div class="info-value">
@@ -548,7 +548,7 @@
         </div>
 
         <div class="uptime-row">
-          <el-icon><Clock /></el-icon>
+          <el-icon><ClockIcon /></el-icon>
           <span>系统已运行</span>
           <span class="uptime-value">{{ formatUptime(systemInfo.uptime) }}</span>
         </div>
@@ -560,23 +560,24 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+// 图标重命名导入（避免与 unplugin-vue-components 自动导入的组件名冲突）
 import {
-  Monitor,
-  Promotion,
-  Message,
-  Lock,
-  Cpu,
-  Check,
-  Refresh,
-  View,
-  Hide,
-  InfoFilled,
-  Lightning,
-  Coin,
-  DataLine,
-  Histogram,
-  Clock,
-  CircleCheckFilled
+  Monitor as MonitorIcon,
+  Promotion as PromotionIcon,
+  Message as MessageIcon,
+  Lock as LockIcon,
+  Cpu as CpuIcon,
+  Check as CheckIcon,
+  Refresh as RefreshIcon,
+  View as ViewIcon,
+  Hide as HideIcon,
+  InfoFilled as InfoFilledIcon,
+  Lightning as LightningIcon,
+  Coin as CoinIcon,
+  DataLine as DataLineIcon,
+  Histogram as HistogramIcon,
+  Clock as ClockIcon,
+  CircleCheckFilled as CircleCheckFilledIcon
 } from '@element-plus/icons-vue'
 import {
   getSettingsApi,
