@@ -313,6 +313,7 @@ if ! command -v composer >/dev/null 2>&1; then
     php composer-setup.php --install-dir=/usr/local/bin --filename=composer
     rm -f composer-setup.php
 fi
+export COMPOSER_ALLOW_SUPERUSER=1
 composer config -g repo.packagist composer https://mirrors.aliyun.com/composer/
 info "Composer 镜像源: $(composer config -g repo.packagist --list 2>/dev/null | grep url | awk '{print $3}' || echo '阿里云镜像')"
 
