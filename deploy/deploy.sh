@@ -306,19 +306,11 @@ fi
 npm config set registry https://registry.npmmirror.com
 info "npm 镜像源: $(npm config get registry)"
 
-# 安装 Composer（使用国内镜像）
+# 安装 Composer
 if ! command -v composer >/dev/null 2>&1; then
     info "安装 Composer..."
-    EXPECTED_CHECKSUM="$(curl -fsSL https://mirrors.aliyun.com/composer/installer.sha256 2>/dev/null || curl -fsSL https://composer.github.io/installer.sha256sum)"
-    php -r "copy('https://mirrors.aliyun.com/composer/installer', 'composer-setup.php');"
-    ACTUAL_CHECKSUM="$(php -r "echo hash_file('sha256', 'composer-setup.php');")"
-    if [[ "$EXPECTED_CHECKSUM" == "$ACTUAL_CHECKSUM" ]]; then
-        php composer-setup.php --install-dir=/usr/local/bin --filename=composer
-    else
-        warn "Composer 安装器校验失败，从官方源重试..."
-        php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
-        php composer-setup.php --install-dir=/usr/local/bin --filename=composer
-    fi
+    php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+    php composer-setup.php --install-dir=/usr/local/bin --filename=composer
     rm -f composer-setup.php
 fi
 composer config -g repo.packagist composer https://mirrors.aliyun.com/composer/
