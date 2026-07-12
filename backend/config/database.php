@@ -7,15 +7,15 @@
 
 return [
     // 数据库主机地址
-    'host'      => getenv('DB_HOST') ?: '127.0.0.1',
+    'host'      => \App\Service\Config::env('DB_HOST', '127.0.0.1'),
     // 数据库端口
-    'port'      => (int)(getenv('DB_PORT') ?: 3306),
+    'port'      => (int)\App\Service\Config::env('DB_PORT', 3306),
     // 数据库名
-    'database'  => getenv('DB_NAME') ?: 'im_push',
+    'database'  => \App\Service\Config::env('DB_NAME', 'im_push'),
     // 用户名
-    'username'  => getenv('DB_USER') ?: 'root',
+    'username'  => \App\Service\Config::env('DB_USER', 'root'),
     // 密码
-    'password'  => getenv('DB_PASS') ?: '',
+    'password'  => \App\Service\Config::env('DB_PASS', ''),
     // 字符集
     'charset'   => 'utf8mb4',
     // 表前缀

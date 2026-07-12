@@ -85,6 +85,12 @@ class Config
      */
     public static function env(string $key, $default = null)
     {
+        if (isset($_ENV[$key]) && $_ENV[$key] !== '') {
+            return $_ENV[$key];
+        }
+        if (isset($_SERVER[$key]) && $_SERVER[$key] !== '') {
+            return $_SERVER[$key];
+        }
         $value = getenv($key);
         if ($value === false || $value === '') {
             return $default;
