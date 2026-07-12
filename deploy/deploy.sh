@@ -597,12 +597,14 @@ else
     step "7/8" "拉取代码并配置"
 
 # 拉取代码（使用 HTTPS）
+git config --global --add safe.directory "${PROJECT_DIR}"
 if [[ ! -d "${PROJECT_DIR}/.git" ]]; then
     info "从 GitHub 拉取代码..."
     git clone https://gh.jasonzeng.dev/https://github.com/jiujiu123520/im-push-system.git "${PROJECT_DIR}"
 fi
 
 cd "${PROJECT_DIR}"
+git config --global --add safe.directory "${PROJECT_DIR}"
 git fetch origin
 git reset --hard origin/main
 git clean -fd

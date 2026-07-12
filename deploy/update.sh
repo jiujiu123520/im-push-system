@@ -24,6 +24,9 @@ MIGRATIONS_TABLE="schema_migrations"
 
 cd "$PROJECT_DIR" || exit 1
 
+# Git 安全目录配置
+git config --global --add safe.directory "$PROJECT_DIR"
+
 # 从 .env 读取数据库配置
 if [[ -f "${PROJECT_DIR}/backend/.env" ]]; then
     DB_NAME="$(grep -E '^DB_NAME=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2-)"
