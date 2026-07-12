@@ -1,0 +1,18 @@
+# 依赖目录
+vendor/
+
+# 环境变量（包含敏感信息，不提交）
+.env
+
+# 运行时目录（日志、PID、缓存等）
+runtime/
+
+# IDE 配置
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db

@@ -1,0 +1,160 @@
+// ============================================================
+// Design Tokens · 即时消息推送管理后台
+// 现代蓝紫色系 - 突破默认蓝调，营造沉浸感与科技感
+// ============================================================
+
+// ---- 品牌主色（靛蓝紫 Indigo-Violet） ----
+$color-primary: #6d5cff;
+$color-primary-hover: #5a45ff;
+$color-primary-active: #4d38f0;
+$color-primary-light-3: #8a7cff;
+$color-primary-light-5: #a99bff;
+$color-primary-light-7: #ccc6ff;
+$color-primary-light-9: #eeecff;
+$color-primary-dark-2: #5438e0;
+
+// ---- 辅助色 ----
+$color-success: #18c29c;
+$color-warning: #ffb547;
+$color-danger: #ff5a6e;
+$color-info: #5cb8ff;
+
+// ---- 中性色（亮色） ----
+$bg-base: #f5f6fb;
+$bg-page: #f5f6fb;
+$bg-card: #ffffff;
+$bg-overlay: rgba(15, 18, 38, 0.55);
+$bg-sidebar: #ffffff;
+$bg-navbar: rgba(255, 255, 255, 0.78);
+$bg-tabs: rgba(255, 255, 255, 0.65);
+
+$text-primary: #1a1d2e;
+$text-regular: #4a4f66;
+$text-secondary: #8a8fa3;
+$text-placeholder: #b3b7c6;
+$text-disabled: #c5c9d6;
+
+$border-base: #e8e9f2;
+$border-light: #f0f1f8;
+$border-lighter: #f6f7fc;
+$border-dark: #d3d6e4;
+
+// ---- 圆角 ----
+$radius-xs: 4px;
+$radius-sm: 6px;
+$radius-md: 10px;
+$radius-lg: 14px;
+$radius-xl: 20px;
+$radius-2xl: 28px;
+$radius-pill: 999px;
+
+// ---- 间距系统（8 倍数） ----
+$space-1: 4px;
+$space-2: 8px;
+$space-3: 12px;
+$space-4: 16px;
+$space-5: 20px;
+$space-6: 24px;
+$space-8: 32px;
+$space-10: 40px;
+$space-12: 48px;
+$space-16: 64px;
+
+// ---- 字体 ----
+$font-family: 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei',
+  -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
+  sans-serif;
+$font-family-mono: 'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace;
+
+$font-size-xs: 12px;
+$font-size-sm: 13px;
+$font-size-base: 14px;
+$font-size-md: 15px;
+$font-size-lg: 16px;
+$font-size-xl: 18px;
+$font-size-2xl: 22px;
+$font-size-3xl: 28px;
+$font-size-4xl: 36px;
+
+// ---- 阴影系统 ----
+$shadow-xs: 0 1px 2px rgba(31, 35, 64, 0.06);
+$shadow-sm: 0 2px 8px rgba(31, 35, 64, 0.06);
+$shadow-md: 0 6px 18px rgba(31, 35, 64, 0.08);
+$shadow-lg: 0 12px 32px rgba(31, 35, 64, 0.10);
+$shadow-xl: 0 20px 50px rgba(31, 35, 64, 0.14);
+$shadow-primary: 0 8px 24px rgba(109, 92, 255, 0.32);
+$shadow-primary-lg: 0 16px 40px rgba(109, 92, 255, 0.38);
+
+// ---- 渐变 ----
+$gradient-primary: linear-gradient(135deg, #6d5cff 0%, #9b5cff 100%);
+$gradient-primary-soft: linear-gradient(135deg, #8a7cff 0%, #b89cff 100%);
+$gradient-cyan: linear-gradient(135deg, #5cb8ff 0%, #6d5cff 100%);
+$gradient-warm: linear-gradient(135deg, #ffb547 0%, #ff7eb0 100%);
+$gradient-success: linear-gradient(135deg, #18c29c 0%, #5cb8ff 100%);
+$gradient-danger: linear-gradient(135deg, #ff5a6e 0%, #ff9a5a 100%);
+$gradient-mesh: radial-gradient(at 20% 20%, rgba(109, 92, 255, 0.18), transparent 45%),
+                radial-gradient(at 80% 30%, rgba(155, 92, 255, 0.16), transparent 50%),
+                radial-gradient(at 60% 80%, rgba(92, 184, 255, 0.14), transparent 45%);
+
+// ---- 布局尺寸 ----
+$layout-sidebar-width: 240px;
+$layout-sidebar-collapsed: 68px;
+$layout-navbar-height: 60px;
+$layout-tabs-height: 44px;
+$layout-content-padding: 20px;
+
+// ---- 过渡 ----
+$transition-base: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+$transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+$transition-slow: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+$transition-bounce: 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+// ---- 层级 ----
+$z-sidebar: 1000;
+$z-navbar: 1100;
+$z-tabs: 1050;
+$z-dropdown: 2000;
+$z-modal: 3000;
+$z-drawer: 2900;
+
+// 导出为 CSS 变量，便于暗色主题动态切换
+:root {
+  --color-primary: #{$color-primary};
+  --color-primary-hover: #{$color-primary-hover};
+  --color-primary-active: #{$color-primary-active};
+  --color-primary-light-9: #{$color-primary-light-9};
+  --color-success: #{$color-success};
+  --color-warning: #{$color-warning};
+  --color-danger: #{$color-danger};
+  --color-info: #{$color-info};
+
+  --bg-page: #{$bg-page};
+  --bg-card: #{$bg-card};
+  --bg-sidebar: #{$bg-sidebar};
+  --bg-navbar: #{$bg-navbar};
+  --bg-tabs: #{$bg-tabs};
+
+  --text-primary: #{$text-primary};
+  --text-regular: #{$text-regular};
+  --text-secondary: #{$text-secondary};
+  --text-placeholder: #{$text-placeholder};
+
+  --border-base: #{$border-base};
+  --border-light: #{$border-light};
+
+  --shadow-sm: #{$shadow-sm};
+  --shadow-md: #{$shadow-md};
+  --shadow-lg: #{$shadow-lg};
+  --shadow-primary: #{$shadow-primary};
+
+  --gradient-primary: #{$gradient-primary};
+
+  --radius-sm: #{$radius-sm};
+  --radius-md: #{$radius-md};
+  --radius-lg: #{$radius-lg};
+
+  --sidebar-width: #{$layout-sidebar-width};
+  --sidebar-collapsed: #{$layout-sidebar-collapsed};
+  --navbar-height: #{$layout-navbar-height};
+  --tabs-height: #{$layout-tabs-height};
+}

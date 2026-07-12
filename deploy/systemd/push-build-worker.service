@@ -1,0 +1,39 @@
+[Unit]
+Description=IM Push System - APP 打包工作进程
+Documentation=即时消息推送系统 APK 打包队列工作进程
+After=network.target mysql.service redis-server.service
+Wants=mysql.service redis-server.service
+# 打包工作进程依赖 Redis 队列（与推送服务共享）
+After=push-http.service
+
+[Service]
+Type=simple
+# 项目根目录
+WorkingDirectory=/www/push-system
+# PHP 打包工作进程
+ExecStart=/usr/bin/php /www/push-system/build/queue/BuildWorker.php
+# 优雅停止
+KillSignal=SIGTERM
+TimeoutStopSec=15
+# 自动重启：崩溃后 5 秒重启（打包进程可能因 Gradle 失败退出）
+Restart=always
+RestartSec=5
+# 启动失败重试上限
+StartLimitBurst=3
+StartLimitIntervalSec=60
+# 打包进程需要较高权限访问 Android SDK
+User=www-data
+Group=www-data
+# 环境变量
+Environment=APP_ENV=production
+# Android SDK 路径（按实际安装路径调整）
+Environment=ANDROID_HOME=/opt/android-sdk
+Environment=ANDROID_SDK_ROOT=/opt/android-sdk
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools
+# 标准输出重定向到 journalctl
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=push-build-worker
+
+[Install]
+WantedBy=multi-user.target

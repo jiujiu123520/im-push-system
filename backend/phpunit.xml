@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PHPUnit 配置文件
+
+  运行方式：
+    cd backend
+    ./vendor/bin/phpunit              # 运行全部测试
+    ./vendor/bin/phpunit tests/AuthTest.php  # 运行单个测试
+
+  前置条件：
+    1. 已执行 composer install 安装依赖（含 phpunit）
+    2. MySQL 与 Redis 服务可用
+    3. 已执行 database/migrations/001_init.sql 创建数据表
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         cacheResult="false"
+         stopOnFailure="false"
+         convertErrorsToExceptions="true"
+         convertNoticesToExceptions="true"
+         convertWarningsToExceptions="true">
+
+    <!-- 测试套件：扫描 tests/ 目录下所有 *Test.php 文件 -->
+    <testsuites>
+        <testsuite name="IM Push 测试套件">
+            <directory>tests</directory>
+        </testsuite>
+    </testsuites>
+
+    <!-- 环境变量：在测试启动前设置，不会被 .env 覆盖 -->
+    <php>
+        <!-- AES 加密密钥（与 .env.example 一致，用于验证码加解密） -->
+        <env name="AES_KEY" value="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"/>
+        <!-- JWT 签发密钥 -->
+        <env name="JWT_SECRET" value="test_jwt_secret_key_for_phpunit"/>
+        <!-- JWT 有效期（秒） -->
+        <env name="JWT_EXPIRE" value="7200"/>
+        <!-- 离线消息保留时长（秒） -->
+        <env name="OFFLINE_MESSAGE_TTL" value="86400"/>
+        <!--
+          数据库与 Redis 配置默认从 .env 读取。
+          如需指定测试数据库，可在下方取消注释并修改：
+        -->
+        <!-- <env name="DB_NAME" value="im_push_test"/> -->
+        <!-- <env name="REDIS_DB" value="15"/> -->
+    </php>
+</phpunit>

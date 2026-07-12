@@ -1,0 +1,191 @@
+// ============================================================
+// Global Styles Entry · 全局样式入口
+// ============================================================
+@use 'variables' as *;
+@use 'mixins' as *;
+@use 'reset';
+@use 'transition';
+@use 'dark';
+
+// 全局滚动条
+@include global-scrollbar;
+
+// 通用工具类
+.clearfix::after {
+  content: '';
+  display: table;
+  clear: both;
+}
+
+.text-ellipsis {
+  @include text-ellipsis(1);
+}
+
+.text-ellipsis-2 {
+  @include text-ellipsis(2);
+}
+
+.text-gradient {
+  @include text-gradient;
+}
+
+.text-gradient-cyan {
+  @include text-gradient($gradient-cyan);
+}
+
+.flex-center { @include flex-center; }
+.flex-center-x { @include flex-center-x; }
+.flex-center-y { @include flex-center-y; }
+.flex-between { @include flex-between; }
+
+// 通用卡片
+.app-card {
+  background: var(--bg-card);
+  border-radius: $radius-lg;
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-light);
+  transition: box-shadow $transition-base, transform $transition-base;
+}
+
+// 页面容器
+.page-container {
+  padding: $layout-content-padding;
+  min-height: 100%;
+  animation: fade-up 0.4s ease;
+}
+
+// 页面标题
+.page-header {
+  margin-bottom: $space-5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  .page-title {
+    font-size: $font-size-xl;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: $space-2;
+    &::before {
+      content: '';
+      width: 4px;
+      height: 18px;
+      border-radius: $radius-pill;
+      background: $gradient-primary;
+    }
+  }
+}
+
+// 搜索栏
+.search-bar {
+  background: var(--bg-card);
+  border-radius: $radius-lg;
+  padding: $space-4 $space-5;
+  margin-bottom: $space-4;
+  box-shadow: $shadow-sm;
+  display: flex;
+  flex-wrap: wrap;
+  gap: $space-3;
+  align-items: center;
+}
+
+// 表格容器
+.table-container {
+  background: var(--bg-card);
+  border-radius: $radius-lg;
+  padding: $space-4;
+  box-shadow: $shadow-md;
+}
+
+// 分页容器
+.pagination-wrapper {
+  margin-top: $space-4;
+  display: flex;
+  justify-content: flex-end;
+}
+
+// 统计卡片渐变图标背景
+.stat-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: $radius-md;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 22px;
+  &.bg-primary { background: $gradient-primary; box-shadow: $shadow-primary; }
+  &.bg-cyan { background: $gradient-cyan; }
+  &.bg-warm { background: $gradient-warm; }
+  &.bg-success { background: $gradient-success; }
+  &.bg-danger { background: $gradient-danger; }
+}
+
+// Element Plus 全局微调
+.el-button {
+  &.el-button--primary {
+    --el-button-bg-color: #{$color-primary};
+    --el-button-border-color: #{$color-primary};
+    --el-button-hover-bg-color: #{$color-primary-hover};
+    --el-button-hover-border-color: #{$color-primary-hover};
+    --el-button-active-bg-color: #{$color-primary-active};
+    box-shadow: 0 4px 12px rgba(109, 92, 255, 0.24);
+  }
+  border-radius: $radius-sm;
+}
+
+.el-card {
+  border-radius: $radius-lg;
+  border: 1px solid var(--border-light);
+}
+
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  border-radius: $radius-sm;
+}
+
+.el-table {
+  --el-table-header-bg-color: #{$color-primary-light-9};
+  --el-table-header-text-color: #{$text-regular};
+  --el-table-border-color: #{$border-lighter};
+  border-radius: $radius-md;
+  overflow: hidden;
+  th.el-table__cell {
+    font-weight: 600;
+  }
+}
+
+.el-pagination {
+  --el-pagination-button-color: #{$text-regular};
+  --el-pagination-hover-color: #{$color-primary};
+}
+
+.el-menu {
+  border-right: none !important;
+}
+
+.el-dialog {
+  border-radius: $radius-lg;
+  overflow: hidden;
+}
+
+.el-tag {
+  border-radius: $radius-sm;
+}
+
+.el-tabs__nav-wrap::after {
+  height: 1px;
+  background: var(--border-light);
+}
+
+// 响应式
+@media (max-width: 768px) {
+  .page-container {
+    padding: $space-3;
+  }
+  .search-bar {
+    padding: $space-3;
+  }
+}

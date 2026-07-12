@@ -1,0 +1,380 @@
+<?php
+declare(strict_types=1);
+
+namespace App\Controller;
+
+use App\Middleware\AdminAuth;
+use App\Middleware\AdminLog;
+use App\Service\AdminService;
+use App\Service\Response;
+
+/**
+ * 管理员控制器
+ *
+ * 所有接口（除 /admin/login 外）都需通过 AdminAuth 中间件鉴权；
+ * 所有 POST/PUT/DELETE 接口在完成后通过 AdminLog 中间件记录操作日志。
+ *
+ * 返回值约定（与 HttpServer 配合）：
+ *  - 成功：返回原始数据数组（HttpServer 会用 Response::ok 自动包装）
+ *  - 失败：直接调用 Response::fail 写入响应，并返回 false 跳过自动包装
+ *  - 鉴权失败：AdminAuth::authenticate 已写入响应，控制器直接 return false
+ *
+ * 路由：
+ *   POST   /admin/login           管理员登录（无需鉴权）
+ *   GET    /admin/info            获取当前登录管理员信息
+ *   GET    /admin/list            管理员列表（分页 10 条，支持 keyword）
+ *   POST   /admin/create           创建管理员
+ *   PUT    /admin/update/{id}      更新管理员
+ *   DELETE /admin/delete/{id}      删除管理员
+ *   PUT    /admin/change-password  修改自己的密码
+ *   GET    /admin/logs            操作日志列表（分页 10 条）
+ */
+class AdminController
+{
+    /**
+     * 管理员登录（无需鉴权）
+     * POST /admin/login
+     * Body: { username, password, captcha_token, captcha_input }
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public static function login(array $context, array $params = [])
+    {
+        $body = self::parseJsonBody($context);
+
+        $username      = (string)($body['username'] ?? '');
+        $password      = (string)($body['password'] ?? '');
+        $captchaToken = (string)($body['captcha_token'] ?? '');
+        $captchaInput = (string)($body['captcha_input'] ?? '');
+
+        $result = AdminService::login($username, $password, $captchaToken, $captchaInput);
+
+        if (!$result['success']) {
+            Response::fail($context['response'], $result['message'], Response::CODE_ERROR);
+            return false;
+        }
+
+        // 记录登录日志（此时已拿到 admin_id）
+        $ip = AdminAuth::getClientIp($context);
+        $adminId = (int)($result['admin']['id'] ?? 0);
+        AdminService::logAction(
+            $adminId,
+            'admin_login',
+            'admin',
+            $adminId,
+            ['username' => $username, 'ip' => $ip],
+            $ip
+        );
+
+        return [
+            'token' => $result['token'],
+            'admin' => $result['admin'],
+        ];
+    }
+
+    /**
+     * 获取当前登录管理员信息
+     * GET /admin/info
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public static function info(array $context, array $params = [])
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false; // 鉴权失败已输出响应
+        }
+
+        $adminId = (int)$payload['admin_id'];
+        $info = AdminService::getInfo($adminId);
+        if ($info === null) {
+            Response::fail($context['response'], '管理员不存在', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+        return $info;
+    }
+
+    /**
+     * 管理员列表（分页 10 条，支持 keyword 搜索）
+     * GET /admin/list?page=1&keyword=xxx
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public static function list(array $context, array $params = [])
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $get = $context['get'] ?? [];
+        $page = (int)($get['page'] ?? 1);
+        $keyword = (string)($get['keyword'] ?? '');
+
+        return AdminService::getList($page, $keyword);
+    }
+
+    /**
+     * 创建管理员
+     * POST /admin/create
+     * Body: { username, password, role }
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public static function create(array $context, array $params = [])
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+        $adminId = (int)$payload['admin_id'];
+
+        // 仅 super_admin 可创建管理员
+        if (($payload['role'] ?? '') !== 'super_admin') {
+            Response::fail($context['response'], '无权限：仅超级管理员可创建管理员', Response::CODE_FORBIDDEN, 403);
+            return false;
+        }
+
+        $body = self::parseJsonBody($context);
+        $username = (string)($body['username'] ?? '');
+        $password = (string)($body['password'] ?? '');
+        $role     = (string)($body['role'] ?? 'admin');
+
+        $result = AdminService::create($username, $password, $role);
+
+        // 记录操作日志
+        AdminLog::record(
+            $context,
+            $adminId,
+            'admin_create',
+            'admin',
+            $result['id'] ?? 0,
+            [
+                'username' => $username,
+                'role'     => $role,
+                'status'   => $result['success'] ? 'success' : 'failed',
+                'message'  => $result['message'],
+            ]
+        );
+
+        if (!$result['success']) {
+            Response::fail($context['response'], $result['message'], Response::CODE_ERROR);
+            return false;
+        }
+        return ['id' => $result['id']];
+    }
+
+    /**
+     * 更新管理员（可修改 username/password/role/status）
+     * PUT /admin/update/{id}
+     * Body: { username?, password?, role?, status? }
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public static function update(array $context, array $params = [])
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+        $adminId = (int)$payload['admin_id'];
+
+        // 仅 super_admin 可修改管理员信息
+        if (($payload['role'] ?? '') !== 'super_admin') {
+            Response::fail($context['response'], '无权限：仅超级管理员可修改管理员', Response::CODE_FORBIDDEN, 403);
+            return false;
+        }
+
+        $id = (int)($params['id'] ?? 0);
+        if ($id <= 0) {
+            Response::fail($context['response'], '参数 id 无效', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        $body = self::parseJsonBody($context);
+        // 只保留允许更新的字段
+        $data = [];
+        foreach (['username', 'password', 'role', 'status'] as $field) {
+            if (array_key_exists($field, $body)) {
+                $data[$field] = $body[$field];
+            }
+        }
+
+        $result = AdminService::update($id, $data);
+
+        // 记录操作日志（不记录 password 明文）
+        $logData = $data;
+        if (isset($logData['password'])) {
+            $logData['password'] = '******';
+        }
+        AdminLog::record(
+            $context,
+            $adminId,
+            'admin_update',
+            'admin',
+            $id,
+            [
+                'fields'  => array_keys($logData),
+                'status'  => $result['success'] ? 'success' : 'failed',
+                'message' => $result['message'],
+            ]
+        );
+
+        if (!$result['success']) {
+            Response::fail($context['response'], $result['message'], Response::CODE_ERROR);
+            return false;
+        }
+        return null;
+    }
+
+    /**
+     * 删除管理员
+     * DELETE /admin/delete/{id}
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public static function delete(array $context, array $params = [])
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+        $adminId = (int)$payload['admin_id'];
+
+        // 仅 super_admin 可删除管理员
+        if (($payload['role'] ?? '') !== 'super_admin') {
+            Response::fail($context['response'], '无权限：仅超级管理员可删除管理员', Response::CODE_FORBIDDEN, 403);
+            return false;
+        }
+
+        $id = (int)($params['id'] ?? 0);
+        if ($id <= 0) {
+            Response::fail($context['response'], '参数 id 无效', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        // 不能删除自己
+        if ($id === $adminId) {
+            Response::fail($context['response'], '不能删除当前登录的管理员账号', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        $result = AdminService::delete($id);
+
+        AdminLog::record(
+            $context,
+            $adminId,
+            'admin_delete',
+            'admin',
+            $id,
+            [
+                'status'  => $result['success'] ? 'success' : 'failed',
+                'message' => $result['message'],
+            ]
+        );
+
+        if (!$result['success']) {
+            Response::fail($context['response'], $result['message'], Response::CODE_ERROR);
+            return false;
+        }
+        return null;
+    }
+
+    /**
+     * 修改自己的密码
+     * PUT /admin/change-password
+     * Body: { old_password, new_password }
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public static function changePassword(array $context, array $params = [])
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+        $adminId = (int)$payload['admin_id'];
+
+        $body = self::parseJsonBody($context);
+        $oldPassword = (string)($body['old_password'] ?? '');
+        $newPassword = (string)($body['new_password'] ?? '');
+
+        $result = AdminService::changePassword($adminId, $oldPassword, $newPassword);
+
+        AdminLog::record(
+            $context,
+            $adminId,
+            'admin_change_password',
+            'admin',
+            $adminId,
+            [
+                'status'  => $result['success'] ? 'success' : 'failed',
+                'message' => $result['message'],
+            ]
+        );
+
+        if (!$result['success']) {
+            Response::fail($context['response'], $result['message'], Response::CODE_ERROR);
+            return false;
+        }
+        return null;
+    }
+
+    /**
+     * 操作日志列表（分页 10 条）
+     * GET /admin/logs?page=1
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public static function logs(array $context, array $params = [])
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $get = $context['get'] ?? [];
+        $page = (int)($get['page'] ?? 1);
+
+        return AdminService::getLogs($page);
+    }
+
+    /**
+     * 从请求上下文中解析 JSON Body
+     *
+     * @param array $context
+     * @return array
+     */
+    private static function parseJsonBody(array $context): array
+    {
+        $post = $context['post'] ?? [];
+        if (!empty($post)) {
+            return $post;
+        }
+        $raw = $context['raw'] ?? '';
+        if ($raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        return $decoded;
+    }
+}

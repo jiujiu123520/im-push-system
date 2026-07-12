@@ -1,0 +1,57 @@
+# ============================================================
+# .gitignore - 即时消息推送系统
+# ============================================================
+
+# ---- 通用忽略 ----
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# ---- 后端 PHP ----
+backend/vendor/
+backend/runtime/
+backend/.env
+backend/.env.local
+backend/logs/
+backend/*.log
+
+# ---- 管理后台 Vue ----
+admin/node_modules/
+admin/dist/
+admin/.env
+admin/.env.local
+admin/.npmrc
+admin/package-lock.json
+
+# ---- Android APP ----
+app/build/
+app/app/build/
+app/.gradle/
+app/local.properties
+app/gradle.properties
+app/gradlew
+app/gradlew.bat
+app/keystore/
+
+# ---- 根目录构建 ----
+build/*.apk
+build/*.aab
+build/outputs/
+
+# ---- IDE ----
+.idea/
+.vscode/
+*.iml
+.project
+.classpath
+.settings/
+
+# ---- 系统服务 ----
+deploy/.installed
+deploy/.env
+
+# ---- 测试 ----
+backend/tests/coverage/
+backend/tests/reports/

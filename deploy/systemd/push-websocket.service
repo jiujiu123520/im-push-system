@@ -1,0 +1,35 @@
+[Unit]
+Description=IM Push System - WebSocket 推送服务
+Documentation=即时消息推送系统 WebSocket 服务（基于 PHP + Swoole）
+After=network.target mysql.service redis-server.service
+Wants=mysql.service redis-server.service
+# WebSocket 服务在 HTTP API 之后启动（共享数据库/Redis）
+After=push-http.service
+
+[Service]
+Type=simple
+# 项目根目录
+WorkingDirectory=/www/push-system/backend
+# PHP 可执行文件路径，--ws 参数启动 WebSocket 推送服务
+ExecStart=/usr/bin/php /www/push-system/backend/public/index.php --ws
+# 优雅停止：发送 SIGTERM 后等待 10 秒
+KillSignal=SIGTERM
+TimeoutStopSec=10
+# 自动重启：崩溃后 3 秒重启
+Restart=always
+RestartSec=3
+# 启动失败重试上限
+StartLimitBurst=5
+StartLimitIntervalSec=30
+# 以指定用户运行（避免 root 权限）
+User=www-data
+Group=www-data
+# 环境变量
+Environment=APP_ENV=production
+# 标准输出重定向到 journalctl
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=push-websocket
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 路径配置：允许分享应用内部 filesDir 下的导出文件 -->
+<paths>
+    <!-- 对应 context.filesDir，消息导出文件存于此 -->
+    <files-path
+        name="messages_export"
+        path="messages/export/" />
+    <!-- 对应 context.cacheDir -->
+    <cache-path
+        name="cache"
+        path="." />
+    <!-- 对应外部缓存目录 -->
+    <external-cache-path
+        name="external_cache"
+        path="." />
+</paths>

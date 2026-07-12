@@ -1,0 +1,8 @@
+{
+  "app_name": "{{APP_NAME}}",
+  "default_key": "{{DEFAULT_KEY}}",
+  "server_url": "{{SERVER_URL}}",
+  "server_ws_url": "{{SERVER_WS_URL}}",
+  "build_time": "{{BUILD_TIME}}",
+  "build_id": "{{BUILD_ID}}"
+}

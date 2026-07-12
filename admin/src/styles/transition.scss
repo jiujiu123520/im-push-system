@@ -1,0 +1,123 @@
+// ============================================================
+// Transitions · 过渡动画
+// ============================================================
+@use 'variables' as *;
+
+// 淡入
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+// 淡入上移
+.fade-up-enter-active {
+  transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.fade-up-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.fade-up-enter-from {
+  opacity: 0;
+  transform: translateY(16px);
+}
+.fade-up-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+// 滑入
+.slide-fade-enter-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.slide-fade-leave-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.slide-fade-enter-from {
+  opacity: 0;
+  transform: translateX(24px);
+}
+.slide-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-24px);
+}
+
+// 缩放
+.zoom-enter-active,
+.zoom-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.zoom-enter-from,
+.zoom-leave-to {
+  opacity: 0;
+  transform: scale(0.92);
+}
+
+// 列表交错入场
+.list-stagger-enter-active {
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.list-stagger-enter-from {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+// 路由切换过渡
+.route-fade-enter-active {
+  transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.route-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.route-fade-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+.route-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+// 关键帧动画
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+
+@keyframes rotate-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(109, 92, 255, 0.3); }
+  50% { box-shadow: 0 0 40px rgba(109, 92, 255, 0.55); }
+}
+
+// 工具类
+.anim-float {
+  animation: float 4s ease-in-out infinite;
+}
+.anim-pulse {
+  animation: pulse-soft 2s ease-in-out infinite;
+}
+.anim-glow {
+  animation: glow 3s ease-in-out infinite;
+}
+.anim-rotate-slow {
+  animation: rotate-slow 12s linear infinite;
+}

@@ -1,0 +1,84 @@
+<template>
+  <!-- 隐藏的路由不渲染 -->
+  <template v-if="!item.meta?.hidden">
+    <!-- 单一子菜单或无子菜单 -->
+    <template
+      v-if="visibleChildren.length === 1 && !visibleChildren[0].children"
+    >
+      <el-menu-item :index="resolvePath(visibleChildren[0].path)">
+        <el-icon v-if="iconName">
+          <component :is="iconName" />
+        </el-icon>
+        <template #title>
+          <span>{{ visibleChildren[0].meta?.title || item.meta?.title }}</span>
+        </template>
+      </el-menu-item>
+    </template>
+
+    <!-- 无可见子项，渲染自身 -->
+    <template v-else-if="visibleChildren.length === 0">
+      <el-menu-item :index="resolvePath(item.path)">
+        <el-icon v-if="iconName">
+          <component :is="iconName" />
+        </el-icon>
+        <template #title>
+          <span>{{ item.meta?.title }}</span>
+        </template>
+      </el-menu-item>
+    </template>
+
+    <!-- 多子菜单 - 折叠分组 -->
+    <el-sub-menu v-else :index="resolvePath(item.path)">
+      <template #title>
+        <el-icon v-if="iconName">
+          <component :is="iconName" />
+        </el-icon>
+        <span>{{ item.meta?.title }}</span>
+      </template>
+      <sidebar-item
+        v-for="child in visibleChildren"
+        :key="child.path"
+        :item="child"
+        :base-path="resolvePath(item.path)"
+      />
+    </el-sub-menu>
+  </template>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue'
+import type { RouteRecordRaw } from 'vue-router'
+import * as Icons from '@element-plus/icons-vue'
+
+const props = defineProps<{
+  item: RouteRecordRaw
+  basePath: string
+}>()
+
+const iconNames = new Set(Object.keys(Icons))
+
+// 过滤可见的子路由
+const visibleChildren = computed(() => {
+  const children = props.item.children || []
+  return children.filter((c) => !c.meta?.hidden)
+})
+
+// 图标组件名（首字母大写）
+const iconName = computed(() => {
+  const name = props.item.meta?.icon as string | undefined
+  if (!name || !iconNames.has(name)) return ''
+  return name
+})
+
+// 解析路径
+function resolvePath(routePath: string): string {
+  if (/^https?:\/\//.test(routePath)) return routePath
+  const base = props.basePath.endsWith('/')
+    ? props.basePath.slice(0, -1)
+    : props.basePath
+  const path = routePath.startsWith('/') ? routePath : `/${routePath}`
+  // 处理根路径子项为空字符串的情况
+  if (path === '/' && base) return base
+  return (base + path).replace(/\/+/g, '/')
+}
+</script>

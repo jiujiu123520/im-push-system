@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 备份规则：仅备份偏好数据，不包含敏感 Key 明文 -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="push_key.xml" />
+</full-backup-content>

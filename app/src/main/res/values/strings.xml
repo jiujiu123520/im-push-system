@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 应用名称（中文占位，打包时可注入） -->
+    <string name="app_name">消息推送</string>
+
+    <!-- 通用 -->
+    <string name="confirm">确认</string>
+    <string name="cancel">取消</string>
+    <string name="save">保存</string>
+    <string name="delete">删除</string>
+    <string name="back">返回</string>
+
+    <!-- 前台服务 -->
+    <string name="foreground_channel_name">推送服务</string>
+    <string name="foreground_channel_desc">保持消息推送长连接在线</string>
+    <string name="foreground_notification_title">推送服务运行中</string>
+    <string name="foreground_notification_text">正在保持与服务器连接…</string>
+
+    <!-- 通知渠道 -->
+    <string name="channel_high_name">重要消息</string>
+    <string name="channel_high_desc">高优先级推送，发出声音与横幅</string>
+    <string name="channel_default_name">普通消息</string>
+    <string name="channel_default_desc">默认优先级推送</string>
+    <string name="channel_low_name">低优先级消息</string>
+    <string name="channel_low_desc">静默推送</string>
+
+    <!-- Key 输入页 -->
+    <string name="key_input_title">输入推送 Key</string>
+    <string name="key_input_hint">请输入推送 Key</string>
+    <string name="key_input_empty">Key 不能为空</string>
+    <string name="key_input_invalid">Key 格式不正确</string>
+    <string name="key_input_saved">Key 已保存</string>
+
+    <!-- 首页 -->
+    <string name="home_title">首页</string>
+    <string name="home_connection_status">连接状态</string>
+    <string name="home_connected">已连接</string>
+    <string name="home_disconnected">未连接</string>
+    <string name="home_recent_messages">最近消息</string>
+    <string name="home_no_messages">暂无消息</string>
+    <string name="home_test_push">发送测试推送</string>
+
+    <!-- 消息列表 -->
+    <string name="message_list_title">消息列表</string>
+    <string name="message_list_empty">还没有消息</string>
+    <string name="message_clear_all">清空消息</string>
+    <string name="message_export">导出消息</string>
+    <string name="message_export_format_txt">文本文件 (.txt)</string>
+    <string name="message_export_format_csv">CSV 表格 (.csv)</string>
+    <string name="message_export_format_json">JSON 数据 (.json)</string>
+    <string name="message_export_failed">导出失败</string>
+    <string name="message_export_empty">没有可导出的消息</string>
+
+    <!-- 设置 -->
+    <string name="settings_title">设置</string>
+    <string name="settings_server_address">服务器地址</string>
+    <string name="settings_heartbeat">心跳间隔（秒）</string>
+    <string name="settings_disconnect">断开连接</string>
+    <string name="settings_clear_key">清除 Key</string>
+    <string name="settings_permissions">权限管理</string>
+    <string name="settings_permission_autostart">自启动权限</string>
+    <string name="settings_permission_battery">省电白名单</string>
+    <string name="settings_permission_lockscreen">锁屏清理白名单</string>
+    <string name="settings_permission_notification">通知权限</string>
+    <string name="settings_permission_popup">后台弹出权限</string>
+</resources>

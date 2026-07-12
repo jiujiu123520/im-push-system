@@ -1,0 +1,33 @@
+// ============================================================
+// 打包配置注入模板
+// ------------------------------------------------------------
+// 定义可注入的配置项及默认值，由 Android 工程的 app/build.gradle.kts
+// 通过 `apply from: '../../build/config.gradle'` 读取。
+// 运行时打包脚本（inject_config.sh）会生成 app/inject.gradle
+// 覆盖以下默认值，从而实现一包一配置。
+// ============================================================
+ext {
+    // 应用名称（显示在桌面图标下的名称）
+    appName = "PushApp"
+
+    // 应用包名
+    appPackage = "com.push.app"
+
+    // 默认连接密钥（客户端首次安装时的默认 default_key）
+    defaultKey = "default_key"
+
+    // 服务器 API 地址
+    serverUrl = "http://127.0.0.1:9501"
+
+    // WebSocket 推送地址
+    serverWsUrl = "ws://127.0.0.1:9502"
+
+    // 自定义应用图标路径（打包前由 inject_config.sh 复制覆盖）
+    appIconPath = ""
+
+    // 应用版本号（对应 versionName）
+    appVersion = "1.0.0"
+
+    // 应用版本号（对应 versionCode，整数递增）
+    appVersionCode = 1
+}

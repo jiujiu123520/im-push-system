@@ -1,0 +1,92 @@
+// ============================================================
+// Dark Theme · 暗色主题覆盖
+// 深邃午夜蓝紫，避免纯黑，保持品牌色一致
+// ============================================================
+@use 'variables' as *;
+
+html.dark {
+  --color-primary: #8a7cff;
+  --color-primary-hover: #9d8fff;
+  --color-primary-active: #6d5cff;
+  --color-primary-light-9: rgba(109, 92, 255, 0.14);
+
+  --bg-page: #0e1020;
+  --bg-card: #161830;
+  --bg-sidebar: #121428;
+  --bg-navbar: rgba(22, 24, 48, 0.78);
+  --bg-tabs: rgba(22, 24, 48, 0.65);
+
+  --text-primary: #e8eaf6;
+  --text-regular: #b4b8d4;
+  --text-secondary: #7e83a3;
+  --text-placeholder: #4a4f6e;
+
+  --border-base: rgba(255, 255, 255, 0.08);
+  --border-light: rgba(255, 255, 255, 0.05);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.42);
+  --shadow-primary: 0 8px 24px rgba(109, 92, 255, 0.42);
+
+  color-scheme: dark;
+
+  body {
+    background: var(--bg-page);
+    color: var(--text-primary);
+  }
+
+  // Element Plus 暗色覆盖
+  .el-card {
+    background: var(--bg-card);
+    border-color: var(--border-base);
+  }
+
+  .el-menu {
+    background: transparent;
+  }
+
+  .el-table {
+    --el-table-bg-color: var(--bg-card);
+    --el-table-tr-bg-color: var(--bg-card);
+    --el-table-header-bg-color: rgba(109, 92, 255, 0.08);
+    --el-table-border-color: var(--border-base);
+    --el-table-header-text-color: var(--text-regular);
+    --el-table-text-color: var(--text-regular);
+    --el-table-row-hover-bg-color: rgba(109, 92, 255, 0.06);
+  }
+
+  .el-input__wrapper,
+  .el-textarea__inner,
+  .el-select__wrapper {
+    background-color: rgba(255, 255, 255, 0.04) !important;
+    box-shadow: 0 0 0 1px var(--border-base) inset !important;
+  }
+
+  .el-dialog {
+    --el-dialog-bg-color: var(--bg-card);
+    background: var(--bg-card);
+  }
+
+  .el-pagination {
+    --el-pagination-bg-color: transparent;
+    --el-pagination-button-bg-color: transparent;
+    --el-pagination-hover-color: var(--color-primary);
+  }
+
+  .el-tabs__item {
+    color: var(--text-regular);
+    &.is-active {
+      color: var(--color-primary);
+    }
+  }
+
+  .app-card {
+    background: var(--bg-card) !important;
+  }
+
+  // 渐变文字适配
+  .text-gradient {
+    filter: brightness(1.1);
+  }
+}

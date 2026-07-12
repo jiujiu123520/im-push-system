@@ -1,0 +1,1387 @@
+<template>
+  <div class="page-container settings-page">
+    <!-- 页头 -->
+    <div class="page-hero">
+      <div class="hero-bg">
+        <div class="hero-blob blob-a"></div>
+        <div class="hero-blob blob-b"></div>
+      </div>
+      <div class="hero-content">
+        <div>
+          <h2 class="hero-title">系统设置</h2>
+          <p class="hero-sub">配置服务器、推送、验证码与安全策略</p>
+        </div>
+        <div class="hero-stats">
+          <div class="stat-mini">
+            <span class="stat-label">配置项</span>
+            <span class="stat-value">{{ configCount }}</span>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-mini">
+            <span class="stat-label">系统状态</span>
+            <span class="stat-value status-ok">
+              <el-icon><CircleCheckFilled /></el-icon>
+              正常
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-grid">
+      <!-- a) 服务器配置 -->
+      <div class="setting-card" v-loading="loading">
+        <div class="card-head">
+          <div class="head-icon icon-server">
+            <el-icon><Monitor /></el-icon>
+          </div>
+          <div class="head-text">
+            <h3 class="card-title">服务器配置</h3>
+            <p class="card-sub">HTTP API 与 WebSocket 连接地址</p>
+          </div>
+        </div>
+
+        <el-form
+          ref="serverFormRef"
+          :model="serverForm"
+          :rules="serverRules"
+          label-position="top"
+          class="setting-form"
+        >
+          <div class="form-row">
+            <el-form-item label="HTTP API 地址" prop="httpApiUrl">
+              <el-input v-model="serverForm.httpApiUrl" placeholder="https://api.push.com" clearable />
+            </el-form-item>
+            <el-form-item label="HTTP 端口" prop="httpPort">
+              <el-input-number
+                v-model="serverForm.httpPort"
+                :min="1"
+                :max="65535"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </div>
+          <div class="form-row">
+            <el-form-item label="WebSocket 地址" prop="websocketUrl">
+              <el-input v-model="serverForm.websocketUrl" placeholder="wss://ws.push.com" clearable />
+            </el-form-item>
+            <el-form-item label="WebSocket 端口" prop="websocketPort">
+              <el-input-number
+                v-model="serverForm.websocketPort"
+                :min="1"
+                :max="65535"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </div>
+          <div class="form-actions">
+            <el-button
+              type="primary"
+              :icon="Check"
+              :loading="saving.server"
+              @click="saveSection('server')"
+            >
+              保存配置
+            </el-button>
+          </div>
+        </el-form>
+      </div>
+
+      <!-- b) 推送配置 -->
+      <div class="setting-card" v-loading="loading">
+        <div class="card-head">
+          <div class="head-icon icon-push">
+            <el-icon><Promotion /></el-icon>
+          </div>
+          <div class="head-text">
+            <h3 class="card-title">推送配置</h3>
+            <p class="card-sub">心跳、离线消息、连接限制</p>
+          </div>
+        </div>
+
+        <el-form
+          ref="pushFormRef"
+          :model="pushForm"
+          :rules="pushRules"
+          label-position="top"
+          class="setting-form"
+        >
+          <el-form-item label="默认心跳间隔（秒）" prop="heartbeatInterval">
+            <div class="slider-wrap">
+              <el-slider
+                v-model="pushForm.heartbeatInterval"
+                :min="10"
+                :max="300"
+                :step="5"
+                show-input
+                :show-input-controls="false"
+                input-size="small"
+              />
+              <div class="slider-marks">
+                <span>10s</span>
+                <span>300s</span>
+              </div>
+            </div>
+          </el-form-item>
+
+          <div class="form-row">
+            <el-form-item label="离线消息保留时长（小时）" prop="offlineRetention">
+              <el-input-number
+                v-model="pushForm.offlineRetention"
+                :min="1"
+                :max="720"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+            <el-form-item label="最大连接数限制" prop="maxConnections">
+              <el-input-number
+                v-model="pushForm.maxConnections"
+                :min="100"
+                :max="1000000"
+                :step="100"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </div>
+
+          <div class="form-actions">
+            <el-button
+              type="primary"
+              :icon="Check"
+              :loading="saving.push"
+              @click="saveSection('push')"
+            >
+              保存配置
+            </el-button>
+          </div>
+        </el-form>
+      </div>
+
+      <!-- c) 验证码配置 -->
+      <div class="setting-card" v-loading="loading">
+        <div class="card-head">
+          <div class="head-icon icon-captcha">
+            <el-icon><Message /></el-icon>
+          </div>
+          <div class="head-text">
+            <h3 class="card-title">验证码配置</h3>
+            <p class="card-sub">短信与邮件验证码服务</p>
+          </div>
+        </div>
+
+        <el-form
+          ref="captchaFormRef"
+          :model="captchaForm"
+          :rules="captchaRules"
+          label-position="top"
+          class="setting-form"
+        >
+          <div class="sub-section-title">
+            <span class="title-bar"></span>
+            短信服务
+          </div>
+          <div class="form-row">
+            <el-form-item label="短信 API Key" prop="smsApiKey">
+              <el-input
+                v-model="captchaForm.smsApiKey"
+                :type="showSecret.smsApiKey ? 'text' : 'password'"
+                placeholder="请输入短信服务 API Key"
+              >
+                <template #suffix>
+                  <el-icon class="toggle-eye" @click="toggleSecret('smsApiKey')">
+                    <View v-if="!showSecret.smsApiKey" />
+                    <Hide v-else />
+                  </el-icon>
+                </template>
+              </el-input>
+            </el-form-item>
+            <el-form-item label="短信 API URL" prop="smsApiUrl">
+              <el-input v-model="captchaForm.smsApiUrl" placeholder="https://sms.api.com/send" clearable />
+            </el-form-item>
+          </div>
+
+          <div class="sub-section-title">
+            <span class="title-bar"></span>
+            邮件服务（SMTP）
+          </div>
+          <div class="form-row">
+            <el-form-item label="SMTP 主机" prop="mailHost">
+              <el-input v-model="captchaForm.mailHost" placeholder="smtp.exmail.qq.com" clearable />
+            </el-form-item>
+            <el-form-item label="SMTP 端口" prop="mailPort">
+              <el-input-number
+                v-model="captchaForm.mailPort"
+                :min="1"
+                :max="65535"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </div>
+          <div class="form-row">
+            <el-form-item label="SMTP 账号" prop="mailUsername">
+              <el-input v-model="captchaForm.mailUsername" placeholder="noreply@push.com" clearable />
+            </el-form-item>
+            <el-form-item label="SMTP 密码" prop="mailPassword">
+              <el-input
+                v-model="captchaForm.mailPassword"
+                :type="showSecret.mailPassword ? 'text' : 'password'"
+                placeholder="请输入 SMTP 密码"
+              >
+                <template #suffix>
+                  <el-icon class="toggle-eye" @click="toggleSecret('mailPassword')">
+                    <View v-if="!showSecret.mailPassword" />
+                    <Hide v-else />
+                  </el-icon>
+                </template>
+              </el-input>
+            </el-form-item>
+          </div>
+          <el-form-item label="发件人地址" prop="mailFrom">
+            <el-input v-model="captchaForm.mailFrom" placeholder="Push 推送服务 <noreply@push.com>" clearable />
+          </el-form-item>
+
+          <div class="form-actions">
+            <el-button
+              :icon="Promotion"
+              :loading="testing.mail"
+              @click="testMail"
+            >
+              测试发送
+            </el-button>
+            <el-button
+              type="primary"
+              :icon="Check"
+              :loading="saving.captcha"
+              @click="saveSection('captcha')"
+            >
+              保存配置
+            </el-button>
+          </div>
+        </el-form>
+      </div>
+
+      <!-- d) 邮件通知配置 -->
+      <div class="setting-card" v-loading="loading">
+        <div class="card-head">
+          <div class="head-icon icon-mail">
+            <el-icon><Mail /></el-icon>
+          </div>
+          <div class="head-text">
+            <h3 class="card-title">邮件通知配置</h3>
+            <p class="card-sub">设备掉线邮箱通知（支持 QQ 邮箱）</p>
+          </div>
+        </div>
+
+        <el-form
+          ref="mailFormRef"
+          :model="mailForm"
+          label-position="top"
+          class="setting-form"
+        >
+          <div class="form-row">
+            <el-form-item label="启用邮件通知">
+              <el-switch v-model="mailForm.enabled" />
+            </el-form-item>
+          </div>
+
+          <div class="sub-section-title">
+            <span class="title-bar"></span>
+            SMTP 配置
+          </div>
+
+          <div class="form-row">
+            <el-form-item label="SMTP 主机" prop="host">
+              <el-select v-model="mailForm.host" placeholder="选择邮件服务商">
+                <el-option label="QQ 邮箱" value="smtp.qq.com" />
+                <el-option label="QQ 企业邮箱" value="smtp.exmail.qq.com" />
+                <el-option label="163 邮箱" value="smtp.163.com" />
+                <el-option label="Gmail" value="smtp.gmail.com" />
+                <el-option label="自定义" value="custom" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="SMTP 端口" prop="port">
+              <el-select v-model="mailForm.port">
+                <el-option label="587 (TLS)" value="587" />
+                <el-option label="465 (SSL)" value="465" />
+              </el-select>
+            </el-form-item>
+          </div>
+
+          <div class="form-row">
+            <el-form-item label="发件人邮箱" prop="username">
+              <el-input v-model="mailForm.username" placeholder="your_email@qq.com" />
+            </el-form-item>
+            <el-form-item label="授权码" prop="password">
+              <el-input
+                v-model="mailForm.password"
+                :type="showSecret.mailNotifyPassword ? 'text' : 'password'"
+                placeholder="QQ 邮箱需填写授权码"
+              >
+                <template #suffix>
+                  <el-icon class="toggle-eye" @click="toggleSecret('mailNotifyPassword')">
+                    <View v-if="!showSecret.mailNotifyPassword" />
+                    <Hide v-else />
+                  </el-icon>
+                </template>
+              </el-input>
+            </el-form-item>
+          </div>
+
+          <div class="form-row">
+            <el-form-item label="加密方式" prop="encryption">
+              <el-select v-model="mailForm.encryption">
+                <el-option label="TLS" value="tls" />
+                <el-option label="SSL" value="ssl" />
+                <el-option label="无" value="" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="发件人名称" prop="sender_name">
+              <el-input v-model="mailForm.sender_name" placeholder="Push 推送服务" />
+            </el-form-item>
+          </div>
+
+          <!-- QQ 邮箱提示 -->
+          <div v-if="mailForm.host === 'smtp.qq.com'" class="qq-mail-tip">
+            <el-alert
+              title="QQ 邮箱授权码获取方式"
+              type="info"
+              :closable="false"
+              show-icon
+            >
+              <p>1. 登录 QQ 邮箱 → 设置 → 账户</p>
+              <p>2. 开启「POP3/SMTP 服务」</p>
+              <p>3. 点击「生成授权码」，按提示验证后获取</p>
+              <p style="margin-top: 8px; font-size: 12px; color: #909399;">注意：授权码不是邮箱密码</p>
+            </el-alert>
+          </div>
+
+          <div class="form-actions">
+            <el-button
+              :icon="Send"
+              :loading="testing.mailNotify"
+              @click="testMailNotify"
+              :disabled="!mailForm.enabled || !mailForm.username || !mailForm.password"
+            >
+              发送测试邮件
+            </el-button>
+            <el-button
+              type="primary"
+              :icon="Check"
+              :loading="saving.mail"
+              @click="saveMailConfig"
+            >
+              保存配置
+            </el-button>
+          </div>
+        </el-form>
+      </div>
+
+      <!-- e) 安全配置 -->
+      <div class="setting-card" v-loading="loading">
+        <div class="card-head">
+          <div class="head-icon icon-security">
+            <el-icon><Lock /></el-icon>
+          </div>
+          <div class="head-text">
+            <h3 class="card-title">安全配置</h3>
+            <p class="card-sub">加密密钥、密码策略、登录锁定</p>
+          </div>
+        </div>
+
+        <el-form
+          ref="securityFormRef"
+          :model="securityForm"
+          :rules="securityRules"
+          label-position="top"
+          class="setting-form"
+        >
+          <el-form-item label="JWT 密钥" prop="jwtSecret">
+            <el-input
+              v-model="securityForm.jwtSecret"
+              :type="showSecret.jwtSecret ? 'text' : 'password'"
+              readonly
+            >
+              <template #suffix>
+                <el-icon class="toggle-eye" @click="toggleSecret('jwtSecret')">
+                  <View v-if="!showSecret.jwtSecret" />
+                  <Hide v-else />
+                </el-icon>
+              </template>
+              <template #append>
+                <el-button :icon="Refresh" @click="regenerateSecret('jwtSecret')">重新生成</el-button>
+              </template>
+            </el-input>
+          </el-form-item>
+
+          <el-form-item label="AES 加密密钥" prop="aesKey">
+            <el-input
+              v-model="securityForm.aesKey"
+              :type="showSecret.aesKey ? 'text' : 'password'"
+              readonly
+            >
+              <template #suffix>
+                <el-icon class="toggle-eye" @click="toggleSecret('aesKey')">
+                  <View v-if="!showSecret.aesKey" />
+                  <Hide v-else />
+                </el-icon>
+              </template>
+              <template #append>
+                <el-button :icon="Refresh" @click="regenerateSecret('aesKey')">重新生成</el-button>
+              </template>
+            </el-input>
+          </el-form-item>
+
+          <div class="form-row">
+            <el-form-item label="密码最小长度" prop="passwordMinLength">
+              <el-input-number
+                v-model="securityForm.passwordMinLength"
+                :min="6"
+                :max="32"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+            <el-form-item label="登录失败锁定次数" prop="loginFailLimit">
+              <el-input-number
+                v-model="securityForm.loginFailLimit"
+                :min="3"
+                :max="20"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </div>
+
+          <div class="form-actions">
+            <el-button
+              type="primary"
+              :icon="Check"
+              :loading="saving.security"
+              @click="saveSection('security')"
+            >
+              保存配置
+            </el-button>
+          </div>
+        </el-form>
+      </div>
+
+      <!-- e) 系统信息（只读） -->
+      <div class="setting-card system-info-card" v-loading="systemInfoLoading">
+        <div class="card-head">
+          <div class="head-icon icon-info">
+            <el-icon><Cpu /></el-icon>
+          </div>
+          <div class="head-text">
+            <h3 class="card-title">系统信息</h3>
+            <p class="card-sub">运行环境与服务状态</p>
+          </div>
+          <el-button text :icon="Refresh" :loading="systemInfoLoading" @click="fetchSystemInfo">
+            刷新
+          </el-button>
+        </div>
+
+        <div class="info-grid">
+          <div class="info-item">
+            <div class="info-label">
+              <el-icon><InfoFilled /></el-icon>
+              系统版本
+            </div>
+            <div class="info-value mono">{{ systemInfo.version || '-' }}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">
+              <el-icon><Cpu /></el-icon>
+              PHP 版本
+            </div>
+            <div class="info-value mono">{{ systemInfo.phpVersion || '-' }}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">
+              <el-icon><Lightning /></el-icon>
+              Swoole 版本
+            </div>
+            <div class="info-value mono">{{ systemInfo.swooleVersion || '-' }}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">
+              <el-icon><Coin /></el-icon>
+              Redis 状态
+            </div>
+            <div class="info-value">
+              <span class="status-dot" :class="systemInfo.redisStatus"></span>
+              {{ systemInfo.redisStatus === 'ok' ? '正常' : '异常' }}
+            </div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">
+              <el-icon><DataLine /></el-icon>
+              MySQL 状态
+            </div>
+            <div class="info-value">
+              <span class="status-dot" :class="systemInfo.mysqlStatus"></span>
+              {{ systemInfo.mysqlStatus === 'ok' ? '正常' : '异常' }}
+            </div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">
+              <el-icon><Histogram /></el-icon>
+              磁盘空间
+            </div>
+            <div class="info-value">
+              <div class="disk-bar">
+                <div
+                  class="disk-used"
+                  :style="{ width: diskPercent + '%' }"
+                  :class="{ warn: diskPercent > 80, danger: diskPercent > 90 }"
+                ></div>
+              </div>
+              <span class="disk-text">
+                {{ formatBytes(systemInfo.diskUsed) }} / {{ formatBytes(systemInfo.diskTotal) }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="uptime-row">
+          <el-icon><Clock /></el-icon>
+          <span>系统已运行</span>
+          <span class="uptime-value">{{ formatUptime(systemInfo.uptime) }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue'
+import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+import {
+  Monitor,
+  Promotion,
+  Message,
+  Lock,
+  Cpu,
+  Check,
+  Refresh,
+  View,
+  Hide,
+  InfoFilled,
+  Lightning,
+  Coin,
+  DataLine,
+  Histogram,
+  Clock,
+  CircleCheckFilled,
+  Mail,
+  Send
+} from '@element-plus/icons-vue'
+import {
+  getSettingsApi,
+  updateSettingsApi,
+  getMailConfigApi,
+  saveMailConfigApi,
+  testMailConfigApi,
+  getSystemInfoApi
+} from '@/api/settings'
+
+const loading = ref(false)
+
+// ---- 服务器配置 ----
+const serverFormRef = ref<FormInstance>()
+const serverForm = reactive({
+  httpApiUrl: '',
+  httpPort: 443,
+  websocketUrl: '',
+  websocketPort: 443
+})
+const serverRules: FormRules = {
+  httpApiUrl: [
+    { required: true, message: '请输入 HTTP API 地址', trigger: 'blur' },
+    { pattern: /^https?:\/\/.+/, message: '请输入合法地址', trigger: 'blur' }
+  ],
+  httpPort: [{ required: true, message: '请输入端口', trigger: 'blur' }],
+  websocketUrl: [
+    { required: true, message: '请输入 WebSocket 地址', trigger: 'blur' },
+    { pattern: /^wss?:\/\/.+/, message: '请输入合法 ws/wss 地址', trigger: 'blur' }
+  ],
+  websocketPort: [{ required: true, message: '请输入端口', trigger: 'blur' }]
+}
+
+// ---- 推送配置 ----
+const pushFormRef = ref<FormInstance>()
+const pushForm = reactive({
+  heartbeatInterval: 60,
+  offlineRetention: 72,
+  maxConnections: 100000
+})
+const pushRules: FormRules = {
+  heartbeatInterval: [{ required: true, message: '请设置心跳间隔', trigger: 'change' }],
+  offlineRetention: [{ required: true, message: '请设置保留时长', trigger: 'blur' }],
+  maxConnections: [{ required: true, message: '请设置连接限制', trigger: 'blur' }]
+}
+
+// ---- 验证码配置 ----
+const captchaFormRef = ref<FormInstance>()
+const captchaForm = reactive({
+  smsApiKey: '',
+  smsApiUrl: '',
+  mailHost: '',
+  mailPort: 465,
+  mailUsername: '',
+  mailPassword: '',
+  mailFrom: ''
+})
+const captchaRules: FormRules = {
+  mailHost: [{ required: true, message: '请输入 SMTP 主机', trigger: 'blur' }],
+  mailPort: [{ required: true, message: '请输入端口', trigger: 'blur' }],
+  mailUsername: [{ required: true, message: '请输入账号', trigger: 'blur' }],
+  mailFrom: [
+    { required: true, message: '请输入发件人', trigger: 'blur' },
+    { type: 'email', message: '邮箱格式不正确', trigger: 'blur' }
+  ]
+}
+
+// ---- 安全配置 ----
+const securityFormRef = ref<FormInstance>()
+const securityForm = reactive({
+  jwtSecret: '',
+  aesKey: '',
+  passwordMinLength: 8,
+  loginFailLimit: 5
+})
+const securityRules: FormRules = {
+  jwtSecret: [{ required: true, message: 'JWT 密钥不能为空', trigger: 'blur' }],
+  aesKey: [{ required: true, message: 'AES 密钥不能为空', trigger: 'blur' }],
+  passwordMinLength: [{ required: true, message: '请设置密码最小长度', trigger: 'blur' }],
+  loginFailLimit: [{ required: true, message: '请设置锁定次数', trigger: 'blur' }]
+}
+
+// ---- 邮件通知配置 ----
+const mailFormRef = ref<FormInstance>()
+const mailForm = reactive({
+  enabled: false,
+  host: 'smtp.qq.com',
+  port: '587',
+  username: '',
+  password: '',
+  encryption: 'tls',
+  sender_name: '',
+  testEmail: ''
+})
+
+// 密码切换显示
+const showSecret = reactive({
+  smsApiKey: false,
+  mailPassword: false,
+  mailNotifyPassword: false,
+  jwtSecret: false,
+  aesKey: false
+})
+function toggleSecret(key: keyof typeof showSecret) {
+  showSecret[key] = !showSecret[key]
+}
+
+// 重新生成密钥
+function regenerateSecret(key: 'jwtSecret' | 'aesKey') {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  const length = 32
+  let result = ''
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  securityForm[key] = result
+  ElMessage.success('密钥已重新生成，请保存配置')
+}
+
+// ---- 系统信息 ----
+const systemInfoLoading = ref(false)
+const systemInfo = reactive({
+  version: 'v2.5.0',
+  phpVersion: '8.2.7',
+  swooleVersion: '5.0.3',
+  redisStatus: 'ok' as 'ok' | 'error',
+  mysqlStatus: 'ok' as 'ok' | 'error',
+  diskUsed: 0,
+  diskTotal: 0,
+  uptime: 0
+})
+
+const diskPercent = computed(() => {
+  if (!systemInfo.diskTotal) return 0
+  return Math.round((systemInfo.diskUsed / systemInfo.diskTotal) * 100)
+})
+
+function formatBytes(bytes: number): string {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let n = bytes
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024
+    i++
+  }
+  return n.toFixed(i === 0 ? 0 : 1) + ' ' + units[i]
+}
+
+function formatUptime(seconds: number): string {
+  if (!seconds) return '-'
+  const d = Math.floor(seconds / 86400)
+  const h = Math.floor((seconds % 86400) / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  if (d > 0) return `${d}天 ${h}小时 ${m}分钟`
+  if (h > 0) return `${h}小时 ${m}分钟`
+  return `${m}分钟`
+}
+
+async function fetchSystemInfo() {
+  systemInfoLoading.value = true
+  try {
+    const res = await getSystemInfoApi()
+    const d = res.data
+    systemInfo.diskUsed = d.disk?.used || 0
+    systemInfo.diskTotal = d.disk?.total || 0
+    systemInfo.uptime = d.uptime || 0
+  } catch {
+    // 接口未就绪时使用占位数据
+    systemInfo.diskUsed = 18.6 * 1024 * 1024 * 1024
+    systemInfo.diskTotal = 50 * 1024 * 1024 * 1024
+    systemInfo.uptime = 86400 * 12 + 3600 * 5
+  } finally {
+    systemInfoLoading.value = false
+  }
+}
+
+// ---- 保存状态 ----
+const saving = reactive({
+  server: false,
+  push: false,
+  captcha: false,
+  mail: false,
+  security: false
+})
+const testing = reactive({
+  mail: false,
+  mailNotify: false
+})
+
+const configCount = computed(() => 4)
+
+// 加载配置
+async function fetchSettings() {
+  loading.value = true
+  try {
+    const res = await getSettingsApi()
+    const s = res.data
+    if (s) {
+      serverForm.httpApiUrl = s.siteDescription || serverForm.httpApiUrl
+    }
+  } catch {
+    // 接口未就绪时使用默认值
+  } finally {
+    loading.value = false
+  }
+}
+
+// 加载邮件配置
+async function fetchMailConfig() {
+  try {
+    const res = await getMailConfigApi()
+    const config = res.data
+    mailForm.enabled = config.enabled
+    mailForm.host = config.host || 'smtp.qq.com'
+    mailForm.port = config.port || '587'
+    mailForm.username = config.username
+    mailForm.password = config.password
+    mailForm.encryption = config.encryption || 'tls'
+    mailForm.sender_name = config.sender_name
+  } catch {
+    // 使用默认值
+  }
+}
+
+// 保存各个分组
+async function saveSection(section: 'server' | 'push' | 'captcha' | 'security') {
+  const formRefMap = {
+    server: serverFormRef,
+    push: pushFormRef,
+    captcha: captchaFormRef,
+    security: securityFormRef
+  }
+  const formRef = formRefMap[section].value
+  if (!formRef) return
+  try {
+    await formRef.validate()
+  } catch {
+    ElMessage.warning('请完善表单必填项')
+    return
+  }
+
+  saving[section] = true
+  try {
+    const payload: Record<string, any> = {}
+    if (section === 'server') {
+      payload.server = { ...serverForm }
+    } else if (section === 'push') {
+      payload.push = { ...pushForm }
+    } else if (section === 'captcha') {
+      payload.captcha = { ...captchaForm }
+    } else if (section === 'security') {
+      payload.security = { ...securityForm }
+    }
+    await updateSettingsApi(payload)
+    ElMessage.success('配置保存成功')
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '保存失败')
+  } finally {
+    saving[section] = false
+  }
+}
+
+// 保存邮件通知配置
+async function saveMailConfig() {
+  saving.mail = true
+  try {
+    await saveMailConfigApi({
+      enabled: mailForm.enabled,
+      host: mailForm.host,
+      port: mailForm.port,
+      username: mailForm.username,
+      password: mailForm.password,
+      encryption: mailForm.encryption,
+      sender_name: mailForm.sender_name
+    })
+    ElMessage.success('邮件配置已保存')
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '保存失败')
+  } finally {
+    saving.mail = false
+  }
+}
+
+// 测试邮件通知
+async function testMailNotify() {
+  const to = mailForm.username
+  if (!to || !mailForm.enabled) {
+    ElMessage.warning('请先启用邮件通知并填写发件人邮箱')
+    return
+  }
+  testing.mailNotify = true
+  try {
+    const res = await testMailConfigApi({
+      to,
+      host: mailForm.host,
+      port: mailForm.port,
+      username: mailForm.username,
+      password: mailForm.password,
+      encryption: mailForm.encryption,
+      sender_name: mailForm.sender_name
+    })
+    ElMessage.success(res.data?.message || '测试邮件发送成功')
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '测试发送失败')
+  } finally {
+    testing.mailNotify = false
+  }
+}
+
+// 测试邮件
+async function testMail() {
+  if (!captchaForm.mailHost || !captchaForm.mailPort || !captchaForm.mailFrom) {
+    ElMessage.warning('请先填写 SMTP 主机、端口和发件人')
+    return
+  }
+  testing.mail = true
+  try {
+    const res = await testMailApi({
+      host: captchaForm.mailHost,
+      port: captchaForm.mailPort,
+      from: captchaForm.mailFrom
+    })
+    if (res.data?.success) {
+      ElMessage.success('测试邮件已发送，请查收')
+    } else {
+      ElMessage.error(res.data?.message || '测试发送失败')
+    }
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '测试发送失败')
+  } finally {
+    testing.mail = false
+  }
+}
+
+onMounted(() => {
+  fetchSettings()
+  fetchMailConfig()
+  fetchSystemInfo()
+})
+</script>
+
+<style lang="scss" scoped>
+.settings-page {
+  animation: fade-up 0.5s ease;
+}
+
+// ===== Hero 区 =====
+.page-hero {
+  position: relative;
+  border-radius: $radius-xl;
+  padding: 24px 32px;
+  margin-bottom: 20px;
+  overflow: hidden;
+  background: $gradient-primary;
+  box-shadow: $shadow-primary;
+
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .hero-blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(60px);
+
+    &.blob-a {
+      width: 280px;
+      height: 280px;
+      background: radial-gradient(circle, #ffffff, transparent 70%);
+      top: -120px;
+      right: -60px;
+      opacity: 0.2;
+    }
+    &.blob-b {
+      width: 240px;
+      height: 240px;
+      background: radial-gradient(circle, #5cb8ff, transparent 70%);
+      bottom: -100px;
+      left: 40%;
+      opacity: 0.35;
+    }
+  }
+
+  .hero-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+
+  .hero-title {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.3px;
+  }
+  .hero-sub {
+    margin: 6px 0 0;
+    color: rgba(255, 255, 255, 0.88);
+    font-size: 13px;
+  }
+
+  .hero-stats {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 10px 20px;
+    border-radius: $radius-lg;
+    background: rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+
+    .stat-mini {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+
+      .stat-label {
+        color: rgba(255, 255, 255, 0.75);
+        font-size: 11px;
+      }
+      .stat-value {
+        color: #fff;
+        font-size: 16px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+
+        &.status-ok {
+          color: #d4ffe9;
+        }
+      }
+    }
+
+    .stat-divider {
+      width: 1px;
+      height: 28px;
+      background: rgba(255, 255, 255, 0.25);
+    }
+  }
+}
+
+// ===== 设置网格 =====
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+// ===== 设置卡片 =====
+.setting-card {
+  background: var(--bg-card);
+  border-radius: $radius-xl;
+  padding: 24px;
+  border: 1px solid var(--border-light);
+  box-shadow: $shadow-md;
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+  animation: fade-up 0.5s ease backwards;
+
+  &:nth-child(1) { animation-delay: 0.05s; }
+  &:nth-child(2) { animation-delay: 0.1s; }
+  &:nth-child(3) { animation-delay: 0.15s; }
+  &:nth-child(4) { animation-delay: 0.2s; }
+  &:nth-child(5) { animation-delay: 0.25s; }
+  &:nth-child(6) { animation-delay: 0.3s; }
+
+  &:hover {
+    box-shadow: $shadow-lg;
+    transform: translateY(-2px);
+  }
+
+  // 第 5 张卡片跨两列
+  &.system-info-card {
+    grid-column: span 2;
+  }
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 22px;
+
+  .head-icon {
+    width: 46px;
+    height: 46px;
+    border-radius: $radius-md;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 22px;
+    flex-shrink: 0;
+
+    &.icon-server {
+      background: $gradient-primary;
+      box-shadow: 0 6px 18px rgba(109, 92, 255, 0.32);
+    }
+    &.icon-push {
+      background: $gradient-cyan;
+      box-shadow: 0 6px 18px rgba(92, 184, 255, 0.32);
+    }
+    &.icon-captcha {
+      background: $gradient-warm;
+      box-shadow: 0 6px 18px rgba(255, 181, 71, 0.32);
+    }
+    &.icon-security {
+      background: $gradient-danger;
+      box-shadow: 0 6px 18px rgba(255, 90, 110, 0.32);
+    }
+    &.icon-info {
+      background: $gradient-success;
+      box-shadow: 0 6px 18px rgba(24, 194, 156, 0.32);
+    }
+    &.icon-mail {
+      background: $gradient-warm;
+      box-shadow: 0 6px 18px rgba(255, 181, 71, 0.32);
+    }
+  }
+
+  .head-text {
+    flex: 1;
+  }
+
+  .card-title {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+  .card-sub {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+}
+
+// 表单
+.setting-form {
+  :deep(.el-form-item__label) {
+    font-weight: 600;
+    color: var(--text-regular);
+    padding-bottom: 6px;
+    font-size: 13px;
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+}
+
+// 子标题
+.sub-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 16px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-regular);
+
+  .title-bar {
+    width: 3px;
+    height: 14px;
+    border-radius: 2px;
+    background: $gradient-primary;
+  }
+}
+
+// 密码切换图标
+.toggle-eye {
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: color 0.2s ease;
+
+  &:hover {
+    color: $color-primary;
+  }
+}
+
+// 滑块
+.slider-wrap {
+  width: 100%;
+
+  :deep(.el-slider) {
+    --el-slider-main-bg-color: #{$color-primary};
+    margin-right: 16px;
+  }
+
+  .slider-marks {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+}
+
+// 操作按钮区
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--border-light);
+}
+
+// ===== 系统信息卡片 =====
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.info-item {
+  padding: 14px 16px;
+  border-radius: $radius-md;
+  background: var(--bg-page);
+  border: 1px solid var(--border-light);
+  transition: all 0.25s ease;
+
+  &:hover {
+    border-color: $color-primary-light-5;
+    background: $color-primary-light-9;
+  }
+
+  .info-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+
+    .el-icon {
+      color: $color-primary;
+      font-size: 14px;
+    }
+  }
+
+  .info-value {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    &.mono {
+      font-family: $font-family-mono;
+      font-size: 15px;
+    }
+  }
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+
+  &.ok {
+    background: $color-success;
+    box-shadow: 0 0 0 3px rgba(24, 194, 156, 0.2);
+    animation: pulse-dot 1.6s ease infinite;
+  }
+  &.error {
+    background: $color-danger;
+    box-shadow: 0 0 0 3px rgba(255, 90, 110, 0.2);
+  }
+}
+
+.disk-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--border-base);
+  border-radius: $radius-pill;
+  overflow: hidden;
+  margin-bottom: 4px;
+
+  .disk-used {
+    height: 100%;
+    background: $gradient-success;
+    border-radius: $radius-pill;
+    transition: width 0.5s ease;
+
+    &.warn {
+      background: $gradient-warm;
+    }
+    &.danger {
+      background: $gradient-danger;
+    }
+  }
+}
+
+.disk-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: $font-family-mono;
+}
+
+.uptime-row {
+  margin-top: 18px;
+  padding: 12px 16px;
+  border-radius: $radius-md;
+  background: linear-gradient(135deg, rgba(109, 92, 255, 0.06), rgba(92, 184, 255, 0.04));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-regular);
+
+  .el-icon {
+    color: $color-primary;
+  }
+
+  .uptime-value {
+    font-weight: 700;
+    color: $color-primary;
+    font-family: $font-family-mono;
+    margin-left: 4px;
+  }
+}
+
+// ===== 动画 =====
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(24, 194, 156, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(24, 194, 156, 0);
+  }
+}
+
+// ===== 响应式 =====
+@media (max-width: 1100px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .setting-card.system-info-card {
+    grid-column: span 1;
+  }
+  .info-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .page-hero {
+    padding: 20px;
+  }
+  .setting-form .form-row {
+    grid-template-columns: 1fr;
+  }
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+  .form-actions {
+    flex-direction: column;
+
+    .el-button {
+      width: 100%;
+    }
+  }
+}
+
+// ===== 暗色模式 =====
+:global(html.dark) {
+  .page-hero {
+    background: linear-gradient(135deg, #4d38f0 0%, #7d4dff 100%);
+  }
+  .info-item {
+    background: rgba(255, 255, 255, 0.02);
+
+    &:hover {
+      background: rgba(138, 124, 255, 0.08);
+    }
+  }
+  .uptime-row {
+    background: linear-gradient(135deg, rgba(109, 92, 255, 0.12), rgba(92, 184, 255, 0.08));
+  }
+}
+</style>

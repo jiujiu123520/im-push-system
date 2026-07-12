@@ -1,0 +1,100 @@
+// ============================================================
+// Reset · 样式重置
+// ============================================================
+@use 'variables' as *;
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  width: 100%;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: $font-family;
+  font-size: $font-size-base;
+  line-height: 1.5;
+  color: $text-primary;
+  background: $bg-page;
+  overflow: hidden;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  color: $text-primary;
+}
+
+a {
+  color: $color-primary;
+  text-decoration: none;
+  transition: color $transition-base;
+  &:hover {
+    color: $color-primary-hover;
+  }
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+input, button, textarea, select {
+  font: inherit;
+  color: inherit;
+}
+
+ul, ol {
+  list-style: none;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  border: 0;
+}
+
+table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+// 移除输入聚焦描边
+:focus {
+  outline: none;
+}
+
+// 选中文字配色
+::selection {
+  background: rgba(109, 92, 255, 0.18);
+  color: $color-primary-dark-2;
+}
+
+// NProgress 配色
+#nprogress .bar {
+  background: $gradient-primary !important;
+  height: 3px !important;
+}
+#nprogress .peg {
+  box-shadow: 0 0 12px rgba(109, 92, 255, 0.8), 0 0 6px rgba(109, 92, 255, 0.6) !important;
+}
+#nprogress .spinner {
+  display: none !important;
+}

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 主色：现代渐变蓝紫 -->
+    <color name="purple_200">#FF7C4DFF</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- 品牌主色（蓝紫渐变端点） -->
+    <color name="brand_blue">#FF3B82F6</color>
+    <color name="brand_purple">#FF8B5CF6</color>
+    <color name="brand_dark">#FF1E1B4B</color>
+
+    <!-- 状态色 -->
+    <color name="status_online">#FF22C55E</color>
+    <color name="status_offline">#FFEF4444</color>
+    <color name="status_warning">#FFF59E0B</color>
+</resources>

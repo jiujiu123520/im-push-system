@@ -1,0 +1,1369 @@
+{
+  "info": {
+    "name": "即时消息推送系统 API",
+    "_postman_id": "push-system-collection-v1",
+    "description": "即时消息推送系统完整接口测试集合\n\n包含：用户认证、管理员、Key管理、设备管理、黑名单、推送、开放API、APP打包、系统设置\n\n环境变量：\n- base_url: HTTP API 地址（如 http://127.0.0.1:9501）\n- ws_url: WebSocket 地址（如 ws://127.0.0.1:9502）\n- admin_token: 管理员 JWT（登录后自动填充）\n- api_key: 开放API的 X-Api-Key（创建后自动填充）\n- user_token: 用户 JWT（登录后自动填充）",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:9501",
+      "description": "HTTP API 基础地址"
+    },
+    {
+      "key": "ws_url",
+      "value": "ws://127.0.0.1:9502",
+      "description": "WebSocket 推送服务地址"
+    },
+    {
+      "key": "admin_token",
+      "value": "",
+      "description": "管理员 JWT Token（登录后自动填充）"
+    },
+    {
+      "key": "api_key",
+      "value": "",
+      "description": "开放 API Key（创建后自动填充）"
+    },
+    {
+      "key": "user_token",
+      "value": "",
+      "description": "用户 JWT Token（登录后自动填充）"
+    },
+    {
+      "key": "captcha_token",
+      "value": "",
+      "description": "图形验证码 token（获取后自动填充）"
+    },
+    {
+      "key": "captcha_code",
+      "value": "",
+      "description": "图形验证码明文（需人工识别）"
+    },
+    {
+      "key": "key_id",
+      "value": "",
+      "description": "推送 Key ID"
+    },
+    {
+      "key": "device_id",
+      "value": "test_device_001",
+      "description": "测试设备ID"
+    },
+    {
+      "key": "build_id",
+      "value": "",
+      "description": "打包任务ID"
+    }
+  ],
+  "item": [
+    {
+      "name": "用户认证",
+      "description": "用户注册与登录流程：获取图形验证码 → 发送验证码 → 注册 → 登录",
+      "item": [
+        {
+          "name": "获取图形验证码",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/captcha/image",
+              "host": ["{{base_url}}"],
+              "path": ["captcha", "image"]
+            },
+            "description": "获取图形验证码图片（base64）与 token\n\n返回：\n{\n  \"code\": 0,\n  \"data\": { \"token\": \"...\", \"image\": \"data:image/png;base64,...\" }\n}\n\n注意：验证码图片需人工识别后填入 captcha_code 变量"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var response = pm.response.json();",
+                  "pm.test('状态码 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('返回 token 和 image', function () {",
+                  "    pm.expect(response.data.token).to.not.be.empty;",
+                  "    pm.expect(response.data.image).to.contain('data:image/png;base64');",
+                  "});",
+                  "// 自动保存 token",
+                  "if (response.data && response.data.token) {",
+                  "    pm.collectionVariables.set('captcha_token', response.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "发送短信验证码",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"type\": \"sms\",\n    \"target\": \"13800138000\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/send-code",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "send-code"]
+            },
+            "description": "发送短信验证码\n\nBody:\n{\n  \"type\": \"sms\",\n  \"target\": \"手机号\"\n}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var response = pm.response.json();",
+                  "pm.test('验证码发送成功', function () {",
+                  "    pm.expect(response.code).to.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "发送邮箱验证码",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"type\": \"email\",\n    \"target\": \"test@example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/send-code",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "send-code"]
+            },
+            "description": "发送邮箱验证码\n\nBody:\n{\n  \"type\": \"email\",\n  \"target\": \"邮箱\"\n}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var response = pm.response.json();",
+                  "pm.test('验证码发送成功', function () {",
+                  "    pm.expect(response.code).to.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "用户注册",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"testuser\",\n    \"phone\": \"13800138000\",\n    \"email\": \"test@example.com\",\n    \"password\": \"password123\",\n    \"code_type\": \"sms\",\n    \"code_target\": \"13800138000\",\n    \"code_input\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/register",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "register"]
+            },
+            "description": "用户注册\n\nBody:\n{\n  \"username\": \"用户名\",\n  \"phone\": \"手机号\",\n  \"email\": \"邮箱\",\n  \"password\": \"密码\",\n  \"code_type\": \"sms|email\",\n  \"code_target\": \"验证码发送目标\",\n  \"code_input\": \"用户输入的验证码\"\n}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var response = pm.response.json();",
+                  "pm.test('注册成功', function () {",
+                  "    pm.expect(response.code).to.eql(0);",
+                  "    pm.expect(response.data.user_id).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "用户登录",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"account\": \"testuser\",\n    \"password\": \"password123\",\n    \"captcha_token\": \"{{captcha_token}}\",\n    \"captcha_input\": \"{{captcha_code}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "用户登录（支持用户名/手机号/邮箱）\n\nBody:\n{\n  \"account\": \"账号\",\n  \"password\": \"密码\",\n  \"captcha_token\": \"图形验证码token\",\n  \"captcha_input\": \"图形验证码\"\n}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var response = pm.response.json();",
+                  "pm.test('登录成功', function () {",
+                  "    pm.expect(response.code).to.eql(0);",
+                  "    pm.expect(response.data.token).to.not.be.empty;",
+                  "});",
+                  "// 自动保存用户 token",
+                  "if (response.data && response.data.token) {",
+                  "    pm.collectionVariables.set('user_token', response.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "管理员管理",
+      "description": "管理员登录及账号管理",
+      "item": [
+        {
+          "name": "管理员登录",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"admin\",\n    \"password\": \"admin123\",\n    \"captcha_token\": \"{{captcha_token}}\",\n    \"captcha_input\": \"{{captcha_code}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/login",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "login"]
+            },
+            "description": "管理员登录，签发带 role 的 JWT\n\n默认账号：admin / admin123\n\n注意：需先调用「获取图形验证码」获取 token，并手动识别验证码填入 captcha_code"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var response = pm.response.json();",
+                  "pm.test('管理员登录成功', function () {",
+                  "    pm.expect(response.code).to.eql(0);",
+                  "    pm.expect(response.data.token).to.not.be.empty;",
+                  "    pm.expect(response.data.admin.role).to.eql('super_admin');",
+                  "});",
+                  "// 自动保存管理员 token",
+                  "if (response.data && response.data.token) {",
+                  "    pm.collectionVariables.set('admin_token', response.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "获取当前管理员信息",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/info",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "info"]
+            },
+            "description": "获取当前登录管理员信息"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('获取管理员信息成功', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    var response = pm.response.json();",
+                  "    pm.expect(response.code).to.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "管理员列表",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/list?page=1&keyword=",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "list"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "keyword", "value": "" }
+              ]
+            },
+            "description": "管理员列表（分页10条，支持 keyword 搜索）"
+          }
+        },
+        {
+          "name": "创建管理员",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"newadmin\",\n    \"password\": \"newadmin123\",\n    \"role\": \"admin\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/create",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "create"]
+            },
+            "description": "创建管理员（仅 super_admin 可操作）"
+          }
+        },
+        {
+          "name": "更新管理员",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"role\": \"admin\",\n    \"status\": 1\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/update/2",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "update", "2"]
+            },
+            "description": "更新管理员信息（username/password/role/status）"
+          }
+        },
+        {
+          "name": "修改管理员密码",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"old_password\": \"admin123\",\n    \"new_password\": \"admin456\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/change-password",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "change-password"]
+            },
+            "description": "修改自己的密码"
+          }
+        },
+        {
+          "name": "管理员操作日志",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/logs?page=1",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "logs"],
+              "query": [
+                { "key": "page", "value": "1" }
+              ]
+            },
+            "description": "管理员操作日志列表（分页10条）"
+          }
+        },
+        {
+          "name": "删除管理员",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/delete/2",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "delete", "2"]
+            },
+            "description": "删除管理员（不能删除最后一个 super_admin）"
+          }
+        }
+      ]
+    },
+    {
+      "name": "推送Key管理",
+      "description": "推送 Key（推送通道）的创建、列表、编辑、删除",
+      "item": [
+        {
+          "name": "创建推送Key",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"key_value\": \"test_push_key_001\",\n    \"name\": \"测试推送通道\",\n    \"max_devices\": 100\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/keys",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "keys"]
+            },
+            "description": "创建推送 Key（推送通道）"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var response = pm.response.json();",
+                  "pm.test('创建推送Key成功', function () {",
+                  "    pm.expect(response.code).to.eql(0);",
+                  "});",
+                  "if (response.data && response.data.id) {",
+                  "    pm.collectionVariables.set('key_id', response.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "推送Key列表",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/keys?page=1&keyword=",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "keys"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "keyword", "value": "" }
+              ]
+            },
+            "description": "推送 Key 列表（分页10条，支持搜索）"
+          }
+        },
+        {
+          "name": "推送Key详情",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/keys/{{key_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "keys", "{{key_id}}"]
+            },
+            "description": "获取推送 Key 详情"
+          }
+        },
+        {
+          "name": "编辑推送Key",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"更新后的推送通道名称\",\n    \"max_devices\": 200\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/keys/{{key_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "keys", "{{key_id}}"]
+            },
+            "description": "编辑推送 Key"
+          }
+        },
+        {
+          "name": "切换推送Key状态",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"status\": 0\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/keys/{{key_id}}/status",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "keys", "{{key_id}}", "status"]
+            },
+            "description": "启用/禁用推送 Key（status: 0=禁用 1=正常）"
+          }
+        },
+        {
+          "name": "删除推送Key",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/keys/{{key_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "keys", "{{key_id}}"]
+            },
+            "description": "删除推送 Key"
+          }
+        }
+      ]
+    },
+    {
+      "name": "API Key管理",
+      "description": "开放 API 的 Key 创建、列表、编辑、删除（用于 X-Api-Key 鉴权）",
+      "item": [
+        {
+          "name": "创建API Key",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"测试API Key\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/api-keys",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "api-keys"]
+            },
+            "description": "创建 API Key（用于开放 API 推送鉴权）\n\nKey 格式：pk_ + 32位随机hex"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var response = pm.response.json();",
+                  "pm.test('创建API Key成功', function () {",
+                  "    pm.expect(response.code).to.eql(0);",
+                  "    pm.expect(response.data.key_value).to.contain('pk_');",
+                  "});",
+                  "// 自动保存 API Key",
+                  "if (response.data && response.data.key_value) {",
+                  "    pm.collectionVariables.set('api_key', response.data.key_value);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API Key列表",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/api-keys?page=1&keyword=",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "api-keys"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "keyword", "value": "" }
+              ]
+            },
+            "description": "API Key 列表（分页10条）"
+          }
+        },
+        {
+          "name": "更新API Key",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"更新后的API Key名称\",\n    \"status\": 1\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/api-keys/1",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "api-keys", "1"]
+            },
+            "description": "更新 API Key（name/status/expire_at）"
+          }
+        },
+        {
+          "name": "删除API Key",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/api-keys/1",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "api-keys", "1"]
+            },
+            "description": "删除 API Key"
+          }
+        }
+      ]
+    },
+    {
+      "name": "设备管理",
+      "description": "设备列表、详情、拉黑、解黑",
+      "item": [
+        {
+          "name": "设备列表",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/devices?page=1&keyword=",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "devices"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "keyword", "value": "" }
+              ]
+            },
+            "description": "设备列表（分页10条，支持搜索 device_id/device_name/device_model）"
+          }
+        },
+        {
+          "name": "设备详情",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/devices/{{device_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "devices", "{{device_id}}"]
+            },
+            "description": "设备详情（支持主键ID或device_id查询）"
+          }
+        },
+        {
+          "name": "拉黑设备",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"type\": \"device_id\",\n    \"value\": \"{{device_id}}\",\n    \"reason\": \"测试拉黑设备\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/blacklist",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "blacklist"]
+            },
+            "description": "拉黑设备（加入后立即断开在线连接）\n\ntype: device_id / ip / fingerprint"
+          }
+        },
+        {
+          "name": "黑名单列表",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/blacklist?page=1&keyword=",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "blacklist"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "keyword", "value": "" }
+              ]
+            },
+            "description": "黑名单列表（分页10条）"
+          }
+        },
+        {
+          "name": "解除拉黑",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/blacklist/1",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "blacklist", "1"]
+            },
+            "description": "将设备从黑名单移出（解黑）"
+          }
+        }
+      ]
+    },
+    {
+      "name": "推送测试",
+      "description": "管理员发起的推送：单设备、多设备、Key维度",
+      "item": [
+        {
+          "name": "推送-单设备",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"target_type\": \"device\",\n    \"target_value\": \"{{device_id}}\",\n    \"title\": \"单设备推送测试\",\n    \"content\": \"这是一条单设备推送消息\",\n    \"priority\": \"high\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/push/send",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "push", "send"]
+            },
+            "description": "管理员发起单设备推送"
+          }
+        },
+        {
+          "name": "推送-多设备",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"target_type\": \"device\",\n    \"target_value\": \"device_001,device_002,device_003\",\n    \"title\": \"多设备推送测试\",\n    \"content\": \"这是一条多设备推送消息\",\n    \"priority\": \"normal\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/push/send",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "push", "send"]
+            },
+            "description": "管理员发起多设备推送（target_value 多个用逗号分隔）"
+          }
+        },
+        {
+          "name": "推送-Key维度",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"target_type\": \"key\",\n    \"target_value\": \"test_push_key_001\",\n    \"title\": \"Key维度推送测试\",\n    \"content\": \"推送到所有订阅该Key的设备\",\n    \"priority\": \"normal\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/push/send",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "push", "send"]
+            },
+            "description": "按推送 Key 维度推送（推送到所有订阅该 Key 的设备）"
+          }
+        },
+        {
+          "name": "推送日志列表",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/push/logs?page=1",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "push", "logs"],
+              "query": [
+                { "key": "page", "value": "1" }
+              ]
+            },
+            "description": "推送日志列表（分页）"
+          }
+        }
+      ]
+    },
+    {
+      "name": "开放API推送",
+      "description": "使用 X-Api-Key 鉴权的开放 API 推送接口",
+      "item": [
+        {
+          "name": "开放API-单设备推送",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"target_type\": \"device\",\n    \"target_value\": \"{{device_id}}\",\n    \"title\": \"开放API单设备推送\",\n    \"content\": \"通过X-Api-Key鉴权的推送\",\n    \"payload\": {\n        \"key\": \"value\"\n    },\n    \"priority\": \"high\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/push",
+              "host": ["{{base_url}}"],
+              "path": ["api", "push"]
+            },
+            "description": "开放 API 推送 - 单设备\n\n鉴权：X-Api-Key 请求头\n\nBody:\n{\n  \"target_type\": \"device|key\",\n  \"target_value\": \"设备ID或Key值（多个逗号分隔）\",\n  \"title\": \"标题\",\n  \"content\": \"内容\",\n  \"payload\": {},\n  \"priority\": \"high|normal|low\"\n}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var response = pm.response.json();",
+                  "pm.test('开放API推送成功', function () {",
+                  "    pm.expect(response.code).to.eql(0);",
+                  "    pm.expect(response.data).to.have.property('success_count');",
+                  "    pm.expect(response.data).to.have.property('fail_count');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "开放API-多设备推送",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"target_type\": \"device\",\n    \"target_value\": \"device_001,device_002,device_003\",\n    \"title\": \"开放API多设备推送\",\n    \"content\": \"同时推送到多个设备\",\n    \"priority\": \"normal\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/push",
+              "host": ["{{base_url}}"],
+              "path": ["api", "push"]
+            },
+            "description": "开放 API 推送 - 多设备（target_value 逗号分隔）"
+          }
+        },
+        {
+          "name": "开放API-Key维度推送",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Api-Key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"target_type\": \"key\",\n    \"target_value\": \"test_push_key_001\",\n    \"title\": \"开放API Key维度推送\",\n    \"content\": \"推送到所有订阅该Key的设备\",\n    \"priority\": \"normal\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/push",
+              "host": ["{{base_url}}"],
+              "path": ["api", "push"]
+            },
+            "description": "开放 API 推送 - Key 维度"
+          }
+        },
+        {
+          "name": "开放API-缺少ApiKey(应401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"target_type\": \"device\",\n    \"target_value\": \"{{device_id}}\",\n    \"title\": \"无鉴权推送\",\n    \"content\": \"应返回401\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/push",
+              "host": ["{{base_url}}"],
+              "path": ["api", "push"]
+            },
+            "description": "缺少 X-Api-Key 应返回 401"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('缺少API Key应返回401', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "APP打包",
+      "description": "提交打包任务、查询状态、下载APK",
+      "item": [
+        {
+          "name": "提交打包任务",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"app_name\": \"测试推送APP\",\n    \"default_key\": \"test_push_key_001\",\n    \"server_url\": \"http://127.0.0.1:9501\",\n    \"ws_url\": \"ws://127.0.0.1:9502\",\n    \"admin_id\": 1\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/app-build",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "app-build"]
+            },
+            "description": "提交 APK 打包任务\n\nBody:\n{\n  \"app_name\": \"应用名称\",\n  \"default_key\": \"默认推送Key\",\n  \"server_url\": \"HTTP API地址\",\n  \"ws_url\": \"WebSocket地址\",\n  \"admin_id\": 管理员ID\n}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var response = pm.response.json();",
+                  "pm.test('打包任务提交成功', function () {",
+                  "    pm.expect(response.code).to.eql(0);",
+                  "    pm.expect(response.data.build_id).to.not.be.empty;",
+                  "});",
+                  "if (response.data && response.data.build_id) {",
+                  "    pm.collectionVariables.set('build_id', response.data.build_id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "查询打包状态",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/app-build/status/{{build_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "app-build", "status", "{{build_id}}"]
+            },
+            "description": "查询打包任务状态（pending/building/success/failed）"
+          }
+        },
+        {
+          "name": "查询打包列表",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/app-build/list?page=1&keyword=",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "app-build", "list"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "keyword", "value": "" }
+              ]
+            },
+            "description": "打包历史记录列表（分页）"
+          }
+        },
+        {
+          "name": "获取打包日志",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/app-build/log/{{build_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "app-build", "log", "{{build_id}}"]
+            },
+            "description": "获取打包构建日志"
+          }
+        },
+        {
+          "name": "下载APK",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/app-build/download/{{build_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "app-build", "download", "{{build_id}}"]
+            },
+            "description": "下载打包成功的 APK 文件（仅 status=success 时可下载）"
+          }
+        }
+      ]
+    },
+    {
+      "name": "系统设置",
+      "description": "系统设置、系统信息、缓存管理",
+      "item": [
+        {
+          "name": "获取系统设置",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/settings",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "settings"]
+            },
+            "description": "获取系统设置（推送参数、存储、邮件等配置）"
+          }
+        },
+        {
+          "name": "更新系统设置",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"offline_message_ttl\": 86400,\n    \"heartbeat_interval\": 30\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/settings",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "settings"]
+            },
+            "description": "更新系统设置"
+          }
+        },
+        {
+          "name": "获取系统信息",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/settings/system-info",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "settings", "system-info"]
+            },
+            "description": "获取系统运行信息（版本、运行时间、CPU/内存/磁盘）"
+          }
+        },
+        {
+          "name": "清除缓存",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/settings/clear-cache",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "settings", "clear-cache"]
+            },
+            "description": "清除系统缓存"
+          }
+        },
+        {
+          "name": "测试邮件配置",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/settings/test-mail?host=smtp.example.com&port=587&from=no-reply@example.com",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "settings", "test-mail"],
+              "query": [
+                { "key": "host", "value": "smtp.example.com" },
+                { "key": "port", "value": "587" },
+                { "key": "from", "value": "no-reply@example.com" }
+              ]
+            },
+            "description": "测试邮件 SMTP 配置是否可用"
+          }
+        }
+      ]
+    },
+    {
+      "name": "健康检查",
+      "item": [
+        {
+          "name": "服务健康检查",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "检查 HTTP API 服务是否正常运行"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('服务健康', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    var response = pm.response.json();",
+                  "    pm.expect(response.status).to.eql('ok');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

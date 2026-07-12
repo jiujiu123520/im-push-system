@@ -1,0 +1,169 @@
+// ============================================================
+// Mixins · 通用混入
+// ============================================================
+@use 'variables' as *;
+
+// 弹性布局 - 居中
+@mixin flex-center($direction: row) {
+  display: flex;
+  flex-direction: $direction;
+  align-items: center;
+  justify-content: center;
+}
+
+// 弹性布局 - 水平居中
+@mixin flex-center-x {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// 弹性布局 - 垂直居中
+@mixin flex-center-y {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+// 弹性布局 - 两端对齐
+@mixin flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+// 弹性布局 - 起点对齐
+@mixin flex-start($gap: 0) {
+  display: flex;
+  align-items: center;
+  gap: $gap;
+}
+
+// 美化滚动条
+@mixin scrollbar($size: 6px, $color: rgba(109, 92, 255, 0.25)) {
+  &::-webkit-scrollbar {
+    width: $size;
+    height: $size;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: $size;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: $color;
+    border-radius: $size;
+    transition: background 0.2s;
+    &:hover {
+      background: rgba(109, 92, 255, 0.45);
+    }
+  }
+  &::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  scrollbar-width: thin;
+  scrollbar-color: $color transparent;
+}
+
+// 全局滚动条（用于 body）
+@mixin global-scrollbar {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(109, 92, 255, 0.22);
+    border-radius: 8px;
+    &:hover {
+      background: rgba(109, 92, 255, 0.4);
+    }
+  }
+}
+
+// 卡片阴影
+@mixin card-shadow($level: md) {
+  @if $level == sm {
+    box-shadow: $shadow-sm;
+  } @else if $level == md {
+    box-shadow: $shadow-md;
+  } @else if $level == lg {
+    box-shadow: $shadow-lg;
+  } @else if $level == xl {
+    box-shadow: $shadow-xl;
+  }
+}
+
+// 毛玻璃效果
+@mixin glass($blur: 14px, $alpha: 0.7) {
+  background: rgba(255, 255, 255, $alpha);
+  backdrop-filter: blur($blur) saturate(180%);
+  -webkit-backdrop-filter: blur($blur) saturate(180%);
+}
+
+// 暗色毛玻璃
+@mixin glass-dark($blur: 14px, $alpha: 0.55) {
+  background: rgba(22, 24, 40, $alpha);
+  backdrop-filter: blur($blur) saturate(180%);
+  -webkit-backdrop-filter: blur($blur) saturate(180%);
+}
+
+// 渐变文字
+@mixin text-gradient($gradient: $gradient-primary) {
+  background: $gradient;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+// 文本截断
+@mixin text-ellipsis($lines: 1) {
+  @if $lines == 1 {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  } @else {
+    display: -webkit-box;
+    -webkit-line-clamp: $lines;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+// 定位居中
+@mixin absolute-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+// 伪元素填满
+@mixin fill-parent {
+  position: absolute;
+  inset: 0;
+}
+
+// 过渡
+@mixin transition($properties: all, $duration: $transition-base) {
+  transition: $properties $duration;
+}
+
+// 卡片基础样式
+@mixin card-base {
+  background: var(--bg-card);
+  border-radius: $radius-lg;
+  box-shadow: $shadow-md;
+  transition: box-shadow $transition-base, transform $transition-base;
+}
+
+// 悬停上浮
+@mixin hover-float($translate: -4px) {
+  transition: transform $transition-base, box-shadow $transition-base;
+  &:hover {
+    transform: translateY($translate);
+    box-shadow: $shadow-lg;
+  }
+}

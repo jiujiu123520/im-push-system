@@ -1,0 +1,1452 @@
+<template>
+  <div class="page-container app-build-page">
+    <!-- 顶部标题区 + 步骤指示器 -->
+    <div class="page-hero">
+      <div class="hero-bg">
+        <div class="hero-blob blob-a"></div>
+        <div class="hero-blob blob-b"></div>
+        <div class="hero-grid"></div>
+      </div>
+      <div class="hero-content">
+        <div class="hero-left">
+          <h2 class="hero-title">
+            <span class="title-gradient">APP 在线构建</span>
+          </h2>
+          <p class="hero-sub">配置应用参数，一键生成 Android / iOS 安装包</p>
+        </div>
+        <!-- 步骤指示器 -->
+        <div class="step-indicator">
+          <div
+            v-for="(step, idx) in steps"
+            :key="step.key"
+            class="step-item"
+            :class="{
+              active: currentStep === idx,
+              done: currentStep > idx
+            }"
+          >
+            <div class="step-dot">
+              <el-icon v-if="currentStep > idx"><Check /></el-icon>
+              <span v-else>{{ idx + 1 }}</span>
+            </div>
+            <div class="step-label">{{ step.label }}</div>
+            <div v-if="idx < steps.length - 1" class="step-line"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 主体：左侧表单 + 右侧构建历史 -->
+    <div class="build-grid">
+      <!-- 左侧：配置表单 -->
+      <div class="form-card">
+        <div class="card-header-row">
+          <div class="header-icon">
+            <el-icon><EditPen /></el-icon>
+          </div>
+          <div>
+            <h3 class="card-title">应用配置</h3>
+            <p class="card-sub">填写打包所需的应用信息</p>
+          </div>
+        </div>
+
+        <el-form
+          ref="formRef"
+          :model="form"
+          :rules="rules"
+          label-position="top"
+          class="build-form"
+        >
+          <!-- 应用名称 -->
+          <el-form-item label="应用名称" prop="name">
+            <el-input
+              v-model="form.name"
+              placeholder="例如：Push 推送客户端"
+              :prefix-icon="Cellphone"
+              clearable
+            />
+          </el-form-item>
+
+          <!-- 默认 Key -->
+          <el-form-item label="默认 Key" prop="defaultKey">
+            <el-select
+              v-model="form.defaultKey"
+              placeholder="选择已有 Key 或输入新 Key"
+              filterable
+              allow-create
+              default-first-option
+              style="width: 100%"
+              :prefix-icon="Key"
+            >
+              <el-option
+                v-for="k in keyOptions"
+                :key="k.value"
+                :label="k.label"
+                :value="k.value"
+              />
+            </el-select>
+          </el-form-item>
+
+          <!-- 服务器地址 + WebSocket 地址 -->
+          <div class="form-row">
+            <el-form-item label="服务器地址（HTTP API）" prop="serverAddress">
+              <el-input
+                v-model="form.serverAddress"
+                placeholder="https://api.push.com"
+                :prefix-icon="Link"
+                clearable
+              />
+            </el-form-item>
+            <el-form-item label="WebSocket 地址" prop="websocketAddress">
+              <el-input
+                v-model="form.websocketAddress"
+                placeholder="wss://ws.push.com"
+                :prefix-icon="Connection"
+                clearable
+              />
+            </el-form-item>
+          </div>
+
+          <!-- 应用图标上传 -->
+          <el-form-item label="应用图标" prop="appIcon">
+            <div class="icon-uploader-wrap">
+              <el-upload
+                ref="uploadRef"
+                class="icon-uploader"
+                :show-file-list="false"
+                :auto-upload="false"
+                :on-change="handleIconChange"
+                accept="image/png,image/jpeg,image/svg+xml"
+              >
+                <div v-if="form.appIcon" class="icon-preview">
+                  <img :src="form.appIcon" alt="应用图标" />
+                  <div class="icon-mask">
+                    <el-icon><Refresh /></el-icon>
+                    <span>更换</span>
+                  </div>
+                </div>
+                <div v-else class="icon-placeholder">
+                  <el-icon class="upload-icon"><Plus /></el-icon>
+                  <span>上传图标</span>
+                </div>
+              </el-upload>
+              <div class="icon-tips">
+                <p>建议尺寸 512×512</p>
+                <p>支持 PNG / JPG / SVG</p>
+                <el-button
+                  v-if="form.appIcon"
+                  link
+                  type="danger"
+                  :icon="Delete"
+                  @click="form.appIcon = ''"
+                >
+                  移除
+                </el-button>
+              </div>
+            </div>
+          </el-form-item>
+
+          <!-- 版本号 + 版本码 -->
+          <div class="form-row">
+            <el-form-item label="应用版本号" prop="version">
+              <el-input
+                v-model="form.version"
+                placeholder="例如：2.5.0"
+                :prefix-icon="PriceTag"
+                clearable
+              />
+            </el-form-item>
+            <el-form-item label="平台" prop="platform">
+              <el-radio-group v-model="form.platform" class="platform-radio">
+                <el-radio-button value="android">
+                  <el-icon><Cellphone /></el-icon>
+                  Android
+                </el-radio-button>
+                <el-radio-button value="ios">
+                  <el-icon><Monitor /></el-icon>
+                  iOS
+                </el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+          </div>
+
+          <!-- 打包类型 -->
+          <el-form-item label="打包类型" prop="buildType">
+            <div class="build-type-group">
+              <div
+                v-for="opt in buildTypes"
+                :key="opt.value"
+                class="build-type-item"
+                :class="{ active: form.buildType === opt.value }"
+                @click="form.buildType = opt.value"
+              >
+                <div class="type-icon" :class="opt.value">
+                  <el-icon><component :is="opt.icon" /></el-icon>
+                </div>
+                <div class="type-info">
+                  <div class="type-name">{{ opt.label }}</div>
+                  <div class="type-desc">{{ opt.desc }}</div>
+                </div>
+                <el-icon class="type-check"><CircleCheckFilled /></el-icon>
+              </div>
+            </div>
+          </el-form-item>
+        </el-form>
+
+        <!-- 生成按钮 -->
+        <div class="submit-bar">
+          <el-button
+            class="generate-btn"
+            type="primary"
+            size="large"
+            :loading="submitting"
+            :icon="Promotion"
+            @click="handleGenerate"
+          >
+            {{ submitting ? '正在提交构建...' : '生成安装包' }}
+          </el-button>
+        </div>
+      </div>
+
+      <!-- 右侧：构建历史 -->
+      <div class="history-card">
+        <div class="card-header-row">
+          <div class="header-icon history-icon">
+            <el-icon><Clock /></el-icon>
+          </div>
+          <div>
+            <h3 class="card-title">构建历史</h3>
+            <p class="card-sub">最近 {{ historyList.length }} 条构建记录</p>
+          </div>
+          <el-button
+            class="refresh-btn"
+            text
+            :icon="Refresh"
+            :loading="historyLoading"
+            @click="fetchHistory"
+          >
+            刷新
+          </el-button>
+        </div>
+
+        <div v-loading="historyLoading" class="history-list">
+          <div v-if="!historyList.length && !historyLoading" class="empty-state">
+            <el-icon class="empty-icon"><Files /></el-icon>
+            <p>暂无构建记录</p>
+            <span>完成左侧配置后点击「生成安装包」</span>
+          </div>
+
+          <div
+            v-for="item in historyList"
+            :key="item.id"
+            class="history-item"
+            :class="`status-${item.status}`"
+          >
+            <div class="item-main">
+              <div class="item-top">
+                <span class="item-name">{{ item.name }}</span>
+                <el-tag
+                  :type="statusTagType(item.status)"
+                  effect="light"
+                  round
+                  size="small"
+                  class="status-tag"
+                >
+                  <el-icon
+                    v-if="item.status === 'building'"
+                    class="loading-icon"
+                  >
+                    <Loading />
+                  </el-icon>
+                  {{ statusLabel(item.status) }}
+                </el-tag>
+              </div>
+              <div class="item-meta">
+                <span class="meta-item">
+                  <el-icon><Cellphone /></el-icon>
+                  {{ item.platform }}
+                </span>
+                <span class="meta-item">
+                  <el-icon><PriceTag /></el-icon>
+                  v{{ item.version }}
+                </span>
+                <span class="meta-item">
+                  <el-icon><Clock /></el-icon>
+                  {{ formatTime(item.createdAt) }}
+                </span>
+                <span v-if="item.size" class="meta-item">
+                  <el-icon><Document /></el-icon>
+                  {{ formatSize(item.size) }}
+                </span>
+              </div>
+            </div>
+            <div class="item-actions">
+              <el-button
+                v-if="item.status === 'success' && item.downloadUrl"
+                type="primary"
+                size="small"
+                :icon="Download"
+                round
+                @click="handleDownload(item)"
+              >
+                下载
+              </el-button>
+              <el-button
+                size="small"
+                :icon="Document"
+                round
+                @click="openLog(item)"
+              >
+                日志
+              </el-button>
+              <el-button
+                v-if="item.status === 'failed'"
+                size="small"
+                :icon="RefreshRight"
+                round
+                @click="handleRetry(item)"
+              >
+                重试
+              </el-button>
+              <el-button
+                size="small"
+                type="danger"
+                :icon="Delete"
+                circle
+                @click="handleDelete(item)"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 构建日志抽屉 -->
+    <el-drawer
+      v-model="logDrawerVisible"
+      title="构建日志"
+      direction="rtl"
+      size="560px"
+      class="log-drawer"
+    >
+      <template #header>
+        <div class="drawer-header">
+          <div class="drawer-title">
+            <el-icon class="title-icon"><Document /></el-icon>
+            <span>构建日志</span>
+          </div>
+          <el-tag
+            v-if="currentLogRecord"
+            :type="statusTagType(currentLogRecord.status)"
+            effect="light"
+            round
+            size="small"
+          >
+            {{ statusLabel(currentLogRecord.status) }}
+          </el-tag>
+        </div>
+      </template>
+
+      <div v-if="currentLogRecord" class="log-meta">
+        <div class="meta-row">
+          <span class="meta-label">应用名称</span>
+          <span class="meta-value">{{ currentLogRecord.name }}</span>
+        </div>
+        <div class="meta-row">
+          <span class="meta-label">构建ID</span>
+          <span class="meta-value mono">{{ currentLogRecord.buildId }}</span>
+        </div>
+        <div class="meta-row">
+          <span class="meta-label">平台 / 版本</span>
+          <span class="meta-value">
+            {{ currentLogRecord.platform }} · v{{ currentLogRecord.version }}
+          </span>
+        </div>
+        <div class="meta-row">
+          <span class="meta-label">开始时间</span>
+          <span class="meta-value">{{ formatTime(currentLogRecord.createdAt) }}</span>
+        </div>
+      </div>
+
+      <div class="log-terminal">
+        <div class="terminal-header">
+          <span class="dot red"></span>
+          <span class="dot yellow"></span>
+          <span class="dot green"></span>
+          <span class="terminal-title">build.log</span>
+        </div>
+        <div class="terminal-body">
+          <pre v-if="logContent">{{ logContent }}</pre>
+          <div v-else class="terminal-empty">
+            <el-icon class="loading-icon"><Loading /></el-icon>
+            <span>正在加载日志...</span>
+          </div>
+        </div>
+      </div>
+    </el-drawer>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadFile } from 'element-plus'
+import {
+  Cellphone,
+  Key,
+  Link,
+  Connection,
+  Plus,
+  Refresh,
+  Delete,
+  EditPen,
+  PriceTag,
+  Promotion,
+  Clock,
+  Files,
+  Document,
+  Download,
+  RefreshRight,
+  Check,
+  Loading,
+  CircleCheckFilled,
+  Cpu,
+  Coin,
+  Monitor
+} from '@element-plus/icons-vue'
+import {
+  getAppBuildListApi,
+  createAppBuildApi,
+  getBuildLogApi,
+  retryAppBuildApi,
+  deleteAppBuildApi
+} from '@/api/appBuild'
+import { getKeyListApi } from '@/api/key'
+import type { AppBuildRecord } from '@/api/types'
+
+// ---- 表单数据 ----
+interface BuildForm {
+  name: string
+  defaultKey: string
+  serverAddress: string
+  websocketAddress: string
+  appIcon: string
+  version: string
+  platform: 'android' | 'ios'
+  buildType: 'release' | 'debug'
+}
+
+const formRef = ref<FormInstance>()
+const uploadRef = ref()
+const submitting = ref(false)
+
+const form = reactive<BuildForm>({
+  name: '',
+  defaultKey: '',
+  serverAddress: '',
+  websocketAddress: '',
+  appIcon: '',
+  version: '1.0.0',
+  platform: 'android',
+  buildType: 'release'
+})
+
+const rules: FormRules = {
+  name: [{ required: true, message: '请输入应用名称', trigger: 'blur' }],
+  defaultKey: [{ required: true, message: '请选择或输入默认 Key', trigger: 'change' }],
+  serverAddress: [
+    { required: true, message: '请输入服务器地址', trigger: 'blur' },
+    { pattern: /^https?:\/\/.+/, message: '请输入合法的 HTTP 地址', trigger: 'blur' }
+  ],
+  websocketAddress: [
+    { required: true, message: '请输入 WebSocket 地址', trigger: 'blur' },
+    { pattern: /^wss?:\/\/.+/, message: '请输入合法的 ws/wss 地址', trigger: 'blur' }
+  ],
+  version: [{ required: true, message: '请输入版本号', trigger: 'blur' }]
+}
+
+// 步骤指示器
+const steps = [
+  { key: 'config', label: '配置' },
+  { key: 'build', label: '构建' },
+  { key: 'download', label: '下载' }
+]
+const currentStep = computed(() => {
+  // 有成功的构建记录则进入下载步骤
+  const hasSuccess = historyList.value.some((i) => i.status === 'success')
+  const hasBuilding = historyList.value.some(
+    (i) => i.status === 'building' || i.status === 'pending'
+  )
+  if (hasSuccess) return 2
+  if (hasBuilding || submitting.value) return 1
+  return 0
+})
+
+// Key 选项
+const keyOptions = ref<{ label: string; value: string }[]>([])
+
+async function fetchKeyOptions() {
+  try {
+    const res = await getKeyListApi({ page: 1, pageSize: 100 })
+    keyOptions.value = (res.data.list || []).map((k) => ({
+      label: `${k.title} (${k.appKey.slice(0, 12)}...)`,
+      value: k.appKey
+    }))
+  } catch {
+    // 接口未就绪时使用空列表
+    keyOptions.value = []
+  }
+}
+
+// 打包类型选项
+const buildTypes = [
+  { value: 'release', label: 'Release', desc: '正式版 · 优化性能', icon: Cpu },
+  { value: 'debug', label: 'Debug', desc: '调试版 · 含日志输出', icon: Coin }
+] as const
+
+// 图标上传处理
+async function handleIconChange(file: UploadFile) {
+  if (!file.raw) return
+  // 校验类型与大小
+  const isImage = file.raw.type.startsWith('image/')
+  if (!isImage) {
+    ElMessage.error('请上传图片文件')
+    return
+  }
+  const isLt500K = file.raw.size / 1024 / 1024 < 2
+  if (!isLt500K) {
+    ElMessage.error('图标大小不能超过 2MB')
+    return
+  }
+  // 转 base64 预览
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    form.appIcon = e.target?.result as string
+  }
+  reader.readAsDataURL(file.raw)
+}
+
+// ---- 构建历史 ----
+const historyList = ref<AppBuildRecord[]>([])
+const historyLoading = ref(false)
+
+async function fetchHistory() {
+  historyLoading.value = true
+  try {
+    const res = await getAppBuildListApi({ page: 1, pageSize: 20 })
+    historyList.value = res.data.list || []
+  } catch {
+    // 接口异常时保持空列表
+    historyList.value = []
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+// 状态映射
+function statusTagType(status: string) {
+  const map: Record<string, string> = {
+    pending: 'info',
+    building: 'primary',
+    success: 'success',
+    failed: 'danger'
+  }
+  return map[status] || 'info'
+}
+
+function statusLabel(status: string) {
+  const map: Record<string, string> = {
+    pending: '等待中',
+    building: '构建中',
+    success: '成功',
+    failed: '失败'
+  }
+  return map[status] || status
+}
+
+function formatTime(t: string): string {
+  if (!t) return '-'
+  return t.replace('T', ' ').slice(0, 19)
+}
+
+function formatSize(bytes: number): string {
+  if (!bytes) return '-'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(2) + ' MB'
+}
+
+// ---- 提交构建 ----
+async function handleGenerate() {
+  if (!formRef.value) return
+  try {
+    await formRef.value.validate()
+  } catch {
+    ElMessage.warning('请完善表单必填项')
+    return
+  }
+
+  submitting.value = true
+  try {
+    // 将扩展字段放入 config
+    await createAppBuildApi({
+      name: form.name,
+      platform: form.platform,
+      version: form.version,
+      versionCode: Date.now(),
+      config: {
+        defaultKey: form.defaultKey,
+        serverAddress: form.serverAddress,
+        websocketAddress: form.websocketAddress,
+        appIcon: form.appIcon,
+        buildType: form.buildType
+      }
+    })
+    ElMessage.success('构建任务已提交，正在打包...')
+    await fetchHistory()
+    startPolling()
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '提交构建失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+// 下载
+function handleDownload(item: AppBuildRecord) {
+  if (!item.downloadUrl) {
+    ElMessage.warning('下载地址不存在')
+    return
+  }
+  window.open(item.downloadUrl, '_blank')
+}
+
+// 重试
+async function handleRetry(item: AppBuildRecord) {
+  try {
+    await ElMessageBox.confirm(`确定重新构建「${item.name}」吗？`, '提示', {
+      confirmButtonText: '重新构建',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await retryAppBuildApi(item.id)
+    ElMessage.success('已重新提交构建')
+    await fetchHistory()
+    startPolling()
+  } catch {
+    // 取消
+  }
+}
+
+// 删除
+async function handleDelete(item: AppBuildRecord) {
+  try {
+    await ElMessageBox.confirm(`确定删除该构建记录吗？`, '提示', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await deleteAppBuildApi(item.id)
+    ElMessage.success('删除成功')
+    await fetchHistory()
+  } catch {
+    // 取消
+  }
+}
+
+// ---- 轮询构建状态 ----
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+function startPolling() {
+  if (pollTimer) return
+  pollTimer = setInterval(async () => {
+    const hasActive = historyList.value.some(
+      (i) => i.status === 'building' || i.status === 'pending'
+    )
+    if (!hasActive) {
+      stopPolling()
+      return
+    }
+    await fetchHistory()
+  }, 3000)
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+// ---- 日志抽屉 ----
+const logDrawerVisible = ref(false)
+const currentLogRecord = ref<AppBuildRecord | null>(null)
+const logContent = ref('')
+
+async function openLog(item: AppBuildRecord) {
+  currentLogRecord.value = item
+  logContent.value = ''
+  logDrawerVisible.value = true
+  try {
+    const res = await getBuildLogApi(item.id)
+    logContent.value = res.data || item.log || '暂无日志内容'
+  } catch {
+    logContent.value = item.log || '日志加载失败'
+  }
+}
+
+onMounted(() => {
+  fetchKeyOptions()
+  fetchHistory()
+})
+
+onBeforeUnmount(() => {
+  stopPolling()
+})
+</script>
+
+<style lang="scss" scoped>
+.app-build-page {
+  animation: fade-up 0.5s ease;
+}
+
+// ===== 顶部 Hero 区 =====
+.page-hero {
+  position: relative;
+  border-radius: $radius-xl;
+  padding: 28px 32px;
+  margin-bottom: 20px;
+  overflow: hidden;
+  background: $gradient-primary;
+  box-shadow: $shadow-primary;
+
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .hero-blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(60px);
+    opacity: 0.55;
+
+    &.blob-a {
+      width: 280px;
+      height: 280px;
+      background: radial-gradient(circle, #ffffff, transparent 70%);
+      top: -120px;
+      right: -80px;
+      opacity: 0.25;
+    }
+    &.blob-b {
+      width: 240px;
+      height: 240px;
+      background: radial-gradient(circle, #5cb8ff, transparent 70%);
+      bottom: -100px;
+      left: 30%;
+      opacity: 0.4;
+    }
+  }
+
+  .hero-grid {
+    position: absolute;
+    inset: 0;
+    background-image: linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+    background-size: 28px 28px;
+    mask-image: linear-gradient(135deg, black, transparent 80%);
+  }
+
+  .hero-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
+  .hero-left {
+    .hero-title {
+      margin: 0;
+      .title-gradient {
+        font-size: 26px;
+        font-weight: 800;
+        color: #fff;
+        letter-spacing: -0.3px;
+        text-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+      }
+    }
+    .hero-sub {
+      margin: 8px 0 0;
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 14px;
+    }
+  }
+}
+
+// 步骤指示器
+.step-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0;
+
+  .step-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    .step-dot {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.18);
+      border: 2px solid rgba(255, 255, 255, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      transition: all 0.3s ease;
+      backdrop-filter: blur(4px);
+    }
+
+    .step-label {
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .step-line {
+      width: 32px;
+      height: 2px;
+      background: rgba(255, 255, 255, 0.25);
+      margin: 0 6px;
+      border-radius: 1px;
+    }
+
+    &.active .step-dot {
+      background: #fff;
+      color: $color-primary;
+      border-color: #fff;
+      box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.18);
+      transform: scale(1.08);
+    }
+    &.done .step-dot {
+      background: rgba(255, 255, 255, 0.9);
+      color: $color-primary;
+      border-color: #fff;
+    }
+    &.done .step-line {
+      background: rgba(255, 255, 255, 0.7);
+    }
+  }
+}
+
+// ===== 主体网格 =====
+.build-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 20px;
+}
+
+// 卡片通用样式
+.form-card,
+.history-card {
+  background: var(--bg-card);
+  border-radius: $radius-xl;
+  padding: 24px;
+  border: 1px solid var(--border-light);
+  box-shadow: $shadow-md;
+  position: relative;
+  overflow: hidden;
+}
+
+.card-header-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 22px;
+
+  .header-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: $radius-md;
+    background: $gradient-primary;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 22px;
+    box-shadow: $shadow-primary;
+    flex-shrink: 0;
+
+    &.history-icon {
+      background: $gradient-cyan;
+      box-shadow: 0 8px 24px rgba(92, 184, 255, 0.32);
+    }
+  }
+
+  .card-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+  }
+  .card-sub {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .refresh-btn {
+    margin-left: auto;
+  }
+}
+
+// 表单
+.build-form {
+  :deep(.el-form-item__label) {
+    font-weight: 600;
+    color: var(--text-regular);
+    padding-bottom: 6px;
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+}
+
+// 图标上传
+.icon-uploader-wrap {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+
+  .icon-uploader {
+    :deep(.el-upload) {
+      width: 96px;
+      height: 96px;
+      border-radius: $radius-lg;
+      overflow: hidden;
+      border: 2px dashed var(--border-base);
+      background: var(--bg-page);
+      transition: all 0.25s ease;
+      cursor: pointer;
+
+      &:hover {
+        border-color: $color-primary;
+        background: $color-primary-light-9;
+      }
+    }
+  }
+
+  .icon-preview {
+    width: 100%;
+    height: 100%;
+    position: relative;
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: $radius-md;
+    }
+
+    .icon-mask {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      color: #fff;
+      font-size: 12px;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      border-radius: $radius-md;
+    }
+
+    &:hover .icon-mask {
+      opacity: 1;
+    }
+  }
+
+  .icon-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+
+    .upload-icon {
+      font-size: 22px;
+      color: $color-primary;
+    }
+  }
+
+  .icon-tips {
+    p {
+      margin: 0 0 4px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+  }
+}
+
+// 平台单选
+.platform-radio {
+  :deep(.el-radio-button__inner) {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+  }
+}
+
+// 打包类型卡片
+.build-type-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+
+  .build-type-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: $radius-md;
+    border: 1.5px solid var(--border-base);
+    background: var(--bg-page);
+    cursor: pointer;
+    transition: all 0.25s ease;
+    position: relative;
+
+    &:hover {
+      border-color: $color-primary-light-5;
+      transform: translateY(-2px);
+    }
+
+    &.active {
+      border-color: $color-primary;
+      background: $color-primary-light-9;
+      box-shadow: 0 4px 14px rgba(109, 92, 255, 0.18);
+
+      .type-check {
+        opacity: 1;
+        transform: scale(1);
+      }
+      .type-icon {
+        background: $gradient-primary;
+        color: #fff;
+      }
+    }
+
+    .type-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: $radius-sm;
+      background: var(--bg-card);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-regular);
+      font-size: 18px;
+      transition: all 0.25s ease;
+      flex-shrink: 0;
+    }
+
+    .type-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .type-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .type-desc {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
+    .type-check {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      color: $color-primary;
+      font-size: 16px;
+      opacity: 0;
+      transform: scale(0.6);
+      transition: all 0.25s ease;
+    }
+  }
+}
+
+// 生成按钮
+.submit-bar {
+  margin-top: 8px;
+  padding-top: 20px;
+  border-top: 1px dashed var(--border-light);
+
+  .generate-btn {
+    width: 100%;
+    height: 52px;
+    border-radius: $radius-md;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    background: $gradient-primary;
+    border: none;
+    box-shadow: $shadow-primary;
+    transition: all 0.3s ease;
+
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: $shadow-primary-lg;
+    }
+    &:active {
+      transform: translateY(0);
+    }
+  }
+}
+
+// ===== 构建历史 =====
+.history-list {
+  min-height: 240px;
+  max-height: 560px;
+  overflow-y: auto;
+  @include scrollbar;
+
+  .empty-state {
+    height: 240px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--text-secondary);
+
+    .empty-icon {
+      font-size: 48px;
+      color: var(--border-dark);
+      margin-bottom: 4px;
+    }
+    p {
+      margin: 0;
+      font-size: 14px;
+      color: var(--text-regular);
+    }
+    span {
+      font-size: 12px;
+    }
+  }
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: $radius-md;
+  border: 1px solid var(--border-light);
+  background: var(--bg-card);
+  margin-bottom: 10px;
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+  animation: slide-in 0.35s ease;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--border-base);
+  }
+
+  &.status-pending::before { background: $color-info; }
+  &.status-building::before { background: $color-primary; }
+  &.status-success::before { background: $color-success; }
+  &.status-failed::before { background: $color-danger; }
+
+  &:hover {
+    border-color: $color-primary-light-5;
+    box-shadow: $shadow-sm;
+    transform: translateX(2px);
+  }
+
+  .item-main {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .item-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+
+    .item-name {
+      font-weight: 600;
+      color: var(--text-primary);
+      font-size: 14px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 180px;
+    }
+
+    .status-tag {
+      flex-shrink: 0;
+    }
+  }
+
+  .item-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+
+    .meta-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      .el-icon {
+        font-size: 12px;
+      }
+    }
+  }
+
+  .item-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+}
+
+.loading-icon {
+  animation: rotating 1.2s linear infinite;
+  margin-right: 2px;
+}
+
+// ===== 日志抽屉 =====
+.log-drawer {
+  :deep(.el-drawer__header) {
+    margin-bottom: 0;
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--border-light);
+  }
+  :deep(.el-drawer__body) {
+    padding: 0;
+  }
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  .drawer-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+
+    .title-icon {
+      color: $color-primary;
+      font-size: 18px;
+    }
+  }
+}
+
+.log-meta {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-page);
+
+  .meta-row {
+    display: flex;
+    padding: 4px 0;
+    font-size: 13px;
+
+    .meta-label {
+      width: 110px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+    .meta-value {
+      color: var(--text-primary);
+      &.mono {
+        font-family: $font-family-mono;
+        font-size: 12px;
+      }
+    }
+  }
+}
+
+.log-terminal {
+  margin: 16px 24px 24px;
+  border-radius: $radius-md;
+  overflow: hidden;
+  background: #0e1020;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: $shadow-md;
+
+  .terminal-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.04);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      &.red { background: #ff5a6e; }
+      &.yellow { background: #ffb547; }
+      &.green { background: #18c29c; }
+    }
+    .terminal-title {
+      margin-left: 8px;
+      color: rgba(255, 255, 255, 0.55);
+      font-size: 12px;
+      font-family: $font-family-mono;
+    }
+  }
+
+  .terminal-body {
+    padding: 16px;
+    min-height: 320px;
+    max-height: 540px;
+    overflow-y: auto;
+    @include scrollbar(6px, rgba(109, 92, 255, 0.4));
+
+    pre {
+      margin: 0;
+      font-family: $font-family-mono;
+      font-size: 13px;
+      line-height: 1.7;
+      color: #b4e8d4;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .terminal-empty {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: rgba(255, 255, 255, 0.4);
+      font-size: 13px;
+
+      .loading-icon {
+        color: $color-primary-light-5;
+      }
+    }
+  }
+}
+
+// ===== 动画 =====
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes rotating {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+// ===== 响应式 =====
+@media (max-width: 1100px) {
+  .build-grid {
+    grid-template-columns: 1fr;
+  }
+  .step-indicator .step-line {
+    width: 20px;
+  }
+}
+
+@media (max-width: 640px) {
+  .page-hero {
+    padding: 20px;
+  }
+  .build-form .form-row {
+    grid-template-columns: 1fr;
+  }
+  .build-type-group {
+    grid-template-columns: 1fr;
+  }
+  .history-item {
+    flex-direction: column;
+    align-items: flex-start;
+
+    .item-actions {
+      width: 100%;
+      justify-content: flex-end;
+    }
+  }
+}
+
+// ===== 暗色模式 =====
+:global(html.dark) {
+  .page-hero {
+    background: linear-gradient(135deg, #4d38f0 0%, #7d4dff 100%);
+  }
+  .icon-uploader-wrap {
+    .icon-uploader :deep(.el-upload) {
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .icon-placeholder .upload-icon {
+      color: $color-primary-light-5;
+    }
+  }
+  .build-type-item {
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .log-meta {
+    background: rgba(255, 255, 255, 0.02);
+  }
+}
+</style>
