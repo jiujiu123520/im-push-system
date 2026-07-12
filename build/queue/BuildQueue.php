@@ -97,6 +97,7 @@ class BuildQueue
             'server_url'     => $config['server_url'] ?? '',
             'ws_url'         => $config['ws_url'] ?? '',
             'icon_path'      => $config['icon_path'] ?? '',
+            'package_name'   => $config['package_name'] ?? '',
             'admin_id'       => (string)($config['admin_id'] ?? 0),
             'status'         => 'pending',
             'apk_path'       => '',
@@ -227,6 +228,7 @@ class BuildQueue
         $serverUrl = $config['server_url'] ?? '';
         $wsUrl = $config['ws_url'] ?? '';
         $iconPath = $config['icon_path'] ?? '';
+        $packageName = $config['package_name'] ?? '';
 
         $args = '--build-id ' . escapeshellarg($buildId);
         $args .= ' --app-name ' . escapeshellarg($appName);
@@ -236,6 +238,10 @@ class BuildQueue
         // 图标可选
         if ($iconPath !== '' && is_file($iconPath)) {
             $args .= ' --icon-path ' . escapeshellarg($iconPath);
+        }
+        // 包名可选
+        if ($packageName !== '') {
+            $args .= ' --package-name ' . escapeshellarg($packageName);
         }
 
         return sprintf('cd %s && bash build/build_apk.sh %s', escapeshellarg($projectRoot), $args);

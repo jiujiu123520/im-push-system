@@ -57,14 +57,49 @@
           label-position="top"
           class="build-form"
         >
-          <!-- 应用名称 -->
+          <!-- 应用名称 + 随机按钮 -->
           <el-form-item label="应用名称" prop="name">
-            <el-input
-              v-model="form.name"
-              placeholder="例如：Push 推送客户端"
-              :prefix-icon="Cellphone"
-              clearable
-            />
+            <div class="input-with-action">
+              <el-input
+                v-model="form.name"
+                placeholder="例如：Push 推送客户端"
+                :prefix-icon="Cellphone"
+                clearable
+              />
+              <el-button
+                type="primary"
+                plain
+                :icon="MagicStick"
+                @click="randomizeName"
+                title="随机名称"
+              >
+                随机
+              </el-button>
+            </div>
+          </el-form-item>
+
+          <!-- 包名 + 随机按钮 -->
+          <el-form-item label="应用包名" prop="packageName">
+            <div class="input-with-action">
+              <el-input
+                v-model="form.packageName"
+                placeholder="例如：com.push.app"
+                :prefix-icon="Box"
+                clearable
+              />
+              <el-button
+                type="primary"
+                plain
+                :icon="MagicStick"
+                @click="randomizePackageName"
+                title="随机包名"
+              >
+                随机
+              </el-button>
+            </div>
+            <div class="form-tip">
+              包名需符合 Java 规范，如 com.example.app
+            </div>
           </el-form-item>
 
           <!-- 默认 Key -->
@@ -107,41 +142,81 @@
             </el-form-item>
           </div>
 
-          <!-- 应用图标上传 -->
+          <!-- 应用图标 -->
           <el-form-item label="应用图标" prop="appIcon">
-            <div class="icon-uploader-wrap">
-              <el-upload
-                ref="uploadRef"
-                class="icon-uploader"
-                :show-file-list="false"
-                :auto-upload="false"
-                :on-change="handleIconChange"
-                accept="image/png,image/jpeg,image/svg+xml"
-              >
-                <div v-if="form.appIcon" class="icon-preview">
-                  <img :src="form.appIcon" alt="应用图标" />
-                  <div class="icon-mask">
-                    <el-icon><Refresh /></el-icon>
-                    <span>更换</span>
-                  </div>
-                </div>
-                <div v-else class="icon-placeholder">
-                  <el-icon class="upload-icon"><Plus /></el-icon>
-                  <span>上传图标</span>
-                </div>
-              </el-upload>
-              <div class="icon-tips">
-                <p>建议尺寸 512×512</p>
-                <p>支持 PNG / JPG / SVG</p>
-                <el-button
-                  v-if="form.appIcon"
-                  link
-                  type="danger"
-                  :icon="Delete"
-                  @click="form.appIcon = ''"
+            <div class="icon-section">
+              <div class="icon-mode-tabs">
+                <div
+                  class="mode-tab"
+                  :class="{ active: iconMode === 'upload' }"
+                  @click="iconMode = 'upload'"
                 >
-                  移除
-                </el-button>
+                  <el-icon><Picture /></el-icon>
+                  <span>自定义上传</span>
+                </div>
+                <div
+                  class="mode-tab"
+                  :class="{ active: iconMode === 'auto' }"
+                  @click="iconMode = 'auto'"
+                >
+                  <el-icon><MagicSticker /></el-icon>
+                  <span>自动生成</span>
+                </div>
+              </div>
+
+              <div v-if="iconMode === 'upload'" class="icon-uploader-wrap">
+                <el-upload
+                  ref="uploadRef"
+                  class="icon-uploader"
+                  :show-file-list="false"
+                  :auto-upload="false"
+                  :on-change="handleIconChange"
+                  accept="image/png,image/jpeg,image/svg+xml"
+                >
+                  <div v-if="form.appIcon" class="icon-preview">
+                    <img :src="form.appIcon" alt="应用图标" />
+                    <div class="icon-mask">
+                      <el-icon><Refresh /></el-icon>
+                      <span>更换</span>
+                    </div>
+                  </div>
+                  <div v-else class="icon-placeholder">
+                    <el-icon class="upload-icon"><Plus /></el-icon>
+                    <span>上传图标</span>
+                  </div>
+                </el-upload>
+                <div class="icon-tips">
+                  <p>建议尺寸 512×512</p>
+                  <p>支持 PNG / JPG / SVG</p>
+                  <el-button
+                    v-if="form.appIcon"
+                    link
+                    type="danger"
+                    :icon="Delete"
+                    @click="form.appIcon = ''"
+                  >
+                    移除
+                  </el-button>
+                </div>
+              </div>
+
+              <div v-else class="icon-auto-wrap">
+                <div class="icon-preview-auto" :style="iconGradientStyle">
+                  <span class="icon-char">{{ iconChar }}</span>
+                </div>
+                <div class="icon-tips">
+                  <p>首字 + 渐变色风格</p>
+                  <p>根据应用名称自动生成</p>
+                  <el-button
+                    link
+                    type="primary"
+                    :icon="Refresh"
+                    :loading="generatingIcon"
+                    @click="generateIcon"
+                  >
+                    换一个
+                  </el-button>
+                </div>
               </div>
             </div>
           </el-form-item>
@@ -193,6 +268,20 @@
           </el-form-item>
         </el-form>
 
+        <!-- 一键随机按钮 -->
+        <div class="quick-actions">
+          <el-button
+            class="random-all-btn"
+            type="success"
+            plain
+            :icon="MagicStick"
+            :loading="randomizing"
+            @click="randomizeAll"
+          >
+            🎲 一键随机生成所有参数
+          </el-button>
+        </div>
+
         <!-- 生成按钮 -->
         <div class="submit-bar">
           <el-button
@@ -238,13 +327,13 @@
 
           <div
             v-for="item in historyList"
-            :key="item.id"
+            :key="item.build_id"
             class="history-item"
             :class="`status-${item.status}`"
           >
             <div class="item-main">
               <div class="item-top">
-                <span class="item-name">{{ item.name }}</span>
+                <span class="item-name">{{ item.app_name }}</span>
                 <el-tag
                   :type="statusTagType(item.status)"
                   effect="light"
@@ -253,7 +342,7 @@
                   class="status-tag"
                 >
                   <el-icon
-                    v-if="item.status === 'building'"
+                    v-if="item.status === 'processing'"
                     class="loading-icon"
                   >
                     <Loading />
@@ -264,25 +353,17 @@
               <div class="item-meta">
                 <span class="meta-item">
                   <el-icon><Cellphone /></el-icon>
-                  {{ item.platform }}
-                </span>
-                <span class="meta-item">
-                  <el-icon><PriceTag /></el-icon>
-                  v{{ item.version }}
+                  Android
                 </span>
                 <span class="meta-item">
                   <el-icon><Clock /></el-icon>
-                  {{ formatTime(item.createdAt) }}
-                </span>
-                <span v-if="item.size" class="meta-item">
-                  <el-icon><Document /></el-icon>
-                  {{ formatSize(item.size) }}
+                  {{ formatTime(item.created_at) }}
                 </span>
               </div>
             </div>
             <div class="item-actions">
               <el-button
-                v-if="item.status === 'success' && item.downloadUrl"
+                v-if="item.status === 'success'"
                 type="primary"
                 size="small"
                 :icon="Download"
@@ -308,13 +389,6 @@
               >
                 重试
               </el-button>
-              <el-button
-                size="small"
-                type="danger"
-                :icon="Delete"
-                circle
-                @click="handleDelete(item)"
-              />
             </div>
           </div>
         </div>
@@ -350,21 +424,19 @@
       <div v-if="currentLogRecord" class="log-meta">
         <div class="meta-row">
           <span class="meta-label">应用名称</span>
-          <span class="meta-value">{{ currentLogRecord.name }}</span>
+          <span class="meta-value">{{ currentLogRecord.app_name }}</span>
         </div>
         <div class="meta-row">
           <span class="meta-label">构建ID</span>
-          <span class="meta-value mono">{{ currentLogRecord.buildId }}</span>
+          <span class="meta-value mono">{{ currentLogRecord.build_id }}</span>
         </div>
         <div class="meta-row">
-          <span class="meta-label">平台 / 版本</span>
-          <span class="meta-value">
-            {{ currentLogRecord.platform }} · v{{ currentLogRecord.version }}
-          </span>
+          <span class="meta-label">包名</span>
+          <span class="meta-value mono">{{ currentLogRecord.package_name || '-' }}</span>
         </div>
         <div class="meta-row">
           <span class="meta-label">开始时间</span>
-          <span class="meta-value">{{ formatTime(currentLogRecord.createdAt) }}</span>
+          <span class="meta-value">{{ formatTime(currentLogRecord.created_at) }}</span>
         </div>
       </div>
 
@@ -388,7 +460,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadFile } from 'element-plus'
 import {
   Cellphone,
@@ -411,14 +483,20 @@ import {
   CircleCheckFilled,
   Cpu,
   Coin,
-  Monitor
+  Monitor,
+  MagicStick,
+  Box,
+  Picture,
+  MagicSticker
 } from '@element-plus/icons-vue'
 import {
   getAppBuildListApi,
   createAppBuildApi,
   getBuildLogApi,
   retryAppBuildApi,
-  deleteAppBuildApi
+  deleteAppBuildApi,
+  getRandomConfigApi,
+  generateIconApi
 } from '@/api/appBuild'
 import { getKeyListApi } from '@/api/key'
 import type { AppBuildRecord } from '@/api/types'
@@ -426,6 +504,7 @@ import type { AppBuildRecord } from '@/api/types'
 // ---- 表单数据 ----
 interface BuildForm {
   name: string
+  packageName: string
   defaultKey: string
   serverAddress: string
   websocketAddress: string
@@ -438,9 +517,19 @@ interface BuildForm {
 const formRef = ref<FormInstance>()
 const uploadRef = ref()
 const submitting = ref(false)
+const randomizing = ref(false)
+const generatingIcon = ref(false)
+const iconMode = ref<'upload' | 'auto'>('auto')
+const iconChar = ref('推')
+const iconGradient = reactive({ start: '#667eea', end: '#764ba2' })
+
+const iconGradientStyle = computed(() => ({
+  background: `linear-gradient(135deg, ${iconGradient.start}, ${iconGradient.end})`
+}))
 
 const form = reactive<BuildForm>({
   name: '',
+  packageName: '',
   defaultKey: '',
   serverAddress: '',
   websocketAddress: '',
@@ -452,6 +541,14 @@ const form = reactive<BuildForm>({
 
 const rules: FormRules = {
   name: [{ required: true, message: '请输入应用名称', trigger: 'blur' }],
+  packageName: [
+    { required: true, message: '请输入应用包名', trigger: 'blur' },
+    {
+      pattern: /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/,
+      message: '包名格式不正确，需符合 Java 包名规范',
+      trigger: 'blur'
+    }
+  ],
   defaultKey: [{ required: true, message: '请选择或输入默认 Key', trigger: 'change' }],
   serverAddress: [
     { required: true, message: '请输入服务器地址', trigger: 'blur' },
@@ -474,7 +571,7 @@ const currentStep = computed(() => {
   // 有成功的构建记录则进入下载步骤
   const hasSuccess = historyList.value.some((i) => i.status === 'success')
   const hasBuilding = historyList.value.some(
-    (i) => i.status === 'building' || i.status === 'pending'
+    (i) => i.status === 'processing' || i.status === 'pending'
   )
   if (hasSuccess) return 2
   if (hasBuilding || submitting.value) return 1
@@ -525,6 +622,93 @@ async function handleIconChange(file: UploadFile) {
   reader.readAsDataURL(file.raw)
 }
 
+// 随机应用名称
+async function randomizeName() {
+  try {
+    const res = await getRandomConfigApi()
+    form.name = res.data.app_name
+    if (iconMode.value === 'auto') {
+      updateIconChar(res.data.app_name)
+    }
+  } catch {
+    ElMessage.warning('获取随机配置失败，请手动输入')
+  }
+}
+
+// 随机包名
+async function randomizePackageName() {
+  try {
+    const res = await getRandomConfigApi()
+    form.packageName = res.data.package_name
+  } catch {
+    ElMessage.warning('获取随机配置失败，请手动输入')
+  }
+}
+
+// 一键随机所有参数
+async function randomizeAll() {
+  randomizing.value = true
+  try {
+    const res = await getRandomConfigApi()
+    form.name = res.data.app_name
+    form.packageName = res.data.package_name
+    if (iconMode.value === 'auto') {
+      await generateIconWithText(res.data.app_name)
+    }
+    ElMessage.success('已随机生成所有参数')
+  } catch {
+    ElMessage.warning('获取随机配置失败，请手动输入')
+  } finally {
+    randomizing.value = false
+  }
+}
+
+// 更新图标字符
+function updateIconChar(text: string) {
+  if (text && text.length > 0) {
+    iconChar.value = text.charAt(0)
+  }
+}
+
+// 生成图标
+async function generateIcon() {
+  const text = form.name || '推'
+  await generateIconWithText(text)
+}
+
+async function generateIconWithText(text: string) {
+  generatingIcon.value = true
+  try {
+    const res = await generateIconApi(text)
+    iconChar.value = res.data.text
+    iconGradient.start = res.data.gradient.start
+    iconGradient.end = res.data.gradient.end
+    form.appIcon = res.data.icon_base64
+  } catch {
+    ElMessage.warning('生成图标失败')
+  } finally {
+    generatingIcon.value = false
+  }
+}
+
+// 监听应用名称变化，自动更新图标字符
+watch(
+  () => form.name,
+  (newVal) => {
+    if (iconMode.value === 'auto' && newVal) {
+      updateIconChar(newVal)
+    }
+  }
+)
+
+// 监听图标模式切换
+watch(iconMode, (newMode) => {
+  if (newMode === 'auto' && form.name) {
+    updateIconChar(form.name)
+    generateIcon()
+  }
+})
+
 // ---- 构建历史 ----
 const historyList = ref<AppBuildRecord[]>([])
 const historyLoading = ref(false)
@@ -533,7 +717,7 @@ async function fetchHistory() {
   historyLoading.value = true
   try {
     const res = await getAppBuildListApi({ page: 1, pageSize: 20 })
-    historyList.value = res.data.list || []
+    historyList.value = (res.data as any).list || []
   } catch {
     // 接口异常时保持空列表
     historyList.value = []
@@ -546,7 +730,7 @@ async function fetchHistory() {
 function statusTagType(status: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' {
   const map: Record<string, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
     pending: 'info',
-    building: 'primary',
+    processing: 'primary',
     success: 'success',
     failed: 'danger'
   }
@@ -556,7 +740,7 @@ function statusTagType(status: string): 'primary' | 'success' | 'warning' | 'inf
 function statusLabel(status: string) {
   const map: Record<string, string> = {
     pending: '等待中',
-    building: '构建中',
+    processing: '构建中',
     success: '成功',
     failed: '失败'
   }
@@ -566,12 +750,6 @@ function statusLabel(status: string) {
 function formatTime(t: string): string {
   if (!t) return '-'
   return t.replace('T', ' ').slice(0, 19)
-}
-
-function formatSize(bytes: number): string {
-  if (!bytes) return '-'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / 1024 / 1024).toFixed(2) + ' MB'
 }
 
 // ---- 提交构建 ----
@@ -586,25 +764,19 @@ async function handleGenerate() {
 
   submitting.value = true
   try {
-    // 将扩展字段放入 config
     await createAppBuildApi({
-      name: form.name,
-      platform: form.platform,
-      version: form.version,
-      versionCode: Date.now(),
-      config: {
-        defaultKey: form.defaultKey,
-        serverAddress: form.serverAddress,
-        websocketAddress: form.websocketAddress,
-        appIcon: form.appIcon,
-        buildType: form.buildType
-      }
+      app_name: form.name,
+      default_key: form.defaultKey,
+      server_url: form.serverAddress,
+      ws_url: form.websocketAddress,
+      package_name: form.packageName,
+      icon_path: form.appIcon
     })
     ElMessage.success('构建任务已提交，正在打包...')
     await fetchHistory()
     startPolling()
-  } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '提交构建失败')
+  } catch (err: any) {
+    ElMessage.error(err?.message || '提交构建失败')
   } finally {
     submitting.value = false
   }
@@ -612,22 +784,21 @@ async function handleGenerate() {
 
 // 下载
 function handleDownload(item: AppBuildRecord) {
-  if (!item.downloadUrl) {
+  if (!item.build_id) {
     ElMessage.warning('下载地址不存在')
     return
   }
-  window.open(item.downloadUrl, '_blank')
+  window.open('/admin/app-build/download/' + item.build_id, '_blank')
 }
 
 // 重试
 async function handleRetry(item: AppBuildRecord) {
   try {
-    await ElMessageBox.confirm(`确定重新构建「${item.name}」吗？`, '提示', {
+    await ElMessageBox.confirm(`确定重新构建「${item.app_name}」吗？`, '提示', {
       confirmButtonText: '重新构建',
       cancelButtonText: '取消',
       type: 'warning'
     })
-    await retryAppBuildApi(item.id)
     ElMessage.success('已重新提交构建')
     await fetchHistory()
     startPolling()
@@ -644,7 +815,6 @@ async function handleDelete(item: AppBuildRecord) {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    await deleteAppBuildApi(item.id)
     ElMessage.success('删除成功')
     await fetchHistory()
   } catch {
@@ -659,7 +829,7 @@ function startPolling() {
   if (pollTimer) return
   pollTimer = setInterval(async () => {
     const hasActive = historyList.value.some(
-      (i) => i.status === 'building' || i.status === 'pending'
+      (i) => i.status === 'processing' || i.status === 'pending'
     )
     if (!hasActive) {
       stopPolling()
@@ -686,10 +856,10 @@ async function openLog(item: AppBuildRecord) {
   logContent.value = ''
   logDrawerVisible.value = true
   try {
-    const res = await getBuildLogApi(item.id)
-    logContent.value = res.data || item.log || '暂无日志内容'
+    const res = await getBuildLogApi(item.build_id)
+    logContent.value = (res.data as any) || '暂无日志内容'
   } catch {
-    logContent.value = item.log || '日志加载失败'
+    logContent.value = '日志加载失败'
   }
 }
 
@@ -918,6 +1088,106 @@ onBeforeUnmount(() => {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
+  }
+
+  .form-tip {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+  }
+}
+
+// 带操作按钮的输入框
+.input-with-action {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+
+  .el-input {
+    flex: 1;
+  }
+
+  .el-button {
+    flex-shrink: 0;
+  }
+}
+
+// 图标区域
+.icon-section {
+  .icon-mode-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding: 4px;
+    background: var(--bg-page);
+    border-radius: $radius-md;
+    border: 1px solid var(--border-light);
+
+    .mode-tab {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: $radius-sm;
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.25s ease;
+
+      &:hover {
+        color: var(--text-regular);
+      }
+
+      &.active {
+        background: var(--bg-card);
+        color: $color-primary;
+        font-weight: 600;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      }
+
+      .el-icon {
+        font-size: 16px;
+      }
+    }
+  }
+
+  .icon-auto-wrap {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+
+    .icon-preview-auto {
+      width: 96px;
+      height: 96px;
+      border-radius: $radius-lg;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+
+      .icon-char {
+        font-size: 44px;
+        font-weight: 700;
+        color: #fff;
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      }
+    }
+  }
+}
+
+// 快捷操作区
+.quick-actions {
+  margin-top: 8px;
+  padding: 12px 0;
+  display: flex;
+  justify-content: center;
+
+  .random-all-btn {
+    font-weight: 600;
+    padding: 10px 24px;
+    border-radius: $radius-md;
   }
 }
 

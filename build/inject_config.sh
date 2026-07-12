@@ -31,6 +31,7 @@ DEFAULT_KEY="default_key"
 SERVER_URL="http://127.0.0.1:9501"
 SERVER_WS_URL="ws://127.0.0.1:9502"
 ICON_PATH=""
+PACKAGE_NAME=""
 OUTPUT_APK_NAME="app-release.apk"
 BUILD_ID="local-$(date +%s)"
 
@@ -48,6 +49,7 @@ while [ $# -gt 0 ]; do
         --server-url)     SERVER_URL="$2"; shift 2 ;;
         --ws-url)         SERVER_WS_URL="$2"; shift 2 ;;
         --icon-path)      ICON_PATH="$2"; shift 2 ;;
+        --package-name)   PACKAGE_NAME="$2"; shift 2 ;;
         --output-apk-name) OUTPUT_APK_NAME="$2"; shift 2 ;;
         --build-id)       BUILD_ID="$2"; shift 2 ;;
         *) error "未知参数：$1"; exit 1 ;;
@@ -55,6 +57,7 @@ while [ $# -gt 0 ]; do
 done
 
 info "应用名称：$APP_NAME"
+[ -n "$PACKAGE_NAME" ] && info "包名：$PACKAGE_NAME"
 info "服务器地址：$SERVER_URL"
 info "WebSocket地址：$SERVER_WS_URL"
 info "构建ID：$BUILD_ID"
@@ -142,6 +145,48 @@ if [ -n "$ICON_PATH" ] && [ -f "$ICON_PATH" ]; then
     info "图标已覆盖到 mipmap-xxxhdpi/ic_launcher.png"
 else
     info "未提供自定义图标，使用默认图标"
+fi
+
+# ---------------- 4. 修改包名（package_name） ----------------
+if [ -n "$PACKAGE_NAME" ]; then
+    BUILD_GRADLE="$APP_DIR/build.gradle.kts"
+    if [ -f "$BUILD_GRADLE" ]; then
+        info "修改包名为：$PACKAGE_NAME"
+        sed -i "s/namespace = \".*\"/namespace = \"$PACKAGE_NAME\"/" "$BUILD_GRADLE"
+        sed -i "s/applicationId = \".*\"/applicationId = \"$PACKAGE_NAME\"/" "$BUILD_GRADLE"
+        info "build.gradle.kts 包名已更新"
+
+        # 修改 Kotlin 源码目录结构
+        OLD_NAMESPACE="com.push.app"
+        OLD_PATH="$APP_DIR/src/main/java/$(echo "$OLD_NAMESPACE" | tr '.' '/')"
+        NEW_PATH="$APP_DIR/src/main/java/$(echo "$PACKAGE_NAME" | tr '.' '/')"
+
+        if [ -d "$OLD_PATH" ] && [ "$OLD_PATH" != "$NEW_PATH" ]; then
+            info "移动源码目录：$OLD_PATH -> $NEW_PATH"
+            mkdir -p "$(dirname "$NEW_PATH")"
+            mv "$OLD_PATH" "$NEW_PATH"
+
+            # 清理空目录
+            CURRENT_DIR="$(dirname "$OLD_PATH")"
+            while [ "$CURRENT_DIR" != "$APP_DIR/src/main/java" ] && [ -d "$CURRENT_DIR" ]; do
+                if [ -z "$(ls -A "$CURRENT_DIR" 2>/dev/null)" ]; then
+                    rmdir "$CURRENT_DIR"
+                    CURRENT_DIR="$(dirname "$CURRENT_DIR")"
+                else
+                    break
+                fi
+            done
+
+            # 更新源码中的 package 声明
+            info "更新源码中的 package 声明..."
+            find "$NEW_PATH" -name "*.kt" -o -name "*.java" | while read -r file; do
+                sed -i "s/^package $OLD_NAMESPACE/package $PACKAGE_NAME/" "$file"
+            done
+            info "源码包名已更新"
+        fi
+    else
+        warn "未找到 $BUILD_GRADLE，跳过包名修改"
+    fi
 fi
 
 info "配置注入完成"

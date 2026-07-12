@@ -74,6 +74,8 @@ if ($runWs) {
         $router->get('/admin/app-build/status/{build_id}', [\App\Controller\AppBuildController::class, 'status']);
         $router->get('/admin/app-build/log/{build_id}', [\App\Controller\AppBuildController::class, 'log']);
         $router->get('/admin/app-build/download/{build_id}', [\App\Controller\AppBuildController::class, 'download']);
+        $router->get('/admin/app-build/random-config', [\App\Controller\AppBuildController::class, 'randomConfig']);
+        $router->get('/admin/app-build/generate-icon', [\App\Controller\AppBuildController::class, 'generateIcon']);
 
         // ------------------------------------------------------------
         // 任务3：用户注册与登录

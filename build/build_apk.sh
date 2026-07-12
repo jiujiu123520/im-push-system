@@ -44,18 +44,20 @@ DEFAULT_KEY="default_key"
 SERVER_URL="http://127.0.0.1:9501"
 SERVER_WS_URL="ws://127.0.0.1:9502"
 ICON_PATH=""
+PACKAGE_NAME=""
 BUILD_TYPE="release"
 
 # ---------------- 解析参数 ----------------
 while [ $# -gt 0 ]; do
     case "$1" in
-        --build-id)    BUILD_ID="$2"; shift 2 ;;
-        --app-name)    APP_NAME="$2"; shift 2 ;;
-        --default-key) DEFAULT_KEY="$2"; shift 2 ;;
-        --server-url)  SERVER_URL="$2"; shift 2 ;;
-        --ws-url)      SERVER_WS_URL="$2"; shift 2 ;;
-        --icon-path)   ICON_PATH="$2"; shift 2 ;;
-        --build-type)  BUILD_TYPE="$2"; shift 2 ;;
+        --build-id)     BUILD_ID="$2"; shift 2 ;;
+        --app-name)     APP_NAME="$2"; shift 2 ;;
+        --default-key)  DEFAULT_KEY="$2"; shift 2 ;;
+        --server-url)   SERVER_URL="$2"; shift 2 ;;
+        --ws-url)       SERVER_WS_URL="$2"; shift 2 ;;
+        --icon-path)    ICON_PATH="$2"; shift 2 ;;
+        --package-name) PACKAGE_NAME="$2"; shift 2 ;;
+        --build-type)   BUILD_TYPE="$2"; shift 2 ;;
         *) error "未知参数：$1"; exit 1 ;;
     esac
 done
@@ -108,13 +110,17 @@ trap 'on_fail "构建过程中断（退出码 $?）"' ERR
 
 # ---------------- 1. 注入配置 ----------------
 info "调用 inject_config.sh 注入配置 ..."
-bash "$BUILD_DIR/inject_config.sh" \
-    --app-name "$APP_NAME" \
-    --default-key "$DEFAULT_KEY" \
-    --server-url "$SERVER_URL" \
-    --ws-url "$SERVER_WS_URL" \
-    --icon-path "$ICON_PATH" \
-    --build-id "$BUILD_ID" 2>&1 | tee -a "$LOG_FILE"
+# 使用数组安全存储参数（bash 版本支持）
+inject_cmd=("bash" "$BUILD_DIR/inject_config.sh")
+inject_cmd+=(--app-name "$APP_NAME")
+inject_cmd+=(--default-key "$DEFAULT_KEY")
+inject_cmd+=(--server-url "$SERVER_URL")
+inject_cmd+=(--ws-url "$SERVER_WS_URL")
+[ -n "$ICON_PATH" ] && inject_cmd+=(--icon-path "$ICON_PATH")
+[ -n "$PACKAGE_NAME" ] && inject_cmd+=(--package-name "$PACKAGE_NAME")
+inject_cmd+=(--build-id "$BUILD_ID")
+
+"${inject_cmd[@]}" 2>&1 | tee -a "$LOG_FILE"
 
 # ---------------- 2. 进入工程目录 ----------------
 info "进入 Android 工程：$APP_DIR"

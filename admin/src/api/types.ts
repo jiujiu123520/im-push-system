@@ -213,27 +213,29 @@ export interface AdminForm {
 
 // ---- APP 打包 ----
 export interface AppBuildRecord {
-  id: number
-  buildId: string
-  name: string
-  platform: 'android' | 'ios'
-  version: string
-  versionCode: number
-  status: 'pending' | 'building' | 'success' | 'failed'
-  downloadUrl?: string
-  qrcodeUrl?: string
-  size?: number
-  log?: string
-  createdAt: string
-  finishedAt?: string
+  build_id: string
+  app_name: string
+  default_key: string
+  server_url: string
+  ws_url: string
+  icon_path: string
+  package_name?: string
+  status: 'pending' | 'processing' | 'success' | 'failed'
+  apk_path?: string
+  result_message?: string
+  created_at: string
+  updated_at?: string
+  started_at?: string
+  finished_at?: string
 }
 
 export interface AppBuildForm {
-  name: string
-  platform: 'android' | 'ios'
-  version: string
-  versionCode: number
-  config?: Record<string, any>
+  app_name: string
+  default_key?: string
+  server_url?: string
+  ws_url?: string
+  icon_path?: string
+  package_name?: string
 }
 
 // ---- 开放 API ----
