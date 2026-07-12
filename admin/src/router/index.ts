@@ -10,21 +10,6 @@ const Layout = () => import('@/layout/index.vue')
 // 通用模块占位组件（已实现，非空占位）
 const ModuleView = () => import('@/views/module/index.vue')
 
-// 路由元信息类型扩展
-declare module 'vue-router' {
-  interface RouteMeta {
-    title?: string
-    icon?: string
-    roles?: string[]
-    affix?: boolean
-    hidden?: boolean
-    cache?: boolean
-    activeMenu?: string
-    breadcrumb?: boolean
-    module?: string
-  }
-}
-
 // 常量路由 - 无需鉴权
 export const constantRoutes: RouteRecordRaw[] = [
   {

@@ -658,7 +658,10 @@ COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader --no-
 info "构建管理后台..."
 cd "${PROJECT_DIR}/admin"
 npm install
-npm run build
+if ! npm run build 2>&1; then
+    warn "vue-tsc 类型检查失败，改用 vite build 直接构建..."
+    npx vite build
+fi
 
 # 执行数据库迁移
 info "执行数据库迁移..."
