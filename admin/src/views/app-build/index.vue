@@ -159,7 +159,7 @@
                   :class="{ active: iconMode === 'auto' }"
                   @click="iconMode = 'auto'"
                 >
-                  <el-icon><MagicSticker /></el-icon>
+                  <el-icon><Brush /></el-icon>
                   <span>自动生成</span>
                 </div>
               </div>
@@ -487,7 +487,7 @@ import {
   MagicStick,
   Box,
   Picture,
-  MagicSticker
+  Brush
 } from '@element-plus/icons-vue'
 import {
   getAppBuildListApi,
