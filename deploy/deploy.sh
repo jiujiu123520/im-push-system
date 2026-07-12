@@ -676,8 +676,11 @@ if ! npm install 2>&1 | tail -20; then
     exit 1
 fi
 
+# 修复 node_modules/.bin 执行权限
+chmod -R +x node_modules/.bin 2>/dev/null || true
+
 # 先尝试带类型检查的完整构建；失败则回退到 vite build（跳过类型检查）
-if npm run build 2>&1 | tail -30; then
+if npx vue-tsc --noEmit && npx vite build 2>&1 | tail -30; then
     set +o pipefail
     info "  管理后台构建成功（类型检查通过）"
 else
