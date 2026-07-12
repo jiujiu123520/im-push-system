@@ -98,6 +98,9 @@ if ($runWs) {
         // 管理员登录（无需鉴权）
         $router->post('/admin/login', [\App\Controller\AdminController::class, 'login']);
 
+        // 管理员登出（需管理员鉴权，记录登出日志）
+        $router->post('/admin/logout', [\App\Controller\AdminController::class, 'logout']);
+
         // 获取当前登录管理员信息（需管理员鉴权）
         $router->get('/admin/info', [\App\Controller\AdminController::class, 'info']);
 

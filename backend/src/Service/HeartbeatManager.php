@@ -167,7 +167,7 @@ class HeartbeatManager
             return;
         }
 
-        // 发送 ping 帧（文本形式，便于客户端统一处理）
+        // 发送 ping 帧（带 type 字段，与 APP 协议一致）
         $ping = json_encode([
             'type' => 'ping',
             'time' => time(),

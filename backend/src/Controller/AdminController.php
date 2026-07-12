@@ -99,6 +99,37 @@ class AdminController
     }
 
     /**
+     * 管理员登出
+     * POST /admin/logout
+     *
+     * JWT 为无状态令牌，登出仅记录日志，由前端清除本地 Token。
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public static function logout(array $context, array $params = [])
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $adminId = (int)$payload['admin_id'];
+        $ip = AdminAuth::getClientIp($context);
+        AdminService::logAction(
+            $adminId,
+            'admin_logout',
+            'admin',
+            $adminId,
+            ['ip' => $ip],
+            $ip
+        );
+
+        return ['message' => '已登出'];
+    }
+
+    /**
      * 管理员列表（分页 10 条，支持 keyword 搜索）
      * GET /admin/list?page=1&keyword=xxx
      *

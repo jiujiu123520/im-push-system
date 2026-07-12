@@ -31,26 +31,27 @@ export enum StatusEnum {
 export interface LoginParams {
   username: string
   password: string
-  captcha: string
-  captchaId?: string
+  captcha_token: string
+  captcha_input: string
 }
 
 export interface LoginResult {
   token: string
-  expires?: number
+  admin?: {
+    id: number
+    username: string
+    role: string
+    status: number
+  }
 }
 
 export interface UserInfo {
   id: number
   username: string
-  nickname: string
-  avatar?: string
-  email?: string
-  phone?: string
-  roles: string[]
-  permissions: string[]
-  lastLoginAt?: string
-  createdAt?: string
+  role: string
+  status: number
+  created_at?: string
+  updated_at?: string
 }
 
 // ---- 用户管理 ----

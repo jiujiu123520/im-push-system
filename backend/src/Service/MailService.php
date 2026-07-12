@@ -193,15 +193,15 @@ HTML;
             return $dbConfig;
         }
 
-        // 回退到 .env
+        // 回退到 .env（使用 Config::env 读取环境变量，非 Config::get）
         $config = [
             'enabled'     => false,
-            'host'        => Config::get('MAIL_HOST', 'smtp.qq.com'),
-            'port'        => Config::get('MAIL_PORT', '587'),
-            'username'    => Config::get('MAIL_USERNAME', ''),
-            'password'    => Config::get('MAIL_PASSWORD', ''),
-            'encryption'  => Config::get('MAIL_ENCRYPTION', 'tls'),
-            'sender_name' => Config::get('MAIL_SENDER_NAME', ''),
+            'host'        => Config::env('MAIL_HOST', 'smtp.qq.com'),
+            'port'        => Config::env('MAIL_PORT', '587'),
+            'username'    => Config::env('MAIL_USERNAME', ''),
+            'password'    => Config::env('MAIL_PASSWORD', ''),
+            'encryption'  => Config::env('MAIL_ENCRYPTION', 'tls'),
+            'sender_name' => Config::env('MAIL_SENDER_NAME', ''),
         ];
 
         // 判断是否启用（有用户名和密码就算启用）

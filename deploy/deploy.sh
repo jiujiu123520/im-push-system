@@ -156,14 +156,7 @@ if [[ "$PKG_MANAGER" == "apt-get" ]]; then
         php8.2-mysql php8.2-redis php8.2-curl \
         php8.2-mbstring php8.2-xml php8.2-zip \
         php8.2-bcmath php8.2-gd php8.2-intl \
-        php-pear php8.2-dev libssl-dev
-
-    if ! php -m | grep -q '^swoole$'; then
-        info "编译安装 Swoole 扩展..."
-        pecl install swoole
-        echo "extension=swoole.so" > /etc/php/8.2/mods-available/swoole.ini
-        phpenmod -v 8.2 swoole
-    fi
+        php8.2-swoole php-pear php8.2-dev libssl-dev
 
 elif [[ "$PKG_MANAGER" == "yum" ]]; then
     yum install -y "https://rpms.remirepo.net/enterprise/remi-release-8.rpm" || true
@@ -175,13 +168,7 @@ elif [[ "$PKG_MANAGER" == "yum" ]]; then
         php-mysqlnd php-pecl-redis5 php-curl \
         php-mbstring php-xml php-zip \
         php-bcmath php-gd php-intl \
-        php-pear php-devel openssl-devel
-
-    if ! php -m | grep -q '^swoole$'; then
-        info "编译安装 Swoole 扩展..."
-        yes '' | pecl install swoole
-        echo "extension=swoole.so" > /etc/php.d/50-swoole.ini
-    fi
+        php-pecl-swoole5 php-pear php-devel openssl-devel
 fi
 
 info "PHP 版本: $(php -v | head -n1)"

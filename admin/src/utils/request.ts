@@ -54,11 +54,12 @@ service.interceptors.response.use(
 
     // 业务码处理
     if (res.code !== 0 && res.code !== 200) {
-      ElMessage.error(res.message || '请求异常')
-      // 401: token 失效 / 未登录
+      // 401: token 失效 / 未登录 — 静默处理，由 handleRelogin 统一弹框
       if (res.code === 401 || res.code === 40101) {
         handleRelogin()
+        return Promise.reject(new Error(res.message || '登录已失效'))
       }
+      ElMessage.error(res.message || '请求异常')
       return Promise.reject(new Error(res.message || 'Error'))
     }
     return res
@@ -70,7 +71,7 @@ service.interceptors.response.use(
 
     if (status === 401) {
       handleRelogin()
-      msg = '登录状态已失效，请重新登录'
+      return Promise.reject(new Error('登录状态已失效'))
     } else if (status === 403) {
       msg = '没有权限访问该资源'
     } else if (status === 404) {
@@ -81,7 +82,9 @@ service.interceptors.response.use(
       msg = '请求超时，请稍后重试'
     }
 
-    ElMessage.error(msg)
+    if (status !== 401) {
+      ElMessage.error(msg)
+    }
     return Promise.reject(error)
   }
 )
@@ -97,6 +100,14 @@ function handleRelogin() {
   })
     .then(() => {
       // 动态导入避免循环依赖
+      import('@/stores/user').then(({ useUserStore }) => {
+        const userStore = useUserStore()
+        userStore.resetState()
+        location.href = '/#/login'
+      })
+    })
+    .catch(() => {
+      // 用户点"取消"也清除 Token 并跳转登录页，避免死循环
       import('@/stores/user').then(({ useUserStore }) => {
         const userStore = useUserStore()
         userStore.resetState()

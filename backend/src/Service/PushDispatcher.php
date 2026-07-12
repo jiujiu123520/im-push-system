@@ -446,16 +446,29 @@ class PushDispatcher
     /**
      * 打包统一的消息协议
      *
+     * 输出格式与 APP 端 ServerEnvelope 协议一致：
+     * 顶层包含 type 字段用于消息分发，推送字段平铺在顶层。
+     *
      * @param array $message
      * @return string
      */
     private function packMessage(array $message): string
     {
+        // 兼容两种格式：
+        // 1. 新格式：type=push + 平铺字段（APP 端 ServerEnvelope 可直接解析）
+        // 2. 旧格式：code/message/data/time（管理后台等旧客户端兼容）
         return json_encode([
-            'code'    => 0,
-            'message' => 'message',
-            'data'    => $message,
-            'time'    => time(),
+            'type'      => 'push',
+            'id'        => $message['message_id'] ?? '',
+            'title'     => $message['title'] ?? '',
+            'content'   => $message['content'] ?? '',
+            'priority'  => $message['priority'] ?? 'default',
+            'timestamp' => $message['timestamp'] ?? time(),
+            // 兼容旧格式
+            'code'      => 0,
+            'message'   => 'message',
+            'data'      => $message,
+            'time'      => time(),
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 }

@@ -123,7 +123,19 @@ class TestPushController
                 'sent_at'    => date('Y-m-d H:i:s'),
             ],
             'priority'   => $priority,
+            'timestamp'  => time(),
         ];
+
+        // 查询 push_key_id
+        if ($targetType === 'key') {
+            $pushKeyRow = Database::fetch(
+                'SELECT id FROM push_keys WHERE key_value = ? LIMIT 1',
+                [$targetValue]
+            );
+            if ($pushKeyRow) {
+                $message['push_key_id'] = (int)$pushKeyRow['id'];
+            }
+        }
 
         // 调用 PushDispatcher 执行推送
         $dispatcher = new PushDispatcher();

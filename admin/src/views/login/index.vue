@@ -107,8 +107,8 @@
                 clearable
               />
               <div class="captcha-img" @click="refreshCaptcha" title="点击刷新">
-                <canvas ref="captchaCanvas" width="120" height="44"></canvas>
-                <span v-if="!captchaReady" class="captcha-placeholder">
+                <img v-if="captchaImage" :src="captchaImage" alt="验证码" />
+                <span v-else class="captcha-placeholder">
                   <el-icon><Loading /></el-icon>
                 </span>
               </div>
@@ -160,6 +160,7 @@ import {
   Monitor
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
+import { getCaptchaApi } from '@/api/auth'
 import type { LoginParams } from '@/api/types'
 
 const route = useRoute()
@@ -167,87 +168,39 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const formRef = ref<FormInstance>()
-const captchaCanvas = ref<HTMLCanvasElement>()
-const captchaReady = ref(false)
+const captchaImage = ref('')
+const captchaToken = ref('')
 const loading = ref(false)
 
-// 验证码答案
-let captchaCode = ''
-
 const form = reactive<LoginParams & { remember: boolean }>({
-  username: 'admin',
-  password: 'admin123',
-  captcha: '',
+  username: import.meta.env.DEV ? 'admin' : '',
+  password: import.meta.env.DEV ? 'admin123' : '',
+  captcha_token: '',
+  captcha_input: '',
   remember: true
 })
 
 const rules: FormRules = {
   username: [{ required: true, message: '请输入账号', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
-  captcha: [{ required: true, message: '请输入验证码', trigger: 'blur' }]
+  captcha_input: [{ required: true, message: '请输入验证码', trigger: 'blur' }]
 }
 
-// 生成图形验证码
-function generateCaptcha() {
-  const canvas = captchaCanvas.value
-  if (!canvas) return
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-
-  const width = canvas.width
-  const height = canvas.height
-
-  // 背景渐变
-  const grad = ctx.createLinearGradient(0, 0, width, height)
-  grad.addColorStop(0, '#eeecff')
-  grad.addColorStop(1, '#e6f0ff')
-  ctx.fillStyle = grad
-  ctx.fillRect(0, 0, width, height)
-
-  // 生成 4 位字符
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  captchaCode = ''
-  const colors = ['#6d5cff', '#9b5cff', '#5cb8ff', '#ff5a6e', '#18c29c']
-  const fonts = ['Georgia', 'Verdana', 'Courier New', 'Times New Roman']
-
-  for (let i = 0; i < 4; i++) {
-    const char = chars[Math.floor(Math.random() * chars.length)]
-    captchaCode += char
-    ctx.save()
-    ctx.font = `bold ${22 + Math.random() * 6}px ${fonts[Math.floor(Math.random() * fonts.length)]}`
-    ctx.fillStyle = colors[Math.floor(Math.random() * colors.length)]
-    const x = 18 + i * 26 + (Math.random() * 6 - 3)
-    const y = 30 + (Math.random() * 8 - 4)
-    ctx.translate(x, y)
-    ctx.rotate(((Math.random() * 30 - 15) * Math.PI) / 180)
-    ctx.fillText(char, 0, 0)
-    ctx.restore()
+// 从后端获取图形验证码（返回 base64 图片 + token）
+async function fetchCaptcha() {
+  try {
+    const res = await getCaptchaApi()
+    captchaToken.value = res.data?.token || ''
+    captchaImage.value = res.data?.image || ''
+    form.captcha_token = captchaToken.value
+  } catch {
+    ElMessage.error('获取验证码失败，请刷新页面重试')
   }
-
-  // 干扰线
-  for (let i = 0; i < 4; i++) {
-    ctx.strokeStyle = colors[Math.floor(Math.random() * colors.length)] + '55'
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.moveTo(Math.random() * width, Math.random() * height)
-    ctx.lineTo(Math.random() * width, Math.random() * height)
-    ctx.stroke()
-  }
-
-  // 干扰点
-  for (let i = 0; i < 20; i++) {
-    ctx.fillStyle = colors[Math.floor(Math.random() * colors.length)] + '88'
-    ctx.beginPath()
-    ctx.arc(Math.random() * width, Math.random() * height, 1, 0, Math.PI * 2)
-    ctx.fill()
-  }
-
-  captchaReady.value = true
 }
 
 function refreshCaptcha() {
-  generateCaptcha()
-  form.captcha = ''
+  form.captcha_input = ''
+  fetchCaptcha()
 }
 
 async function handleLogin() {
@@ -258,9 +211,9 @@ async function handleLogin() {
     return
   }
 
-  // 校验验证码（不区分大小写）
-  if (form.captcha.toUpperCase() !== captchaCode) {
-    ElMessage.error('验证码不正确')
+  // 确保已加载验证码 token
+  if (!form.captcha_token) {
+    ElMessage.error('验证码加载中，请稍后重试')
     refreshCaptcha()
     return
   }
@@ -270,10 +223,15 @@ async function handleLogin() {
     await userStore.login({
       username: form.username,
       password: form.password,
-      captcha: form.captcha
+      captcha_token: form.captcha_token,
+      captcha_input: form.captcha_input
     })
     ElMessage.success('登录成功')
-    const redirect = (route.query.redirect as string) || '/'
+    let redirect = (route.query.redirect as string) || '/'
+    // 防止开放重定向：只允许站内跳转
+    if (!redirect.startsWith('/') || redirect.startsWith('//')) {
+      redirect = '/'
+    }
     router.replace(redirect)
   } catch (err) {
     refreshCaptcha()
@@ -292,7 +250,7 @@ function handleRegister() {
 }
 
 onMounted(() => {
-  generateCaptcha()
+  fetchCaptcha()
 })
 </script>
 
@@ -532,6 +490,13 @@ onMounted(() => {
       display: block;
       width: 100%;
       height: 100%;
+    }
+
+    img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
     }
 
     .captcha-placeholder {

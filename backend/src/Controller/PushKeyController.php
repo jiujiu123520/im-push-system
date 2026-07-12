@@ -35,23 +35,23 @@ class PushKeyController
         $offset  = ($page - 1) * self::PER_PAGE;
 
         $where  = '';
-        $params = [];
+        $sqlParams = [];
         if ($keyword !== '') {
-            $where  = ' WHERE title LIKE ? OR key_value LIKE ?';
-            $params = ["%{$keyword}%", "%{$keyword}%"];
+            $where  = ' WHERE name LIKE ? OR key_value LIKE ?';
+            $sqlParams = ["%{$keyword}%", "%{$keyword}%"];
         }
 
         $list = Database::fetchAll(
-            "SELECT id, key_value, title, platform, daily_limit, status, 
-                    notify_email, notify_enabled, notify_interval, 
-                    created_at, updated_at 
-             FROM push_keys{$where} ORDER BY id DESC LIMIT ? OFFSET ?",
-            [...$params, self::PER_PAGE, $offset]
+            "SELECT id, key_value, name, max_devices, status,
+                    notify_email, notify_enabled, notify_interval,
+                    created_at, updated_at
+             FROM push_keys{$where} ORDER BY id DESC LIMIT " . self::PER_PAGE . " OFFSET " . $offset,
+            $sqlParams
         );
 
         $total = (int)(Database::fetch(
             "SELECT COUNT(*) AS total FROM push_keys{$where}",
-            $params
+            $sqlParams
         )['total'] ?? 0);
 
         return [
@@ -77,9 +77,9 @@ class PushKeyController
         }
 
         $key = Database::fetch(
-            'SELECT id, key_value, title, platform, daily_limit, status, 
-                    notify_email, notify_enabled, notify_interval, 
-                    created_at, updated_at 
+            'SELECT id, key_value, name, max_devices, status,
+                    notify_email, notify_enabled, notify_interval,
+                    created_at, updated_at
              FROM push_keys WHERE id = ? LIMIT 1',
             [$id]
         );
@@ -100,10 +100,9 @@ class PushKeyController
         }
 
         $body = $this->parseBody($context);
-        $title    = (string)($body['title'] ?? '');
-        $platform = (string)($body['platform'] ?? 'all');
+        $name = (string)($body['name'] ?? $body['title'] ?? '');
 
-        if ($title === '') {
+        if ($name === '') {
             Response::fail($context['response'], '名称不能为空', Response::CODE_BAD_REQUEST, 400);
             return false;
         }
@@ -111,13 +110,20 @@ class PushKeyController
         $keyValue = $this->generateKeyValue();
 
         $id = Database::insert(
-            'INSERT INTO push_keys (key_value, title, platform, daily_limit, status, 
+            'INSERT INTO push_keys (key_value, name, max_devices, user_id, status,
                                     notify_email, notify_enabled, notify_interval)
              VALUES (?, ?, ?, ?, 1, "", 0, 300)',
-            [$keyValue, $title, $platform, (int)($body['daily_limit'] ?? 0)]
+            [$keyValue, $name, (int)($body['max_devices'] ?? $body['daily_limit'] ?? 0), (int)($admin['id'] ?? 0)]
         );
 
-        return $this->show($context, ['id' => $id]);
+        // 直接返回新创建的记录，避免重复鉴权
+        return Database::fetch(
+            'SELECT id, key_value, name, max_devices, status,
+                    notify_email, notify_enabled, notify_interval,
+                    created_at, updated_at
+             FROM push_keys WHERE id = ? LIMIT 1',
+            [$id]
+        ) ?: ['id' => $id, 'key_value' => $keyValue, 'name' => $name];
     }
 
     public function update(array $context, array $params)
@@ -142,14 +148,16 @@ class PushKeyController
         $body = $this->parseBody($context);
         $data = [];
 
-        if (isset($body['title'])) {
-            $data['title'] = (string)$body['title'];
+        // 兼容 name 和 title 两种字段名
+        if (isset($body['name'])) {
+            $data['name'] = (string)$body['name'];
+        } elseif (isset($body['title'])) {
+            $data['name'] = (string)$body['title'];
         }
-        if (isset($body['platform'])) {
-            $data['platform'] = (string)$body['platform'];
-        }
-        if (isset($body['daily_limit'])) {
-            $data['daily_limit'] = (int)$body['daily_limit'];
+        if (isset($body['max_devices'])) {
+            $data['max_devices'] = (int)$body['max_devices'];
+        } elseif (isset($body['daily_limit'])) {
+            $data['max_devices'] = (int)$body['daily_limit'];
         }
         if (isset($body['status'])) {
             $data['status'] = (int)$body['status'];
@@ -172,7 +180,14 @@ class PushKeyController
             Database::execute("UPDATE push_keys SET {$columns} WHERE id = ?", $values);
         }
 
-        return $this->show($context, ['id' => $id]);
+        // 直接返回更新后的记录，避免重复鉴权
+        return Database::fetch(
+            'SELECT id, key_value, name, max_devices, status,
+                    notify_email, notify_enabled, notify_interval,
+                    created_at, updated_at
+             FROM push_keys WHERE id = ? LIMIT 1',
+            [$id]
+        ) ?: ['id' => $id];
     }
 
     public function delete(array $context, array $params)
@@ -215,7 +230,7 @@ class PushKeyController
         $body = $this->parseBody($context);
         $status = (int)($body['status'] ?? 0);
 
-        Database::execute('UPDATE push_keys SET status = ? WHERE id = ?', [$status, $id]);
+        Database::execute('UPDATE push_keys SET status = ?, updated_at = NOW() WHERE id = ?', [$status, $id]);
 
         return ['id' => $id, 'status' => $status];
     }

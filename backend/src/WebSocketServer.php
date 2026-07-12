@@ -207,7 +207,8 @@ class WebSocketServer
     /**
      * 客户端连接建立事件
      *
-     * 鉴权流程：解析 query 参数 -> 校验 Key -> 检查黑名单 -> 注册设备 -> 启动心跳 -> 回放离线消息
+     * 连接建立后不立即鉴权，等待客户端发送 auth 消息。
+     * 同时支持旧的 query 参数鉴权方式（向后兼容）。
      *
      * @param Server $server
      * @param \Swoole\Http\Request $request
@@ -217,32 +218,90 @@ class WebSocketServer
     {
         $fd = $request->fd;
 
-        // 1. 解析 query 参数
-        $keyValue    = (string)($request->get['key'] ?? '');
-        $deviceId    = (string)($request->get['device_id'] ?? '');
-        $deviceName  = (string)($request->get['device_name'] ?? '');
-        $model       = (string)($request->get['model'] ?? '');
-        $osVersion   = (string)($request->get['os_version'] ?? '');
-        $fingerprint = (string)($request->get['fingerprint'] ?? '');
-        $heartbeatInterval = (int)($request->get['heartbeat_interval'] ?? $this->heartbeatInterval);
-
         // 获取客户端 IP
         $clientInfo = $server->getClientInfo($fd);
         $ip = is_array($clientInfo) ? (string)($clientInfo['remote_ip'] ?? '') : '';
         $ua = (string)($request->header['user-agent'] ?? '');
 
+        // 支持 query 参数鉴权（向后兼容）
+        $keyValue    = (string)($request->get['key'] ?? '');
+        $deviceId    = (string)($request->get['device_id'] ?? '');
+
+        if ($keyValue !== '' && $deviceId !== '') {
+            // query 参数鉴权方式
+            $deviceName  = (string)($request->get['device_name'] ?? '');
+            $model       = (string)($request->get['model'] ?? '');
+            $osVersion   = (string)($request->get['os_version'] ?? '');
+            $fingerprint = (string)($request->get['fingerprint'] ?? '');
+            $heartbeatInterval = (int)($request->get['heartbeat_interval'] ?? $this->heartbeatInterval);
+
+            $this->authenticateDevice($server, $fd, $keyValue, $deviceId, $deviceName, $model, $osVersion, $fingerprint, $heartbeatInterval, $ip, $ua);
+        } else {
+            // 新协议：等待客户端发送 auth 消息
+            // 存储客户端 IP 和 UA 供后续鉴权使用
+            $this->pendingAuth[$fd] = ['ip' => $ip, 'ua' => $ua, 'time' => time()];
+            // 设置鉴权超时定时器（30秒内未鉴权则断开）
+            Timer::after(30000, function () use ($server, $fd) {
+                if (isset($this->pendingAuth[$fd])) {
+                    unset($this->pendingAuth[$fd]);
+                    if ($server->isEstablished($fd)) {
+                        $server->push($fd, $this->pack(-1, '鉴权超时', null, 'auth_result'));
+                        $server->disconnect($fd, 4001, 'auth timeout');
+                    }
+                }
+            });
+        }
+    }
+
+    /**
+     * 待鉴权连接列表
+     */
+    private array $pendingAuth = [];
+
+    /**
+     * 执行设备鉴权
+     *
+     * @param Server $server
+     * @param int $fd
+     * @param string $keyValue
+     * @param string $deviceId
+     * @param string $deviceName
+     * @param string $model
+     * @param string $osVersion
+     * @param string $fingerprint
+     * @param int $heartbeatInterval
+     * @param string $ip
+     * @param string $ua
+     * @return void
+     */
+    private function authenticateDevice(
+        Server $server,
+        int $fd,
+        string $keyValue,
+        string $deviceId,
+        string $deviceName,
+        string $model,
+        string $osVersion,
+        string $fingerprint,
+        int $heartbeatInterval,
+        string $ip,
+        string $ua
+    ): void {
+        // 清除待鉴权标记
+        unset($this->pendingAuth[$fd]);
+
         if ($keyValue === '' || $deviceId === '') {
-            $this->sendAndClose($server, $fd, $this->pack(-1, '缺少 key 或 device_id 参数'));
+            $this->sendAndClose($server, $fd, $this->pack(-1, '缺少 key 或 device_id 参数', null, 'auth_result'));
             return;
         }
 
-        // 2. 校验 Key 有效性（查 push_keys 表）
+        // 校验 Key 有效性
         $pushKey = Database::fetch(
             'SELECT * FROM push_keys WHERE key_value = ? AND status = 1 LIMIT 1',
             [$keyValue]
         );
         if ($pushKey === false) {
-            $this->sendAndClose($server, $fd, $this->pack(-1, '推送 Key 无效或已禁用'));
+            $this->sendAndClose($server, $fd, $this->pack(-1, '推送 Key 无效或已禁用', null, 'auth_result'));
             return;
         }
 
@@ -253,25 +312,24 @@ class WebSocketServer
         $deviceCount = $this->deviceService->countByPushKey($pushKeyId);
         $maxDevices  = (int)$pushKey['max_devices'];
         if ($maxDevices > 0 && $deviceCount >= $maxDevices) {
-            // 检查是否是已有设备（按 device_id + push_key_id 精确匹配）
             $existing = $this->deviceService->getDeviceByKey($deviceId, $pushKeyId);
             if ($existing === null) {
-                $this->sendAndClose($server, $fd, $this->pack(-1, "设备数量已达上限({$maxDevices})"));
+                $this->sendAndClose($server, $fd, $this->pack(-1, "设备数量已达上限({$maxDevices})", null, 'auth_result'));
                 return;
             }
         }
 
-        // 3. 检查黑名单（device_id / ip / fingerprint）
+        // 检查黑名单
         if ($this->connectionManager->isBlacklisted('device_id', $deviceId)) {
-            $this->sendAndClose($server, $fd, $this->pack(-1, '设备已被拉黑'));
+            $this->sendAndClose($server, $fd, $this->pack(-1, '设备已被拉黑', null, 'auth_result'));
             return;
         }
         if ($ip !== '' && $this->connectionManager->isBlacklisted('ip', $ip)) {
-            $this->sendAndClose($server, $fd, $this->pack(-1, 'IP 已被拉黑'));
+            $this->sendAndClose($server, $fd, $this->pack(-1, 'IP 已被拉黑', null, 'auth_result'));
             return;
         }
         if ($fingerprint !== '' && $this->connectionManager->isBlacklisted('fingerprint', $fingerprint)) {
-            $this->sendAndClose($server, $fd, $this->pack(-1, '设备指纹已被拉黑'));
+            $this->sendAndClose($server, $fd, $this->pack(-1, '设备指纹已被拉黑', null, 'auth_result'));
             return;
         }
 
@@ -280,13 +338,13 @@ class WebSocketServer
             $fingerprint = $this->deviceService->generateFingerprint($deviceId, $model, $osVersion);
         }
 
-        // 4. 注册设备到 ConnectionManager
+        // 注册设备到 ConnectionManager
         $this->connectionManager->registerDevice($fd, $deviceId, $keyValue, $pushKeyId, [
             'ip'          => $ip,
             'fingerprint' => $fingerprint,
         ]);
 
-        // 5. 采集设备信息存 devices 表
+        // 采集设备信息存 devices 表
         $this->deviceService->registerDevice([
             'device_id'    => $deviceId,
             'push_key_id'  => $pushKeyId,
@@ -299,27 +357,26 @@ class WebSocketServer
             'fingerprint'  => $fingerprint,
         ]);
 
-        // 6. 启动心跳（HeartbeatManager 会将 interval 校正到 10-300 范围内）
+        // 启动心跳
         $this->heartbeatManager->startHeartbeat($fd, $heartbeatInterval);
-        // 获取实际生效的心跳间隔，反馈给客户端
         $effectiveInterval = $this->heartbeatManager->getInterval($fd);
 
-        // 7. 回放离线消息
+        // 回放离线消息
         $this->replayOfflineMessages($server, $fd, $deviceId);
 
-        // 推送连接成功消息
+        // 发送鉴权成功消息（带 type 字段，与 APP 协议一致）
         $server->push($fd, $this->pack(0, '连接成功', [
             'heartbeat_interval' => $effectiveInterval,
             'server_time'        => time(),
             'device_id'          => $deviceId,
-            'push_key'            => $keyValue,
-        ]));
+            'push_key'           => $keyValue,
+        ], 'auth_result'));
     }
 
     /**
      * 收到消息事件
      *
-     * 处理客户端上报的 pong、ack、subscribe 消息。
+     * 处理客户端上报的 auth、pong、ack、subscribe 消息。
      *
      * @param Server $server
      * @param Frame $frame
@@ -332,20 +389,38 @@ class WebSocketServer
 
         // 非 JSON 文本：当作心跳 ping 处理（兼容客户端主动 ping）
         if (!is_array($data)) {
-            $server->push($fd, $this->pack(0, 'pong', ['server_time' => time()]));
+            $server->push($fd, $this->pack(0, 'pong', ['server_time' => time()], 'pong'));
             return;
         }
 
         $type = $data['type'] ?? '';
         switch ($type) {
+            case 'auth':
+                // 新协议：客户端发送 auth 消息进行鉴权
+                $pending = $this->pendingAuth[$fd] ?? ['ip' => '', 'ua' => ''];
+                $this->authenticateDevice(
+                    $server,
+                    $fd,
+                    (string)($data['key'] ?? ''),
+                    (string)($data['device_id'] ?? ''),
+                    (string)($data['device_name'] ?? ''),
+                    (string)($data['model'] ?? ''),
+                    (string)($data['os_version'] ?? ''),
+                    (string)($data['fingerprint'] ?? ''),
+                    (int)($data['heartbeat_interval'] ?? $this->heartbeatInterval),
+                    $pending['ip'] ?? '',
+                    $pending['ua'] ?? ''
+                );
+                break;
+
             case 'pong':
                 // 客户端响应服务端心跳 ping，重置未响应计数
                 $this->heartbeatManager->onPong($fd);
                 break;
 
             case 'ping':
-                // 客户端主动心跳，响应 pong
-                $server->push($fd, $this->pack(0, 'pong', ['server_time' => time()]));
+                // 客户端主动心跳，响应 pong（带 type 字段，与 APP 协议一致）
+                $server->push($fd, $this->pack(0, 'pong', ['server_time' => time()], 'pong'));
                 break;
 
             case 'ack':
@@ -375,6 +450,9 @@ class WebSocketServer
     public function onClose(Server $server, int $fd): void
     {
         try {
+            // 清除待鉴权标记
+            unset($this->pendingAuth[$fd]);
+
             // 停止心跳
             $this->heartbeatManager->stopHeartbeat($fd);
 
@@ -597,16 +675,22 @@ class WebSocketServer
      * @param int $code 业务码
      * @param string $message 消息类型/描述
      * @param mixed $data
+     * @param string $type 消息类型（auth_result / pong / push / ping 等）
      * @return string
      */
-    private function pack(int $code, string $message, $data = null): string
+    private function pack(int $code, string $message, $data = null, string $type = ''): string
     {
-        return json_encode([
+        $payload = [
             'code'    => $code,
             'message' => $message,
             'data'    => $data,
             'time'    => time(),
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        ];
+        if ($type !== '') {
+            $payload['type'] = $type;
+            $payload['success'] = ($code === 0);
+        }
+        return json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 
     /**

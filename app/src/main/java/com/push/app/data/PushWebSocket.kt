@@ -11,6 +11,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.isString
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -44,12 +47,15 @@ private data class ServerEnvelope(
     val type: String? = null,
     val success: Boolean = false,
     val message: String? = null,
-    // 推送字段
+    // 推送字段（平铺在顶层）
     val id: String? = null,
     val title: String? = null,
     val content: String? = null,
     val priority: String? = null,
     val timestamp: Long = 0L,
+    // 兼容旧格式（data 嵌套）
+    val code: Int = -1,
+    val data: kotlinx.serialization.json.JsonElement? = null,
 )
 
 /** 连接参数 */
@@ -198,7 +204,7 @@ class PushWebSocket(
 
         when (env.type) {
             "auth_result" -> {
-                if (env.success) {
+                if (env.success || env.code == 0) {
                     Log.i(TAG, "auth success")
                     reconnectAttempts = 0
                     _state.value = ConnectionState.CONNECTED
@@ -229,9 +235,45 @@ class PushWebSocket(
                 onPushMessage(msg)
             }
             else -> {
-                Log.d(TAG, "unknown message type: ${env.type}")
+                // 兼容旧格式：type 为空但 code==0 时，尝试从 data 提取推送消息
+                if (env.type == null && env.code == 0) {
+                    val msgId = extractStringFromData(env.data, "message_id")
+                        ?: extractStringFromData(env.data, "id")
+                    val title = extractStringFromData(env.data, "title") ?: ""
+                    val content = extractStringFromData(env.data, "content") ?: ""
+                    if (title.isNotBlank() || content.isNotBlank()) {
+                        val msg = PushMessage(
+                            id = msgId ?: java.util.UUID.randomUUID().toString(),
+                            title = title,
+                            content = content,
+                            priority = extractStringFromData(env.data, "priority") ?: "default",
+                            timestamp = extractLongFromData(env.data, "timestamp") ?: System.currentTimeMillis(),
+                        )
+                        onPushMessage(msg)
+                    } else if (env.message == "pong") {
+                        // 旧格式的 pong 响应
+                        lastPongTime = System.currentTimeMillis()
+                        pendingPongs.set(0)
+                    }
+                } else {
+                    Log.d(TAG, "unknown message type: ${env.type}")
+                }
             }
         }
+    }
+
+    /** 从 JsonElement 中提取字符串字段 */
+    private fun extractStringFromData(element: kotlinx.serialization.json.JsonElement?, key: String): String? {
+        if (element == null || !element.isJsonObject) return null
+        val obj = element.jsonObject
+        return obj[key]?.let { if (it.isString) it.jsonPrimitive.content else null }
+    }
+
+    /** 从 JsonElement 中提取 Long 字段 */
+    private fun extractLongFromData(element: kotlinx.serialization.json.JsonElement?, key: String): Long? {
+        if (element == null || !element.isJsonObject) return null
+        val obj = element.jsonObject
+        return obj[key]?.let { runCatching { it.jsonPrimitive.content.toLong() }.getOrNull() }
     }
 
     /** 启动心跳协程 */

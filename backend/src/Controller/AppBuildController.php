@@ -3,17 +3,16 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
-use App\Service\Jwt;
+use App\Middleware\AdminAuth;
 use App\Service\Response;
-use BuildServer\BuildQueue;
-
-// 引入打包队列服务（位于 build/queue 目录）
-require_once dirname(__DIR__, 3) . '/build/queue/BuildQueue.php';
 
 /**
  * APP 打包控制器
  *
  * 提供管理后台触发 APK 打包的 HTTP 接口，需要管理员鉴权。
+ *
+ * 注意：打包服务（BuildQueue）依赖独立的构建环境（Android SDK + Gradle），
+ * 当 build/queue/BuildQueue.php 不存在时，所有接口返回“打包服务未配置”。
  *
  * 路由：
  *   POST /admin/app-build                      提交打包任务
@@ -24,62 +23,31 @@ require_once dirname(__DIR__, 3) . '/build/queue/BuildQueue.php';
  */
 class AppBuildController
 {
+    /** @var bool|null BuildQueue 是否可用（懒加载） */
+    private static $available = null;
+
     /**
-     * 管理员鉴权
+     * 检查打包服务是否可用
      *
-     * 从请求头/查询参数提取 JWT 并校验，返回管理员载荷。
-     * 失败时直接输出错误响应并返回 null。
-     *
-     * 注意：当前仅要求 token 合法且包含 admin_id / uid 标识，
-     * 待管理员角色体系完善后，应补充 role === 'admin' 的严格校验。
-     *
-     * @param array $context
-     * @return array|null 管理员载荷；鉴权失败返回 null（已自行输出响应）
+     * @return bool
      */
-    private function authenticate(array $context): ?array
+    private static function isAvailable(): bool
     {
-        $response = $context['response'];
-
-        // 提取 token：优先 Authorization 头，其次查询参数
-        $authHeader = $context['header']['authorization']
-            ?? $context['server']['HTTP_AUTHORIZATION']
-            ?? $context['server']['http_authorization']
-            ?? '';
-        $token = null;
-        if (preg_match('/Bearer\s+(.+)/i', (string)$authHeader, $matches)) {
-            $token = trim($matches[1]);
+        if (self::$available !== null) {
+            return self::$available;
         }
-        if (!$token) {
-            $token = $context['get']['token'] ?? null;
+        $path = dirname(__DIR__, 3) . '/build/queue/BuildQueue.php';
+        if (!is_file($path)) {
+            self::$available = false;
+            return false;
         }
-
-        if (!$token) {
-            Response::fail($response, '未提供授权令牌', Response::CODE_UNAUTHORIZED, 401);
-            return null;
-        }
-
         try {
-            $payload = Jwt::verify($token);
+            require_once $path;
+            self::$available = true;
         } catch (\Throwable $e) {
-            Response::fail($response, '授权令牌无效或已过期：' . $e->getMessage(), Response::CODE_UNAUTHORIZED, 401);
-            return null;
+            self::$available = false;
         }
-
-        // 校验令牌类型必须为管理员令牌
-        $type = $payload['type'] ?? '';
-        if ($type !== 'admin') {
-            Response::fail($response, '无权限访问该资源：需要管理员令牌', Response::CODE_FORBIDDEN, 403);
-            return null;
-        }
-
-        // 校验是否为管理员标识
-        $adminId = $payload['admin_id'] ?? null;
-        if (!$adminId) {
-            Response::fail($response, '无权限访问该资源', Response::CODE_FORBIDDEN, 403);
-            return null;
-        }
-
-        return $payload;
+        return self::$available;
     }
 
     /**
@@ -114,11 +82,18 @@ class AppBuildController
      */
     public function submit(array $context, array $params)
     {
-        if (!$this->authenticate($context)) {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
             return false;
         }
 
         $response = $context['response'];
+
+        if (!self::isAvailable()) {
+            Response::fail($response, '打包服务未配置：缺少 build/queue/BuildQueue.php', Response::CODE_ERROR, 503);
+            return false;
+        }
+
         $data = $this->parseBody($context);
 
         // 参数校验
@@ -134,21 +109,21 @@ class AppBuildController
             'server_url'  => (string)($data['server_url'] ?? ''),
             'ws_url'      => (string)($data['ws_url'] ?? ''),
             'icon_path'   => (string)($data['icon_path'] ?? ''),
-            'admin_id'    => (int)($data['admin_id'] ?? 0),
+            'admin_id'    => (int)($payload['admin_id'] ?? 0),
         ];
 
         try {
-            $buildId = BuildQueue::submitBuild($config);
+            $buildId = \BuildServer\BuildQueue::submitBuild($config);
         } catch (\Throwable $e) {
             Response::fail($response, '提交打包任务失败：' . $e->getMessage(), Response::CODE_INTERNAL);
             return false;
         }
 
         return [
-            'build_id'   => $buildId,
-            'status'     => 'pending',
-            'message'    => '打包任务已提交，请稍后查询构建状态',
-            'query_url'  => '/admin/app-build/status/' . $buildId,
+            'build_id'  => $buildId,
+            'status'    => 'pending',
+            'message'   => '打包任务已提交，请稍后查询构建状态',
+            'query_url' => '/admin/app-build/status/' . $buildId,
         ];
     }
 
@@ -162,22 +137,27 @@ class AppBuildController
      */
     public function list(array $context, array $params)
     {
-        if (!$this->authenticate($context)) {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
             return false;
         }
 
         $response = $context['response'];
+
+        if (!self::isAvailable()) {
+            Response::fail($response, '打包服务未配置', Response::CODE_ERROR, 503);
+            return false;
+        }
+
         $page = (int)($context['get']['page'] ?? 1);
         $keyword = (string)($context['get']['keyword'] ?? '');
 
         try {
-            $result = BuildQueue::getBuildList($page, $keyword);
+            return \BuildServer\BuildQueue::getBuildList($page, $keyword);
         } catch (\Throwable $e) {
             Response::fail($response, '获取构建列表失败：' . $e->getMessage(), Response::CODE_INTERNAL);
             return false;
         }
-
-        return $result;
     }
 
     /**
@@ -190,18 +170,25 @@ class AppBuildController
      */
     public function status(array $context, array $params)
     {
-        if (!$this->authenticate($context)) {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
             return false;
         }
 
         $response = $context['response'];
+
+        if (!self::isAvailable()) {
+            Response::fail($response, '打包服务未配置', Response::CODE_ERROR, 503);
+            return false;
+        }
+
         $buildId = (string)($params['build_id'] ?? '');
         if ($buildId === '') {
             Response::fail($response, '缺少 build_id', Response::CODE_BAD_REQUEST);
             return false;
         }
 
-        $task = BuildQueue::getBuildStatus($buildId);
+        $task = \BuildServer\BuildQueue::getBuildStatus($buildId);
         if (!$task) {
             Response::fail($response, '构建任务不存在', Response::CODE_NOT_FOUND, 404);
             return false;
@@ -220,29 +207,33 @@ class AppBuildController
      */
     public function log(array $context, array $params)
     {
-        if (!$this->authenticate($context)) {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
             return false;
         }
 
         $response = $context['response'];
+
+        if (!self::isAvailable()) {
+            Response::fail($response, '打包服务未配置', Response::CODE_ERROR, 503);
+            return false;
+        }
+
         $buildId = (string)($params['build_id'] ?? '');
         if ($buildId === '') {
             Response::fail($response, '缺少 build_id', Response::CODE_BAD_REQUEST);
             return false;
         }
 
-        // 校验任务是否存在
-        $task = BuildQueue::getBuildStatus($buildId);
+        $task = \BuildServer\BuildQueue::getBuildStatus($buildId);
         if (!$task) {
             Response::fail($response, '构建任务不存在', Response::CODE_NOT_FOUND, 404);
             return false;
         }
 
-        $log = BuildQueue::getBuildLog($buildId);
-
         return [
             'build_id' => $buildId,
-            'log'      => $log,
+            'log'      => \BuildServer\BuildQueue::getBuildLog($buildId),
         ];
     }
 
@@ -256,18 +247,25 @@ class AppBuildController
      */
     public function download(array $context, array $params)
     {
-        if (!$this->authenticate($context)) {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
             return false;
         }
 
         $response = $context['response'];
+
+        if (!self::isAvailable()) {
+            Response::fail($response, '打包服务未配置', Response::CODE_ERROR, 503);
+            return false;
+        }
+
         $buildId = (string)($params['build_id'] ?? '');
         if ($buildId === '') {
             Response::fail($response, '缺少 build_id', Response::CODE_BAD_REQUEST);
             return false;
         }
 
-        $task = BuildQueue::getBuildStatus($buildId);
+        $task = \BuildServer\BuildQueue::getBuildStatus($buildId);
         if (!$task) {
             Response::fail($response, '构建任务不存在', Response::CODE_NOT_FOUND, 404);
             return false;

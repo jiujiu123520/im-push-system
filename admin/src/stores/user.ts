@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { getToken, setToken, removeToken } from '@/utils/auth'
 import { loginApi, logoutApi, getUserInfoApi } from '@/api/auth'
 import type { LoginParams, UserInfo } from '@/api/types'
+import { resetRouter } from '@/router'
 
 interface UserState {
   token: string
@@ -29,47 +30,29 @@ export const useUserStore = defineStore('user', {
   actions: {
     // 登录
     async login(params: LoginParams) {
-      try {
-        const res = await loginApi(params)
-        const token = res.data?.token || res.token
-        this.token = token
-        setToken(token)
-        return res
-      } catch {
-        // 后端未就绪时回退到演示模式，便于本地预览
-        const mockToken = 'demo_' + Date.now()
-        this.token = mockToken
-        setToken(mockToken)
-        return { token: mockToken }
+      const res = await loginApi(params)
+      const token = res.data?.token
+      if (!token) {
+        throw new Error('登录失败：服务器未返回 Token')
       }
+      this.token = token
+      setToken(token)
+      return res
     },
 
     // 获取用户信息
     async getUserInfo() {
-      try {
-        const res = await getUserInfoApi()
-        const info = res.data || res
-        this.userInfo = info
-        this.roles = info.roles || ['admin']
-        this.permissions = info.permissions || ['*:*:*']
-        return info
-      } catch {
-        // 后端未就绪时回退到演示数据
-        const mock: UserInfo = {
-          id: 1,
-          username: 'admin',
-          nickname: '超级管理员',
-          avatar: '',
-          email: 'admin@push.dev',
-          roles: ['super_admin'],
-          permissions: ['*:*:*'],
-          lastLoginAt: new Date().toLocaleString('zh-CN')
-        }
-        this.userInfo = mock
-        this.roles = mock.roles
-        this.permissions = mock.permissions
-        return mock
+      const res = await getUserInfoApi()
+      const info = res.data
+      if (!info) {
+        throw new Error('获取用户信息失败')
       }
+      this.userInfo = info
+      // 后端返回 role 字符串（super_admin/admin），转换为 roles 数组
+      this.roles = info.role ? [info.role] : ['admin']
+      // super_admin 拥有全部权限，普通 admin 需细化权限时可由后端补充
+      this.permissions = info.role === 'super_admin' ? ['*:*:*'] : ['*:*:*']
+      return info
     },
 
     // 登出
@@ -80,6 +63,7 @@ export const useUserStore = defineStore('user', {
         // 即使接口失败也清除本地状态
       }
       this.resetState()
+      resetRouter()
     },
 
     // 重置状态
@@ -89,6 +73,7 @@ export const useUserStore = defineStore('user', {
       this.roles = []
       this.permissions = []
       removeToken()
+      resetRouter()
     },
 
     // 判断是否有权限
