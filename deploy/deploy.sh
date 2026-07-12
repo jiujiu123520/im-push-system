@@ -11,13 +11,16 @@
 #   6. Nginx 反向代理配置
 #
 # 用法:
-#   方式1: 从 GitHub 直接部署（首次安装）
+#   方式1: 从 GitHub 直接部署（国内服务器推荐，使用 gh.jasonzeng.dev 代理）
+#     curl -sSL https://gh.jasonzeng.dev/https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh | bash
+#
+#   方式2: 直接从 GitHub 部署（需能直连 GitHub）
 #     curl -sSL https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh | bash
 #
-#   方式2: 本地执行（已有代码）
+#   方式3: 本地执行（已有代码）
 #     sudo bash deploy/deploy.sh
 #
-#   方式3: 自定义参数
+#   方式4: 自定义参数
 #     sudo bash deploy/deploy.sh --project-dir=/www/push-system --domain=push.example.com
 #
 # 配置参数（可通过环境变量或命令行参数）:
@@ -347,7 +350,7 @@ step "7/8" "拉取代码并配置"
 # 拉取代码（使用 HTTPS）
 if [[ ! -d "${PROJECT_DIR}/.git" ]]; then
     info "从 GitHub 拉取代码..."
-    git clone https://github.com/jiujiu123520/im-push-system.git "${PROJECT_DIR}"
+    git clone https://gh.jasonzeng.dev/https://github.com/jiujiu123520/im-push-system.git "${PROJECT_DIR}"
 fi
 
 cd "${PROJECT_DIR}"
