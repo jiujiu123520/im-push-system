@@ -285,20 +285,21 @@ info "Nginx 版本: $(nginx -v 2>&1)"
 # ============================================================
 step "4/8" "安装 Node.js + Composer"
 
-# 安装 Node.js 18.x LTS（使用阿里云镜像）
+# 安装 Node.js 20.x LTS（使用 npmmirror 二进制镜像）
 if ! command -v node >/dev/null 2>&1; then
-    info "安装 Node.js 18.x LTS..."
+    info "安装 Node.js 20.x LTS..."
+    NODE_VERSION="v20.18.1"
+    NODE_MIRROR="https://npmmirror.com/mirrors/node"
     if [[ "$PKG_MANAGER" == "apt-get" ]]; then
-        curl -fsSL https://mirrors.aliyun.com/nodesource/deb/setup_18.x -o /tmp/node_setup.sh
-        bash /tmp/node_setup.sh < /dev/null
-        rm -f /tmp/node_setup.sh
-        apt-get install -y nodejs
+        curl -fsSL "${NODE_MIRROR}/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.gz" -o /tmp/node.tar.gz
+        tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1
+        rm -f /tmp/node.tar.gz
     else
-        curl -fsSL https://mirrors.aliyun.com/nodesource/rpm/setup_18.x -o /tmp/node_setup.sh
-        bash /tmp/node_setup.sh < /dev/null
-        rm -f /tmp/node_setup.sh
-        yum install -y nodejs
+        curl -fsSL "${NODE_MIRROR}/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.gz" -o /tmp/node.tar.gz
+        tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1
+        rm -f /tmp/node.tar.gz
     fi
+    info "Node.js 安装完成: $(node -v)"
 fi
 
 # 配置 npm 淘宝镜像
