@@ -362,7 +362,7 @@
 
           <div class="form-actions">
             <el-button
-              :icon="Send"
+              :icon="Promotion"
               :loading="testing.mailNotify"
               @click="testMailNotify"
               :disabled="!mailForm.enabled || !mailForm.username || !mailForm.password"
@@ -576,9 +576,7 @@ import {
   DataLine,
   Histogram,
   Clock,
-  CircleCheckFilled,
-  Message,
-  Promotion
+  CircleCheckFilled
 } from '@element-plus/icons-vue'
 import {
   getSettingsApi,
@@ -898,15 +896,15 @@ async function testMail() {
   testing.mail = true
   try {
     const res = await testMailConfigApi({
+      to: captchaForm.mailFrom,
       host: captchaForm.mailHost,
-      port: captchaForm.mailPort,
-      from: captchaForm.mailFrom
+      port: String(captchaForm.mailPort),
+      username: captchaForm.mailUsername || '',
+      password: captchaForm.mailPassword || '',
+      encryption: 'ssl',
+      sender_name: captchaForm.mailFrom
     })
-    if (res.data?.success) {
-      ElMessage.success('测试邮件已发送，请查收')
-    } else {
-      ElMessage.error(res.data?.message || '测试发送失败')
-    }
+    ElMessage.success(res.data?.message || '测试邮件已发送，请查收')
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : '测试发送失败')
   } finally {

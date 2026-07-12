@@ -600,10 +600,10 @@ async function handleSubmit() {
   try {
     if (currentModule.value === 'keys') {
       if (isEdit.value) {
-        await updateKeyApi(dialogForm.id, dialogForm)
+        await updateKeyApi(dialogForm.id, dialogForm as unknown as KeyForm)
         ElMessage.success('更新成功')
       } else {
-        await createKeyApi(dialogForm)
+        await createKeyApi(dialogForm as unknown as KeyForm)
         ElMessage.success('新增成功')
       }
     } else {

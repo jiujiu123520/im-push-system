@@ -62,7 +62,7 @@ service.interceptors.response.use(
       ElMessage.error(res.message || '请求异常')
       return Promise.reject(new Error(res.message || 'Error'))
     }
-    return res
+    return res as unknown as typeof response
   },
   (error) => {
     NProgress.done()

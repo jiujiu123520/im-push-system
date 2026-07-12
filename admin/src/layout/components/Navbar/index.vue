@@ -128,18 +128,32 @@ const { isFullscreen, toggle: toggleFullscreen } = useFullscreen()
 
 const refreshing = ref(false)
 
+interface BreadcrumbItem {
+  path: string
+  title: string
+  redirect?: string
+}
+
 // 面包屑
-const breadcrumbs = computed(() => {
+const breadcrumbs = computed<BreadcrumbItem[]>(() => {
   const matched = route.matched.filter((item) => item.meta && item.meta.title)
   // 若首项不是 dashboard，则前置一项
   const first = matched[0]
   if (first && first.path !== '/dashboard') {
-    return [{ path: '/dashboard', title: '首页' }, ...matched.map((m) => ({
-      path: m.path,
-      title: m.meta.title as string
-    }))]
+    return [
+      { path: '/dashboard', title: '首页' },
+      ...matched.map((m) => ({
+        path: m.path,
+        title: m.meta.title as string,
+        redirect: (m as any).redirect
+      }))
+    ]
   }
-  return matched.map((m) => ({ path: m.path, title: m.meta.title as string }))
+  return matched.map((m) => ({
+    path: m.path,
+    title: m.meta.title as string,
+    redirect: (m as any).redirect
+  }))
 })
 
 const roleLabel = computed(() => {

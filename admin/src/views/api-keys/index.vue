@@ -451,16 +451,17 @@ async function copyCode(text: string) {
 }
 
 // 状态切换
-async function handleToggleStatus(row: ApiKeyRecord) {
-  const next = row.status === 1 ? 0 : 1
+async function handleToggleStatus(row: any) {
+  const record = row as ApiKeyRecord
+  const next = record.status === 1 ? 0 : 1
   const action = next === 1 ? '启用' : '禁用'
   try {
-    await ElMessageBox.confirm(`确定${action} Key「${row.name}」吗？`, '提示', {
+    await ElMessageBox.confirm(`确定${action} Key「${record.name}」吗？`, '提示', {
       confirmButtonText: action,
       cancelButtonText: '取消',
       type: 'warning'
     })
-    await toggleApiKeyStatusApi(row.id, next)
+    await toggleApiKeyStatusApi(record.id, next)
     ElMessage.success(`${action}成功`)
     fetchData()
   } catch {
@@ -469,14 +470,15 @@ async function handleToggleStatus(row: ApiKeyRecord) {
 }
 
 // 删除
-async function handleDelete(row: ApiKeyRecord) {
+async function handleDelete(row: any) {
+  const record = row as ApiKeyRecord
   try {
-    await ElMessageBox.confirm(`确定删除 Key「${row.name}」吗？此操作不可恢复`, '提示', {
+    await ElMessageBox.confirm(`确定删除 Key「${record.name}」吗？此操作不可恢复`, '提示', {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
       type: 'warning'
     })
-    await deleteApiKeyApi(row.id)
+    await deleteApiKeyApi(record.id)
     ElMessage.success('删除成功')
     fetchData()
   } catch {
