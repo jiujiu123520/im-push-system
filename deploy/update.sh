@@ -19,13 +19,22 @@ set -e
 #   - 失败时输出回滚提示
 # ============================================================
 
-PROJECT_DIR="/www/push-system"
-DB_NAME="${DB_NAME:-im_push}"
-DB_USER="${DB_USER:-root}"
-DB_PASS="${DB_PASS:-}"
+PROJECT_DIR="${PROJECT_DIR:-/www/push-system}"
 MIGRATIONS_TABLE="schema_migrations"
 
 cd "$PROJECT_DIR" || exit 1
+
+# 从 .env 读取数据库配置
+if [[ -f "${PROJECT_DIR}/backend/.env" ]]; then
+    DB_NAME="$(grep -E '^DB_NAME=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2-)"
+    DB_USER="$(grep -E '^DB_USER=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2-)"
+    DB_PASS="$(grep -E '^DB_PASS=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2-)"
+    DB_HOST="$(grep -E '^DB_HOST=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2-)"
+fi
+DB_NAME="${DB_NAME:-im_push}"
+DB_USER="${DB_USER:-root}"
+DB_PASS="${DB_PASS:-}"
+DB_HOST="${DB_HOST:-127.0.0.1}"
 
 # ------------------------------------------------------------
 # 颜色输出
@@ -74,7 +83,9 @@ echo ""
 # ============================================================
 CURRENT_STEP="[1/4] 拉取最新代码"
 echo "[1/4] 拉取最新代码..."
-git pull origin main
+git fetch origin
+git reset --hard origin/main
+git clean -fd
 info "代码拉取完成。"
 
 # 输出本次更新涉及的提交日志
@@ -129,29 +140,37 @@ EOF
     APPLIED_COUNT=0
     SKIPPED_COUNT=0
 
-    # 按文件名顺序执行迁移
-    for sql_file in $(ls -1 "${MIGRATIONS_DIR}"/*.sql 2>/dev/null | sort); do
-        filename="$(basename "${sql_file}")"
+    # 按文件名顺序执行迁移（使用数组避免空格问题）
+    shopt -s nullglob
+    sql_files=("${MIGRATIONS_DIR}"/*.sql)
+    shopt -u nullglob
+    if [[ ${#sql_files[@]} -gt 0 ]]; then
+        IFS=$'\n' sorted_sql_files=($(sort <<<"${sql_files[*]}"))
+        unset IFS
+        for sql_file in "${sorted_sql_files[@]}"; do
+            [[ -f "${sql_file}" ]] || continue
+            filename="$(basename "${sql_file}")"
 
-        # 检查是否已执行
-        ALREADY_APPLIED=$(mysql "${MYSQL_OPTS[@]}" "${DB_NAME}" -sN -e \
-            "SELECT COUNT(*) FROM \`${MIGRATIONS_TABLE}\` WHERE filename='${filename}';" 2>/dev/null || echo 0)
+            # 检查是否已执行
+            ALREADY_APPLIED=$(mysql "${MYSQL_OPTS[@]}" "${DB_NAME}" -sN -e \
+                "SELECT COUNT(*) FROM \`${MIGRATIONS_TABLE}\` WHERE filename='${filename}';" 2>/dev/null || echo 0)
 
-        if [[ "${ALREADY_APPLIED}" -gt 0 ]]; then
-            info "  跳过(已应用): ${filename}"
-            SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
-        else
-            info "  执行: ${filename}"
-            if mysql "${MYSQL_OPTS[@]}" "${DB_NAME}" < "${sql_file}"; then
-                mysql "${MYSQL_OPTS[@]}" "${DB_NAME}" -e \
-                    "INSERT INTO \`${MIGRATIONS_TABLE}\` (filename) VALUES ('${filename}');"
-                APPLIED_COUNT=$((APPLIED_COUNT + 1))
+            if [[ "${ALREADY_APPLIED}" -gt 0 ]]; then
+                info "  跳过(已应用): ${filename}"
+                SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
             else
-                error "迁移失败: ${filename}"
-                exit 1
+                info "  执行: ${filename}"
+                if mysql "${MYSQL_OPTS[@]}" "${DB_NAME}" < "${sql_file}"; then
+                    mysql "${MYSQL_OPTS[@]}" "${DB_NAME}" -e \
+                        "INSERT INTO \`${MIGRATIONS_TABLE}\` (filename) VALUES ('${filename}');"
+                    APPLIED_COUNT=$((APPLIED_COUNT + 1))
+                else
+                    error "迁移失败: ${filename}"
+                    exit 1
+                fi
             fi
-        fi
-    done
+        done
+    fi
 
     info "数据库迁移完成（本次应用 ${APPLIED_COUNT} 个，跳过 ${SKIPPED_COUNT} 个）。"
 else

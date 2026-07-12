@@ -21,7 +21,7 @@
 
 set -e
 
-PROJECT_DIR="/www/push-system"
+PROJECT_DIR="${PROJECT_DIR:-/www/push-system}"
 BACKUP_FILE="${PROJECT_DIR}/.last-update-backup"
 
 cd "$PROJECT_DIR" || exit 1

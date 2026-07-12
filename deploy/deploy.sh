@@ -63,19 +63,19 @@ error() { echo -e "${COLOR_RED}[ERROR]${COLOR_RESET} $*" >&2; }
 step()  { echo -e "\n${COLOR_BLUE}===== [$1] $2 =====${COLOR_RESET}"; }
 
 # ------------------------------------------------------------
-# 解析命令行参数
+# 解析命令行参数（环境变量优先级：命令行 > 环境变量 > 默认值）
 # ------------------------------------------------------------
-PROJECT_DIR="/www/push-system"
-DB_NAME="im_push"
-DB_USER="im_push"
-DB_PASS="ImPush@2024"
-DB_HOST="127.0.0.1"
-REDIS_HOST="127.0.0.1"
-REDIS_PORT="6379"
-HTTP_PORT="9501"
-WS_PORT="9502"
-DOMAIN=""
-SKIP_APP_BUILD=""
+PROJECT_DIR="${PROJECT_DIR:-/www/push-system}"
+DB_NAME="${DB_NAME:-im_push}"
+DB_USER="${DB_USER:-im_push}"
+DB_PASS="${DB_PASS:-ImPush@2024}"
+DB_HOST="${DB_HOST:-127.0.0.1}"
+REDIS_HOST="${REDIS_HOST:-127.0.0.1}"
+REDIS_PORT="${REDIS_PORT:-6379}"
+HTTP_PORT="${HTTP_PORT:-9501}"
+WS_PORT="${WS_PORT:-9502}"
+DOMAIN="${DOMAIN:-}"
+SKIP_APP_BUILD="${SKIP_APP_BUILD:-}"
 
 for arg in "$@"; do
     case $arg in
@@ -120,23 +120,42 @@ fi
 # ============================================================
 step "1/8" "安装系统基础依赖"
 
-# 更新源（使用国内镜像）
+# 检测系统版本代号
 if [[ "$PKG_MANAGER" == "apt-get" ]]; then
-    info "配置阿里云 Ubuntu 镜像源..."
-    cp /etc/apt/sources.list /etc/apt/sources.list.bak
-    cat > /etc/apt/sources.list << 'EOF'
-deb http://mirrors.aliyun.com/ubuntu/ jammy main restricted universe multiverse
-deb http://mirrors.aliyun.com/ubuntu/ jammy-updates main restricted universe multiverse
-deb http://mirrors.aliyun.com/ubuntu/ jammy-backports main restricted universe multiverse
-deb http://mirrors.aliyun.com/ubuntu/ jammy-security main restricted universe multiverse
+    if [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        OS_CODENAME="${VERSION_CODENAME:-}"
+        OS_ID="${ID:-}"
+    fi
+    if [[ -z "${OS_CODENAME}" ]]; then
+        OS_CODENAME="$(lsb_release -cs 2>/dev/null || echo "jammy")"
+    fi
+    info "系统版本代号: ${OS_CODENAME}"
+
+    info "配置阿里云镜像源..."
+    cp /etc/apt/sources.list /etc/apt/sources.list.bak 2>/dev/null || true
+    if [[ "${OS_ID}" == "debian" ]]; then
+        cat > /etc/apt/sources.list << EOF
+deb http://mirrors.aliyun.com/debian/ ${OS_CODENAME} main contrib non-free
+deb http://mirrors.aliyun.com/debian/ ${OS_CODENAME}-updates main contrib non-free
+deb http://mirrors.aliyun.com/debian/ ${OS_CODENAME}-backports main contrib non-free
+deb http://mirrors.aliyun.com/debian-security ${OS_CODENAME}-security main contrib non-free
 EOF
+    else
+        cat > /etc/apt/sources.list << EOF
+deb http://mirrors.aliyun.com/ubuntu/ ${OS_CODENAME} main restricted universe multiverse
+deb http://mirrors.aliyun.com/ubuntu/ ${OS_CODENAME}-updates main restricted universe multiverse
+deb http://mirrors.aliyun.com/ubuntu/ ${OS_CODENAME}-backports main restricted universe multiverse
+deb http://mirrors.aliyun.com/ubuntu/ ${OS_CODENAME}-security main restricted universe multiverse
+EOF
+    fi
     apt-get update -y
     apt-get install -y software-properties-common ca-certificates curl wget git unzip tar
 
 elif [[ "$PKG_MANAGER" == "yum" ]]; then
     info "配置阿里云 CentOS 镜像源..."
-    cp /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.bak
-    curl -sSL http://mirrors.aliyun.com/repo/Centos-8.repo > /etc/yum.repos.d/CentOS-Base.repo
+    cp /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.bak 2>/dev/null || true
+    curl -sSL http://mirrors.aliyun.com/repo/Centos-8.repo > /etc/yum.repos.d/CentOS-Base.repo 2>/dev/null || true
     yum clean all
     yum makecache -y
     yum install -y epel-release ca-certificates curl wget git unzip tar
@@ -181,27 +200,81 @@ step "3/8" "安装 MySQL / Redis / Nginx"
 
 if [[ "$PKG_MANAGER" == "apt-get" ]]; then
     apt-get install -y mysql-server redis-server nginx
-    
-    # MySQL 安全配置
-    mysql -uroot <<EOF
+
+    systemctl enable mysql 2>/dev/null || true
+    systemctl start mysql 2>/dev/null || true
+    sleep 2
+
+    # MySQL 安全配置（兼容三种情况：无密码、密码已匹配、密码不匹配）
+    if mysql -uroot -e "SELECT 1" >/dev/null 2>&1; then
+        # 首次安装，root 无密码
+        info "配置 MySQL root 密码..."
+        mysql -uroot <<EOF
 ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_PASS}';
 FLUSH PRIVILEGES;
 EOF
+    elif mysql -uroot -p"${DB_PASS}" -e "SELECT 1" >/dev/null 2>&1; then
+        # 密码已设置且与 DB_PASS 一匹配
+        info "MySQL root 密码已配置，跳过"
+    else
+        # 密码不匹配，可能是用户之前设置了不同密码
+        warn "MySQL root 密码验证失败，请确保 DB_PASS 与实际密码一致"
+        warn "当前 DB_PASS: ${DB_PASS}"
+        warn "如需重置: sudo mysql -uroot -e \"ALTER USER 'root'@'localhost' IDENTIFIED BY '${DB_PASS}';\""
+    fi
 
 elif [[ "$PKG_MANAGER" == "yum" ]]; then
     yum install -y mariadb-server redis nginx
-    
+
+    systemctl enable mariadb 2>/dev/null || true
+    systemctl start mariadb 2>/dev/null || true
+    sleep 2
+
     # MySQL 安全配置
-    systemctl start mariadb
-    mysql -uroot <<EOF
+    if mysql -uroot -e "SELECT 1" >/dev/null 2>&1; then
+        info "配置 MySQL root 密码..."
+        mysql -uroot <<EOF
 SET PASSWORD FOR 'root'@'localhost' = PASSWORD('${DB_PASS}');
 FLUSH PRIVILEGES;
 EOF
+    elif mysql -uroot -p"${DB_PASS}" -e "SELECT 1" >/dev/null 2>&1; then
+        info "MySQL root 密码已配置，跳过"
+    else
+        warn "MySQL root 密码验证失败，请确保 DB_PASS 与实际密码一致"
+        warn "当前 DB_PASS: ${DB_PASS}"
+    fi
 fi
 
 # 启动并开机自启
 systemctl enable --now redis-server 2>/dev/null || systemctl enable --now redis
-systemctl enable --now nginx
+
+# 检查 80 端口是否被占用，尝试停止冲突服务
+if ! ss -tlnp | grep -q ':80 '; then
+    systemctl enable --now nginx
+else
+    # 端口被占用，尝试停止 Apache 等冲突服务
+    PORT_80_PID="$(ss -tlnp | grep ':80 ' | grep -oP 'pid=\K[0-9]+' | head -1)"
+    PORT_80_PROC="$(cat /proc/${PORT_80_PID}/comm 2>/dev/null || echo 'unknown')"
+    warn "80 端口已被 ${PORT_80_PROC} (PID: ${PORT_80_PID}) 占用"
+
+    if [[ "${PORT_80_PROC}" == "apache2" ]]; then
+        info "停止 Apache2 以释放 80 端口..."
+        systemctl stop apache2 2>/dev/null || true
+        systemctl disable apache2 2>/dev/null || true
+    elif [[ "${PORT_80_PROC}" == "httpd" ]]; then
+        info "停止 httpd 以释放 80 端口..."
+        systemctl stop httpd 2>/dev/null || true
+        systemctl disable httpd 2>/dev/null || true
+    fi
+
+    sleep 1
+    if systemctl start nginx; then
+        systemctl enable nginx
+        info "Nginx 已启动"
+    else
+        warn "Nginx 启动失败，端口 80 可能仍被占用，请手动排查后运行: systemctl start nginx"
+    fi
+fi
 
 info "MySQL 版本: $(mysql -V)"
 info "Redis 版本: $(redis-server --version | head -n1)"
@@ -216,10 +289,14 @@ step "4/8" "安装 Node.js + Composer"
 if ! command -v node >/dev/null 2>&1; then
     info "安装 Node.js 18.x LTS..."
     if [[ "$PKG_MANAGER" == "apt-get" ]]; then
-        curl -fsSL https://mirrors.aliyun.com/nodesource/deb/setup_18.x | bash -
+        curl -fsSL https://mirrors.aliyun.com/nodesource/deb/setup_18.x -o /tmp/node_setup.sh
+        bash /tmp/node_setup.sh < /dev/null
+        rm -f /tmp/node_setup.sh
         apt-get install -y nodejs
     else
-        curl -fsSL https://mirrors.aliyun.com/nodesource/rpm/setup_18.x | bash -
+        curl -fsSL https://mirrors.aliyun.com/nodesource/rpm/setup_18.x -o /tmp/node_setup.sh
+        bash /tmp/node_setup.sh < /dev/null
+        rm -f /tmp/node_setup.sh
         yum install -y nodejs
     fi
 fi
@@ -228,13 +305,23 @@ fi
 npm config set registry https://registry.npmmirror.com
 info "npm 镜像源: $(npm config get registry)"
 
-# 安装 Composer（使用阿里云镜像）
+# 安装 Composer（使用国内镜像）
 if ! command -v composer >/dev/null 2>&1; then
     info "安装 Composer..."
-    curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+    EXPECTED_CHECKSUM="$(curl -fsSL https://mirrors.aliyun.com/composer/installer.sha256 2>/dev/null || curl -fsSL https://composer.github.io/installer.sha256sum)"
+    php -r "copy('https://mirrors.aliyun.com/composer/installer', 'composer-setup.php');"
+    ACTUAL_CHECKSUM="$(php -r "echo hash_file('sha256', 'composer-setup.php');")"
+    if [[ "$EXPECTED_CHECKSUM" == "$ACTUAL_CHECKSUM" ]]; then
+        php composer-setup.php --install-dir=/usr/local/bin --filename=composer
+    else
+        warn "Composer 安装器校验失败，从官方源重试..."
+        php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+        php composer-setup.php --install-dir=/usr/local/bin --filename=composer
+    fi
+    rm -f composer-setup.php
 fi
 composer config -g repo.packagist composer https://mirrors.aliyun.com/composer/
-info "Composer 镜像源: $(composer config -g repo.packagist --list | grep url | awk '{print $3}')"
+info "Composer 镜像源: $(composer config -g repo.packagist --list 2>/dev/null | grep url | awk '{print $3}' || echo '阿里云镜像')"
 
 info "Node 版本: $(node -v)"
 info "npm 版本: $(npm -v)"
@@ -277,7 +364,7 @@ allprojects {
     repositories {
         maven { url 'https://maven.aliyun.com/repository/public' }
         maven { url 'https://maven.aliyun.com/repository/google' }
-        maven { url 'https://maven.aliyun.com/repository/jcenter' }
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
         mavenLocal()
         mavenCentral()
         google()
@@ -286,33 +373,40 @@ allprojects {
 EOF
     info "Gradle 镜像配置完成"
 
-    # 安装 Android SDK（使用阿里云镜像）
-    if [[ ! -d "$HOME/Android/Sdk" ]]; then
+    # 安装 Android SDK（使用阿里云镜像，统一路径 /opt/android-sdk）
+    ANDROID_SDK_ROOT="/opt/android-sdk"
+    if [[ ! -d "${ANDROID_SDK_ROOT}" ]]; then
         info "安装 Android SDK..."
-        mkdir -p "$HOME/Android"
+        mkdir -p "${ANDROID_SDK_ROOT}"
         ANDROID_SDK_URL="https://mirrors.aliyun.com/android/repository/commandlinetools-linux-11076708_latest.zip"
         curl -sSL "${ANDROID_SDK_URL}" -o /tmp/android-sdk.zip
-        unzip -q /tmp/android-sdk.zip -d "$HOME/Android/cmdline-tools"
+        mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools"
+        unzip -q /tmp/android-sdk.zip -d "${ANDROID_SDK_ROOT}/cmdline-tools"
         rm -f /tmp/android-sdk.zip
 
-        # 配置环境变量
-        cat >> /etc/profile << 'EOF'
+        # 重命名 cmdline-tools 到 latest
+        mv "${ANDROID_SDK_ROOT}/cmdline-tools/cmdline-tools" "${ANDROID_SDK_ROOT}/cmdline-tools/latest" 2>/dev/null || true
 
+        # 配置环境变量（全局）
+        cat > /etc/profile.d/android-sdk.sh << 'EOF'
 # Android SDK Environment
-export ANDROID_HOME=$HOME/Android/Sdk
-export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+export ANDROID_HOME=/opt/android-sdk
+export ANDROID_SDK_ROOT=/opt/android-sdk
+export PATH=$PATH:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools
 EOF
-        source /etc/profile
+        chmod +x /etc/profile.d/android-sdk.sh
+        source /etc/profile.d/android-sdk.sh
 
-        # 接受 SDK 许可证
-        mkdir -p "$HOME/Android/Sdk/cmdline-tools/latest"
-        mv "$HOME/Android/cmdline-tools/cmdline-tools" "$HOME/Android/Sdk/cmdline-tools/latest" 2>/dev/null || true
-        
+        # 接受 SDK 许可证（使用 expect 或重定向 stdin 避免管道模式问题）
+        info "接受 Android SDK 许可证..."
+        yes "y" 2>/dev/null | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" --licenses >/dev/null 2>&1 || true
+
         # 安装基础组件
-        yes | sdkmanager --licenses
-        sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" --no_https
+        info "安装 Android SDK 基础组件..."
+        "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
+            "platform-tools" "platforms;android-34" "build-tools;34.0.0"
     fi
-    info "Android SDK 路径: $ANDROID_HOME"
+    info "Android SDK 路径: ${ANDROID_SDK_ROOT}"
 else
     step "5/8" "跳过 APP 构建环境安装"
     warn "如需构建 Android APP，请手动安装 JDK 17 + Gradle + Android SDK"
@@ -348,26 +442,51 @@ if [[ ! -d "${PROJECT_DIR}/.git" ]]; then
 fi
 
 cd "${PROJECT_DIR}"
-git pull origin main
+git fetch origin
+git reset --hard origin/main
+git clean -fd
 
 # 配置 .env
 if [[ ! -f "${PROJECT_DIR}/backend/.env" ]]; then
     info "配置 .env 文件..."
     cp "${PROJECT_DIR}/backend/.env.example" "${PROJECT_DIR}/backend/.env"
-    
+
     JWT_SECRET_NEW="$(openssl rand -hex 32)"
     AES_KEY_NEW="$(openssl rand -hex 32)"
-    
-    sed -i "s/^DB_NAME=.*/DB_NAME=${DB_NAME}/" "${PROJECT_DIR}/backend/.env"
-    sed -i "s/^DB_USER=.*/DB_USER=${DB_USER}/" "${PROJECT_DIR}/backend/.env"
-    sed -i "s/^DB_PASS=.*/DB_PASS=${DB_PASS}/" "${PROJECT_DIR}/backend/.env"
-    sed -i "s/^REDIS_HOST=.*/REDIS_HOST=${REDIS_HOST}/" "${PROJECT_DIR}/backend/.env"
-    sed -i "s/^REDIS_PORT=.*/REDIS_PORT=${REDIS_PORT}/" "${PROJECT_DIR}/backend/.env"
-    sed -i "s/^HTTP_PORT=.*/HTTP_PORT=${HTTP_PORT}/" "${PROJECT_DIR}/backend/.env"
-    sed -i "s/^WEBSOCKET_PORT=.*/WEBSOCKET_PORT=${WS_PORT}/" "${PROJECT_DIR}/backend/.env"
-    sed -i "s/^JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET_NEW}/" "${PROJECT_DIR}/backend/.env"
-    sed -i "s/^AES_KEY=.*/AES_KEY=${AES_KEY_NEW}/" "${PROJECT_DIR}/backend/.env"
-    
+
+    export _ENV_PATH="${PROJECT_DIR}"
+    export _ENV_DB_NAME="${DB_NAME}"
+    export _ENV_DB_USER="${DB_USER}"
+    export _ENV_DB_PASS="${DB_PASS}"
+    export _ENV_REDIS_HOST="${REDIS_HOST}"
+    export _ENV_REDIS_PORT="${REDIS_PORT}"
+    export _ENV_HTTP_PORT="${HTTP_PORT}"
+    export _ENV_WS_PORT="${WS_PORT}"
+    export _ENV_JWT_SECRET="${JWT_SECRET_NEW}"
+    export _ENV_AES_KEY="${AES_KEY_NEW}"
+
+    php -r '
+$envFile = getenv("_ENV_PATH") . "/backend/.env";
+$content = file_get_contents($envFile);
+$replacements = [
+    "DB_NAME" => getenv("_ENV_DB_NAME"),
+    "DB_USER" => getenv("_ENV_DB_USER"),
+    "DB_PASS" => getenv("_ENV_DB_PASS"),
+    "REDIS_HOST" => getenv("_ENV_REDIS_HOST"),
+    "REDIS_PORT" => getenv("_ENV_REDIS_PORT"),
+    "HTTP_PORT" => getenv("_ENV_HTTP_PORT"),
+    "WEBSOCKET_PORT" => getenv("_ENV_WS_PORT"),
+    "JWT_SECRET" => getenv("_ENV_JWT_SECRET"),
+    "AES_KEY" => getenv("_ENV_AES_KEY"),
+];
+foreach ($replacements as $key => $value) {
+    $content = preg_replace("/^" . preg_quote($key, "/") . "=.*/m", $key . "=" . $value, $content);
+}
+file_put_contents($envFile, $content);
+'
+    unset _ENV_DB_NAME _ENV_DB_USER _ENV_DB_PASS _ENV_REDIS_HOST _ENV_REDIS_PORT
+    unset _ENV_HTTP_PORT _ENV_WS_PORT _ENV_JWT_SECRET _ENV_AES_KEY _ENV_PATH
+
     info "已生成随机密钥并配置数据库"
 fi
 
@@ -385,22 +504,43 @@ npm run build
 # 执行数据库迁移
 info "执行数据库迁移..."
 cd "${PROJECT_DIR}"
-for sql_file in $(ls -1 "${PROJECT_DIR}/backend/database/migrations"/*.sql 2>/dev/null | sort); do
-    info "  执行: $(basename "${sql_file}")"
-    mysql -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" < "${sql_file}"
-done
+shopt -s nullglob
+sql_files=("${PROJECT_DIR}/backend/database/migrations"/*.sql)
+shopt -u nullglob
+if [[ ${#sql_files[@]} -gt 0 ]]; then
+    IFS=$'\n' sorted_sql_files=($(sort <<<"${sql_files[*]}"))
+    unset IFS
+    for sql_file in "${sorted_sql_files[@]}"; do
+        [[ -f "${sql_file}" ]] || continue
+        info "  执行: $(basename "${sql_file}")"
+        mysql -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" < "${sql_file}"
+    done
+fi
 
 # ============================================================
 # 步骤 8: 配置服务并启动
 # ============================================================
 step "8/8" "配置服务并启动"
 
-# 配置 systemd 服务
+# 检测运行用户
+if [[ "$PKG_MANAGER" == "apt-get" ]]; then
+    WEB_USER="www-data"
+    WEB_GROUP="www-data"
+else
+    WEB_USER="nginx"
+    WEB_GROUP="nginx"
+fi
+
+# 配置 systemd 服务（替换路径为实际 PROJECT_DIR）
 SYSTEMD_DST="/etc/systemd/system"
 for svc_file in "${PROJECT_DIR}/deploy/systemd"/*.service; do
     [[ -f "${svc_file}" ]] || continue
-    info "安装服务: $(basename "${svc_file}")"
-    cp "${svc_file}" "${SYSTEMD_DST}/"
+    svc_name="$(basename "${svc_file}")"
+    info "安装服务: ${svc_name}"
+    sed -e "s|/www/push-system|${PROJECT_DIR}|g" \
+        -e "s|User=www-data|User=${WEB_USER}|g" \
+        -e "s|Group=www-data|Group=${WEB_GROUP}|g" \
+        "${svc_file}" > "${SYSTEMD_DST}/${svc_name}"
 done
 systemctl daemon-reload
 
@@ -408,17 +548,35 @@ systemctl daemon-reload
 NGINX_SRC="${PROJECT_DIR}/deploy/nginx/push.conf"
 if [[ -f "${NGINX_SRC}" ]]; then
     info "配置 Nginx..."
-    cp "${NGINX_SRC}" /etc/nginx/conf.d/push.conf
-    
+
+    if [[ "$PKG_MANAGER" == "apt-get" ]]; then
+        NGINX_SITE_AVAIL="/etc/nginx/sites-available"
+        NGINX_SITE_ENABLED="/etc/nginx/sites-enabled"
+        mkdir -p "${NGINX_SITE_AVAIL}" "${NGINX_SITE_ENABLED}"
+        NGINX_CONF="${NGINX_SITE_AVAIL}/push.conf"
+        cp "${NGINX_SRC}" "${NGINX_CONF}"
+        ln -sf "${NGINX_CONF}" "${NGINX_SITE_ENABLED}/push.conf"
+        # 禁用默认站点避免冲突
+        rm -f "${NGINX_SITE_ENABLED}/default"
+    else
+        NGINX_CONF_DIR="/etc/nginx/conf.d"
+        mkdir -p "${NGINX_CONF_DIR}"
+        NGINX_CONF="${NGINX_CONF_DIR}/push.conf"
+        cp "${NGINX_SRC}" "${NGINX_CONF}"
+    fi
+
+    # 更新项目路径
+    sed -i "s|/www/push-system|${PROJECT_DIR}|g" "${NGINX_CONF}"
+
     # 更新域名配置
     if [[ -n "${DOMAIN}" ]]; then
-        sed -i "s/server_name localhost;/server_name ${DOMAIN};/g" /etc/nginx/conf.d/push.conf
+        sed -i "s/server_name push.example.com;/server_name ${DOMAIN};/g" "${NGINX_CONF}"
     fi
-    
+
     # 更新端口配置
-    sed -i "s/9501/${HTTP_PORT}/g" /etc/nginx/conf.d/push.conf
-    sed -i "s/9502/${WS_PORT}/g" /etc/nginx/conf.d/push.conf
-    
+    sed -i "s/9501/${HTTP_PORT}/g" "${NGINX_CONF}"
+    sed -i "s/9502/${WS_PORT}/g" "${NGINX_CONF}"
+
     if nginx -t; then
         systemctl reload nginx
         info "Nginx 配置完成"
@@ -428,7 +586,7 @@ if [[ -f "${NGINX_SRC}" ]]; then
 fi
 
 # 设置权限
-chown -R www-data:www-data "${PROJECT_DIR}" 2>/dev/null || chown -R nginx:nginx "${PROJECT_DIR}"
+chown -R "${WEB_USER}:${WEB_GROUP}" "${PROJECT_DIR}" 2>/dev/null || true
 find "${PROJECT_DIR}" -type d -exec chmod 755 {} \;
 find "${PROJECT_DIR}" -type f -exec chmod 644 {} \;
 
