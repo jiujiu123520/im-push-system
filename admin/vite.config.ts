@@ -3,7 +3,6 @@ import vue from '@vitejs/plugin-vue'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
-import ElementPlus from 'unplugin-element-plus/vite'
 import { resolve } from 'path'
 
 export default defineConfig(({ mode }) => {
@@ -21,8 +20,7 @@ export default defineConfig(({ mode }) => {
       Components({
         resolvers: [ElementPlusResolver({ importStyle: 'sass' })],
         dts: 'src/types/components.d.ts'
-      }),
-      ElementPlus({ useStyle: true })
+      })
     ],
     resolve: {
       alias: {
@@ -39,7 +37,8 @@ export default defineConfig(({ mode }) => {
             }
             return `@use "@/styles/variables.scss" as *;\n@use "@/styles/mixins.scss" as *;\n${source}`
           },
-          api: 'modern-compiler'
+          // 使用 legacy API 确保兼容性（modern-compiler 需 sass 1.77+）
+          api: 'legacy'
         }
       }
     },

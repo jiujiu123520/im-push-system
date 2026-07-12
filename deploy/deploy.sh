@@ -657,10 +657,37 @@ COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader --no-
 # 构建管理后台
 info "构建管理后台..."
 cd "${PROJECT_DIR}/admin"
-npm install
-if ! npm run build 2>&1; then
-    warn "vue-tsc 类型检查失败，改用 vite build 直接构建..."
-    npx vite build
+
+# 国内环境自动切换 npm 镜像源以加速
+if [[ "${CHINA_MIRROR}" == "true" ]]; then
+    info "  切换 npm 到国内镜像源（npmmirror）..."
+    npm config set registry https://registry.npmmirror.com
+fi
+
+# 安装依赖（使用 set -o pipefail 保证管道中第一个失败命令的退出码）
+set -o pipefail
+if ! npm install 2>&1 | tail -20; then
+    set +o pipefail
+    error "npm 依赖安装失败，请检查网络连接或手动执行 npm install"
+    exit 1
+fi
+
+# 先尝试带类型检查的完整构建；失败则回退到 vite build（跳过类型检查）
+if npm run build 2>&1 | tail -30; then
+    set +o pipefail
+    info "  管理后台构建成功（类型检查通过）"
+else
+    set +o pipefail
+    warn "  vue-tsc 类型检查失败，改用 vite build 直接构建（跳过类型检查）..."
+    set -o pipefail
+    if npx vite build 2>&1 | tail -30; then
+        set +o pipefail
+        info "  管理后台构建成功（跳过类型检查）"
+    else
+        set +o pipefail
+        error "管理后台构建失败，请检查错误日志"
+        exit 1
+    fi
 fi
 
 # 执行数据库迁移
