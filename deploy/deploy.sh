@@ -493,34 +493,32 @@ EOF
         info "安装 Android SDK..."
         mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools"
 
-        # 备用下载源列表（国内优先）
+        # 备用下载源列表（国内优先，官方最后）
         ANDROID_SDK_URLS=(
-            "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+            "https://mirrors.aliyun.com/android/repository/commandlinetools-linux-11076708_latest.zip"
             "https://mirrors.cloud.tencent.com/android/repository/commandlinetools-linux-11076708_latest.zip"
             "https://mirrors.huaweicloud.com/android/repository/commandlinetools-linux-11076708_latest.zip"
-            "https://mirrors.aliyun.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+            "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
         )
 
         # 依次尝试各镜像源
         DOWNLOAD_OK=false
         for url in "${ANDROID_SDK_URLS[@]}"; do
             info "  尝试下载: ${url}"
-            curl -sSL --connect-timeout 10 --max-time 120 "${url}" -o /tmp/android-sdk.zip 2>/dev/null
+            rm -f /tmp/android-sdk.zip
+            curl -fsSL --connect-timeout 10 --max-time 180 "${url}" -o /tmp/android-sdk.zip 2>/dev/null
             if [[ $? -ne 0 ]]; then
                 warn "  下载失败，尝试下一个源..."
-                rm -f /tmp/android-sdk.zip
                 continue
             fi
-            # 校验文件是否为有效 zip（最小 1MB，且文件头为 PK）
-            FILE_SIZE=$(stat -c%s /tmp/android-sdk.zip 2>/dev/null || echo 0)
-            FILE_HEADER=$(head -c 4 /tmp/android-sdk.zip 2>/dev/null | xxd -p 2>/dev/null || echo "")
-            if [[ ${FILE_SIZE} -gt 1048576 && "${FILE_HEADER:0:4}" == "504b" ]]; then
+            # 用 unzip -tq 校验 zip 完整性（比检查文件头更可靠）
+            if unzip -tq /tmp/android-sdk.zip >/dev/null 2>&1; then
+                FILE_SIZE=$(stat -c%s /tmp/android-sdk.zip 2>/dev/null || echo 0)
                 info "  下载成功，文件大小: $((FILE_SIZE / 1024 / 1024)) MB"
                 DOWNLOAD_OK=true
                 break
             else
-                warn "  文件损坏（大小: ${FILE_SIZE} 字节），尝试下一个源..."
-                rm -f /tmp/android-sdk.zip
+                warn "  文件损坏，尝试下一个源..."
             fi
         done
 
