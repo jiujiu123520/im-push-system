@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# 即时消息推送系统 - 一键安装脚本
+# 即时消息推送系统 - 一键安装脚本（国内服务器专用）
 #
 # 用法:
 #   sudo bash deploy/install.sh
@@ -18,6 +18,7 @@
 #   - 脚本必须在 root 或具有 sudo 权限的用户下执行
 #   - 默认项目路径为 /www/push-system，可通过 PROJECT_DIR 环境变量覆盖
 #   - 数据库名/用户/密码可通过环境变量覆盖（DB_NAME/DB_USER/DB_PASS）
+#   - 国内服务器自动使用阿里云镜像加速
 # ============================================================
 
 set -e
@@ -257,8 +258,8 @@ info "后端依赖安装完成。"
 step "5/7" "构建管理后台"
 
 cd "${PROJECT_DIR}/admin"
-# 使用国内镜像加速（如需要可取消注释）
-# npm config set registry https://registry.npmmirror.com
+# 使用国内镜像加速（淘宝镜像）
+npm config set registry https://registry.npmmirror.com
 npm install
 npm run build
 info "管理后台构建完成。"
