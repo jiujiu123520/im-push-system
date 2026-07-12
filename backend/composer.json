@@ -25,7 +25,15 @@
     },
     "config": {
         "optimize-autoloader": true,
-        "sort-packages": true
+        "sort-packages": true,
+        "allow-plugins": {
+            "kylekatarnls/update-helper": true
+        },
+        "policy": {
+            "advisories": {
+                "block": false
+            }
+        }
     },
     "scripts": {
         "post-install-cmd": [
