@@ -104,6 +104,59 @@ class MessageStore(private val storageDir: File) {
     fun recent(limit: Int = 5): List<PushMessage> =
         _messages.value.takeLast(limit).reversed()
 
+    /**
+     * 分页查询消息（倒序，最新在前）。
+     *
+     * @param page 页码，从 1 开始
+     * @param pageSize 每页条数
+     * @param keyword 搜索关键词（为空则不筛选），匹配标题或内容
+     * @return 分页结果
+     */
+    fun queryPage(
+        page: Int = 1,
+        pageSize: Int = 10,
+        keyword: String = "",
+    ): PagedResult {
+        val all = _messages.value.asReversed() // 倒序：最新在前
+        val filtered = if (keyword.isBlank()) {
+            all
+        } else {
+            val kw = keyword.trim().lowercase()
+            all.filter { msg ->
+                msg.title.lowercase().contains(kw) ||
+                    msg.content.lowercase().contains(kw)
+            }
+        }
+        val total = filtered.size
+        val totalPages = if (total == 0) 0 else (total + pageSize - 1) / pageSize
+        val safePage = page.coerceIn(1, if (totalPages == 0) 1 else totalPages)
+        val fromIndex = (safePage - 1) * pageSize
+        val toIndex = minOf(fromIndex + pageSize, total)
+        val pageItems = if (fromIndex < total) filtered.subList(fromIndex, toIndex) else emptyList()
+        return PagedResult(
+            items = pageItems,
+            page = safePage,
+            pageSize = pageSize,
+            total = total,
+            totalPages = totalPages,
+            keyword = keyword,
+        )
+    }
+
+    /** 分页查询结果 */
+    data class PagedResult(
+        val items: List<PushMessage>,
+        val page: Int,
+        val pageSize: Int,
+        val total: Int,
+        val totalPages: Int,
+        val keyword: String,
+    ) {
+        val hasNext: Boolean get() = page < totalPages
+        val hasPrev: Boolean get() = page > 1
+        val isEmpty: Boolean get() = items.isEmpty()
+    }
+
     private fun persist(list: List<PushMessage>) {
         runCatching {
             val text = json.encodeToString(ListSerializer(PushMessage.serializer()), list)

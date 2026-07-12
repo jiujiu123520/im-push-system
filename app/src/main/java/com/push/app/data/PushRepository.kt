@@ -83,6 +83,13 @@ class PushRepository private constructor(private val appContext: Context) {
     /** 最近 N 条消息（用于首页展示） */
     fun recentMessages(limit: Int = 5): List<PushMessage> = messageStore.recent(limit)
 
+    /** 分页查询消息（支持关键词搜索） */
+    fun queryPage(
+        page: Int = 1,
+        pageSize: Int = 10,
+        keyword: String = "",
+    ): MessageStore.PagedResult = messageStore.queryPage(page, pageSize, keyword)
+
     suspend fun clearMessages() = messageStore.clear()
 
     /** 导出全部消息，返回导出文件 */
