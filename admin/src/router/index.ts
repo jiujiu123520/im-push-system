@@ -262,7 +262,7 @@ export function resetRouter() {
   permissionStore.routes.forEach((route) => {
     if (route.name && !constantRoutes.some((c) => c.name === route.name)) {
       router.removeRoute(route.name)
-    })
+    }
   })
   userStore.roles = []
 }
