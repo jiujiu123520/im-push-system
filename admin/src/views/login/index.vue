@@ -129,11 +129,6 @@
             <span v-if="!loading">登 录</span>
             <span v-else>登录中...</span>
           </el-button>
-
-          <div class="tip-text">
-            <el-icon><InfoFilled /></el-icon>
-            默认账号 admin / admin123
-          </div>
         </el-form>
 
         <div class="card-footer">
@@ -154,7 +149,6 @@ import {
   Lock,
   Key,
   Loading,
-  InfoFilled,
   Lightning,
   DataLine,
   Monitor
