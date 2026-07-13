@@ -126,10 +126,19 @@ inject_cmd+=(--build-id "$BUILD_ID")
 info "进入 Android 工程：$APP_DIR"
 cd "$APP_DIR"
 
-# 确保 gradlew 可执行
-if [ -f "./gradlew" ]; then
-    chmod +x ./gradlew
+# gradlew 位于项目根目录（不在 app 目录），使用绝对路径
+GRADLEW="$PROJECT_DIR/gradlew"
+if [ ! -x "$GRADLEW" ]; then
+    chmod +x "$GRADLEW" 2>/dev/null || true
 fi
+if [ ! -x "$GRADLEW" ]; then
+    on_fail "gradlew 不存在或不可执行：$GRADLEW"
+    exit 1
+fi
+
+# 设置 Gradle 缓存目录到项目内（避免 www-data 用户无权写入 /var/www/.gradle）
+export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$PROJECT_DIR/.gradle}"
+mkdir -p "$GRADLE_USER_HOME" 2>/dev/null || true
 
 # ---------------- 3. 签名配置 ----------------
 # 读取 keystore.properties（如有），生成 signing.gradle 并应用
@@ -206,11 +215,11 @@ EOF
     fi
 fi
 
-info "执行 gradlew $GRADLE_TASK ..."
-log "执行命令：./gradlew $GRADLE_TASK --no-daemon"
+info "执行 $GRADLEW $GRADLE_TASK ..."
+log "执行命令：$GRADLEW $GRADLE_TASK --no-daemon"
 # 关闭 ERR trap 仅在 gradle 调用期间判断退出码
 set +e
-./gradlew "$GRADLE_TASK" --no-daemon --stacktrace 2>&1 | tee -a "$LOG_FILE"
+"$GRADLEW" "$GRADLE_TASK" --no-daemon --stacktrace 2>&1 | tee -a "$LOG_FILE"
 GRADLE_EXIT=${PIPESTATUS[0]}
 set -e
 
