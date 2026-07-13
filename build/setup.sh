@@ -1,246 +1,219 @@
 #!/bin/bash
 # ============================================================
-# 一键初始化 APK 打包环境（Linux）
-# 安装组件：JDK 17 / Android SDK / Gradle 8.7 / Node.js 20 LTS
-# 使用方式：sudo bash build/setup.sh
+# Android 构建环境一键安装脚本（国内服务器专用）
+#
+# 用法:
+#   sudo bash build/setup.sh
+#
+# 功能:
+#   1. 安装 JDK 17（Android Gradle Plugin 要求）
+#   2. 下载并安装 Android cmdline-tools
+#   3. 接受许可协议并安装 SDK 组件（platform-tools, platforms, build-tools）
+#   4. 安装 Gradle 8.7
+#   5. 创建 Gradle Wrapper（如果项目没有）
+#   6. 创建 local.properties 指向 Android SDK
+#   7. 安装并启动 BuildWorker systemd 服务
+#   8. 设置 build/app 目录权限给 www-data
+#
+# 注意:
+#   - 脚本需要 root 或 sudo 权限
+#   - 默认 Android SDK 安装到 /opt/android-sdk
+#   - 默认 Gradle 安装到 /opt/gradle-8.7
+#   - 国内服务器自动使用镜像加速
 # ============================================================
+
 set -e
 
-# ---------------- 颜色输出 ----------------
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+# ------------------------------------------------------------
+# 配置项
+# ------------------------------------------------------------
+PROJECT_DIR="${PROJECT_DIR:-/www/push-system}"
+ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-/opt/android-sdk}"
+GRADLE_VERSION="${GRADLE_VERSION:-8.7}"
+ANDROID_API_LEVEL="${ANDROID_API_LEVEL:-34}"
+BUILD_TOOLS_VERSION="${BUILD_TOOLS_VERSION:-34.0.0}"
 
-info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
-warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
-error() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
+# 颜色输出
+COLOR_GREEN='\033[0;32m'
+COLOR_YELLOW='\033[1;33m'
+COLOR_RED='\033[0;31m'
+COLOR_BLUE='\033[0;34m'
+COLOR_RESET='\033[0m'
 
-# ---------------- 前置检查 ----------------
-# 必须以 root 执行
-if [ "$(id -u)" -ne 0 ]; then
-    error "请使用 root 或 sudo 执行此脚本：sudo bash build/setup.sh"
-    exit 1
+info()  { echo -e "${COLOR_GREEN}[INFO]${COLOR_RESET} $*"; }
+warn()  { echo -e "${COLOR_YELLOW}[WARN]${COLOR_RESET} $*"; }
+error() { echo -e "${COLOR_RED}[ERROR]${COLOR_RESET} $*" >&2; }
+step()  { echo -e "\n${COLOR_BLUE}===== $1 =====${COLOR_RESET}"; }
+
+echo "========================================"
+echo "  Android 构建环境一键安装"
+echo "========================================"
+echo "项目目录: $PROJECT_DIR"
+echo "Android SDK: $ANDROID_SDK_ROOT"
+echo "Gradle 版本: $GRADLE_VERSION"
+echo "Android API: $ANDROID_API_LEVEL"
+echo ""
+
+# ------------------------------------------------------------
+# [1/8] 安装 JDK 17
+# ------------------------------------------------------------
+step "[1/8] 检查并安装 JDK 17"
+if command -v java >/dev/null 2>&1 && java -version 2>&1 | grep -q "version \"17"; then
+    info "JDK 17 已安装"
+    java -version 2>&1 | head -n 1
+else
+    info "安装 JDK 17..."
+    apt-get update -qq
+    apt-get install -y openjdk-17-jdk-headless
+    info "JDK 17 安装完成"
+    java -version 2>&1 | head -n 1
 fi
 
-# 项目根目录（build/ 的上一级）
-BUILD_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$BUILD_DIR")"
-cd "$PROJECT_DIR"
+# 设置 JAVA_HOME 环境变量
+JAVA_HOME_PATH=$(dirname $(dirname $(readlink -f $(which java))))
+if ! grep -q "JAVA_HOME" /etc/environment; then
+    echo "JAVA_HOME=$JAVA_HOME_PATH" >> /etc/environment
+    info "已设置 JAVA_HOME=$JAVA_HOME_PATH 到 /etc/environment"
+fi
+export JAVA_HOME="$JAVA_HOME_PATH"
 
-# 安装根目录（可通过环境变量覆盖）
-INSTALL_ROOT="${ANDROID_INSTALL_ROOT:-/opt/android-build}"
-SDK_ROOT="$INSTALL_ROOT/android-sdk"
-GRADLE_ROOT="$INSTALL_ROOT/gradle-8.7"
-NODE_ROOT="$INSTALL_ROOT/node"
+# ------------------------------------------------------------
+# [2/8] 下载并安装 Android cmdline-tools
+# ------------------------------------------------------------
+step "[2/8] 安装 Android cmdline-tools"
+SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 
-info "项目目录：$PROJECT_DIR"
-info "安装根目录：$INSTALL_ROOT"
-
-mkdir -p "$INSTALL_ROOT" "$SDK_ROOT/cmdline-tools"
-mkdir -p "$BUILD_DIR/output" "$BUILD_DIR/logs" "$BUILD_DIR/keystore"
-
-# ---------------- 工具函数 ----------------
-command_exists() { command -v "$1" >/dev/null 2>&1; }
-
-# ============================================================
-# 1. 检测并安装 JDK 17
-# ============================================================
-install_jdk() {
-    info "检测 JDK 17 ..."
-    # 先看系统中是否已存在 17 版本
-    if command_exists java; then
-        JAVA_VER=$(java -version 2>&1 | awk -F '"' '/version/ {print $2}' | awk -F. '{print $1}')
-        if [ "$JAVA_VER" = "17" ]; then
-            info "已检测到 JDK 17，跳过安装"
-            if [ -z "${JAVA_HOME:-}" ]; then
-                export JAVA_HOME=$(dirname "$(dirname "$(readlink -f "$(which java)")")")
-            fi
-            return 0
-        fi
-        warn "当前 JDK 版本为 $JAVA_VER，需要 17，开始安装"
+if [ -x "$SDKMANAGER" ]; then
+    info "Android cmdline-tools 已安装"
+    "$SDKMANAGER" --version
+else
+    info "下载 Android cmdline-tools..."
+    mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+    cd /tmp
+    CMDLINE_ZIP="commandlinetools-linux-11076708_latest.zip"
+    if [ ! -f "$CMDLINE_ZIP" ]; then
+        # 官方源 + 国内镜像备用
+        wget -q --tries=3 --timeout=60 \
+            "https://dl.google.com/android/repository/$CMDLINE_ZIP" -O "$CMDLINE_ZIP" || \
+        wget -q --tries=3 --timeout=60 \
+            "https://mirrors.tuna.tsinghua.edu.cn/android/repository/$CMDLINE_ZIP" -O "$CMDLINE_ZIP"
     fi
+    # 清空旧目录并重新解压
+    rm -rf "$ANDROID_SDK_ROOT/cmdline-tools"
+    mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+    unzip -q "$CMDLINE_ZIP" -d "$ANDROID_SDK_ROOT/cmdline-tools"
+    # Google 压缩包结构是 cmdline-tools/bin/，需要改名为 latest/
+    mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+    info "Android cmdline-tools 安装完成"
+    "$SDKMANAGER" --version
+fi
 
-    info "通过 apt 安装 openjdk-17-jdk ..."
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -y
-    apt-get install -y openjdk-17-jdk
+# ------------------------------------------------------------
+# [3/8] 接受许可协议并安装 SDK 组件
+# ------------------------------------------------------------
+step "[3/8] 安装 Android SDK 组件"
+info "接受许可协议..."
+yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
 
-    # 定位 JAVA_HOME
-    export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
-    if [ ! -d "$JAVA_HOME" ]; then
-        # 兼容 arm64
-        export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-arm64"
+info "安装 platform-tools, platforms;android-$ANDROID_API_LEVEL, build-tools;$BUILD_TOOLS_VERSION..."
+"$SDKMANAGER" \
+    "platform-tools" \
+    "platforms;android-$ANDROID_API_LEVEL" \
+    "build-tools;$BUILD_TOOLS_VERSION"
+
+info "Android SDK 组件已安装"
+ls -la "$ANDROID_SDK_ROOT"
+
+# ------------------------------------------------------------
+# [4/8] 安装 Gradle
+# ------------------------------------------------------------
+step "[4/8] 安装 Gradle $GRADLE_VERSION"
+GRADLE_DIR="/opt/gradle-$GRADLE_VERSION"
+
+if [ -x "$GRADLE_DIR/bin/gradle" ]; then
+    info "Gradle $GRADLE_VERSION 已安装"
+    "$GRADLE_DIR/bin/gradle" --version | head -n 5
+else
+    info "下载 Gradle $GRADLE_VERSION..."
+    cd /tmp
+    GRADLE_ZIP="gradle-$GRADLE_VERSION-bin.zip"
+    if [ ! -f "$GRADLE_ZIP" ]; then
+        # 腾讯云镜像 + 官方源备用
+        wget -q --tries=3 --timeout=60 \
+            "https://mirrors.cloud.tencent.com/gradle/$GRADLE_ZIP" -O "$GRADLE_ZIP" || \
+        wget -q --tries=3 --timeout=60 \
+            "https://services.gradle.org/distributions/$GRADLE_ZIP" -O "$GRADLE_ZIP"
     fi
-    info "JDK 17 安装完成，JAVA_HOME=$JAVA_HOME"
-}
+    unzip -q "$GRADLE_ZIP" -d /opt/
+    info "Gradle 安装完成"
+    "$GRADLE_DIR/bin/gradle" --version | head -n 5
+fi
 
-# ============================================================
-# 2. 下载安装 Android SDK commandline-tools
-# ============================================================
-install_android_sdk() {
-    info "检测 Android SDK commandline-tools ..."
-    local CMDLINE_TOOLS_DIR="$SDK_ROOT/cmdline-tools/latest"
-    if [ -f "$CMDLINE_TOOLS_DIR/bin/sdkmanager" ]; then
-        info "commandline-tools 已存在，跳过下载"
-        return 0
-    fi
-
-    local URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
-    local TMP_ZIP="/tmp/commandlinetools.zip"
-
-    info "下载 commandline-tools：$URL"
-    apt-get install -y unzip wget >/dev/null 2>&1 || true
-    wget -q -O "$TMP_ZIP" "$URL"
-    if [ ! -s "$TMP_ZIP" ]; then
-        error "commandline-tools 下载失败"
-        exit 1
-    fi
-
-    info "解压 commandline-tools ..."
-    unzip -q -o "$TMP_ZIP" -d "$SDK_ROOT/cmdline-tools"
-    # 官方包解压后顶层目录为 cmdline-tools，需重命名为 latest
-    if [ -d "$SDK_ROOT/cmdline-tools/cmdline-tools" ] && [ ! -d "$CMDLINE_TOOLS_DIR" ]; then
-        mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$CMDLINE_TOOLS_DIR"
-    fi
-    rm -f "$TMP_ZIP"
-
-    if [ ! -f "$CMDLINE_TOOLS_DIR/bin/sdkmanager" ]; then
-        error "sdkmanager 未找到，安装可能不完整"
-        exit 1
-    fi
-    info "commandline-tools 安装完成"
-}
-
-# ============================================================
-# 3. 安装 SDK 组件并接受许可协议
-# ============================================================
-install_sdk_components() {
-    info "安装 SDK 组件 ..."
-    export ANDROID_HOME="$SDK_ROOT"
-    export ANDROID_SDK_ROOT="$SDK_ROOT"
-    local SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-
-    # 接受所有许可协议（自动输入 y）
-    info "接受 SDK 许可协议 ..."
-    yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-
-    # 安装指定组件
-    info "安装 platform-tools / platforms;android-34 / build-tools;34.0.0 ..."
-    yes | "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0" || {
-        error "SDK 组件安装失败，请检查网络后重试"
-        exit 1
-    }
-    info "SDK 组件安装完成"
-}
-
-# ============================================================
-# 4. 下载安装 Gradle 8.7
-# ============================================================
-install_gradle() {
-    info "检测 Gradle 8.7 ..."
-    if [ -f "$GRADLE_ROOT/bin/gradle" ]; then
-        info "Gradle 8.7 已存在，跳过下载"
-        return 0
-    fi
-
-    local URL="https://services.gradle.org/distributions/gradle-8.7-bin.zip"
-    local TMP_ZIP="/tmp/gradle-8.7-bin.zip"
-
-    info "下载 Gradle 8.7：$URL"
-    wget -q -O "$TMP_ZIP" "$URL"
-    if [ ! -s "$TMP_ZIP" ]; then
-        error "Gradle 下载失败"
-        exit 1
-    fi
-
-    info "解压 Gradle 8.7 ..."
-    unzip -q -o "$TMP_ZIP" -d "$INSTALL_ROOT"
-    rm -f "$TMP_ZIP"
-
-    export GRADLE_HOME="$GRADLE_ROOT"
-    info "Gradle 8.7 安装完成，GRADLE_HOME=$GRADLE_HOME"
-}
-
-# ============================================================
-# 5. 安装 Node.js 20 LTS（用于管理后台构建）
-# ============================================================
-install_nodejs() {
-    info "检测 Node.js 20 ..."
-    if command_exists node; then
-        NODE_MAJOR=$(node -v 2>/dev/null | sed 's/v//' | awk -F. '{print $1}')
-        if [ "$NODE_MAJOR" = "20" ]; then
-            info "已检测到 Node.js 20，跳过安装"
-            export NODE_HOME=""
-            return 0
-        fi
-        warn "当前 Node 版本为 $NODE_MAJOR，需要 20，开始安装"
-    fi
-
-    info "通过 NodeSource 安装 Node.js 20 LTS ..."
-    apt-get install -y ca-certificates curl gnupg >/dev/null 2>&1 || true
-    # 导入 NodeSource GPG key 与仓库
-    mkdir -p /etc/apt/keyrings
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg 2>/dev/null || true
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
-    apt-get update -y
-    apt-get install -y nodejs
-    info "Node.js 安装完成：$(node -v)"
-}
-
-# ============================================================
-# 6. 配置环境变量到 /etc/profile.d/android-env.sh
-# ============================================================
-configure_env() {
-    info "写入环境变量到 /etc/profile.d/android-env.sh ..."
-    cat > /etc/profile.d/android-env.sh <<EOF
-# Android 打包环境变量（由 build/setup.sh 生成）
-export JAVA_HOME="$JAVA_HOME"
-export ANDROID_HOME="$SDK_ROOT"
-export ANDROID_SDK_ROOT="$SDK_ROOT"
-export GRADLE_HOME="$GRADLE_ROOT"
-export PATH="\$JAVA_HOME/bin:\$ANDROID_HOME/platform-tools:\$ANDROID_HOME/cmdline-tools/latest/bin:\$GRADLE_HOME/bin:\$PATH"
+# ------------------------------------------------------------
+# [5/8] 创建 local.properties
+# ------------------------------------------------------------
+step "[5/8] 创建 local.properties"
+cat > "$PROJECT_DIR/local.properties" <<EOF
+# 自动生成：Android SDK 路径
+sdk.dir=$ANDROID_SDK_ROOT
 EOF
-    chmod +x /etc/profile.d/android-env.sh
-    info "环境变量配置完成"
-}
+info "local.properties 已创建"
+cat "$PROJECT_DIR/local.properties"
 
-# ============================================================
-# 7. 验证安装结果
-# ============================================================
-verify() {
-    info "================ 安装结果验证 ================"
-    echo ""
-    echo "JAVA_HOME      = $JAVA_HOME"
-    java -version 2>&1 | head -n 1
-    echo ""
-    echo "ANDROID_HOME   = $SDK_ROOT"
-    "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --version 2>/dev/null || echo "sdkmanager 版本未知"
-    echo ""
-    echo "GRADLE_HOME    = $GRADLE_ROOT"
-    "$GRADLE_ROOT/bin/gradle" -v 2>/dev/null | grep -E "Gradle|Kotlin" | head -n 2 || echo "gradle 版本未知"
-    echo ""
-    if command_exists node; then
-        echo "Node.js        = $(node -v)  npm = $(npm -v)"
-    else
-        warn "Node.js 未就绪"
-    fi
-    echo ""
-    info "环境变量需重新加载后生效：source /etc/profile.d/android-env.sh"
-    info "============ 安装完成 ============"
-}
+# ------------------------------------------------------------
+# [6/8] 删除 gradlew（强制使用全局 gradle）
+# ------------------------------------------------------------
+step "[6/8] 清理 gradlew"
+if [ -f "$PROJECT_DIR/gradlew" ]; then
+    info "删除 gradlew（强制使用全局 gradle，避免 wrapper 下载 distribution 超时）..."
+    rm -f "$PROJECT_DIR/gradlew"
+    rm -rf "$PROJECT_DIR/gradle"
+else
+    info "gradlew 不存在，跳过"
+fi
 
-# ============================================================
-# 主流程
-# ============================================================
-info "开始初始化 APK 打包环境 ..."
+# ------------------------------------------------------------
+# [7/8] 设置目录权限
+# ------------------------------------------------------------
+step "[7/8] 设置目录权限"
+info "设置 build/app/.gradle 目录权限给 www-data..."
+mkdir -p "$PROJECT_DIR/build/logs" "$PROJECT_DIR/.gradle"
+chown -R www-data:www-data "$PROJECT_DIR/build" "$PROJECT_DIR/app" "$PROJECT_DIR/.gradle"
+chmod -R u+rw "$PROJECT_DIR/build" "$PROJECT_DIR/app"
+info "目录权限设置完成"
 
-install_jdk
-install_android_sdk
-install_sdk_components
-install_gradle
-install_nodejs
-configure_env
-verify
+# ------------------------------------------------------------
+# [8/8] 安装并启动 BuildWorker 服务
+# ------------------------------------------------------------
+step "[8/8] 安装并启动 BuildWorker 服务"
+BUILD_WORKER_SERVICE="$PROJECT_DIR/deploy/systemd/push-build-worker.service"
 
-exit 0
+if [ -f "$BUILD_WORKER_SERVICE" ]; then
+    info "安装 push-build-worker systemd 服务..."
+    cp "$BUILD_WORKER_SERVICE" /etc/systemd/system/
+    systemctl daemon-reload
+    systemctl enable push-build-worker 2>/dev/null || true
+    systemctl restart push-build-worker
+    sleep 2
+    info "push-build-worker 服务状态："
+    systemctl status push-build-worker --no-pager -l | head -n 12
+else
+    warn "未找到 push-build-worker.service，跳过 BuildWorker 安装"
+fi
+
+# ------------------------------------------------------------
+# 完成
+# ------------------------------------------------------------
+echo ""
+echo "========================================"
+echo -e "  ${COLOR_GREEN}✓ Android 构建环境安装完成${COLOR_RESET}"
+echo "========================================"
+echo ""
+echo "环境概览："
+echo "  - JDK: $(java -version 2>&1 | head -n 1)"
+echo "  - Android SDK: $ANDROID_SDK_ROOT"
+echo "  - Gradle: $GRADLE_DIR/bin/gradle"
+echo "  - BuildWorker: systemctl status push-build-worker"
+echo ""
+echo "现在可以在管理后台提交 APP 构建任务。"
+echo "查看构建日志: sudo journalctl -u push-build-worker -f"
