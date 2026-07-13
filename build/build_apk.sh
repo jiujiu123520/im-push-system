@@ -126,13 +126,15 @@ inject_cmd+=(--build-id "$BUILD_ID")
 info "进入 Android 工程：$APP_DIR"
 cd "$APP_DIR"
 
-# gradlew 位于项目根目录（不在 app 目录），使用绝对路径
-GRADLEW="$PROJECT_DIR/gradlew"
-if [ ! -x "$GRADLEW" ]; then
-    chmod +x "$GRADLEW" 2>/dev/null || true
-fi
-if [ ! -x "$GRADLEW" ]; then
-    on_fail "gradlew 不存在或不可执行：$GRADLEW"
+# 优先使用项目根目录的 gradlew（wrapper），不可用时回退到全局 gradle
+GRADLEW=""
+if [ -x "$PROJECT_DIR/gradlew" ]; then
+    GRADLEW="$PROJECT_DIR/gradlew"
+elif [ -x "/opt/gradle-8.7/bin/gradle" ]; then
+    GRADLEW="/opt/gradle-8.7/bin/gradle"
+    warn "gradlew 不可用，回退到全局 gradle: $GRADLEW"
+else
+    on_fail "未找到 gradlew 或全局 gradle，请安装 Gradle 或生成 wrapper"
     exit 1
 fi
 
