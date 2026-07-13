@@ -558,24 +558,24 @@ async function fetchData() {
     const mod = currentModule.value
     if (mod === 'keys') {
       const res = await getKeyListApi(query)
-      tableData.value = res.list || []
-      total.value = res.total || 0
+      tableData.value = res.data?.list || []
+      total.value = res.data?.total || 0
     } else if (mod === 'blacklist') {
       const res = await getBlacklistApi(query)
-      tableData.value = res.list || []
-      total.value = res.total || 0
+      tableData.value = res.data?.list || []
+      total.value = res.data?.total || 0
     } else if (mod === 'admins') {
       const res = await getAdminListApi(query)
-      tableData.value = res.list || []
-      total.value = res.total || 0
+      tableData.value = res.data?.list || []
+      total.value = res.data?.total || 0
     } else if (mod === 'devices') {
       const res = await getDeviceListApi(query)
-      tableData.value = res.list || []
-      total.value = res.total || 0
+      tableData.value = res.data?.list || []
+      total.value = res.data?.total || 0
     } else if (mod === 'push-logs') {
       const res = await getPushLogListApi(query)
-      tableData.value = res.list || []
-      total.value = res.total || 0
+      tableData.value = res.data?.list || []
+      total.value = res.data?.total || 0
     } else {
       await new Promise((r) => setTimeout(r, 300))
       let list = [...allData]
@@ -760,6 +760,17 @@ async function handleClearAll() {
         }
       }
       ElMessage.success('已清空可删除的管理员')
+    } else if (mod === 'keys') {
+      // Key：逐条删除
+      const items = tableData.value
+      for (const item of items) {
+        try {
+          await deleteKeyApi(item.id)
+        } catch {
+          // 跳过删除失败的
+        }
+      }
+      ElMessage.success('已清空可删除的Key')
     } else {
       // 用户等模拟数据模块：直接清空本地数据
       allData = []

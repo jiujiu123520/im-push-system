@@ -42,12 +42,13 @@ class PushKeyController
         }
 
         $list = Database::fetchAll(
-            "SELECT id, key_value, name, max_devices, status,
-                    notify_email, notify_enabled, notify_interval,
-                    created_at, updated_at
+            "SELECT id, key_value, name, max_devices, status, created_at, updated_at
              FROM push_keys{$where} ORDER BY id DESC LIMIT " . self::PER_PAGE . " OFFSET " . $offset,
             $sqlParams
         );
+
+        // 尝试追加通知字段（如果表中存在）
+        $list = $this->appendNotifyFields($list);
 
         $total = (int)(Database::fetch(
             "SELECT COUNT(*) AS total FROM push_keys{$where}",
@@ -76,15 +77,9 @@ class PushKeyController
             return false;
         }
 
-        $key = Database::fetch(
-            'SELECT id, key_value, name, max_devices, status,
-                    notify_email, notify_enabled, notify_interval,
-                    created_at, updated_at
-             FROM push_keys WHERE id = ? LIMIT 1',
-            [$id]
-        );
+        $key = $this->fetchKeyById($id);
 
-        if ($key === false) {
+        if ($key === null) {
             Response::fail($context['response'], 'Key 不存在', Response::CODE_NOT_FOUND, 404);
             return false;
         }
@@ -115,21 +110,25 @@ class PushKeyController
         $notifyEnabled = (int)($body['notify_enabled'] ?? $body['notifyEnabled'] ?? 0);
         $notifyInterval = (int)($body['notify_interval'] ?? $body['notifyInterval'] ?? 300);
 
+        // 先插入基本字段（确保兼容旧表结构）
         $id = Database::insert(
-            'INSERT INTO push_keys (key_value, name, max_devices, user_id, status,
-                                    notify_email, notify_enabled, notify_interval)
-             VALUES (?, ?, ?, ?, 1, ?, ?, ?)',
-            [$keyValue, $name, $maxDevices, (int)($admin['admin_id'] ?? 0), $notifyEmail, $notifyEnabled, $notifyInterval]
+            'INSERT INTO push_keys (key_value, name, max_devices, user_id, status)
+             VALUES (?, ?, ?, ?, 1)',
+            [$keyValue, $name, $maxDevices, (int)($admin['admin_id'] ?? 0)]
         );
 
-        // 直接返回新创建的记录，避免重复鉴权
-        return Database::fetch(
-            'SELECT id, key_value, name, max_devices, status,
-                    notify_email, notify_enabled, notify_interval,
-                    created_at, updated_at
-             FROM push_keys WHERE id = ? LIMIT 1',
-            [$id]
-        ) ?: ['id' => $id, 'key_value' => $keyValue, 'name' => $name];
+        // 尝试更新通知字段（如果表中有这些列）
+        try {
+            Database::execute(
+                'UPDATE push_keys SET notify_email = ?, notify_enabled = ?, notify_interval = ? WHERE id = ?',
+                [$notifyEmail, $notifyEnabled, $notifyInterval, $id]
+            );
+        } catch (\Throwable $e) {
+            // 表中可能没有通知字段，忽略错误
+        }
+
+        // 直接返回新创建的记录
+        return $this->fetchKeyById((int)$id) ?: ['id' => $id, 'key_value' => $keyValue, 'name' => $name];
     }
 
     public function update(array $context, array $params)
@@ -154,56 +153,66 @@ class PushKeyController
         $body = $this->parseBody($context);
         $data = [];
 
-        // 兼容 name 和 title 两种字段名
+        // 基本字段更新
+        $basicData = [];
         if (isset($body['name'])) {
-            $data['name'] = (string)$body['name'];
+            $basicData['name'] = (string)$body['name'];
         } elseif (isset($body['title'])) {
-            $data['name'] = (string)$body['title'];
+            $basicData['name'] = (string)$body['title'];
         }
         if (isset($body['max_devices'])) {
-            $data['max_devices'] = (int)$body['max_devices'];
+            $basicData['max_devices'] = (int)$body['max_devices'];
         } elseif (isset($body['daily_limit'])) {
-            $data['max_devices'] = (int)$body['daily_limit'];
+            $basicData['max_devices'] = (int)$body['daily_limit'];
         } elseif (isset($body['dailyLimit'])) {
-            $data['max_devices'] = (int)$body['dailyLimit'];
+            $basicData['max_devices'] = (int)$body['dailyLimit'];
         } elseif (isset($body['maxDevices'])) {
-            $data['max_devices'] = (int)$body['maxDevices'];
+            $basicData['max_devices'] = (int)$body['maxDevices'];
         }
         if (isset($body['status'])) {
-            $data['status'] = (int)$body['status'];
-        }
-        if (isset($body['notify_email'])) {
-            $data['notify_email'] = (string)$body['notify_email'];
-        } elseif (isset($body['notifyEmail'])) {
-            $data['notify_email'] = (string)$body['notifyEmail'];
-        }
-        if (isset($body['notify_enabled'])) {
-            $data['notify_enabled'] = (int)$body['notify_enabled'];
-        } elseif (isset($body['notifyEnabled'])) {
-            $data['notify_enabled'] = (int)$body['notifyEnabled'];
-        }
-        if (isset($body['notify_interval'])) {
-            $data['notify_interval'] = (int)$body['notify_interval'];
-        } elseif (isset($body['notifyInterval'])) {
-            $data['notify_interval'] = (int)$body['notifyInterval'];
+            $basicData['status'] = (int)$body['status'];
         }
 
-        if (!empty($data)) {
-            $data['updated_at'] = date('Y-m-d H:i:s');
-            $columns = implode(', ', array_map(fn($k) => "{$k} = ?", array_keys($data)));
-            $values = array_values($data);
+        if (!empty($basicData)) {
+            $basicData['updated_at'] = date('Y-m-d H:i:s');
+            $columns = implode(', ', array_map(fn($k) => "{$k} = ?", array_keys($basicData)));
+            $values = array_values($basicData);
             $values[] = $id;
             Database::execute("UPDATE push_keys SET {$columns} WHERE id = ?", $values);
         }
 
-        // 直接返回更新后的记录，避免重复鉴权
-        return Database::fetch(
-            'SELECT id, key_value, name, max_devices, status,
-                    notify_email, notify_enabled, notify_interval,
-                    created_at, updated_at
-             FROM push_keys WHERE id = ? LIMIT 1',
-            [$id]
-        ) ?: ['id' => $id];
+        // 通知字段更新（单独处理，兼容表中无这些列的情况）
+        $notifyData = [];
+        if (isset($body['notify_email'])) {
+            $notifyData['notify_email'] = (string)$body['notify_email'];
+        } elseif (isset($body['notifyEmail'])) {
+            $notifyData['notify_email'] = (string)$body['notifyEmail'];
+        }
+        if (isset($body['notify_enabled'])) {
+            $notifyData['notify_enabled'] = (int)$body['notify_enabled'];
+        } elseif (isset($body['notifyEnabled'])) {
+            $notifyData['notify_enabled'] = (int)$body['notifyEnabled'];
+        }
+        if (isset($body['notify_interval'])) {
+            $notifyData['notify_interval'] = (int)$body['notify_interval'];
+        } elseif (isset($body['notifyInterval'])) {
+            $notifyData['notify_interval'] = (int)$body['notifyInterval'];
+        }
+
+        if (!empty($notifyData)) {
+            $notifyData['updated_at'] = date('Y-m-d H:i:s');
+            $columns = implode(', ', array_map(fn($k) => "{$k} = ?", array_keys($notifyData)));
+            $values = array_values($notifyData);
+            $values[] = $id;
+            try {
+                Database::execute("UPDATE push_keys SET {$columns} WHERE id = ?", $values);
+            } catch (\Throwable $e) {
+                // 表中可能没有通知字段，忽略
+            }
+        }
+
+        // 直接返回更新后的记录
+        return $this->fetchKeyById($id) ?: ['id' => $id];
     }
 
     public function delete(array $context, array $params)
@@ -277,5 +286,82 @@ class PushKeyController
         }
 
         return [];
+    }
+
+    /**
+     * 查询单条 Key 记录（兼容表中无通知字段的情况）
+     */
+    private function fetchKeyById(int $id): ?array
+    {
+        $row = Database::fetch(
+            'SELECT id, key_value, name, max_devices, status, created_at, updated_at
+             FROM push_keys WHERE id = ? LIMIT 1',
+            [$id]
+        );
+
+        if ($row === false) {
+            return null;
+        }
+
+        // 尝试追加通知字段
+        $rows = $this->appendNotifyFields([$row]);
+        return $rows[0] ?? $row;
+    }
+
+    /**
+     * 为列表追加通知字段（notify_email, notify_enabled, notify_interval）
+     * 如果表中不存在这些列，则填充默认值
+     */
+    private function appendNotifyFields(array $rows): array
+    {
+        if (empty($rows)) {
+            return $rows;
+        }
+
+        $ids = array_column($rows, 'id');
+        if (empty($ids)) {
+            return $rows;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+
+        try {
+            $notifyRows = Database::fetchAll(
+                "SELECT id, notify_email, notify_enabled, notify_interval
+                 FROM push_keys WHERE id IN ({$placeholders})",
+                $ids
+            );
+
+            if (!empty($notifyRows)) {
+                $notifyMap = [];
+                foreach ($notifyRows as $nr) {
+                    $notifyMap[$nr['id']] = $nr;
+                }
+                foreach ($rows as &$row) {
+                    $nr = $notifyMap[$row['id']] ?? null;
+                    $row['notify_email']     = $nr['notify_email'] ?? '';
+                    $row['notify_enabled']   = $nr['notify_enabled'] ?? 0;
+                    $row['notify_interval']  = $nr['notify_interval'] ?? 300;
+                }
+                unset($row);
+            } else {
+                foreach ($rows as &$row) {
+                    $row['notify_email']     = '';
+                    $row['notify_enabled']   = 0;
+                    $row['notify_interval']  = 300;
+                }
+                unset($row);
+            }
+        } catch (\Throwable $e) {
+            // 表中可能没有通知字段，填充默认值
+            foreach ($rows as &$row) {
+                $row['notify_email']     = '';
+                $row['notify_enabled']   = 0;
+                $row['notify_interval']  = 300;
+            }
+            unset($row);
+        }
+
+        return $rows;
     }
 }
