@@ -37,17 +37,31 @@ fi
 # 3. 创建运行时目录
 mkdir -p runtime/logs
 
-# 4. 启动 HTTP API 服务（后台守护进程）
+# 4. 清理可能占用端口的旧进程
+HTTP_PORT="${HTTP_PORT:-9501}"
+WS_PORT="${WS_PORT:-9502}"
+for port in $HTTP_PORT $WS_PORT; do
+    pids=$(lsof -t -i:$port 2>/dev/null || fuser -n tcp $port 2>/dev/null || echo "")
+    if [ -n "$pids" ]; then
+        echo "[清理] 发现占用端口 ${port} 的旧进程，正在终止..."
+        for pid in $pids; do
+            kill -9 $pid 2>/dev/null || true
+        done
+        sleep 1
+    fi
+done
+
+# 5. 启动 HTTP API 服务（后台守护进程）
 echo "[启动] HTTP API 服务..."
 ${PHP_BIN} public/index.php --daemon
 sleep 1
 
-# 5. 启动 WebSocket 推送服务（后台守护进程）
+# 6. 启动 WebSocket 推送服务（后台守护进程）
 echo "[启动] WebSocket 推送服务..."
 ${PHP_BIN} public/index.php --ws --daemon
 sleep 1
 
-# 6. 输出 PID 信息
+# 7. 输出 PID 信息
 if [ -f "runtime/http_server.pid" ]; then
     HTTP_PID=$(cat runtime/http_server.pid)
     echo "[完成] HTTP 服务 PID: ${HTTP_PID}"

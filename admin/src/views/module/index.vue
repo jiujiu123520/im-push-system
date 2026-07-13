@@ -323,7 +323,7 @@ const moduleConfigs: Record<string, {
     columns: [
       { prop: 'id', label: 'ID', width: 80 },
       { prop: 'title', label: '推送标题' },
-      { prop: 'content', label: '内容', showOverflow: true },
+      { prop: 'content', label: '内容' },
       { prop: 'target_type', label: '目标类型', width: 100 },
       { prop: 'target_value', label: '目标值', width: 160 },
       { prop: 'success_count', label: '成功', width: 80 },
