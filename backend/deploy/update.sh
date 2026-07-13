@@ -6,7 +6,7 @@
 #   1. [1/4] 拉取最新代码（git pull origin main，支持 gh-proxy 代理）
 #   2. [2/4] 更新依赖（composer install --no-dev --optimize-autoloader）
 #   3. [3/4] 数据库迁移（执行 backend/database/migrations 下的 SQL 文件）
-#   4. [4/4] 重启服务（使用项目自带 bin/stop.sh / bin/start.sh）
+#   4. [4/4] 重启服务（使用 systemctl 重启 push-http、push-websocket，回退到 bin/start.sh）
 #
 # 用法:
 #   bash backend/deploy/update.sh                    # 正常更新（交互式确认）
@@ -382,7 +382,7 @@ EOF
 fi
 
 # ============================================================
-# [4/4] 重启服务（使用项目自带 bin/stop.sh / bin/start.sh）
+# [4/4] 重启服务（使用 systemctl 重启 push-http、push-websocket）
 # ============================================================
 if step_done "step4_restart_services"; then
     info "跳过 [4/4] 重启服务（已完成）"
@@ -390,63 +390,51 @@ else
     CURRENT_STEP="[4/4] 重启服务"
     step "[4/4] 重启服务..."
 
-    cd "${PROJECT_DIR}/backend"
+    cd "${PROJECT_DIR}"
 
-    # 停止服务
-    info "停止服务..."
-    if [[ -x "bin/stop.sh" ]]; then
-        bash bin/stop.sh
-    else
-        warn "bin/stop.sh 不存在或不可执行，尝试直接停止..."
-        # 兜底：通过 PID 文件停止
-        for pid_file in runtime/http_server.pid runtime/websocket_server.pid; do
-            if [[ -f "${pid_file}" ]]; then
-                pid="$(cat "${pid_file}")"
-                kill "${pid}" 2>/dev/null || true
-                rm -f "${pid_file}"
+    # 检查 systemctl 是否可用
+    if command -v systemctl >/dev/null 2>&1 && systemctl list-units --type=service 2>/dev/null | grep -q push-http; then
+        # 使用 systemctl 重启
+        info "重启 push-http..."
+        sudo systemctl restart push-http
+        info "push-http 已重启。"
+
+        sleep 1
+
+        info "重启 push-websocket..."
+        sudo systemctl restart push-websocket
+        info "push-websocket 已重启。"
+
+        sleep 2
+
+        # 服务健康检查
+        echo ""
+        for svc in push-http push-websocket; do
+            status_output="$(sudo systemctl is-active ${svc} 2>/dev/null || echo '')"
+            if [[ "${status_output}" == "active" ]]; then
+                echo -e "  ${COLOR_GREEN}●${COLOR_RESET} ${svc}    [运行中]"
+            else
+                echo -e "  ${COLOR_RED}●${COLOR_RESET} ${svc}    [未运行]"
+                error "服务 ${svc} 未正常运行"
+                error "请使用 sudo journalctl -u ${svc} --no-pager -n 50 查看日志"
             fi
         done
-    fi
-
-    sleep 1
-
-    # 确保运行时目录存在
-    mkdir -p runtime/logs
-
-    # 启动服务
-    info "启动服务..."
-    if [[ -x "bin/start.sh" ]]; then
-        bash bin/start.sh
     else
-        error "bin/start.sh 不存在，无法启动服务"
-        exit 1
+        # 回退：使用项目自带 bin/stop.sh / bin/start.sh
+        info "未检测到 systemd 服务，使用 bin/stop.sh / bin/start.sh..."
+        cd "${PROJECT_DIR}/backend"
+
+        info "停止服务..."
+        bash bin/stop.sh 2>/dev/null || true
+        sleep 1
+
+        mkdir -p runtime/logs
+
+        info "启动服务..."
+        bash bin/start.sh
+        cd "${PROJECT_DIR}"
     fi
 
-    sleep 2
-
-    # 服务健康检查（通过 PID 文件判断）
-    echo ""
-    for svc_name in "HTTP API" "WebSocket"; do
-        if [[ "${svc_name}" == "HTTP API" ]]; then
-            pid_file="runtime/http_server.pid"
-        else
-            pid_file="runtime/websocket_server.pid"
-        fi
-        if [[ -f "${pid_file}" ]]; then
-            pid="$(cat "${pid_file}")"
-            if kill -0 "${pid}" 2>/dev/null; then
-                echo -e "  ${COLOR_GREEN}●${COLOR_RESET} ${svc_name}    [运行中, PID=${pid}]"
-            else
-                echo -e "  ${COLOR_RED}●${COLOR_RESET} ${svc_name}    [未运行]"
-                error "服务 ${svc_name} 未正常运行（PID 文件存在但进程已退出）"
-            fi
-        else
-            echo -e "  ${COLOR_RED}●${COLOR_RESET} ${svc_name}    [未运行]"
-            error "服务 ${svc_name} 未正常运行（未找到 PID 文件）"
-        fi
-    done
-
-    cd "${PROJECT_DIR}"
     mark_done "step4_restart_services"
 fi
 
