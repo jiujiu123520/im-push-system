@@ -770,17 +770,82 @@ const testing = reactive({
 
 const configCount = computed(() => 4)
 
+// 自动检测服务器地址
+function detectServerUrls() {
+  const protocol = window.location.protocol // http: or https:
+  const host = window.location.hostname // e.g., 124.222.43.74
+  const port = window.location.port || (protocol === 'https:' ? '443' : '80')
+
+  // HTTP API 地址：当前访问地址
+  const httpUrl = `${protocol}//${host}`
+  // WebSocket 地址：将 http/https 转为 ws/wss
+  const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:'
+  const wsUrl = `${wsProtocol}//${host}`
+
+  return {
+    httpApiUrl: httpUrl,
+    httpPort: parseInt(port),
+    websocketUrl: wsUrl,
+    websocketPort: parseInt(port)
+  }
+}
+
 // 加载配置
 async function fetchSettings() {
   loading.value = true
   try {
     const res = await getSettingsApi()
     const s = res.data
-    if (s) {
-      serverForm.httpApiUrl = s.siteDescription || serverForm.httpApiUrl
+
+    // 如果后端返回了服务器配置，使用后端的值；否则自动检测
+    if (s?.server) {
+      serverForm.httpApiUrl = s.server.httpApiUrl || ''
+      serverForm.httpPort = s.server.httpPort || 443
+      serverForm.websocketUrl = s.server.websocketUrl || ''
+      serverForm.websocketPort = s.server.websocketPort || 443
+    }
+
+    // 如果没有配置，自动检测并填充
+    if (!serverForm.httpApiUrl) {
+      const detected = detectServerUrls()
+      serverForm.httpApiUrl = detected.httpApiUrl
+      serverForm.httpPort = detected.httpPort
+      serverForm.websocketUrl = detected.websocketUrl
+      serverForm.websocketPort = detected.websocketPort
+    }
+
+    // 加载推送配置
+    if (s?.push) {
+      pushForm.heartbeatInterval = s.push.heartbeatInterval || 60
+      pushForm.offlineRetention = s.push.offlineRetention || 72
+      pushForm.maxConnections = s.push.maxConnections || 100000
+    }
+
+    // 加载验证码配置
+    if (s?.captcha) {
+      captchaForm.smsApiKey = s.captcha.smsApiKey || ''
+      captchaForm.smsApiUrl = s.captcha.smsApiUrl || ''
+      captchaForm.mailHost = s.captcha.mailHost || ''
+      captchaForm.mailPort = s.captcha.mailPort || 465
+      captchaForm.mailUsername = s.captcha.mailUsername || ''
+      captchaForm.mailPassword = s.captcha.mailPassword || ''
+      captchaForm.mailFrom = s.captcha.mailFrom || ''
+    }
+
+    // 加载安全配置
+    if (s?.security) {
+      securityForm.jwtSecret = s.security.jwtSecret || ''
+      securityForm.aesKey = s.security.aesKey || ''
+      securityForm.passwordMinLength = s.security.passwordMinLength || 8
+      securityForm.loginFailLimit = s.security.loginFailLimit || 5
     }
   } catch {
-    // 接口未就绪时使用默认值
+    // 接口未就绪时自动检测服务器地址
+    const detected = detectServerUrls()
+    serverForm.httpApiUrl = detected.httpApiUrl
+    serverForm.httpPort = detected.httpPort
+    serverForm.websocketUrl = detected.websocketUrl
+    serverForm.websocketPort = detected.websocketPort
   } finally {
     loading.value = false
   }
