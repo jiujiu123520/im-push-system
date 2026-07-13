@@ -87,3 +87,40 @@ export function getSystemInfoApi() {
     disk: { used: number; total: number }
   }>('/admin/settings/system-info')
 }
+
+// 版本检测 - 对比本地与云端版本
+export function checkVersionApi() {
+  return get<{
+    local: { commit: string; short: string; date: string }
+    remote: { commit: string; short: string; branch: string; date: string }
+    status: 'up-to-date' | 'behind' | 'ahead' | 'diverged' | 'unknown'
+    ahead_count: number
+    behind_count: number
+    changelog: string[]
+  }>('/admin/settings/check-version')
+}
+
+// 一键更新 - 触发服务器端更新流程
+export function systemUpdateApi(params?: {
+  proxy?: string
+  ghProxy?: boolean
+  skipBuild?: boolean
+  skipMigration?: boolean
+}) {
+  return post<{
+    task_id: string
+    message: string
+  }>('/admin/settings/system-update', params)
+}
+
+// 查询更新进度
+export function getUpdateProgressApi(taskId: string) {
+  return get<{
+    task_id: string
+    status: 'pending' | 'running' | 'success' | 'failed'
+    step: string
+    progress: number
+    message: string
+    logs: string[]
+  }>(`/admin/settings/update-progress/${taskId}`)
+}

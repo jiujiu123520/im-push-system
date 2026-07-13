@@ -190,9 +190,15 @@ if ($runWs) {
         // ============================================================
         // 系统设置（管理员鉴权）
         // ============================================================
-        $router->get('/admin/settings/mail',      [\App\Controller\SettingsController::class, 'getMailConfig']);
-        $router->post('/admin/settings/mail',     [\App\Controller\SettingsController::class, 'saveMailConfig']);
-        $router->post('/admin/settings/mail/test',[\App\Controller\SettingsController::class, 'testMailConfig']);
+        $router->get('/admin/settings',                    [\App\Controller\SettingsController::class, 'getSettings']);
+        $router->put('/admin/settings',                     [\App\Controller\SettingsController::class, 'updateSettings']);
+        $router->get('/admin/settings/mail',               [\App\Controller\SettingsController::class, 'getMailConfig']);
+        $router->post('/admin/settings/mail',              [\App\Controller\SettingsController::class, 'saveMailConfig']);
+        $router->post('/admin/settings/mail/test',        [\App\Controller\SettingsController::class, 'testMailConfig']);
+        $router->get('/admin/settings/system-info',        [\App\Controller\SettingsController::class, 'getSystemInfo']);
+        $router->get('/admin/settings/check-version',      [\App\Controller\SettingsController::class, 'checkVersion']);
+        $router->post('/admin/settings/system-update',     [\App\Controller\SettingsController::class, 'systemUpdate']);
+        $router->get('/admin/settings/update-progress/{taskId}', [\App\Controller\SettingsController::class, 'getUpdateProgress']);
     };
 
     $server = new \App\HttpServer($routeRegistrar);

@@ -503,9 +503,11 @@ const rules: FormRules = {
 }
 
 function openCreateDialog() {
-  form.name = ''
-  form.expiresAt = ''
-  form.remark = ''
+  form.name = `API客户端_${Math.floor(Math.random() * 9000 + 1000)}`
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 30)
+  form.expiresAt = tomorrow.toISOString().slice(0, 16).replace('T', ' ')
+  form.remark = '自动生成的 API Key'
   createdSecret.value = null
   dialogVisible.value = true
 }

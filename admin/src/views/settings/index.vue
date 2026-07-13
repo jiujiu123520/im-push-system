@@ -78,6 +78,12 @@
           </div>
           <div class="form-actions">
             <el-button
+              :icon="RefreshIcon"
+              @click="autoDetectServer"
+            >
+              自动检测地址
+            </el-button>
+            <el-button
               type="primary"
               :icon="CheckIcon"
               :loading="saving.server"
@@ -552,6 +558,92 @@
           <span>系统已运行</span>
           <span class="uptime-value">{{ formatUptime(systemInfo.uptime) }}</span>
         </div>
+
+        <!-- 版本检测与一键更新 -->
+        <div class="version-check-section">
+          <div class="version-check-header">
+            <div class="version-check-title">
+              <el-icon><DownloadIcon /></el-icon>
+              <span>版本更新</span>
+            </div>
+            <div class="version-check-actions">
+              <el-button
+                size="small"
+                :icon="RefreshIcon"
+                :loading="versionChecking"
+                @click="checkVersion"
+              >
+                检测新版本
+              </el-button>
+              <el-button
+                size="small"
+                type="primary"
+                :icon="UploadIcon"
+                :loading="updating"
+                :disabled="versionInfo.status === 'up-to-date' || versionChecking"
+                @click="startUpdate"
+              >
+                {{ updating ? '更新中...' : '一键更新' }}
+              </el-button>
+            </div>
+          </div>
+
+          <!-- 版本检测结果 -->
+          <div v-if="versionInfo.status" class="version-result">
+            <div class="version-compare">
+              <div class="version-col">
+                <span class="version-label">本地版本</span>
+                <span class="version-hash mono">{{ versionInfo.local.short || '-' }}</span>
+                <span class="version-date">{{ versionInfo.local.date || '' }}</span>
+              </div>
+              <div class="version-col">
+                <span class="version-label">云端版本</span>
+                <span class="version-hash mono">{{ versionInfo.remote.short || '-' }}</span>
+                <span class="version-date">{{ versionInfo.remote.date || '' }}</span>
+              </div>
+            </div>
+            <el-tag :type="versionStatusType" size="small" class="version-status-tag">
+              {{ versionStatusText }}
+            </el-tag>
+          </div>
+
+          <!-- 更新变更日志 -->
+          <div v-if="versionInfo.changelog.length > 0" class="changelog-list">
+            <div class="changelog-title">更新内容：</div>
+            <div v-for="(log, idx) in versionInfo.changelog" :key="idx" class="changelog-item">
+              <span class="changelog-arrow">&#8593;</span>
+              <span class="mono">{{ log }}</span>
+            </div>
+          </div>
+
+          <!-- 更新进度 -->
+          <div v-if="updateProgress.status === 'running' || updateProgress.status === 'pending'" class="update-progress">
+            <div class="progress-header">
+              <span class="progress-step">{{ updateProgress.step || '准备中...' }}</span>
+              <span class="progress-percent">{{ updateProgress.progress }}%</span>
+            </div>
+            <el-progress
+              :percentage="updateProgress.progress"
+              :stroke-width="8"
+              :show-text="false"
+              status=""
+            />
+            <div v-if="updateProgress.logs.length > 0" class="progress-logs">
+              <div v-for="(log, idx) in updateProgress.logs.slice(-5)" :key="idx" class="log-line mono">
+                {{ log }}
+              </div>
+            </div>
+          </div>
+
+          <!-- 更新结果 -->
+          <div v-if="updateProgress.status === 'success'" class="update-result success">
+            <el-icon><CircleCheckFilledIcon /></el-icon>
+            <span>更新成功！系统已升级到最新版本</span>
+          </div>
+          <div v-if="updateProgress.status === 'failed'" class="update-result failed">
+            <span>更新失败：{{ updateProgress.message }}</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -577,7 +669,9 @@ import {
   DataLine as DataLineIcon,
   Histogram as HistogramIcon,
   Clock as ClockIcon,
-  CircleCheckFilled as CircleCheckFilledIcon
+  CircleCheckFilled as CircleCheckFilledIcon,
+  Upload as UploadIcon,
+  Download as DownloadIcon
 } from '@element-plus/icons-vue'
 import {
   getSettingsApi,
@@ -585,7 +679,10 @@ import {
   getMailConfigApi,
   saveMailConfigApi,
   testMailConfigApi,
-  getSystemInfoApi
+  getSystemInfoApi,
+  checkVersionApi,
+  systemUpdateApi,
+  getUpdateProgressApi
 } from '@/api/settings'
 
 const loading = ref(false)
@@ -742,6 +839,7 @@ async function fetchSystemInfo() {
   try {
     const res = await getSystemInfoApi()
     const d = res.data
+    systemInfo.version = d.version || systemInfo.version
     systemInfo.diskUsed = d.disk?.used || 0
     systemInfo.diskTotal = d.disk?.total || 0
     systemInfo.uptime = d.uptime || 0
@@ -754,6 +852,136 @@ async function fetchSystemInfo() {
     systemInfoLoading.value = false
   }
 }
+
+// ---- 版本检测与一键更新 ----
+const versionChecking = ref(false)
+const updating = ref(false)
+const versionInfo = reactive({
+  local: { commit: '', short: '', date: '' },
+  remote: { commit: '', short: '', branch: '', date: '' },
+  status: '' as '' | 'up-to-date' | 'behind' | 'ahead' | 'diverged' | 'unknown',
+  aheadCount: 0,
+  behindCount: 0,
+  changelog: [] as string[]
+})
+const updateProgress = reactive({
+  taskId: '',
+  status: '' as '' | 'pending' | 'running' | 'success' | 'failed',
+  step: '',
+  progress: 0,
+  message: '',
+  logs: [] as string[]
+})
+let progressTimer: ReturnType<typeof setInterval> | null = null
+
+// 版本检测
+async function checkVersion() {
+  versionChecking.value = true
+  try {
+    const res = await checkVersionApi()
+    const d = res.data
+    versionInfo.local = d.local
+    versionInfo.remote = d.remote
+    versionInfo.status = d.status
+    versionInfo.aheadCount = d.ahead_count
+    versionInfo.behindCount = d.behind_count
+    versionInfo.changelog = d.changelog || []
+
+    if (d.status === 'up-to-date') {
+      ElMessage.success('当前已是最新版本')
+    } else if (d.status === 'behind') {
+      ElMessage.warning(`有新版本可用，落后 ${d.ahead_count} 个提交`)
+    } else if (d.status === 'ahead') {
+      ElMessage.info(`本地版本领先 ${d.behind_count} 个提交`)
+    } else if (d.status === 'diverged') {
+      ElMessage.warning('本地与云端版本已分叉')
+    }
+  } catch {
+    ElMessage.error('版本检测失败，请检查服务器网络连接')
+  } finally {
+    versionChecking.value = false
+  }
+}
+
+// 一键更新
+async function startUpdate() {
+  updating.value = true
+  updateProgress.status = 'pending'
+  updateProgress.step = '准备中'
+  updateProgress.progress = 0
+  updateProgress.logs = []
+  updateProgress.message = ''
+
+  try {
+    const res = await systemUpdateApi({ ghProxy: true })
+    updateProgress.taskId = res.data.task_id
+    updateProgress.status = 'running'
+    ElMessage.info('更新已启动，请勿关闭页面...')
+
+    // 轮询更新进度
+    progressTimer = setInterval(pollUpdateProgress, 3000)
+  } catch (err) {
+    updateProgress.status = 'failed'
+    updateProgress.message = err instanceof Error ? err.message : '启动更新失败'
+    updating.value = false
+    ElMessage.error(updateProgress.message)
+  }
+}
+
+async function pollUpdateProgress() {
+  if (!updateProgress.taskId) return
+  try {
+    const res = await getUpdateProgressApi(updateProgress.taskId)
+    const d = res.data
+    updateProgress.status = d.status
+    updateProgress.step = d.step
+    updateProgress.progress = d.progress
+    updateProgress.message = d.message
+    updateProgress.logs = d.logs || []
+
+    if (d.status === 'success') {
+      stopProgressPolling()
+      updating.value = false
+      ElMessage.success('系统更新完成！')
+      fetchSystemInfo()
+      checkVersion()
+    } else if (d.status === 'failed') {
+      stopProgressPolling()
+      updating.value = false
+      ElMessage.error('更新失败：' + (d.message || '未知错误'))
+    }
+  } catch {
+    // 轮询失败不中断
+  }
+}
+
+function stopProgressPolling() {
+  if (progressTimer) {
+    clearInterval(progressTimer)
+    progressTimer = null
+  }
+}
+
+// 版本状态文本与颜色
+const versionStatusText = computed(() => {
+  switch (versionInfo.status) {
+    case 'up-to-date': return '已是最新版本'
+    case 'behind': return `落后 ${versionInfo.aheadCount} 个提交`
+    case 'ahead': return `领先 ${versionInfo.behindCount} 个提交`
+    case 'diverged': return '版本已分叉'
+    default: return '未检测'
+  }
+})
+
+const versionStatusType = computed(() => {
+  switch (versionInfo.status) {
+    case 'up-to-date': return 'success'
+    case 'behind': return 'warning'
+    case 'ahead': return 'info'
+    case 'diverged': return 'danger'
+    default: return 'info'
+  }
+})
 
 // ---- 保存状态 ----
 const saving = reactive({
@@ -776,9 +1004,7 @@ function detectServerUrls() {
   const host = window.location.hostname // e.g., 124.222.43.74
   const port = window.location.port || (protocol === 'https:' ? '443' : '80')
 
-  // HTTP API 地址：当前访问地址
   const httpUrl = `${protocol}//${host}`
-  // WebSocket 地址：将 http/https 转为 ws/wss
   const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:'
   const wsUrl = `${wsProtocol}//${host}`
 
@@ -788,6 +1014,16 @@ function detectServerUrls() {
     websocketUrl: wsUrl,
     websocketPort: parseInt(port)
   }
+}
+
+// 手动触发自动检测并填充
+function autoDetectServer() {
+  const detected = detectServerUrls()
+  serverForm.httpApiUrl = detected.httpApiUrl
+  serverForm.httpPort = detected.httpPort
+  serverForm.websocketUrl = detected.websocketUrl
+  serverForm.websocketPort = detected.websocketPort
+  ElMessage.success('服务器地址已自动检测并填充')
 }
 
 // 加载配置
@@ -1379,6 +1615,178 @@ onMounted(() => {
   }
 }
 
+// ===== 版本检测与更新 =====
+.version-check-section {
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: $radius-md;
+  background: var(--bg-page);
+  border: 1px solid var(--border-light);
+}
+
+.version-check-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.version-check-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+
+  .el-icon {
+    color: $color-primary;
+    font-size: 18px;
+  }
+}
+
+.version-check-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.version-result {
+  margin-bottom: 12px;
+}
+
+.version-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.version-col {
+  padding: 10px 14px;
+  border-radius: $radius-sm;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  .version-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  .version-hash {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .version-date {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: $font-family-mono;
+  }
+}
+
+.version-status-tag {
+  font-weight: 600;
+}
+
+.changelog-list {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: $radius-sm;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+
+  .changelog-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-regular);
+    margin-bottom: 6px;
+  }
+
+  .changelog-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 12px;
+    color: var(--text-regular);
+
+    .changelog-arrow {
+      color: $color-warning;
+      font-weight: 700;
+    }
+  }
+}
+
+.update-progress {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: $radius-sm;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 13px;
+
+    .progress-step {
+      font-weight: 600;
+      color: $color-primary;
+    }
+
+    .progress-percent {
+      font-family: $font-family-mono;
+      color: var(--text-secondary);
+    }
+  }
+
+  .progress-logs {
+    margin-top: 10px;
+    max-height: 120px;
+    overflow-y: auto;
+    font-size: 11px;
+    color: var(--text-secondary);
+    background: var(--bg-page);
+    border-radius: $radius-sm;
+    padding: 8px;
+
+    .log-line {
+      padding: 2px 0;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+  }
+}
+
+.update-result {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: $radius-sm;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+
+  &.success {
+    background: rgba(24, 194, 156, 0.08);
+    color: $color-success;
+    border: 1px solid rgba(24, 194, 156, 0.2);
+  }
+
+  &.failed {
+    background: rgba(255, 90, 110, 0.08);
+    color: $color-danger;
+    border: 1px solid rgba(255, 90, 110, 0.2);
+  }
+}
+
 // ===== 动画 =====
 @keyframes fade-up {
   from {
@@ -1446,6 +1854,22 @@ onMounted(() => {
   }
   .uptime-row {
     background: linear-gradient(135deg, rgba(109, 92, 255, 0.12), rgba(92, 184, 255, 0.08));
+  }
+  .version-check-section {
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .version-col {
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .changelog-list {
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .update-progress {
+    background: rgba(255, 255, 255, 0.04);
+
+    .progress-logs {
+      background: rgba(0, 0, 0, 0.2);
+    }
   }
 }
 </style>

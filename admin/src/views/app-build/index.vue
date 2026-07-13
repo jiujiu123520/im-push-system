@@ -645,17 +645,26 @@ async function randomizePackageName() {
   }
 }
 
-// 一键随机所有参数
+// 一键随机所有参数（包含自动检测服务器地址）
 async function randomizeAll() {
   randomizing.value = true
   try {
     const res = await getRandomConfigApi()
     form.name = res.data.app_name
     form.packageName = res.data.package_name
+    
+    const detected = detectServerUrls()
+    form.serverAddress = detected.httpUrl
+    form.websocketAddress = detected.wsUrl
+    
+    if (!form.defaultKey && keyOptions.value.length > 0) {
+      form.defaultKey = keyOptions.value[0].value
+    }
+    
     if (iconMode.value === 'auto') {
       await generateIconWithText(res.data.app_name)
     }
-    ElMessage.success('已随机生成所有参数')
+    ElMessage.success('已随机生成所有参数，服务器地址已自动填充')
   } catch {
     ElMessage.warning('获取随机配置失败，请手动输入')
   } finally {
@@ -700,6 +709,18 @@ watch(
     }
   }
 )
+
+// 自动检测服务器地址
+function detectServerUrls() {
+  const protocol = window.location.protocol
+  const host = window.location.hostname
+
+  const httpUrl = `${protocol}//${host}`
+  const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:'
+  const wsUrl = `${wsProtocol}//${host}`
+
+  return { httpUrl, wsUrl }
+}
 
 // 监听图标模式切换
 watch(iconMode, (newMode) => {
@@ -866,6 +887,10 @@ async function openLog(item: AppBuildRecord) {
 onMounted(() => {
   fetchKeyOptions()
   fetchHistory()
+  
+  const detected = detectServerUrls()
+  form.serverAddress = detected.httpUrl
+  form.websocketAddress = detected.wsUrl
 })
 
 onBeforeUnmount(() => {

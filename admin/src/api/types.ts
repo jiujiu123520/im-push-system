@@ -268,16 +268,38 @@ export interface Settings {
   siteName: string
   siteLogo?: string
   siteDescription?: string
+  server?: {
+    httpApiUrl: string
+    httpPort: number
+    websocketUrl: string
+    websocketPort: number
+  }
   push: {
     defaultRetry: number
     timeout: number
     concurrent: number
+    heartbeatInterval?: number
+    offlineRetention?: number
+    maxConnections?: number
+  }
+  captcha?: {
+    smsApiKey?: string
+    smsApiUrl?: string
+    mailHost?: string
+    mailPort?: number
+    mailUsername?: string
+    mailPassword?: string
+    mailFrom?: string
   }
   security: {
     passwordExpire: number
     loginLimit: number
     captchaEnabled: boolean
     twoFactorEnabled: boolean
+    jwtSecret?: string
+    aesKey?: string
+    passwordMinLength?: number
+    loginFailLimit?: number
   }
   storage: {
     type: 'local' | 'oss' | 'cos' | 's3'

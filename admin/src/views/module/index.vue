@@ -578,13 +578,44 @@ function handleReset() {
 
 function openDialog(row?: Record<string, any>) {
   isEdit.value = !!row
-  // 重置表单
   Object.keys(dialogForm).forEach((k) => delete dialogForm[k])
   if (row) {
     Object.assign(dialogForm, JSON.parse(JSON.stringify(row)))
   } else {
     formFields.value.forEach((f) => {
-      dialogForm[f.prop] = f.type === 'switch' ? 1 : f.type === 'number' ? 0 : ''
+      if (f.type === 'switch') {
+        dialogForm[f.prop] = 1
+      } else if (f.type === 'number') {
+        dialogForm[f.prop] = f.prop === 'dailyLimit' ? 1000 : f.prop === 'rateLimit' ? 100 : 0
+      } else if (f.prop === 'username') {
+        dialogForm[f.prop] = `user_${Math.floor(Math.random() * 9000 + 1000)}`
+      } else if (f.prop === 'nickname') {
+        dialogForm[f.prop] = `用户${Math.floor(Math.random() * 900 + 100)}`
+      } else if (f.prop === 'phone') {
+        dialogForm[f.prop] = `138${String(Math.floor(Math.random() * 100000000)).padStart(8, '0')}`
+      } else if (f.prop === 'title') {
+        dialogForm[f.prop] = `应用Key_${Math.floor(Math.random() * 900 + 100)}`
+      } else if (f.prop === 'name') {
+        dialogForm[f.prop] = `项目${Math.floor(Math.random() * 900 + 100)}`
+      } else if (f.prop === 'email') {
+        dialogForm[f.prop] = `admin${Math.floor(Math.random() * 900 + 100)}@push.com`
+      } else if (f.prop === 'value') {
+        dialogForm[f.prop] = 'block_' + Math.floor(Math.random() * 99999)
+      } else if (f.prop === 'reason') {
+        dialogForm[f.prop] = ['违规操作', '异常请求', '安全风险'][Math.floor(Math.random() * 3)]
+      } else if (f.prop === 'content') {
+        dialogForm[f.prop] = '这是一条测试推送消息内容'
+      } else if (f.prop === 'type' && f.options && f.options.length > 0) {
+        dialogForm[f.prop] = f.options[0].value
+      } else if (f.prop === 'platform' && f.options && f.options.length > 0) {
+        dialogForm[f.prop] = 'all'
+      } else if (f.prop === 'siteName') {
+        dialogForm[f.prop] = 'Push 推送平台'
+      } else if (f.prop === 'siteDescription') {
+        dialogForm[f.prop] = '即时消息推送管理系统'
+      } else {
+        dialogForm[f.prop] = ''
+      }
     })
   }
   dialogVisible.value = true
