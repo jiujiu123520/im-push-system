@@ -109,11 +109,17 @@ class PushKeyController
 
         $keyValue = $this->generateKeyValue();
 
+        // 兼容 camelCase 和 snake_case 字段名
+        $maxDevices = (int)($body['max_devices'] ?? $body['daily_limit'] ?? $body['dailyLimit'] ?? $body['maxDevices'] ?? 0);
+        $notifyEmail = (string)($body['notify_email'] ?? $body['notifyEmail'] ?? '');
+        $notifyEnabled = (int)($body['notify_enabled'] ?? $body['notifyEnabled'] ?? 0);
+        $notifyInterval = (int)($body['notify_interval'] ?? $body['notifyInterval'] ?? 300);
+
         $id = Database::insert(
             'INSERT INTO push_keys (key_value, name, max_devices, user_id, status,
                                     notify_email, notify_enabled, notify_interval)
-             VALUES (?, ?, ?, ?, 1, "", 0, 300)',
-            [$keyValue, $name, (int)($body['max_devices'] ?? $body['daily_limit'] ?? 0), (int)($admin['id'] ?? 0)]
+             VALUES (?, ?, ?, ?, 1, ?, ?, ?)',
+            [$keyValue, $name, $maxDevices, (int)($admin['admin_id'] ?? 0), $notifyEmail, $notifyEnabled, $notifyInterval]
         );
 
         // 直接返回新创建的记录，避免重复鉴权

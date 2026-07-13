@@ -182,9 +182,21 @@ import {
   Download as DownloadIcon,
   ArrowDown as ArrowDownIcon
 } from '@element-plus/icons-vue'
-import { exportPushLogsApi } from '@/api/push'
+import { exportPushLogsApi, getPushLogListApi } from '@/api/push'
 import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi } from '@/api/key'
-import type { KeyForm } from '@/api/types'
+import {
+  getBlacklistApi,
+  createBlacklistApi,
+  deleteBlacklistApi
+} from '@/api/blacklist'
+import {
+  getAdminListApi,
+  createAdminApi,
+  updateAdminApi,
+  deleteAdminApi
+} from '@/api/admin'
+import { getDeviceListApi } from '@/api/device'
+import type { KeyForm, BlacklistForm, AdminForm } from '@/api/types'
 
 interface FieldConfig {
   prop: string
@@ -366,16 +378,17 @@ const moduleConfigs: Record<string, {
     title: '管理员',
     columns: [
       { prop: 'username', label: '账号', width: 140 },
-      { prop: 'nickname', label: '昵称' },
-      { prop: 'email', label: '邮箱', width: 200 },
-      { prop: 'roles', label: '角色', width: 160, slot: 'tag' },
+      { prop: 'role', label: '角色', width: 140, slot: 'tag' },
       { prop: 'status', label: '状态', width: 90, slot: 'status' },
-      { prop: 'lastLoginAt', label: '最后登录', width: 170 }
+      { prop: 'createdAt', label: '创建时间', width: 170 }
     ],
     fields: [
       { prop: 'username', label: '账号', type: 'input', required: true },
-      { prop: 'nickname', label: '昵称', type: 'input', required: true },
-      { prop: 'email', label: '邮箱', type: 'input' },
+      { prop: 'password', label: '密码', type: 'input', required: true },
+      { prop: 'role', label: '角色', type: 'select', required: true, options: [
+        { label: '超级管理员', value: 'super_admin' },
+        { label: '管理员', value: 'admin' }
+      ] },
       { prop: 'status', label: '状态', type: 'switch' }
     ],
     mockRow: () => ({
@@ -539,8 +552,25 @@ let allData: Record<string, any>[] = []
 async function fetchData() {
   loading.value = true
   try {
-    if (currentModule.value === 'keys') {
+    const mod = currentModule.value
+    if (mod === 'keys') {
       const res = await getKeyListApi(query)
+      tableData.value = res.list || []
+      total.value = res.total || 0
+    } else if (mod === 'blacklist') {
+      const res = await getBlacklistApi(query)
+      tableData.value = res.list || []
+      total.value = res.total || 0
+    } else if (mod === 'admins') {
+      const res = await getAdminListApi(query)
+      tableData.value = res.list || []
+      total.value = res.total || 0
+    } else if (mod === 'devices') {
+      const res = await getDeviceListApi(query)
+      tableData.value = res.list || []
+      total.value = res.total || 0
+    } else if (mod === 'push-logs') {
+      const res = await getPushLogListApi(query)
       tableData.value = res.list || []
       total.value = res.total || 0
     } else {
@@ -599,6 +629,10 @@ function openDialog(row?: Record<string, any>) {
         dialogForm[f.prop] = `项目${Math.floor(Math.random() * 900 + 100)}`
       } else if (f.prop === 'email') {
         dialogForm[f.prop] = `admin${Math.floor(Math.random() * 900 + 100)}@push.com`
+      } else if (f.prop === 'password') {
+        dialogForm[f.prop] = `Admin@${Math.floor(Math.random() * 9000 + 1000)}`
+      } else if (f.prop === 'role' && f.options && f.options.length > 0) {
+        dialogForm[f.prop] = 'admin'
       } else if (f.prop === 'value') {
         dialogForm[f.prop] = 'block_' + Math.floor(Math.random() * 99999)
       } else if (f.prop === 'reason') {
@@ -630,12 +664,28 @@ async function handleSubmit() {
   }
   submitting.value = true
   try {
-    if (currentModule.value === 'keys') {
+    const mod = currentModule.value
+    if (mod === 'keys') {
       if (isEdit.value) {
         await updateKeyApi(dialogForm.id, dialogForm as unknown as KeyForm)
         ElMessage.success('更新成功')
       } else {
         await createKeyApi(dialogForm as unknown as KeyForm)
+        ElMessage.success('新增成功')
+      }
+    } else if (mod === 'blacklist') {
+      if (isEdit.value) {
+        ElMessage.info('黑名单暂不支持编辑')
+      } else {
+        await createBlacklistApi(dialogForm as unknown as BlacklistForm)
+        ElMessage.success('新增成功')
+      }
+    } else if (mod === 'admins') {
+      if (isEdit.value) {
+        await updateAdminApi(dialogForm.id, dialogForm as unknown as AdminForm)
+        ElMessage.success('更新成功')
+      } else {
+        await createAdminApi(dialogForm as unknown as AdminForm)
         ElMessage.success('新增成功')
       }
     } else {
@@ -667,8 +717,13 @@ async function handleDelete(row: Record<string, any>) {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    if (currentModule.value === 'keys') {
+    const mod = currentModule.value
+    if (mod === 'keys') {
       await deleteKeyApi(row.id)
+    } else if (mod === 'blacklist') {
+      await deleteBlacklistApi(row.id)
+    } else if (mod === 'admins') {
+      await deleteAdminApi(row.id)
     } else {
       allData = allData.filter((item) => item.id !== row.id)
     }

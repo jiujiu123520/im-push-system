@@ -6,6 +6,7 @@ namespace App\Controller;
 use App\Middleware\AdminAuth;
 use App\Middleware\AdminLog;
 use App\Service\AdminService;
+use App\Service\Database;
 use App\Service\Response;
 
 /**
@@ -384,6 +385,77 @@ class AdminController
         $page = (int)($get['page'] ?? 1);
 
         return AdminService::getLogs($page);
+    }
+
+    /**
+     * 管理员详情
+     * GET /admin/admins/{id}
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public static function detail(array $context, array $params = [])
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $id = (int)($params['id'] ?? 0);
+        if ($id <= 0) {
+            Response::fail($context['response'], '参数 id 无效', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        $admin = Database::fetch(
+            'SELECT id, username, role, status, created_at, updated_at FROM admins WHERE id = ? LIMIT 1',
+            [$id]
+        );
+
+        if ($admin === false) {
+            Response::fail($context['response'], '管理员不存在', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+
+        return $admin;
+    }
+
+    /**
+     * 切换管理员状态
+     * PUT /admin/admins/{id}/status  Body: { status: 0|1 }
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public static function toggleStatus(array $context, array $params = [])
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        if (($payload['role'] ?? '') !== 'super_admin') {
+            Response::fail($context['response'], '无权限：仅超级管理员可操作', Response::CODE_FORBIDDEN, 403);
+            return false;
+        }
+
+        $id = (int)($params['id'] ?? 0);
+        if ($id <= 0) {
+            Response::fail($context['response'], '参数 id 无效', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        $body = self::parseJsonBody($context);
+        $status = (int)($body['status'] ?? 0);
+
+        Database::execute(
+            'UPDATE admins SET status = ?, updated_at = NOW() WHERE id = ?',
+            [$status, $id]
+        );
+
+        return ['id' => $id, 'status' => $status];
     }
 
     /**

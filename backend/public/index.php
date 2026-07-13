@@ -107,16 +107,26 @@ if ($runWs) {
         $router->get('/admin/info', [\App\Controller\AdminController::class, 'info']);
 
         // 管理员列表（分页 10 条，支持 keyword 搜索）
-        $router->get('/admin/list', [\App\Controller\AdminController::class, 'list']);
+        $router->get('/admin/list',  [\App\Controller\AdminController::class, 'list']);
+        $router->get('/admin/admins', [\App\Controller\AdminController::class, 'list']);
 
         // 创建管理员（仅 super_admin）
         $router->post('/admin/create', [\App\Controller\AdminController::class, 'create']);
+        $router->post('/admin/admins',  [\App\Controller\AdminController::class, 'create']);
+
+        // 管理员详情
+        $router->get('/admin/admins/{id}', [\App\Controller\AdminController::class, 'detail']);
 
         // 更新管理员（修改账号/密码/角色/状态，仅 super_admin）
         $router->put('/admin/update/{id}', [\App\Controller\AdminController::class, 'update']);
+        $router->put('/admin/admins/{id}', [\App\Controller\AdminController::class, 'update']);
 
         // 删除管理员（仅 super_admin，不能删除最后一个 super_admin）
         $router->delete('/admin/delete/{id}', [\App\Controller\AdminController::class, 'delete']);
+        $router->delete('/admin/admins/{id}',  [\App\Controller\AdminController::class, 'delete']);
+
+        // 切换管理员状态
+        $router->put('/admin/admins/{id}/status', [\App\Controller\AdminController::class, 'toggleStatus']);
 
         // 修改自己的密码
         $router->put('/admin/change-password', [\App\Controller\AdminController::class, 'changePassword']);
