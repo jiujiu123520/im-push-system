@@ -25,8 +25,8 @@ class BuildQueue
     public const INDEX_KEY = 'build:tasks';
     /** 单页条数 */
     public const PAGE_SIZE = 10;
-    /** 构建超时时间（秒） */
-    public const BUILD_TIMEOUT = 1800;
+    /** 构建超时时间（秒）—— 首次构建需要下载依赖，设为 2 小时 */
+    public const BUILD_TIMEOUT = 7200;
 
     /**
      * 获取项目根目录
@@ -257,7 +257,8 @@ class BuildQueue
     private static function execBuild(string $cmd, string $logFile): array
     {
         // 构建输出重定向到日志文件，命令尾部追加退出码标记
-        $inner = $cmd . ' >> ' . escapeshellarg($logFile) . ' 2>&1; echo "__EXIT__:$?"';
+        // 使用多行脚本确保 echo 总能执行（即使构建被 timeout 杀死）
+        $inner = $cmd . ' >> ' . escapeshellarg($logFile) . ' 2>&1; EC=$?; echo "__EXIT__:${EC}"';
 
         // 用 timeout 包裹防止构建卡死（如存在 timeout 命令）
         $timeoutBin = self::commandExists('timeout') ? '/usr/bin/timeout ' . self::BUILD_TIMEOUT . ' ' : '';
@@ -269,6 +270,12 @@ class BuildQueue
         $exitCode = 1;
         if (preg_match('/__EXIT__:(\d+)/', $output, $m)) {
             $exitCode = (int)$m[1];
+        }
+
+        // timeout 命令终止时退出码为 124
+        if ($exitCode === 124) {
+            $msg = '[超时] 构建超过 ' . self::BUILD_TIMEOUT . ' 秒被强制终止';
+            file_put_contents($logFile, "\n" . date('Y-m-d H:i:s') . ' ' . $msg . "\n", FILE_APPEND);
         }
 
         return ['exit_code' => $exitCode, 'output' => $output];
