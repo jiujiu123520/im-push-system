@@ -110,11 +110,14 @@ setup_git_proxy() {
         info "使用 GitHub 代理加速 (gh.jasonzeng.dev)..."
         local remote_url
         remote_url="$(git remote get-url origin 2>/dev/null || echo '')"
-        if [[ "${remote_url}" =~ github\.com ]]; then
+        # 检查是否已经包含代理前缀，避免重复添加
+        if [[ "${remote_url}" =~ github\.com ]] && [[ ! "${remote_url}" =~ gh\.jasonzeng\.dev ]]; then
             local new_url="${remote_url/github.com/gh.jasonzeng.dev\/https:\/\/github.com}"
             info "  替换远程地址: ${remote_url} -> ${new_url}"
             git remote set-url origin "${new_url}"
             echo "${remote_url}" > "${PROJECT_DIR}/.git-original-origin"
+        elif [[ "${remote_url}" =~ gh\.jasonzeng\.dev ]]; then
+            info "  远程地址已包含代理前缀，无需替换"
         fi
     fi
 }
