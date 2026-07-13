@@ -161,7 +161,8 @@ final class BuildWorker
 // 启动入口
 // ----------------------------------------------------------------
 try {
-    $worker = new BuildWorker(dirname(__DIR__) . '/queue/worker.log');
+    // 日志写入到 build/logs/worker.log（与构建日志共用目录，权限一致）
+    $worker = new BuildWorker(dirname(__DIR__) . '/logs/worker.log');
     $worker->run();
     exit(0);
 } catch (\Throwable $e) {
