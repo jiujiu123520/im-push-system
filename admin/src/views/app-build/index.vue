@@ -589,6 +589,10 @@ async function fetchKeyOptions() {
       label: `${k.title} (${k.appKey.slice(0, 12)}...)`,
       value: k.appKey
     }))
+    // 自动填充第一个 Key（如果 defaultKey 为空）
+    if (!form.defaultKey && keyOptions.value.length > 0) {
+      form.defaultKey = keyOptions.value[0].value
+    }
   } catch {
     // 接口未就绪时使用空列表
     keyOptions.value = []

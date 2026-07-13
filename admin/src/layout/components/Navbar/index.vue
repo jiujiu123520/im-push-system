@@ -93,13 +93,33 @@
         </template>
       </el-dropdown>
     </div>
+
+    <!-- 修改密码弹窗 -->
+    <el-dialog v-model="passwordDialogVisible" title="修改密码" width="440px" append-to-body>
+      <el-form :model="passwordForm" label-width="90px">
+        <el-form-item label="旧密码">
+          <el-input v-model="passwordForm.oldPassword" type="password" show-password placeholder="请输入旧密码" />
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="passwordForm.newPassword" type="password" show-password placeholder="请输入新密码" />
+        </el-form-item>
+        <el-form-item label="确认密码">
+          <el-input v-model="passwordForm.confirmPassword" type="password" show-password placeholder="请再次输入新密码" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="passwordDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="passwordLoading" @click="handleChangePassword">确定</el-button>
+      </template>
+    </el-dialog>
   </header>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import { changePasswordApi } from '@/api/auth'
 import {
   ArrowRight as ArrowRightIcon,
   ArrowDown as ArrowDownIcon,
@@ -127,6 +147,51 @@ const userStore = useUserStore()
 const { isFullscreen, toggle: toggleFullscreen } = useFullscreen()
 
 const refreshing = ref(false)
+
+// 修改密码弹窗
+const passwordDialogVisible = ref(false)
+const passwordForm = reactive({
+  oldPassword: '',
+  newPassword: '',
+  confirmPassword: ''
+})
+const passwordLoading = ref(false)
+
+async function handleChangePassword() {
+  if (!passwordForm.oldPassword || !passwordForm.newPassword) {
+    ElMessage.warning('请填写旧密码和新密码')
+    return
+  }
+  if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+    ElMessage.warning('两次输入的新密码不一致')
+    return
+  }
+  if (passwordForm.newPassword.length < 6) {
+    ElMessage.warning('新密码长度至少 6 位')
+    return
+  }
+  passwordLoading.value = true
+  try {
+    await changePasswordApi({
+      oldPassword: passwordForm.oldPassword,
+      newPassword: passwordForm.newPassword
+    })
+    ElMessage.success('密码修改成功，请重新登录')
+    passwordDialogVisible.value = false
+    passwordForm.oldPassword = ''
+    passwordForm.newPassword = ''
+    passwordForm.confirmPassword = ''
+    // 延迟跳转到登录页
+    setTimeout(() => {
+      userStore.logout()
+      router.push('/login')
+    }, 1500)
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '修改失败')
+  } finally {
+    passwordLoading.value = false
+  }
+}
 
 interface BreadcrumbItem {
   path: string
@@ -193,7 +258,7 @@ async function handleCommand(cmd: string) {
   } else if (cmd === 'profile') {
     ElMessage.info('个人中心即将开放')
   } else if (cmd === 'password') {
-    ElMessage.info('修改密码功能即将开放')
+    passwordDialogVisible.value = true
   }
 }
 </script>

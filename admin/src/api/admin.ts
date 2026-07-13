@@ -40,3 +40,8 @@ export function resetAdminPasswordApi(id: number, password: string) {
 export function getRoleOptionsApi() {
   return get<{ label: string; value: string }[]>('/admin/admins/roles')
 }
+
+// 管理员登录日志列表
+export function getLoginLogsApi(params: PageQuery) {
+  return get<PageResult<any>>('/admin/login-logs', params)
+}

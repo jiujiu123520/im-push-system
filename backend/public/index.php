@@ -134,10 +134,22 @@ if ($runWs) {
         // 操作日志列表（分页 10 条）
         $router->get('/admin/logs', [\App\Controller\AdminController::class, 'logs']);
 
+        // 管理员登录日志列表（分页 10 条，支持 IP 搜索）
+        $router->get('/admin/login-logs', [\App\Controller\AdminController::class, 'loginLogs']);
+
         // ============================================================
         // 开放 API 推送接口（X-Api-Key 鉴权）
         // ============================================================
         $router->post('/api/push', [\App\Controller\ApiPushController::class, 'push']);
+
+        // ============================================================
+        // 用户管理（管理员鉴权）
+        // ============================================================
+        $router->get('/admin/users',              [\App\Controller\UserController::class, 'index']);
+        $router->get('/admin/users/{id}',         [\App\Controller\UserController::class, 'show']);
+        $router->delete('/admin/users/{id}',      [\App\Controller\UserController::class, 'delete']);
+        $router->delete('/admin/users',           [\App\Controller\UserController::class, 'clearAll']);
+        $router->put('/admin/users/{id}/status',  [\App\Controller\UserController::class, 'toggleStatus']);
 
         // ============================================================
         // Push Key 管理（管理员鉴权）

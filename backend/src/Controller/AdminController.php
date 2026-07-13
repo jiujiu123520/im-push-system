@@ -69,6 +69,19 @@ class AdminController
             $ip
         );
 
+        // 记录详细登录日志到 admin_login_logs 表
+        $ua = (string)($_SERVER['HTTP_USER_AGENT'] ?? $context['server']['http_user_agent'] ?? $context['header']['user-agent'] ?? '');
+        $deviceInfo = self::parseUserAgent($ua);
+        try {
+            \App\Service\Database::execute(
+                'INSERT INTO admin_login_logs (admin_id, username, ip, user_agent, device, browser, os, status, message)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)',
+                [$adminId, $username, $ip, $ua, $deviceInfo['device'], $deviceInfo['browser'], $deviceInfo['os'], '登录成功']
+            );
+        } catch (\Throwable $e) {
+            // admin_login_logs 表可能不存在，忽略
+        }
+
         return [
             'token' => $result['token'],
             'admin' => $result['admin'],
@@ -463,6 +476,55 @@ class AdminController
     }
 
     /**
+     * GET /admin/login-logs
+     * 管理员登录日志列表（分页10条，支持IP搜索）
+     */
+    public static function loginLogs(array $context, array $params = [])
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $page = (int)($context['get']['page'] ?? 1);
+        $keyword = (string)($context['get']['keyword'] ?? '');
+        $page = max(1, $page);
+        $offset = ($page - 1) * 10;
+
+        $where = '';
+        $sqlParams = [];
+        if ($keyword !== '') {
+            $where = ' WHERE username LIKE ? OR ip LIKE ?';
+            $sqlParams = ["%{$keyword}%", "%{$keyword}%"];
+        }
+
+        try {
+            $list = Database::fetchAll(
+                "SELECT id, admin_id, username, ip, user_agent, device, browser, os, status, message, created_at
+                 FROM admin_login_logs{$where} ORDER BY id DESC LIMIT 10 OFFSET " . $offset,
+                $sqlParams
+            );
+
+            $total = (int)(Database::fetch(
+                "SELECT COUNT(*) AS total FROM admin_login_logs{$where}",
+                $sqlParams
+            )['total'] ?? 0);
+        } catch (\Throwable $e) {
+            // 表可能不存在
+            $list = [];
+            $total = 0;
+        }
+
+        return [
+            'list'        => $list,
+            'total'       => $total,
+            'page'        => $page,
+            'per_page'    => 10,
+            'total_pages' => $total > 0 ? (int)ceil($total / 10) : 0,
+        ];
+    }
+
+    /**
      * 从请求上下文中解析 JSON Body
      *
      * @param array $context
@@ -483,5 +545,57 @@ class AdminController
             return [];
         }
         return $decoded;
+    }
+
+    /**
+     * 解析 User-Agent，识别设备类型、浏览器与操作系统
+     *
+     * @param string $ua
+     * @return array {device: string, browser: string, os: string}
+     */
+    private static function parseUserAgent(string $ua): array
+    {
+        $device = 'PC';
+        $browser = 'Unknown';
+        $os = 'Unknown';
+
+        if ($ua === '') {
+            return ['device' => $device, 'browser' => $browser, 'os' => $os];
+        }
+
+        // 设备类型
+        if (preg_match('/iPad/i', $ua)) {
+            $device = 'Tablet';
+        } elseif (preg_match('/Mobile|Android|iPhone/i', $ua)) {
+            $device = 'Mobile';
+        }
+
+        // 浏览器
+        if (preg_match('/Edge\/(\d+)/', $ua, $m)) {
+            $browser = 'Edge ' . $m[1];
+        } elseif (preg_match('/Chrome\/(\d+)/', $ua, $m)) {
+            $browser = 'Chrome ' . $m[1];
+        } elseif (preg_match('/Firefox\/(\d+)/', $ua, $m)) {
+            $browser = 'Firefox ' . $m[1];
+        } elseif (preg_match('/Safari\/(\d+)/', $ua, $m) && !preg_match('/Chrome/', $ua)) {
+            $browser = 'Safari';
+        }
+
+        // 操作系统
+        if (preg_match('/Windows NT 10/', $ua)) {
+            $os = 'Windows 10/11';
+        } elseif (preg_match('/Windows/', $ua)) {
+            $os = 'Windows';
+        } elseif (preg_match('/Mac OS X/', $ua)) {
+            $os = 'macOS';
+        } elseif (preg_match('/Android/', $ua)) {
+            $os = 'Android';
+        } elseif (preg_match('/iPhone|iOS/', $ua)) {
+            $os = 'iOS';
+        } elseif (preg_match('/Linux/', $ua)) {
+            $os = 'Linux';
+        }
+
+        return ['device' => $device, 'browser' => $browser, 'os' => $os];
     }
 }

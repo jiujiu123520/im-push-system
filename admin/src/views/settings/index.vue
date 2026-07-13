@@ -186,6 +186,13 @@
           label-position="top"
           class="setting-form"
         >
+          <el-form-item label="启用验证码">
+            <el-switch v-model="captchaForm.enabled" :active-value="1" :inactive-value="0" />
+            <span style="margin-left: 8px; color: #909399; font-size: 12px;">
+              关闭后注册和登录无需验证码
+            </span>
+          </el-form-item>
+
           <div class="sub-section-title">
             <span class="title-bar"></span>
             短信服务
@@ -724,6 +731,7 @@ const pushRules: FormRules = {
 // ---- 验证码配置 ----
 const captchaFormRef = ref<FormInstance>()
 const captchaForm = reactive({
+  enabled: 1,
   smsApiKey: '',
   smsApiUrl: '',
   mailHost: '',
@@ -1059,6 +1067,7 @@ async function fetchSettings() {
 
     // 加载验证码配置
     if (s?.captcha) {
+      captchaForm.enabled = s.captcha.enabled ?? 1
       captchaForm.smsApiKey = s.captcha.smsApiKey || ''
       captchaForm.smsApiUrl = s.captcha.smsApiUrl || ''
       captchaForm.mailHost = s.captcha.mailHost || ''

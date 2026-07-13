@@ -135,6 +135,19 @@ export const asyncRoutes: RouteRecordRaw[] = [
     ]
   },
   {
+    path: '/login-logs',
+    component: Layout,
+    meta: { title: '登录日志', icon: 'Document', roles: ['admin', 'super_admin'] },
+    children: [
+      {
+        path: '',
+        name: 'LoginLogs',
+        component: () => import('@/views/login-logs/index.vue'),
+        meta: { title: '登录日志', icon: 'Document', cache: true, module: 'login-logs' }
+      }
+    ]
+  },
+  {
     path: '/app-build',
     component: Layout,
     meta: { title: 'APP生成', icon: 'Cellphone', roles: ['admin', 'super_admin'] },

@@ -22,7 +22,7 @@
           </template>
         </el-dropdown>
         <el-button
-          v-if="currentModule === 'users' || currentModule === 'admins'"
+          v-if="currentModule === 'users' || currentModule === 'admins' || currentModule === 'keys'"
           type="danger"
           plain
           :icon="DeleteIcon"
@@ -86,6 +86,14 @@
               size="small"
               style="margin-right: 4px"
             >{{ t }}</el-tag>
+          </template>
+          <template v-else-if="col.prop === 'key_value'" #default="{ row }">
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ row[col.prop] }}</span>
+              <el-button text type="primary" size="small" @click="copyToClipboard(row[col.prop])">
+                <el-icon><CopyDocumentIcon /></el-icon>
+              </el-button>
+            </div>
           </template>
         </el-table-column>
 
@@ -189,7 +197,8 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   Download as DownloadIcon,
-  ArrowDown as ArrowDownIcon
+  ArrowDown as ArrowDownIcon,
+  CopyDocument as CopyDocumentIcon
 } from '@element-plus/icons-vue'
 import { exportPushLogsApi, getPushLogListApi } from '@/api/push'
 import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi } from '@/api/key'
@@ -205,6 +214,7 @@ import {
   deleteAdminApi
 } from '@/api/admin'
 import { getDeviceListApi } from '@/api/device'
+import { getUserListApi, createUserApi, updateUserApi, deleteUserApi } from '@/api/user'
 import type { KeyForm, BlacklistForm, AdminForm } from '@/api/types'
 
 interface FieldConfig {
@@ -564,6 +574,10 @@ async function fetchData() {
       const res = await getBlacklistApi(query)
       tableData.value = res.data?.list || []
       total.value = res.data?.total || 0
+    } else if (mod === 'users') {
+      const res = await getUserListApi(query)
+      tableData.value = res.data?.list || []
+      total.value = res.data?.total || 0
     } else if (mod === 'admins') {
       const res = await getAdminListApi(query)
       tableData.value = res.data?.list || []
@@ -614,6 +628,9 @@ function openDialog(row?: Record<string, any>) {
   Object.keys(dialogForm).forEach((k) => delete dialogForm[k])
   if (row) {
     Object.assign(dialogForm, JSON.parse(JSON.stringify(row)))
+    if (currentModule.value === 'admins' && isEdit.value) {
+      delete dialogForm.password
+    }
   } else {
     formFields.value.forEach((f) => {
       if (f.type === 'switch') {
@@ -666,7 +683,15 @@ async function handleSubmit() {
   submitting.value = true
   try {
     const mod = currentModule.value
-    if (mod === 'keys') {
+    if (mod === 'users') {
+      if (isEdit.value) {
+        await updateUserApi(dialogForm.id, dialogForm)
+        ElMessage.success('更新成功')
+      } else {
+        await createUserApi(dialogForm)
+        ElMessage.success('新增成功')
+      }
+    } else if (mod === 'keys') {
       if (isEdit.value) {
         await updateKeyApi(dialogForm.id, dialogForm as unknown as KeyForm)
         ElMessage.success('更新成功')
@@ -683,7 +708,9 @@ async function handleSubmit() {
       }
     } else if (mod === 'admins') {
       if (isEdit.value) {
-        await updateAdminApi(dialogForm.id, dialogForm as unknown as AdminForm)
+        const updateData = { ...dialogForm }
+        if (!updateData.password) delete updateData.password
+        await updateAdminApi(dialogForm.id, updateData as unknown as AdminForm)
         ElMessage.success('更新成功')
       } else {
         await createAdminApi(dialogForm as unknown as AdminForm)
@@ -711,15 +738,49 @@ async function handleSubmit() {
   fetchData()
 }
 
+// 复制到剪贴板（兼容HTTP环境）
+async function copyToClipboard(text: string) {
+  if (!text) return
+  try {
+    // 优先使用现代 Clipboard API
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      ElMessage.success('已复制到剪贴板')
+      return
+    }
+    // 回退方案：使用 textarea + execCommand
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    textarea.style.top = '0'
+    document.body.appendChild(textarea)
+    textarea.focus()
+    textarea.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(textarea)
+    if (ok) {
+      ElMessage.success('已复制到剪贴板')
+    } else {
+      ElMessage.warning('复制失败，请手动复制')
+    }
+  } catch {
+    ElMessage.warning('复制失败，请手动复制')
+  }
+}
+
 async function handleDelete(row: Record<string, any>) {
   try {
     await ElMessageBox.confirm(`确定要删除该${moduleTitle.value}吗？`, '提示', {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
-      type: 'warning'
+      type: 'warning',
+      appendTo: 'body'
     })
     const mod = currentModule.value
-    if (mod === 'keys') {
+    if (mod === 'users') {
+      await deleteUserApi(row.id)
+    } else if (mod === 'keys') {
       await deleteKeyApi(row.id)
     } else if (mod === 'blacklist') {
       await deleteBlacklistApi(row.id)
@@ -745,11 +806,23 @@ async function handleClearAll() {
         confirmButtonText: '确定清空',
         cancelButtonText: '取消',
         type: 'error',
-        confirmButtonClass: 'el-button--danger'
+        confirmButtonClass: 'el-button--danger',
+        appendTo: 'body'
       }
     )
     const mod = currentModule.value
-    if (mod === 'admins') {
+    if (mod === 'users') {
+      // 用户：逐条删除（或调用清空接口）
+      const items = tableData.value
+      for (const item of items) {
+        try {
+          await deleteUserApi(item.id)
+        } catch {
+          // 跳过删除失败的
+        }
+      }
+      ElMessage.success('已清空当前页的用户')
+    } else if (mod === 'admins') {
       // 管理员：逐条删除（保留当前登录的管理员）
       const items = tableData.value
       for (const item of items) {
