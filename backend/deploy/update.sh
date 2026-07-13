@@ -3,10 +3,11 @@
 # 即时消息推送系统 - 一键更新脚本
 #
 # 功能：
-#   1. [1/4] 拉取最新代码（git pull origin main，支持 gh-proxy 代理）
-#   2. [2/4] 更新依赖（composer install --no-dev --optimize-autoloader）
-#   3. [3/4] 数据库迁移（执行 backend/database/migrations 下的 SQL 文件）
-#   4. [4/4] 重启服务（使用 systemctl 重启 push-http、push-websocket，回退到 bin/start.sh）
+#   1. [1/5] 拉取最新代码（git pull origin main，支持 gh-proxy 代理）
+#   2. [2/5] 更新依赖（composer install --no-dev --optimize-autoloader）
+#   3. [3/5] 数据库迁移（执行 backend/database/migrations 下的 SQL 文件）
+#   4. [4/5] 设置 APP 打包环境（build/app 目录权限、删除 gradlew、安装 BuildWorker 服务）
+#   5. [5/5] 重启服务（使用 systemctl 重启 push-http、push-websocket、push-build-worker）
 #
 # 用法:
 #   bash backend/deploy/update.sh                    # 正常更新（交互式确认）
@@ -382,13 +383,53 @@ EOF
 fi
 
 # ============================================================
-# [4/4] 重启服务（使用 systemctl 重启 push-http、push-websocket）
+# [4/5] 设置 APP 打包环境（权限、gradlew、BuildWorker）
 # ============================================================
-if step_done "step4_restart_services"; then
-    info "跳过 [4/4] 重启服务（已完成）"
+if step_done "step4_build_env"; then
+    info "跳过 [4/5] APP 打包环境设置（已完成）"
 else
-    CURRENT_STEP="[4/4] 重启服务"
-    step "[4/4] 重启服务..."
+    CURRENT_STEP="[4/5] APP 打包环境设置"
+    step "[4/5] 设置 APP 打包环境..."
+
+    cd "${PROJECT_DIR}"
+
+    # 1. 设置 build、app、.gradle 目录权限（BuildWorker 以 www-data 用户运行）
+    info "设置 build/app 目录权限..."
+    sudo mkdir -p "${PROJECT_DIR}/build/logs" "${PROJECT_DIR}/.gradle"
+    sudo chown -R www-data:www-data "${PROJECT_DIR}/build" "${PROJECT_DIR}/app" "${PROJECT_DIR}/.gradle"
+    sudo chmod -R u+rw "${PROJECT_DIR}/build" "${PROJECT_DIR}/app"
+
+    # 2. 删除 gradlew（强制使用全局 gradle，避免 wrapper 尝试下载 distribution 超时）
+    if [ -f "${PROJECT_DIR}/gradlew" ]; then
+        info "移除 gradlew（使用全局 gradle 避免下载 distribution）..."
+        rm -f "${PROJECT_DIR}/gradlew"
+        rm -rf "${PROJECT_DIR}/gradle"
+    fi
+
+    # 3. 安装并启动 BuildWorker systemd 服务（如果 service 文件存在）
+    BUILD_WORKER_SERVICE="${PROJECT_DIR}/deploy/systemd/push-build-worker.service"
+    if [ -f "$BUILD_WORKER_SERVICE" ]; then
+        info "安装 push-build-worker systemd 服务..."
+        sudo cp "$BUILD_WORKER_SERVICE" /etc/systemd/system/
+        sudo systemctl daemon-reload
+        sudo systemctl enable push-build-worker 2>/dev/null || true
+        sudo systemctl restart push-build-worker
+        info "push-build-worker 已重启。"
+    else
+        warn "未找到 push-build-worker.service，跳过 BuildWorker 安装"
+    fi
+
+    mark_done "step4_build_env"
+fi
+
+# ============================================================
+# [5/5] 重启服务（使用 systemctl 重启 push-http、push-websocket）
+# ============================================================
+if step_done "step5_restart_services"; then
+    info "跳过 [5/5] 重启服务（已完成）"
+else
+    CURRENT_STEP="[5/5] 重启服务"
+    step "[5/5] 重启服务..."
 
     cd "${PROJECT_DIR}"
 
@@ -407,16 +448,16 @@ else
 
         sleep 2
 
-        # 服务健康检查
+        # 服务健康检查（包含 BuildWorker）
         echo ""
-        for svc in push-http push-websocket; do
+        for svc in push-http push-websocket push-build-worker; do
             status_output="$(sudo systemctl is-active ${svc} 2>/dev/null || echo '')"
             if [[ "${status_output}" == "active" ]]; then
                 echo -e "  ${COLOR_GREEN}●${COLOR_RESET} ${svc}    [运行中]"
             else
                 echo -e "  ${COLOR_RED}●${COLOR_RESET} ${svc}    [未运行]"
-                error "服务 ${svc} 未正常运行"
-                error "请使用 sudo journalctl -u ${svc} --no-pager -n 50 查看日志"
+                warn "服务 ${svc} 未正常运行"
+                warn "请使用 sudo journalctl -u ${svc} --no-pager -n 50 查看日志"
             fi
         done
     else
@@ -435,7 +476,7 @@ else
         cd "${PROJECT_DIR}"
     fi
 
-    mark_done "step4_restart_services"
+    mark_done "step5_restart_services"
 fi
 
 # ------------------------------------------------------------
