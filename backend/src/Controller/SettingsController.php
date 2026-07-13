@@ -281,7 +281,7 @@ class SettingsController
 
         // 获取版本号（从 git 描述）
         $version = 'unknown';
-        $projectRoot = dirname(__DIR__, 2);
+        $projectRoot = dirname(__DIR__, 3);
         $gitDescribe = @shell_exec('cd ' . escapeshellarg($projectRoot) . ' && git describe --tags --always 2>/dev/null');
         if ($gitDescribe) {
             $version = trim($gitDescribe);
@@ -367,9 +367,9 @@ class SettingsController
 
         $response = $context['response'];
 
-        // 项目根目录
-        $projectRoot = dirname(__DIR__, 2);
-        $scriptPath = $projectRoot . '/deploy/check-version.sh';
+        // 项目根目录（包含 admin/ 和 backend/ 的目录）
+        $projectRoot = dirname(__DIR__, 3);
+        $scriptPath = dirname(__DIR__, 2) . '/deploy/check-version.sh';
 
         // 如果脚本不存在，返回未检测状态
         if (!file_exists($scriptPath)) {
@@ -462,8 +462,9 @@ class SettingsController
         $response = $context['response'];
         $body = $this->parseBody($context);
 
-        $projectRoot = dirname(__DIR__, 2);
-        $scriptPath = $projectRoot . '/deploy/update.sh';
+        // 项目根目录（包含 admin/ 和 backend/ 的目录）
+        $projectRoot = dirname(__DIR__, 3);
+        $scriptPath = dirname(__DIR__, 2) . '/deploy/update.sh';
 
         if (!file_exists($scriptPath)) {
             Response::fail($response, '更新脚本不存在', Response::CODE_NOT_FOUND, 404);
@@ -488,6 +489,12 @@ class SettingsController
             $cmdArgs[] = '--skip-migration';
         }
 
+        // 确保 backend/runtime 目录存在（必须在 shell_exec 之前，否则日志文件无法写入）
+        $runtimeDir = $projectRoot . '/backend/runtime';
+        if (!is_dir($runtimeDir)) {
+            @mkdir($runtimeDir, 0755, true);
+        }
+
         // 构建完整命令
         $cmd = sprintf(
             'cd %s && PROJECT_DIR=%s bash %s %s > %s 2>&1 & echo $!',
@@ -495,7 +502,7 @@ class SettingsController
             escapeshellarg($projectRoot),
             escapeshellarg($scriptPath),
             implode(' ', $cmdArgs),
-            escapeshellarg($projectRoot . '/runtime/update_' . $taskId . '.log')
+            escapeshellarg($projectRoot . '/backend/runtime/update_' . $taskId . '.log')
         );
 
         $pid = @shell_exec($cmd);
@@ -505,14 +512,8 @@ class SettingsController
             return false;
         }
 
-        // 确保 runtime 目录存在
-        $runtimeDir = $projectRoot . '/runtime';
-        if (!is_dir($runtimeDir)) {
-            @mkdir($runtimeDir, 0755, true);
-        }
-
         // 写入初始进度文件
-        $progressFile = $projectRoot . '/runtime/update_' . $taskId . '.json';
+        $progressFile = $projectRoot . '/backend/runtime/update_' . $taskId . '.json';
         $progressData = [
             'task_id'  => $taskId,
             'status'   => 'running',
@@ -551,9 +552,10 @@ class SettingsController
             return false;
         }
 
-        $projectRoot = dirname(__DIR__, 2);
-        $progressFile = $projectRoot . '/runtime/update_' . $taskId . '.json';
-        $logFile = $projectRoot . '/runtime/update_' . $taskId . '.log';
+        // 项目根目录（包含 admin/ 和 backend/ 的目录）
+        $projectRoot = dirname(__DIR__, 3);
+        $progressFile = $projectRoot . '/backend/runtime/update_' . $taskId . '.json';
+        $logFile = $projectRoot . '/backend/runtime/update_' . $taskId . '.log';
 
         // 读取进度文件
         if (!file_exists($progressFile)) {

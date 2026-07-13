@@ -89,7 +89,7 @@ export function getSystemInfoApi() {
 }
 
 // 版本检测 - 对比本地与云端版本
-export function checkVersionApi() {
+export function checkVersionApi(params?: { ghProxy?: boolean }) {
   return get<{
     local: { commit: string; short: string; date: string }
     remote: { commit: string; short: string; branch: string; date: string }
@@ -97,7 +97,7 @@ export function checkVersionApi() {
     ahead_count: number
     behind_count: number
     changelog: string[]
-  }>('/admin/settings/check-version')
+  }>('/admin/settings/check-version', params)
 }
 
 // 一键更新 - 触发服务器端更新流程

@@ -99,11 +99,11 @@
         <el-table-column label="AccessKey" min-width="240">
           <template #default="{ row }">
             <div class="key-cell">
-              <code class="key-text">{{ maskKey(row.accessKey) }}</code>
+              <code class="key-text">{{ maskKey(row.key_value) }}</code>
               <el-button
                 link
                 :icon="CopyDocumentIcon"
-                @click="copyKey(row.accessKey)"
+                @click="copyKey(row.key_value)"
               >
                 复制
               </el-button>
@@ -120,13 +120,13 @@
         </el-table-column>
         <el-table-column label="创建时间" width="170">
           <template #default="{ row }">
-            <span class="time-text">{{ formatTime(row.createdAt) }}</span>
+            <span class="time-text">{{ formatTime(row.created_at) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="过期时间" width="170">
           <template #default="{ row }">
-            <span class="time-text" :class="{ expired: isExpired(row.expiresAt) }">
-              {{ row.expiresAt ? formatTime(row.expiresAt) : '永久有效' }}
+            <span class="time-text" :class="{ expired: isExpired(row.expire_at) }">
+              {{ row.expire_at ? formatTime(row.expire_at) : '永久有效' }}
             </span>
           </template>
         </el-table-column>
@@ -136,7 +136,7 @@
               link
               type="primary"
               :icon="CopyDocumentIcon"
-              @click="copyKey(row.accessKey)"
+              @click="copyKey(row.key_value)"
             >
               复制
             </el-button>
@@ -484,7 +484,7 @@
           <div class="example-tips">
             <div class="tip-item">
               <el-icon class="tip-icon"><InfoFilledIcon /></el-icon>
-              <span>请求头需携带 <code>X-Access-Key</code> 与 <code>X-Signature</code>（HMAC-SHA256 签名）</span>
+              <span>请求头需携带 <code>X-Api-Key</code>（创建 API Key 后获取）</span>
             </div>
             <div class="tip-item">
               <el-icon class="tip-icon"><InfoFilledIcon /></el-icon>
@@ -697,12 +697,13 @@ async function handleSubmit() {
     const res = await createApiKeyApi({
       name: form.name,
       permissions: ['push:send', 'device:query'],
-      expiresAt: form.expiresAt || undefined,
+      expire_at: form.expiresAt || undefined,
       status: 1
     })
+    const data: any = res.data || res
     createdSecret.value = {
-      accessKey: res.data?.accessKey || '',
-      secretKey: res.data?.secretKey || ''
+      accessKey: data.key_value || data.accessKey || '',
+      secretKey: data.key_value || data.secretKey || ''
     }
     ElMessage.success('创建成功')
     fetchData()
@@ -836,51 +837,59 @@ function scrollToExamples() {
   examplesOpen.value = true
 }
 
-const curlExample = `curl -X POST https://api.push.com/v1/push/send \\
+const curlExample = `curl -X POST https://your-domain.com/api/push \\
   -H "Content-Type: application/json" \\
-  -H "X-Access-Key: AK_xxxxxxxxxxxx" \\
-  -H "X-Signature: <HMAC-SHA256 签名>" \\
+  -H "X-Api-Key: pk_xxxxxxxxxxxxxxxx" \\
   -d '{
+    "target_type": "device",
+    "target_value": "device_id_1,device_id_2",
     "title": "欢迎使用推送服务",
     "content": "这是一条测试消息",
-    "platform": "android",
-    "targetType": "all"
+    "priority": "normal"
   }'`
 
 const jsonExample = `{
+  "target_type": "key",
+  "target_value": "key_value_1,key_value_2",
   "title": "欢迎使用推送服务",
   "content": "这是一条测试消息",
-  "platform": "android",
-  "targetType": "all",
-  "pushType": "notification",
-  "extras": {
-    "sound": "default",
-    "badge": 1
+  "priority": "high",
+  "payload": {
+    "order_id": "123456",
+    "type": "order_notify"
   }
 }`
 
-const jsExample = `import axios from 'axios'
-
-const client = axios.create({
-  baseURL: 'https://api.push.com/v1',
-  timeout: 10000
-})
-
-// 发送推送
-async function sendPush() {
-  const res = await client.post('/push/send', {
-    title: '欢迎使用推送服务',
-    content: '这是一条测试消息',
-    platform: 'android',
-    targetType: 'all'
-  }, {
+const jsExample = `// 使用 fetch 调用推送 API
+async function sendPush(apiKey, params) {
+  const res = await fetch('https://your-domain.com/api/push', {
+    method: 'POST',
     headers: {
-      'X-Access-Key': 'AK_xxxxxxxxxxxx',
-      'X-Signature': sign(secretKey, timestamp)
-    }
+      'Content-Type': 'application/json',
+      'X-Api-Key': apiKey
+    },
+    body: JSON.stringify(params)
   })
-  console.log(res.data)
-}`
+
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(data.message || '推送失败')
+  }
+  return data
+}
+
+// 使用示例
+sendPush('pk_your_api_key_here', {
+  target_type: 'device',
+  target_value: 'device001',
+  title: '测试推送',
+  content: 'Hello, World!',
+  priority: 'normal'
+}).then(result => {
+  console.log('推送成功:', result)
+}).catch(err => {
+  console.error('推送失败:', err.message)
+})`
 
 // 简易语法高亮（无需依赖库，使用 span 着色）
 function escapeHtml(s: string): string {
@@ -898,8 +907,8 @@ function highlightBash(code: string): string {
   // 注释
   s = s.replace(/(#.*?$)/gm, '<span class="tok-com">$1</span>')
   // 关键字
-  s = s.replace(/\b(curl|POST|GET|PUT|DELETE|X|H|d)\b/g, '<span class="tok-kw">$1</span>')
-  // 选项
+  s = s.replace(/\b(curl|POST|GET|PUT|DELETE)\b/g, '<span class="tok-kw">$1</span>')
+  // 选项（-X, -H, -d 等）
   s = s.replace(/(^|\s)(-[a-zA-Z]+)/g, '$1<span class="tok-opt">$2</span>')
   return s
 }

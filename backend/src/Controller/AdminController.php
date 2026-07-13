@@ -178,7 +178,7 @@ class AdminController
         $body = self::parseJsonBody($context);
         $username = (string)($body['username'] ?? '');
         $password = (string)($body['password'] ?? '');
-        $role     = (string)($body['role'] ?? 'admin');
+        $role     = (string)($body['role'] ?? (is_array($body['roles'] ?? null) ? ($body['roles'][0] ?? 'admin') : 'admin'));
 
         $result = AdminService::create($username, $password, $role);
 
@@ -240,6 +240,10 @@ class AdminController
             if (array_key_exists($field, $body)) {
                 $data[$field] = $body[$field];
             }
+        }
+        // 兼容前端 roles 数组
+        if (!isset($data['role']) && isset($body['roles']) && is_array($body['roles']) && !empty($body['roles'])) {
+            $data['role'] = (string)$body['roles'][0];
         }
 
         $result = AdminService::update($id, $data);

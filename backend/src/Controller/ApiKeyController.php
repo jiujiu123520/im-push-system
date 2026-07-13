@@ -57,7 +57,7 @@ class ApiKeyController
 
         $body = $this->parseBody($context);
         $name = (string)($body['name'] ?? '');
-        $expireAt = $body['expire_at'] ?? null;
+        $expireAt = $body['expire_at'] ?? $body['expiresAt'] ?? null;
 
         if ($name === '') {
             Response::fail($context['response'], 'name 不能为空', Response::CODE_BAD_REQUEST, 400);
@@ -110,6 +110,9 @@ class ApiKeyController
         if (array_key_exists('expire_at', $body)) {
             $data['expire_at'] = $body['expire_at'];
         }
+        if (array_key_exists('expiresAt', $body) && !array_key_exists('expire_at', $body)) {
+            $data['expire_at'] = $body['expiresAt'];
+        }
 
         $service->update($id, $data);
 
@@ -147,6 +150,73 @@ class ApiKeyController
         $service->delete($id);
 
         return ['deleted' => true];
+    }
+
+    /**
+     * 切换状态
+     * 路由：PUT /admin/api-keys/{id}/status
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function toggleStatus(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $id = (int)($params['id'] ?? 0);
+        if ($id <= 0) {
+            Response::fail($context['response'], '无效的 ID', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        $service = new ApiKeyService();
+        $existing = $service->getById($id);
+        if ($existing === null) {
+            Response::fail($context['response'], 'API Key 不存在', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+
+        $body = $this->parseBody($context);
+        $status = (int)($body['status'] ?? 0);
+
+        $service->update($id, ['status' => $status]);
+
+        return $service->getById($id);
+    }
+
+    /**
+     * 详情
+     * 路由：GET /admin/api-keys/{id}
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function show(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $id = (int)($params['id'] ?? 0);
+        if ($id <= 0) {
+            Response::fail($context['response'], '无效的 ID', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        $service = new ApiKeyService();
+        $existing = $service->getById($id);
+        if ($existing === null) {
+            Response::fail($context['response'], 'API Key 不存在', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+
+        return $existing;
     }
 
     /**

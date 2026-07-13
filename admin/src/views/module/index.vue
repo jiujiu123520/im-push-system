@@ -21,6 +21,15 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+        <el-button
+          v-if="currentModule === 'users' || currentModule === 'admins'"
+          type="danger"
+          plain
+          :icon="DeleteIcon"
+          @click="handleClearAll"
+        >
+          一键清空
+        </el-button>
         <el-button type="primary" :icon="PlusIcon" @click="openDialog()">
           新增{{ moduleTitle }}
         </el-button>
@@ -224,13 +233,12 @@ const moduleConfigs: Record<string, {
   users: {
     title: '用户',
     columns: [
-      { prop: 'userId', label: '用户ID', width: 120 },
+      { prop: 'user_id', label: '用户ID', width: 120 },
       { prop: 'username', label: '用户名', width: 140 },
       { prop: 'nickname', label: '昵称' },
       { prop: 'phone', label: '手机号', width: 140 },
-      { prop: 'deviceCount', label: '设备数', width: 90 },
       { prop: 'status', label: '状态', width: 90, slot: 'status' },
-      { prop: 'createdAt', label: '注册时间', width: 170 }
+      { prop: 'created_at', label: '注册时间', width: 170 }
     ],
     fields: [
       { prop: 'username', label: '用户名', type: 'input', required: true },
@@ -240,65 +248,58 @@ const moduleConfigs: Record<string, {
     ],
     mockRow: () => ({
       id: 0,
-      userId: 'U' + Math.floor(Math.random() * 900000 + 100000),
+      user_id: 'U' + Math.floor(Math.random() * 900000 + 100000),
       username: 'user_' + Math.floor(Math.random() * 9999),
       nickname: '用户' + Math.floor(Math.random() * 999),
       phone: '138' + String(Math.floor(Math.random() * 100000000)).padStart(8, '0'),
-      deviceCount: Math.floor(Math.random() * 20),
       status: Math.random() > 0.2 ? 1 : 0,
-      createdAt: '2026-07-' + String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')
+      created_at: '2026-07-' + String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')
     })
   },
   keys: {
     title: 'Key',
     columns: [
-      { prop: 'keyValue', label: 'AppKey', width: 180 },
-      { prop: 'title', label: '名称' },
-      { prop: 'platform', label: '平台', width: 100 },
-      { prop: 'dailyLimit', label: '日限额', width: 100 },
-      { prop: 'notifyEnabled', label: '掉线通知', width: 100, slot: 'status' },
-      { prop: 'notifyEmail', label: '通知邮箱', width: 180 },
+      { prop: 'key_value', label: 'AppKey', width: 180 },
+      { prop: 'name', label: '名称' },
+      { prop: 'max_devices', label: '最大设备数', width: 100 },
+      { prop: 'notify_enabled', label: '掉线通知', width: 100, slot: 'status' },
+      { prop: 'notify_email', label: '通知邮箱', width: 180 },
+      { prop: 'notify_interval', label: '通知间隔', width: 100 },
       { prop: 'status', label: '状态', width: 90, slot: 'status' },
-      { prop: 'createdAt', label: '创建时间', width: 170 }
+      { prop: 'created_at', label: '创建时间', width: 170 }
     ],
     fields: [
-      { prop: 'title', label: '名称', type: 'input', required: true },
-      { prop: 'platform', label: '平台', type: 'select', required: true, options: [
-        { label: '全平台', value: 'all' },
-        { label: 'Android', value: 'android' },
-        { label: 'iOS', value: 'ios' }
-      ] },
-      { prop: 'dailyLimit', label: '日限额', type: 'number' },
+      { prop: 'name', label: '名称', type: 'input', required: true },
+      { prop: 'max_devices', label: '最大设备数', type: 'number' },
       { prop: 'status', label: '状态', type: 'switch' },
-      { prop: 'notifyEnabled', label: '启用掉线通知', type: 'switch' },
-      { prop: 'notifyEmail', label: '通知邮箱', type: 'input', placeholder: '多个邮箱用逗号分隔，支持QQ邮箱' },
-      { prop: 'notifyInterval', label: '通知间隔(秒)', type: 'number' }
+      { prop: 'notify_enabled', label: '启用掉线通知', type: 'switch' },
+      { prop: 'notify_email', label: '通知邮箱', type: 'input', placeholder: '多个邮箱用逗号分隔，支持QQ邮箱' },
+      { prop: 'notify_interval', label: '通知间隔(秒)', type: 'number' }
     ],
     mockRow: () => ({
       id: 0,
-      keyValue: 'AK' + Math.floor(Math.random() * 9e15 + 1e15).toString(16),
-      title: '应用Key ' + Math.floor(Math.random() * 99),
-      platform: ['all', 'android', 'ios'][Math.floor(Math.random() * 3)],
-      dailyLimit: 0,
-      notifyEnabled: Math.random() > 0.5 ? 1 : 0,
-      notifyEmail: Math.random() > 0.5 ? 'admin@example.com' : '',
-      notifyInterval: 300,
+      key_value: 'AK' + Math.floor(Math.random() * 9e15 + 1e15).toString(16),
+      name: '应用Key ' + Math.floor(Math.random() * 99),
+      max_devices: 0,
+      notify_enabled: Math.random() > 0.5 ? 1 : 0,
+      notify_email: Math.random() > 0.5 ? 'admin@example.com' : '',
+      notify_interval: 300,
       status: Math.random() > 0.15 ? 1 : 0,
-      createdAt: '2026-07-' + String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')
+      created_at: '2026-07-' + String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')
     })
   },
   devices: {
     title: '设备',
     columns: [
-      { prop: 'deviceId', label: '设备ID', width: 180 },
+      { prop: 'device_id', label: '设备ID', width: 180 },
       { prop: 'platform', label: '平台', width: 100 },
       { prop: 'model', label: '型号' },
-      { prop: 'appVersion', label: 'App版本', width: 100 },
+      { prop: 'app_version', label: 'App版本', width: 100 },
       { prop: 'online', label: '在线', width: 80, slot: 'status' },
-      { prop: 'lastActiveAt', label: '最后活跃', width: 170 }
+      { prop: 'last_active_at', label: '最后活跃', width: 170 }
     ],
     fields: [
-      { prop: 'deviceId', label: '设备ID', type: 'input', required: true },
+      { prop: 'device_id', label: '设备ID', type: 'input', required: true },
       { prop: 'platform', label: '平台', type: 'select', required: true, options: [
         { label: 'Android', value: 'android' },
         { label: 'iOS', value: 'ios' },
@@ -309,42 +310,46 @@ const moduleConfigs: Record<string, {
     ],
     mockRow: () => ({
       id: 0,
-      deviceId: 'D' + Math.floor(Math.random() * 9e15 + 1e15).toString(16),
+      device_id: 'D' + Math.floor(Math.random() * 9e15 + 1e15).toString(16),
       platform: ['android', 'ios', 'web', 'harmony'][Math.floor(Math.random() * 4)],
       model: ['iPhone 15', 'Xiaomi 14', 'HUAWEI Mate60', 'Pixel 8'][Math.floor(Math.random() * 4)],
-      appVersion: '2.' + Math.floor(Math.random() * 9) + '.' + Math.floor(Math.random() * 9),
+      app_version: '2.' + Math.floor(Math.random() * 9) + '.' + Math.floor(Math.random() * 9),
       online: Math.random() > 0.4 ? 1 : 0,
-      lastActiveAt: '2026-07-12 ' + String(Math.floor(Math.random() * 24)).padStart(2, '0') + ':' + String(Math.floor(Math.random() * 60)).padStart(2, '0')
+      last_active_at: '2026-07-12 ' + String(Math.floor(Math.random() * 24)).padStart(2, '0') + ':' + String(Math.floor(Math.random() * 60)).padStart(2, '0')
     })
   },
   'push-logs': {
     title: '推送记录',
     columns: [
-      { prop: 'messageId', label: '消息ID', width: 180 },
+      { prop: 'id', label: 'ID', width: 80 },
       { prop: 'title', label: '推送标题' },
-      { prop: 'platform', label: '平台', width: 100 },
-      { prop: 'successCount', label: '成功', width: 90 },
-      { prop: 'failCount', label: '失败', width: 90 },
+      { prop: 'content', label: '内容', showOverflow: true },
+      { prop: 'target_type', label: '目标类型', width: 100 },
+      { prop: 'target_value', label: '目标值', width: 160 },
+      { prop: 'success_count', label: '成功', width: 80 },
+      { prop: 'fail_count', label: '失败', width: 80 },
       { prop: 'status', label: '状态', width: 90, slot: 'status' },
-      { prop: 'createdAt', label: '时间', width: 170 }
+      { prop: 'created_at', label: '时间', width: 170 }
     ],
     fields: [
       { prop: 'title', label: '标题', type: 'input', required: true },
       { prop: 'content', label: '内容', type: 'textarea', required: true },
-      { prop: 'platform', label: '平台', type: 'select', required: true, options: [
-        { label: '全平台', value: 'all' },
-        { label: 'Android', value: 'android' }
-      ] }
+      { prop: 'target_type', label: '目标类型', type: 'select', required: true, options: [
+        { label: '设备', value: 'device' },
+        { label: 'Key', value: 'key' }
+      ] },
+      { prop: 'target_value', label: '目标值', type: 'input', required: true }
     ],
     mockRow: () => ({
       id: 0,
-      messageId: 'M' + Math.floor(Math.random() * 9e15 + 1e15).toString(16),
       title: '推送消息 ' + Math.floor(Math.random() * 999),
-      platform: ['all', 'android', 'ios'][Math.floor(Math.random() * 3)],
-      successCount: Math.floor(Math.random() * 8000),
-      failCount: Math.floor(Math.random() * 200),
+      content: '这是一条测试推送消息',
+      target_type: ['device', 'key'][Math.floor(Math.random() * 2)],
+      target_value: 'target_' + Math.floor(Math.random() * 99999),
+      success_count: Math.floor(Math.random() * 8000),
+      fail_count: Math.floor(Math.random() * 200),
       status: Math.random() > 0.2 ? 1 : 0,
-      createdAt: '2026-07-12 ' + String(Math.floor(Math.random() * 24)).padStart(2, '0') + ':' + String(Math.floor(Math.random() * 60)).padStart(2, '0')
+      created_at: '2026-07-12 ' + String(Math.floor(Math.random() * 24)).padStart(2, '0') + ':' + String(Math.floor(Math.random() * 60)).padStart(2, '0')
     })
   },
   blacklist: {
@@ -354,7 +359,7 @@ const moduleConfigs: Record<string, {
       { prop: 'value', label: '值' },
       { prop: 'reason', label: '原因' },
       { prop: 'status', label: '状态', width: 90, slot: 'status' },
-      { prop: 'createdAt', label: '创建时间', width: 170 }
+      { prop: 'created_at', label: '创建时间', width: 170 }
     ],
     fields: [
       { prop: 'type', label: '类型', type: 'select', required: true, options: [
@@ -371,16 +376,16 @@ const moduleConfigs: Record<string, {
       value: 'block_' + Math.floor(Math.random() * 99999),
       reason: ['违规操作', '异常请求', '安全风险'][Math.floor(Math.random() * 3)],
       status: 1,
-      createdAt: '2026-07-' + String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')
+      created_at: '2026-07-' + String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')
     })
   },
   admins: {
     title: '管理员',
     columns: [
       { prop: 'username', label: '账号', width: 140 },
-      { prop: 'role', label: '角色', width: 140, slot: 'tag' },
+      { prop: 'role', label: '角色', width: 140 },
       { prop: 'status', label: '状态', width: 90, slot: 'status' },
-      { prop: 'createdAt', label: '创建时间', width: 170 }
+      { prop: 'created_at', label: '创建时间', width: 170 }
     ],
     fields: [
       { prop: 'username', label: '账号', type: 'input', required: true },
@@ -394,11 +399,9 @@ const moduleConfigs: Record<string, {
     mockRow: () => ({
       id: 0,
       username: 'admin_' + Math.floor(Math.random() * 99),
-      nickname: '管理员' + Math.floor(Math.random() * 99),
-      email: 'admin' + Math.floor(Math.random() * 999) + '@push.com',
-      roles: ['super_admin', 'admin'].slice(0, Math.floor(Math.random() * 2) + 1),
+      role: ['super_admin', 'admin'][Math.floor(Math.random() * 2)],
       status: 1,
-      lastLoginAt: '2026-07-12 ' + String(Math.floor(Math.random() * 24)).padStart(2, '0') + ':00'
+      created_at: '2026-07-12 ' + String(Math.floor(Math.random() * 24)).padStart(2, '0') + ':00'
     })
   },
   'app-build': {
@@ -509,7 +512,7 @@ const dialogRules = computed<FormRules>(() => {
     if (f.required) {
       rules[f.prop] = [{ required: true, message: `请输入${f.label}`, trigger: 'blur' }]
     }
-    if (f.prop === 'notifyEmail') {
+    if (f.prop === 'notify_email') {
       rules[f.prop] = [
         {
           validator: (rule, value, callback) => {
@@ -616,19 +619,17 @@ function openDialog(row?: Record<string, any>) {
       if (f.type === 'switch') {
         dialogForm[f.prop] = 1
       } else if (f.type === 'number') {
-        dialogForm[f.prop] = f.prop === 'dailyLimit' ? 1000 : f.prop === 'rateLimit' ? 100 : 0
+        dialogForm[f.prop] = f.prop === 'max_devices' ? 10 : f.prop === 'notify_interval' ? 300 : 0
       } else if (f.prop === 'username') {
         dialogForm[f.prop] = `user_${Math.floor(Math.random() * 9000 + 1000)}`
       } else if (f.prop === 'nickname') {
         dialogForm[f.prop] = `用户${Math.floor(Math.random() * 900 + 100)}`
       } else if (f.prop === 'phone') {
         dialogForm[f.prop] = `138${String(Math.floor(Math.random() * 100000000)).padStart(8, '0')}`
-      } else if (f.prop === 'title') {
-        dialogForm[f.prop] = `应用Key_${Math.floor(Math.random() * 900 + 100)}`
       } else if (f.prop === 'name') {
-        dialogForm[f.prop] = `项目${Math.floor(Math.random() * 900 + 100)}`
-      } else if (f.prop === 'email') {
-        dialogForm[f.prop] = `admin${Math.floor(Math.random() * 900 + 100)}@push.com`
+        dialogForm[f.prop] = currentModule.value === 'keys'
+          ? `应用Key_${Math.floor(Math.random() * 900 + 100)}`
+          : `项目${Math.floor(Math.random() * 900 + 100)}`
       } else if (f.prop === 'password') {
         dialogForm[f.prop] = `Admin@${Math.floor(Math.random() * 9000 + 1000)}`
       } else if (f.prop === 'role' && f.options && f.options.length > 0) {
@@ -639,14 +640,14 @@ function openDialog(row?: Record<string, any>) {
         dialogForm[f.prop] = ['违规操作', '异常请求', '安全风险'][Math.floor(Math.random() * 3)]
       } else if (f.prop === 'content') {
         dialogForm[f.prop] = '这是一条测试推送消息内容'
+      } else if (f.prop === 'target_value') {
+        dialogForm[f.prop] = 'device_' + Math.floor(Math.random() * 99999)
       } else if (f.prop === 'type' && f.options && f.options.length > 0) {
+        dialogForm[f.prop] = f.options[0].value
+      } else if (f.prop === 'target_type' && f.options && f.options.length > 0) {
         dialogForm[f.prop] = f.options[0].value
       } else if (f.prop === 'platform' && f.options && f.options.length > 0) {
         dialogForm[f.prop] = 'all'
-      } else if (f.prop === 'siteName') {
-        dialogForm[f.prop] = 'Push 推送平台'
-      } else if (f.prop === 'siteDescription') {
-        dialogForm[f.prop] = '即时消息推送管理系统'
       } else {
         dialogForm[f.prop] = ''
       }
@@ -728,6 +729,42 @@ async function handleDelete(row: Record<string, any>) {
       allData = allData.filter((item) => item.id !== row.id)
     }
     ElMessage.success('删除成功')
+    fetchData()
+  } catch {
+    // 取消
+  }
+}
+
+// 一键清空
+async function handleClearAll() {
+  try {
+    await ElMessageBox.confirm(
+      `确定要清空所有${moduleTitle.value}吗？此操作不可恢复！`,
+      '危险操作',
+      {
+        confirmButtonText: '确定清空',
+        cancelButtonText: '取消',
+        type: 'error',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+    const mod = currentModule.value
+    if (mod === 'admins') {
+      // 管理员：逐条删除（保留当前登录的管理员）
+      const items = tableData.value
+      for (const item of items) {
+        try {
+          await deleteAdminApi(item.id)
+        } catch {
+          // 跳过删除失败的（如当前登录的管理员）
+        }
+      }
+      ElMessage.success('已清空可删除的管理员')
+    } else {
+      // 用户等模拟数据模块：直接清空本地数据
+      allData = []
+      ElMessage.success('已清空全部数据')
+    }
     fetchData()
   } catch {
     // 取消

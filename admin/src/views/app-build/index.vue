@@ -496,7 +496,8 @@ import {
   retryAppBuildApi,
   deleteAppBuildApi,
   getRandomConfigApi,
-  generateIconApi
+  generateIconApi,
+  downloadApkApi
 } from '@/api/appBuild'
 import { getKeyListApi } from '@/api/key'
 import type { AppBuildRecord } from '@/api/types'
@@ -804,12 +805,26 @@ async function handleGenerate() {
 }
 
 // 下载
-function handleDownload(item: AppBuildRecord) {
+async function handleDownload(item: AppBuildRecord) {
   if (!item.build_id) {
     ElMessage.warning('下载地址不存在')
     return
   }
-  window.open('/admin/app-build/download/' + item.build_id, '_blank')
+  try {
+    const res: any = await downloadApkApi(item.build_id)
+    const blob = new Blob([res.data], { type: 'application/vnd.android.package-archive' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${item.app_name || 'app'}.apk`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    ElMessage.success('开始下载')
+  } catch {
+    ElMessage.error('下载失败')
+  }
 }
 
 // 重试
@@ -820,9 +835,24 @@ async function handleRetry(item: AppBuildRecord) {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    ElMessage.success('已重新提交构建')
-    await fetchHistory()
-    startPolling()
+    submitting.value = true
+    try {
+      await createAppBuildApi({
+        app_name: item.app_name,
+        default_key: item.default_key,
+        server_url: item.server_url,
+        ws_url: item.ws_url,
+        package_name: item.package_name,
+        icon_path: item.icon_path
+      })
+      ElMessage.success('已重新提交构建')
+      await fetchHistory()
+      startPolling()
+    } catch (err: any) {
+      ElMessage.error(err?.message || '重新提交构建失败')
+    } finally {
+      submitting.value = false
+    }
   } catch {
     // 取消
   }
@@ -878,7 +908,8 @@ async function openLog(item: AppBuildRecord) {
   logDrawerVisible.value = true
   try {
     const res = await getBuildLogApi(item.build_id)
-    logContent.value = (res.data as any) || '暂无日志内容'
+    const data: any = res.data
+    logContent.value = data?.log || data || '暂无日志内容'
   } catch {
     logContent.value = '日志加载失败'
   }

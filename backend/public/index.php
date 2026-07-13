@@ -152,10 +152,12 @@ if ($runWs) {
         // ============================================================
         // API Key 管理（管理员鉴权）
         // ============================================================
-        $router->get('/admin/api-keys',           [\App\Controller\ApiKeyController::class, 'index']);
-        $router->post('/admin/api-keys',          [\App\Controller\ApiKeyController::class, 'create']);
-        $router->put('/admin/api-keys/{id}',      [\App\Controller\ApiKeyController::class, 'update']);
-        $router->delete('/admin/api-keys/{id}',   [\App\Controller\ApiKeyController::class, 'delete']);
+        $router->get('/admin/api-keys',             [\App\Controller\ApiKeyController::class, 'index']);
+        $router->post('/admin/api-keys',            [\App\Controller\ApiKeyController::class, 'create']);
+        $router->get('/admin/api-keys/{id}',        [\App\Controller\ApiKeyController::class, 'show']);
+        $router->put('/admin/api-keys/{id}',        [\App\Controller\ApiKeyController::class, 'update']);
+        $router->delete('/admin/api-keys/{id}',     [\App\Controller\ApiKeyController::class, 'delete']);
+        $router->put('/admin/api-keys/{id}/status', [\App\Controller\ApiKeyController::class, 'toggleStatus']);
 
         // ============================================================
         // 设备管理（管理员鉴权）

@@ -1,4 +1,4 @@
-import { get, post, del } from '@/utils/request'
+import { get, post, del, request } from '@/utils/request'
 import type {
   PageQuery,
   PageResult,
@@ -23,17 +23,17 @@ export function createAppBuildApi(data: AppBuildForm) {
 
 // 重新打包
 export function retryAppBuildApi(id: number) {
-  return post(`/admin/app-builds/${id}/retry`)
+  return post(`/admin/app-build/${id}/retry`)
 }
 
 // 取消打包
 export function cancelAppBuildApi(id: number) {
-  return post(`/admin/app-builds/${id}/cancel`)
+  return post(`/admin/app-build/${id}/cancel`)
 }
 
 // 删除打包记录
 export function deleteAppBuildApi(id: number) {
-  return del(`/admin/app-builds/${id}`)
+  return del(`/admin/app-build/${id}`)
 }
 
 // 获取打包日志
@@ -44,7 +44,7 @@ export function getBuildLogApi(id: string) {
 // 获取打包配置模板
 export function getBuildTemplatesApi() {
   return get<{ name: string; platform: string; config: Record<string, any> }[]>(
-    '/admin/app-builds/templates'
+    '/admin/app-build/templates'
   )
 }
 
@@ -61,4 +61,13 @@ export function generateIconApi(text: string) {
     '/admin/app-build/generate-icon',
     { text }
   )
+}
+
+// 下载 APK
+export function downloadApkApi(buildId: string) {
+  return request<Blob>({
+    method: 'get',
+    url: `/admin/app-build/download/${buildId}`,
+    responseType: 'blob'
+  })
 }

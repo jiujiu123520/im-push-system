@@ -164,17 +164,27 @@ class PushKeyController
             $data['max_devices'] = (int)$body['max_devices'];
         } elseif (isset($body['daily_limit'])) {
             $data['max_devices'] = (int)$body['daily_limit'];
+        } elseif (isset($body['dailyLimit'])) {
+            $data['max_devices'] = (int)$body['dailyLimit'];
+        } elseif (isset($body['maxDevices'])) {
+            $data['max_devices'] = (int)$body['maxDevices'];
         }
         if (isset($body['status'])) {
             $data['status'] = (int)$body['status'];
         }
-        if (isset($body['notifyEmail'])) {
+        if (isset($body['notify_email'])) {
+            $data['notify_email'] = (string)$body['notify_email'];
+        } elseif (isset($body['notifyEmail'])) {
             $data['notify_email'] = (string)$body['notifyEmail'];
         }
-        if (isset($body['notifyEnabled'])) {
+        if (isset($body['notify_enabled'])) {
+            $data['notify_enabled'] = (int)$body['notify_enabled'];
+        } elseif (isset($body['notifyEnabled'])) {
             $data['notify_enabled'] = (int)$body['notifyEnabled'];
         }
-        if (isset($body['notifyInterval'])) {
+        if (isset($body['notify_interval'])) {
+            $data['notify_interval'] = (int)$body['notify_interval'];
+        } elseif (isset($body['notifyInterval'])) {
             $data['notify_interval'] = (int)$body['notifyInterval'];
         }
 

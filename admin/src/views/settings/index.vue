@@ -650,7 +650,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 // 图标重命名导入（避免与 unplugin-vue-components 自动导入的组件名冲突）
 import {
@@ -878,7 +878,7 @@ let progressTimer: ReturnType<typeof setInterval> | null = null
 async function checkVersion() {
   versionChecking.value = true
   try {
-    const res = await checkVersionApi()
+    const res = await checkVersionApi({ ghProxy: true })
     const d = res.data
     versionInfo.local = d.local
     versionInfo.remote = d.remote
@@ -1218,6 +1218,10 @@ onMounted(() => {
   fetchSettings()
   fetchMailConfig()
   fetchSystemInfo()
+})
+
+onUnmounted(() => {
+  stopProgressPolling()
 })
 </script>
 

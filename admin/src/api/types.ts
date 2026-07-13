@@ -18,7 +18,9 @@ export interface PageResult<T> {
   list: T[]
   total: number
   page: number
-  pageSize: number
+  pageSize?: number
+  per_page?: number
+  total_pages?: number
 }
 
 // 通用枚举
@@ -207,7 +209,8 @@ export interface AdminForm {
   email?: string
   phone?: string
   password?: string
-  roles: string[]
+  role?: string
+  roles?: string[]
   status?: number
 }
 
@@ -242,24 +245,28 @@ export interface AppBuildForm {
 export interface ApiKeyRecord {
   id: number
   name: string
-  accessKey: string
-  secretKey: string
-  permissions: string[]
-  ipWhitelist: string[]
-  rateLimit: number
+  key_value?: string
+  accessKey?: string
+  secretKey?: string
+  permissions?: string[]
+  ipWhitelist?: string[]
+  rateLimit?: number
   status: number
   lastUsedAt?: string
   expiresAt?: string
-  createdAt: string
+  expire_at?: string
+  createdAt?: string
+  created_at?: string
 }
 
 export interface ApiKeyForm {
   id?: number
   name: string
-  permissions: string[]
+  permissions?: string[]
   ipWhitelist?: string[]
   rateLimit?: number
   expiresAt?: string
+  expire_at?: string
   status?: number
 }
 

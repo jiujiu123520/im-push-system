@@ -1,4 +1,4 @@
-import { post, get } from '@/utils/request'
+import { post, get, put } from '@/utils/request'
 import type { LoginParams, LoginResult, UserInfo } from './types'
 
 // 登录（后端路由：POST /admin/login）
@@ -22,11 +22,11 @@ export function getCaptchaApi() {
 }
 
 // 修改密码（后端路由：PUT /admin/change-password）
-export function changePasswordApi(data: {
-  old_password: string
-  new_password: string
-}) {
-  return post('/admin/change-password', data, { method: 'put' })
+export function changePasswordApi(data: { oldPassword: string; newPassword: string }) {
+  return put('/admin/change-password', {
+    old_password: data.oldPassword,
+    new_password: data.newPassword
+  })
 }
 
 // 刷新 token（后端暂未实现，保留接口）
