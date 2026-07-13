@@ -96,6 +96,34 @@ sudo bash deploy/deploy.sh \
 sudo bash deploy/deploy.sh --skip-app-build
 ```
 
+### 安装 APP 构建环境（可选，需要在线打包 APK 时安装）
+
+如果需要在管理后台在线生成 Android APK，需要单独安装 Android 构建环境（JDK + Android SDK + Gradle + BuildWorker）：
+
+```bash
+# 拉取最新代码
+cd /www/push-system
+git pull origin main
+
+# 一键安装 Android 构建环境（国内镜像加速）
+sudo bash build/setup.sh
+```
+
+`build/setup.sh` 会自动完成以下 8 个步骤：
+
+| 步骤 | 内容 |
+|------|------|
+| [1/8] | 安装 JDK 17 |
+| [2/8] | 下载 Android cmdline-tools（国内镜像备用） |
+| [3/8] | 接受许可 + 安装 SDK 组件（platform-tools、platforms、build-tools） |
+| [4/8] | 安装 Gradle 8.7（腾讯云镜像） |
+| [5/8] | 创建 local.properties 指向 Android SDK |
+| [6/8] | 删除 gradlew（强制使用全局 gradle，避免下载 distribution 超时） |
+| [7/8] | 设置 build/app/.gradle 目录权限给 www-data |
+| [8/8] | 安装并启动 push-build-worker 服务 |
+
+安装完成后，即可在管理后台「APP 生成」页面提交构建任务，BuildWorker 会自动消费队列并执行打包。
+
 ## 服务器配置建议
 
 ### 3-5 人使用（最低配置）
@@ -150,13 +178,21 @@ im-push-system/
 │       ├── ui/               # Compose UI
 │       └── util/             # 工具类
 ├── build/                    # APP 构建脚本
+│   ├── setup.sh              # Android 构建环境一键安装（JDK + SDK + Gradle）
+│   ├── build_apk.sh          # APK 打包脚本（被 BuildWorker 调用）
+│   ├── inject_config.sh      # 配置注入脚本（包名、服务器地址等）
+│   ├── queue/                # 构建队列
+│   │   ├── BuildQueue.php    # 队列管理（Redis List + Hash + Sorted Set）
+│   │   └── BuildWorker.php   # 工作进程（消费队列、执行打包）
+│   ├── logs/                 # 构建日志（worker.log + {build_id}.log）
+│   └── output/               # APK 产物输出目录
 ├── deploy/                   # 部署脚本
 │   ├── deploy.sh             # 一键部署（国内服务器）
 │   ├── install.sh            # 安装脚本
-│   ├── update.sh             # 更新脚本
+│   ├── update.sh             # 更新脚本（5 步：代码 + 依赖 + 迁移 + 构建环境 + 服务重启）
 │   ├── rollback.sh           # 回滚脚本
 │   ├── nginx/                # Nginx 配置
-│   └── systemd/              # systemd 服务文件
+│   └── systemd/              # systemd 服务文件（push-http/push-websocket/push-build-worker）
 └── .gitignore
 ```
 
@@ -226,23 +262,104 @@ curl -X POST http://localhost:9501/api/push \
 ## 常用运维命令
 
 ```bash
-# 查看服务状态
-systemctl status push-http push-websocket push-build-worker
+# 查看服务状态（HTTP + WebSocket + BuildWorker）
+sudo systemctl status push-http push-websocket push-build-worker
 
 # 查看实时日志
-journalctl -u push-websocket -f
+sudo journalctl -u push-websocket -f          # WebSocket 推送服务
+sudo journalctl -u push-http -f               # HTTP API 服务
+sudo journalctl -u push-build-worker -f       # APP 打包工作进程
 
 # 重启服务
-systemctl restart push-http push-websocket
+sudo systemctl restart push-http push-websocket          # 重启推送服务
+sudo systemctl restart push-build-worker                 # 重启打包服务
 
-# 更新代码
-cd /www/push-system && bash deploy/update.sh
+# 更新代码（一键更新：代码 + 依赖 + 迁移 + 权限 + 服务重启）
+cd /www/push-system && bash backend/deploy/update.sh --yes
 
 # 回滚代码
 cd /www/push-system && bash deploy/rollback.sh
 
-# 构建 Android APP
-cd /www/push-system && bash build/build_apk.sh
+# 安装 APP 构建环境（首次部署或新服务器，只需执行一次）
+sudo bash /www/push-system/build/setup.sh
+
+# 查看 APP 构建日志（替换 <build_id>）
+cat /www/push-system/build/logs/<build_id>.log
+
+# 查看 BuildWorker 运行日志
+cat /www/push-system/build/logs/worker.log
+```
+
+## 故障排查
+
+### APP 构建日志为空
+
+**原因**：BuildWorker 服务未运行，构建任务停留在队列中未被消费。
+
+```bash
+# 检查 BuildWorker 状态
+sudo systemctl status push-build-worker
+
+# 如果未运行，启动服务
+sudo systemctl start push-build-worker
+
+# 如果服务不存在，安装构建环境
+sudo bash /www/push-system/build/setup.sh
+```
+
+### APP 构建失败：gradlew No such file or directory
+
+**原因**：项目缺少 gradlew 或 wrapper 配置。
+
+**解决**：已通过 `build/setup.sh` 删除 gradlew，`build_apk.sh` 会自动回退到全局 `/opt/gradle-8.7/bin/gradle`。如果仍报错，重新执行：
+
+```bash
+sudo bash /www/push-system/build/setup.sh
+```
+
+### APP 构建失败：Permission denied
+
+**原因**：BuildWorker 以 www-data 用户运行，但 build/app 目录无写入权限。
+
+```bash
+# 修复目录权限
+sudo chown -R www-data:www-data /www/push-system/build /www/push-system/app /www/push-system/.gradle
+sudo chmod -R u+rw /www/push-system/build /www/push-system/app
+sudo systemctl restart push-build-worker
+```
+
+### APP 构建超时
+
+**原因**：首次构建需要下载大量 Gradle 依赖，国内网络较慢。
+
+**解决**：已在 `BuildQueue.php` 中将超时时间从 30 分钟增加到 2 小时。如仍超时，检查网络或手动预热依赖缓存：
+
+```bash
+# 以 www-data 用户手动执行一次 Gradle 依赖下载
+sudo -u www-data bash -c "cd /www/push-system/app && /opt/gradle-8.7/bin/gradle --refresh-dependencies"
+```
+
+### git pull 失败：Permission denied
+
+**原因**：build/app 目录被设置为 www-data 所有，ubuntu 用户无法操作。
+
+```bash
+# 临时恢复权限给 ubuntu，pull 后再设置回 www-data
+sudo chown -R ubuntu:ubuntu /www/push-system/build /www/push-system/app
+git pull origin main
+sudo chown -R www-data:www-data /www/push-system/build /www/push-system/app
+sudo systemctl restart push-build-worker
+```
+
+### 端口 9501/9502 被占用
+
+```bash
+# 查看占用进程
+sudo lsof -i :9501
+sudo lsof -i :9502
+
+# 重启服务（systemd 会自动清理旧进程）
+sudo systemctl restart push-http push-websocket
 ```
 
 ## 默认账号
