@@ -122,7 +122,7 @@
         <el-table-column prop="title" label="推送标题" min-width="200" show-overflow-tooltip />
         <el-table-column label="目标类型" width="110">
           <template #default="{ row }">
-            <el-tag :type="targetTypeTag(row.target_type)" effect="light" round size="small">
+            <el-tag :type="targetTypeTag(row.target_type) as any" effect="light" round size="small">
               {{ targetTypeLabel(row.target_type) }}
             </el-tag>
           </template>
@@ -135,7 +135,7 @@
         </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="statusTag(row.success_count, row.fail_count)" effect="plain" round size="small">
+            <el-tag :type="statusTag(row.success_count, row.fail_count) as any" effect="plain" round size="small">
               {{ statusLabel(row.success_count, row.fail_count) }}
             </el-tag>
           </template>

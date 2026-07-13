@@ -30,13 +30,7 @@
             <el-button :icon="DocumentIcon" round @click="scrollToExamples">
               查看示例
             </el-button>
-            <el-button
-              :icon="LinkIcon"
-              round
-              tag="a"
-              href="https://element-plus.org"
-              target="_blank"
-            >
+            <el-button :icon="DocumentIcon" round @click="showDocDialog = true">
               API 文档
             </el-button>
           </div>
@@ -256,6 +250,185 @@
             创建
           </el-button>
         </template>
+      </template>
+    </el-dialog>
+
+    <!-- API 文档对话框 -->
+    <el-dialog
+      v-model="showDocDialog"
+      title="开放 API 文档"
+      width="860px"
+      destroy-on-close
+      class="api-doc-dialog"
+    >
+      <div class="doc-content">
+        <div class="doc-section">
+          <div class="section-head">
+            <el-icon class="section-icon"><ConnectionIcon /></el-icon>
+            <h3>接口概览</h3>
+          </div>
+          <div class="overview-grid">
+            <div class="overview-item">
+              <div class="item-label">接口地址</div>
+              <div class="item-value mono">POST /api/push</div>
+            </div>
+            <div class="overview-item">
+              <div class="item-label">鉴权方式</div>
+              <div class="item-value">请求头 X-Api-Key</div>
+            </div>
+            <div class="overview-item">
+              <div class="item-label">Content-Type</div>
+              <div class="item-value mono">application/json</div>
+            </div>
+            <div class="overview-item">
+              <div class="item-label">频率限制</div>
+              <div class="item-value">根据 API Key 配置</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="doc-section">
+          <div class="section-head">
+            <el-icon class="section-icon"><KeyIcon /></el-icon>
+            <h3>请求头</h3>
+          </div>
+          <el-table :data="headerParams" border size="small" class="param-table">
+            <el-table-column prop="name" label="参数名" width="160">
+              <template #default="{ row }">
+                <code class="param-name">{{ row.name }}</code>
+              </template>
+            </el-table-column>
+            <el-table-column prop="required" label="必填" width="70" align="center">
+              <template #default="{ row }">
+                <el-tag :type="row.required ? 'danger' : 'info'" effect="light" size="small">
+                  {{ row.required ? '是' : '否' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="type" label="类型" width="100">
+              <template #default="{ row }">
+                <span class="param-type">{{ row.type }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="desc" label="说明" />
+          </el-table>
+        </div>
+
+        <div class="doc-section">
+          <div class="section-head">
+            <el-icon class="section-icon"><EditPenIcon /></el-icon>
+            <h3>请求参数</h3>
+          </div>
+          <el-table :data="bodyParams" border size="small" class="param-table">
+            <el-table-column prop="name" label="参数名" width="140">
+              <template #default="{ row }">
+                <code class="param-name">{{ row.name }}</code>
+              </template>
+            </el-table-column>
+            <el-table-column prop="required" label="必填" width="70" align="center">
+              <template #default="{ row }">
+                <el-tag :type="row.required ? 'danger' : 'info'" effect="light" size="small">
+                  {{ row.required ? '是' : '否' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="type" label="类型" width="100">
+              <template #default="{ row }">
+                <span class="param-type">{{ row.type }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="desc" label="说明" min-width="280">
+              <template #default="{ row }">
+                <div v-html="row.desc"></div>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <div class="doc-section">
+          <div class="section-head">
+            <el-icon class="section-icon"><DocumentIcon /></el-icon>
+            <h3>请求示例</h3>
+          </div>
+          <el-tabs v-model="activeDocTab" class="doc-tabs">
+            <el-tab-pane label="cURL" name="curl">
+              <div class="code-block">
+                <div class="code-header">
+                  <span class="code-lang">bash</span>
+                  <el-button link :icon="CopyDocumentIcon" @click="copyCode(docCurlExample)">复制</el-button>
+                </div>
+                <pre><code v-html="highlightBash(docCurlExample)"></code></pre>
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="请求体" name="body">
+              <div class="code-block">
+                <div class="code-header">
+                  <span class="code-lang">json</span>
+                  <el-button link :icon="CopyDocumentIcon" @click="copyCode(docBodyExample)">复制</el-button>
+                </div>
+                <pre><code v-html="highlightJson(docBodyExample)"></code></pre>
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="JavaScript" name="js">
+              <div class="code-block">
+                <div class="code-header">
+                  <span class="code-lang">javascript</span>
+                  <el-button link :icon="CopyDocumentIcon" @click="copyCode(docJsExample)">复制</el-button>
+                </div>
+                <pre><code v-html="highlightJs(docJsExample)"></code></pre>
+              </div>
+            </el-tab-pane>
+          </el-tabs>
+        </div>
+
+        <div class="doc-section">
+          <div class="section-head">
+            <el-icon class="section-icon"><CircleCheckFilledIcon /></el-icon>
+            <h3>响应格式</h3>
+          </div>
+          <div class="code-block">
+            <div class="code-header">
+              <span class="code-lang">json</span>
+              <el-button link :icon="CopyDocumentIcon" @click="copyCode(docResponseExample)">复制</el-button>
+            </div>
+            <pre><code v-html="highlightJson(docResponseExample)"></code></pre>
+          </div>
+          <el-table :data="responseFields" border size="small" class="param-table" style="margin-top: 12px;">
+            <el-table-column prop="name" label="字段名" width="160">
+              <template #default="{ row }">
+                <code class="param-name">{{ row.name }}</code>
+              </template>
+            </el-table-column>
+            <el-table-column prop="type" label="类型" width="100">
+              <template #default="{ row }">
+                <span class="param-type">{{ row.type }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="desc" label="说明" />
+          </el-table>
+        </div>
+
+        <div class="doc-section">
+          <div class="section-head">
+            <el-icon class="section-icon"><WarningFilledIcon /></el-icon>
+            <h3>错误码说明</h3>
+          </div>
+          <el-table :data="errorCodes" border size="small" class="param-table">
+            <el-table-column prop="code" label="HTTP 状态码" width="120" align="center">
+              <template #default="{ row }">
+                <el-tag :type="row.code >= 500 ? 'danger' : row.code >= 400 ? 'warning' : 'success'" effect="light" size="small">
+                  {{ row.code }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="message" label="错误信息" width="240" />
+            <el-table-column prop="desc" label="说明" />
+          </el-table>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="showDocDialog = false">关闭</el-button>
       </template>
     </el-dialog>
 
@@ -539,6 +712,119 @@ async function handleSubmit() {
     submitting.value = false
   }
 }
+
+// ---- API 文档对话框 ----
+const showDocDialog = ref(false)
+const activeDocTab = ref('curl')
+
+const headerParams = [
+  { name: 'X-Api-Key', required: true, type: 'string', desc: '开放 API Key，在 API Key 管理页面创建获取' },
+  { name: 'Content-Type', required: true, type: 'string', desc: '请求内容类型，必须为 application/json' }
+]
+
+const bodyParams = [
+  { name: 'target_type', required: true, type: 'string', desc: '推送目标类型：<code>device</code> 按设备ID推送，<code>key</code> 按Key值推送' },
+  { name: 'target_value', required: true, type: 'string', desc: '推送目标值，多个用英文逗号分隔。device类型为设备ID，key类型为Key值' },
+  { name: 'title', required: false, type: 'string', desc: '消息标题' },
+  { name: 'content', required: false, type: 'string', desc: '消息内容' },
+  { name: 'payload', required: false, type: 'object', desc: '附加数据，JSON对象，客户端可自定义解析' },
+  { name: 'priority', required: false, type: 'string', desc: '消息优先级：<code>high</code> 高，<code>normal</code> 普通（默认），<code>low</code> 低' }
+]
+
+const responseFields = [
+  { name: 'success_count', type: 'number', desc: '推送成功的设备数量' },
+  { name: 'fail_count', type: 'number', desc: '推送失败的设备数量' },
+  { name: 'detail', type: 'array', desc: '推送详情列表，包含每个设备的推送结果' }
+]
+
+const errorCodes = [
+  { code: 200, message: 'OK', desc: '请求成功' },
+  { code: 400, message: 'Bad Request', desc: '请求参数错误，如 target_type 无效、target_value 为空等' },
+  { code: 401, message: 'Unauthorized', desc: '鉴权失败，缺少 X-Api-Key 请求头或 API Key 无效/已过期' },
+  { code: 404, message: 'Not Found', desc: '请求的接口不存在' },
+  { code: 500, message: 'Internal Server Error', desc: '服务器内部错误' },
+  { code: 503, message: 'Service Unavailable', desc: '服务不可用' }
+]
+
+const docCurlExample = `curl -X POST https://your-domain.com/api/push \\
+  -H "Content-Type: application/json" \\
+  -H "X-Api-Key: your-api-key-here" \\
+  -d '{
+    "target_type": "device",
+    "target_value": "device_id_1,device_id_2",
+    "title": "消息标题",
+    "content": "这是一条测试消息",
+    "priority": "normal",
+    "payload": {
+      "type": "notification",
+      "action": "open_page"
+    }
+  }'`
+
+const docBodyExample = `{
+  "target_type": "key",
+  "target_value": "key_value_1,key_value_2",
+  "title": "欢迎使用推送服务",
+  "content": "您有一条新消息",
+  "priority": "high",
+  "payload": {
+    "order_id": "123456",
+    "type": "order_notify"
+  }
+}`
+
+const docJsExample = `// 使用 fetch 调用推送 API
+async function sendPush(apiKey, params) {
+  const res = await fetch('https://your-domain.com/api/push', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Api-Key': apiKey
+    },
+    body: JSON.stringify(params)
+  })
+  
+  const data = await res.json()
+  
+  if (!res.ok) {
+    throw new Error(data.message || '推送失败')
+  }
+  
+  return data
+}
+
+// 使用示例
+sendPush('your-api-key-here', {
+  target_type: 'device',
+  target_value: 'device001',
+  title: '测试推送',
+  content: 'Hello, World!',
+  priority: 'normal'
+}).then(result => {
+  console.log('推送成功:', result)
+}).catch(err => {
+  console.error('推送失败:', err.message)
+})`
+
+const docResponseExample = `{
+  "success_count": 2,
+  "fail_count": 1,
+  "detail": [
+    {
+      "device_id": "device001",
+      "status": "success"
+    },
+    {
+      "device_id": "device002",
+      "status": "success"
+    },
+    {
+      "device_id": "device003",
+      "status": "offline",
+      "reason": "设备不在线"
+    }
+  ]
+}`
 
 // ---- 示例区 ----
 const examplesRef = ref<HTMLElement>()
@@ -1227,6 +1513,111 @@ onMounted(() => {
     }
     .toolbar-left {
       width: 100%;
+    }
+  }
+}
+
+// ===== API 文档对话框 =====
+.api-doc-dialog {
+  :deep(.el-dialog__body) {
+    padding: 16px 24px 20px;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+}
+
+.doc-content {
+  .doc-section {
+    margin-bottom: 24px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+
+    .section-icon {
+      font-size: 20px;
+      color: $color-primary;
+    }
+
+    h3 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+  }
+
+  .overview-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+
+    .overview-item {
+      padding: 14px 16px;
+      background: var(--bg-page);
+      border-radius: $radius-md;
+      border: 1px solid var(--border-light);
+
+      .item-label {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-bottom: 6px;
+      }
+
+      .item-value {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+
+        &.mono {
+          font-family: $font-family-mono;
+          color: $color-primary;
+        }
+      }
+    }
+  }
+
+  .param-table {
+    :deep(.el-table__header th) {
+      background: var(--bg-page);
+      font-weight: 600;
+    }
+
+    .param-name {
+      font-family: $font-family-mono;
+      font-size: 12px;
+      color: $color-primary;
+      background: $color-primary-light-9;
+      padding: 2px 6px;
+      border-radius: $radius-xs;
+    }
+
+    .param-type {
+      font-family: $font-family-mono;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    code {
+      font-family: $font-family-mono;
+      font-size: 12px;
+      color: $color-primary;
+      background: $color-primary-light-9;
+      padding: 1px 5px;
+      border-radius: $radius-xs;
+    }
+  }
+
+  .doc-tabs {
+    :deep(.el-tabs__header) {
+      margin-bottom: 12px;
     }
   }
 }
