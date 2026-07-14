@@ -510,9 +510,11 @@ fi
 
 # ------------------------------------------------------------
 # 检测 MySQL root 连接方式（自动尝试多种方式，最后才询问密码）
+# 注意：密码通过 MYSQL_PWD 环境变量传递（而非拼接到命令字符串中）
 # ------------------------------------------------------------
 info "检测 MySQL root 连接方式..."
 MYSQL_ROOT_CMD=""
+MYSQL_ROOT_PASS=""
 
 # 方式1: mysql -uroot（无密码，某些系统默认）
 if mysql -uroot -e "SELECT 1" >/dev/null 2>&1; then
@@ -525,20 +527,18 @@ elif sudo mysql -e "SELECT 1" >/dev/null 2>&1; then
     info "  MySQL root 通过 sudo 连接（auth_socket）"
 
 else
-    # 方式3-5: 自动读取密码（无需用户输入）
+    # 方式3-6: 自动读取密码（无需用户输入）
     AUTO_FOUND_PASS=""
 
     # 方式3: 从 /root/.mysql.cnf 或 ~/.my.cnf 读取（Debian/Ubuntu 包安装时可能生成）
     for CNF_FILE in /root/.mysql.cnf /root/.my.cnf ~/.mysql.cnf ~/.my.cnf /etc/mysql/debian.cnf; do
         if [[ -f "$CNF_FILE" ]]; then
-            # 尝试从 [client] section 读取 password
             CNF_PASS=$(awk -F'=' '/^\[client\]/,/^$/ { if ($1 ~ /password/) { sub(/^[ \t]+/, "", $2); sub(/[ \t]+$/, "", $2); gsub(/^"|"$/, "", $2); print $2; exit } }' "$CNF_FILE" 2>/dev/null)
             if [[ -n "$CNF_PASS" ]] && mysql -uroot -p"${CNF_PASS}" -e "SELECT 1" >/dev/null 2>&1; then
                 AUTO_FOUND_PASS="$CNF_PASS"
                 info "  从 ${CNF_FILE} 读取到 MySQL root 密码"
                 break
             fi
-            # debian.cnf 格式不同，尝试 user/password 字段
             CNF_USER=$(awk -F'=' '/^[[:space:]]*user/ {gsub(/[ \t]/, "", $2); print $2; exit}' "$CNF_FILE" 2>/dev/null)
             CNF_PASS=$(awk -F'=' '/^[[:space:]]*password/ {gsub(/[ \t]/, "", $2); print $2; exit}' "$CNF_FILE" 2>/dev/null)
             if [[ -n "$CNF_PASS" ]] && [[ "$CNF_USER" == "root" || -z "$CNF_USER" ]]; then
@@ -584,7 +584,8 @@ else
 
     # 如果自动获取到密码
     if [[ -n "$AUTO_FOUND_PASS" ]]; then
-        MYSQL_ROOT_CMD="MYSQL_PWD=${AUTO_FOUND_PASS} mysql -uroot"
+        MYSQL_ROOT_PASS="$AUTO_FOUND_PASS"
+        MYSQL_ROOT_CMD="mysql -uroot"
         info "  MySQL root 密码验证成功"
 
     # 方式7: 所有自动方式失败，交互式询问
@@ -594,12 +595,13 @@ else
         info "    1. 创建 /root/.my.cnf 包含 [client] password=xxx"
         info "    2. 设置环境变量: sudo MYSQL_ROOT_PASSWORD=xxx bash deploy.sh"
         echo ""
-        read -s -p "请输入 MySQL root 密码: " MYSQL_ROOT_PASS < /dev/tty
+        read -s -p "请输入 MySQL root 密码: " INPUT_PASS < /dev/tty
         echo ""
 
         # 测试密码是否正确
-        if mysql -uroot -p"${MYSQL_ROOT_PASS}" -e "SELECT 1" >/dev/null 2>&1; then
-            MYSQL_ROOT_CMD="MYSQL_PWD=${MYSQL_ROOT_PASS} mysql -uroot"
+        if mysql -uroot -p"${INPUT_PASS}" -e "SELECT 1" >/dev/null 2>&1; then
+            MYSQL_ROOT_PASS="$INPUT_PASS"
+            MYSQL_ROOT_CMD="mysql -uroot"
             info "  MySQL root 密码验证成功"
         else
             error "MySQL root 密码错误，无法连接数据库"
@@ -608,6 +610,12 @@ else
             exit 1
         fi
     fi
+fi
+
+# 将密码导出为 MYSQL_PWD 环境变量（mysql 客户端会自动读取）
+# 这样 $MYSQL_ROOT_CMD 命令字符串中不需要包含密码，避免 command not found 错误
+if [[ -n "$MYSQL_ROOT_PASS" ]]; then
+    export MYSQL_PWD="$MYSQL_ROOT_PASS"
 fi
 
 # 创建数据库与用户（如果 .env 已存在则跳过，数据库已创建过）
