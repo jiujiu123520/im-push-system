@@ -140,7 +140,111 @@ if [ ! -f "${PROJECT_DIR}/deploy/install.sh" ]; then
     git clone --depth 1 "${CLONE_URL}" "${PROJECT_DIR}"
     info "代码克隆完成"
 else
-    info "本地已有代码，跳过克隆"
+    info "本地已有代码，检测云端最新版本..."
+
+    # 确保 git 已安装
+    if ! command -v git >/dev/null 2>&1; then
+        info "安装 git..."
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y -qq git
+        elif command -v yum >/dev/null 2>&1; then
+            yum install -y -q git
+        fi
+    fi
+
+    # 检测是否 git 仓库
+    if [ -d "${PROJECT_DIR}/.git" ]; then
+        cd "${PROJECT_DIR}"
+
+        # 获取当前本地 HEAD commit
+        LOCAL_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
+        LOCAL_SHORT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        info "  本地版本: ${LOCAL_SHORT}"
+
+        # 尝试获取云端最新 commit（不修改本地代码）
+        REMOTE_COMMIT=""
+        REMOTE_SHORT=""
+        for URL in \
+            "https://gh.jasonzeng.dev/https://github.com/jiujiu123520/im-push-system.git" \
+            "https://github.com/jiujiu123520/im-push-system.git"; do
+            REMOTE_COMMIT=$(git ls-remote "${URL}" refs/heads/main 2>/dev/null | awk '{print $1}')
+            if [[ -n "$REMOTE_COMMIT" ]]; then
+                REMOTE_SHORT=$(echo "$REMOTE_COMMIT" | cut -c1-7)
+                info "  云端版本: ${REMOTE_SHORT}"
+                break
+            fi
+        done
+
+        if [[ -z "$REMOTE_COMMIT" ]]; then
+            warn "  无法获取云端版本（网络问题），继续使用本地代码"
+        elif [[ "$LOCAL_COMMIT" == "$REMOTE_COMMIT" ]]; then
+            info "  本地已是最新版本"
+        else
+            warn "  本地代码不是最新版本"
+            info "  本地: ${LOCAL_SHORT}"
+            info "  云端: ${REMOTE_SHORT}"
+
+            # 获取新增的 commit 列表（仅显示最近5条）
+            COMMITS_AHEAD=$(git log --oneline "${LOCAL_COMMIT}..${REMOTE_COMMIT}" 2>/dev/null | head -5)
+            if [[ -n "$COMMITS_AHEAD" ]]; then
+                info "  云端新增更新:"
+                echo "$COMMITS_AHEAD" | while read -r line; do
+                    echo "    ${line}"
+                done
+                TOTAL=$(git log --oneline "${LOCAL_COMMIT}..${REMOTE_COMMIT}" 2>/dev/null | wc -l)
+                [[ "$TOTAL" -gt 5 ]] && echo "    ... 等共 ${TOTAL} 个更新"
+            fi
+
+            echo ""
+            read -p "是否拉取最新代码？[Y/n] " -r reply < /dev/tty
+            case "$reply" in
+                [Nn]* )
+                    warn "跳过代码更新，继续使用本地版本"
+                    ;;
+                * )
+                    info "拉取最新代码..."
+
+                    # 确保有 remote origin
+                    if ! git remote get-url origin >/dev/null 2>&1; then
+                        git remote add origin "${REPO_URL}"
+                    fi
+
+                    # 选择 URL（国内服务器使用代理）
+                    FETCH_URL="${REPO_URL}"
+                    if [[ "${GH_PROXY}" == "1" ]]; then
+                        FETCH_URL="${GH_PROXY_URL}"
+                    fi
+                    git remote set-url origin "${FETCH_URL}"
+
+                    # 拉取最新代码（保留本地 .env 等修改）
+                    git fetch origin main
+                    git merge origin/main --no-edit || {
+                        warn "自动合并失败，可能有本地修改冲突"
+                        read -p "是否强制使用云端版本？[y/N] " -r force_reply < /dev/tty
+                        case "$force_reply" in
+                            [Yy]* )
+                                warn "强制重置为云端版本（本地修改将丢失，.env 除外）"
+                                # 备份 .env
+                                [[ -f backend/.env ]] && cp backend/.env /tmp/.env.backup
+                                git merge --abort 2>/dev/null || true
+                                git reset --hard origin/main
+                                # 恢复 .env
+                                [[ -f /tmp/.env.backup ]] && cp /tmp/.env.backup backend/.env && rm /tmp/.env.backup
+                                info "已恢复 .env 配置"
+                                ;;
+                            * )
+                                error "代码合并失败，请手动解决冲突后重新运行"
+                                exit 1
+                                ;;
+                        esac
+                    }
+                    info "代码更新完成"
+                    ;;
+            esac
+        fi
+    else
+        warn "  本地目录不是 git 仓库，无法检测版本，继续使用本地代码"
+    fi
 fi
 
 # ============================================================
