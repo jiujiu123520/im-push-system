@@ -298,11 +298,27 @@ else
         info "构建管理后台 (npm install && npm run build)..."
         if [[ -d "${PROJECT_DIR}/admin" ]]; then
             cd "${PROJECT_DIR}/admin"
-            # 修复 node_modules/.bin 权限（可能因 root 安装导致普通用户无执行权限）
-            [[ -d node_modules/.bin ]] && chmod -R +x node_modules/.bin 2>/dev/null || true
+            # 检测 .bin 权限，若不可执行则删除 node_modules 重装
+            NEED_REINSTALL=false
+            if [[ -d node_modules/.bin ]]; then
+                for bin_file in node_modules/.bin/*; do
+                    [[ -e "$bin_file" ]] || continue
+                    if ! [ -x "$bin_file" ]; then
+                        NEED_REINSTALL=true
+                        break
+                    fi
+                done
+            fi
+            [[ "$NEED_REINSTALL" == "true" ]] && rm -rf node_modules
             npm install
-            # 安装后再次确保 .bin 可执行
-            chmod -R +x node_modules/.bin 2>/dev/null || true
+            # 跟随符号链接修复目标文件权限
+            if [[ -d node_modules/.bin ]]; then
+                find node_modules/.bin -type l | while read -r link; do
+                    target=$(readlink -f "$link" 2>/dev/null)
+                    [[ -f "$target" ]] && chmod +x "$target" 2>/dev/null || true
+                done
+                find node_modules/.bin -type f -exec chmod +x {} \; 2>/dev/null || true
+            fi
             npm run build
             cd "${PROJECT_DIR}"
         else

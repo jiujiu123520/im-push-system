@@ -177,12 +177,15 @@ if [ -n "$PACKAGE_NAME" ]; then
                 fi
             done
 
-            # 更新源码中的 package 声明
-            info "更新源码中的 package 声明..."
+            # 更新源码中的 package 声明和 import 语句
+            info "更新源码中的 package 声明和 import 语句..."
             find "$NEW_PATH" -name "*.kt" -o -name "*.java" | while read -r file; do
+                # 更新 package 声明
                 sed -i "s/^package $OLD_NAMESPACE/package $PACKAGE_NAME/" "$file"
+                # 更新 import 语句（com.push.app.xxx -> 新包名.xxx）
+                sed -i "s/import $OLD_NAMESPACE/import $PACKAGE_NAME/g" "$file"
             done
-            info "源码包名已更新"
+            info "源码包名和 import 已更新"
         fi
     else
         warn "未找到 $BUILD_GRADLE，跳过包名修改"

@@ -796,15 +796,40 @@ step "5/7" "构建管理后台"
 cd "${PROJECT_DIR}/admin"
 # 使用国内镜像加速（淘宝镜像）
 npm config set registry https://registry.npmmirror.com
-# 修复 node_modules/.bin 权限（可能因之前 root 安装导致 ubuntu 用户无执行权限）
+
+# 检查 node_modules/.bin 中的可执行文件权限
+# npm 在 .bin 下创建符号链接，chmod -R 不跟随符号链接，需特殊处理
+NEED_REINSTALL=false
 if [[ -d node_modules/.bin ]]; then
-    chmod -R +x node_modules/.bin 2>/dev/null || true
+    # 检测 .bin 下任意一个符号链接的目标是否有执行权限
+    for bin_file in node_modules/.bin/*; do
+        [[ -e "$bin_file" ]] || continue
+        # 跟随符号链接检查目标文件是否可执行
+        if ! [ -x "$bin_file" ]; then
+            NEED_REINSTALL=true
+            warn "检测到 $bin_file 无执行权限，将重新安装 node_modules"
+            break
+        fi
+    done
 fi
-# 确保 admin 目录归属当前用户（root 安装后可能文件属主是 root）
-chown -R "$(stat -c '%U:%G' "${PROJECT_DIR}")" "${PROJECT_DIR}/admin" 2>/dev/null || true
+
+if [[ "$NEED_REINSTALL" == "true" ]]; then
+    info "清理旧的 node_modules 并重新安装（修复权限问题）..."
+    rm -rf node_modules
+fi
+
 npm install
-# 安装后再次确保 .bin 可执行（npm install 偶发不设置可执行位）
-chmod -R +x node_modules/.bin 2>/dev/null || true
+
+# 安装后确保 .bin 中所有文件可执行（跟随符号链接修复目标文件权限）
+if [[ -d node_modules/.bin ]]; then
+    find node_modules/.bin -type l | while read -r link; do
+        target=$(readlink -f "$link" 2>/dev/null)
+        [[ -f "$target" ]] && chmod +x "$target" 2>/dev/null || true
+    done
+    # 直接对 .bin 目录下的非符号链接文件也设置执行权限
+    find node_modules/.bin -type f -exec chmod +x {} \; 2>/dev/null || true
+fi
+
 npm run build
 info "管理后台构建完成。"
 

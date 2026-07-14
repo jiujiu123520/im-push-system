@@ -124,11 +124,12 @@ final class BuildWorker
 
             try {
                 // 构建前检查系统可用内存（防止 2G 服务器 OOM）
+                // 阈值设为 150MB（配合 swap，避免 MySQL+Redis 常驻后任务永不执行）
                 $memInfo = @file_get_contents('/proc/meminfo');
                 if ($memInfo && preg_match('/MemAvailable:\s+(\d+)/', $memInfo, $m)) {
                     $availableMB = (int)$m[1] / 1024;
-                    if ($availableMB < 300) {
-                        $this->log("系统可用内存不足 300MB（当前 " . round($availableMB) . "MB），等待 30 秒后重试...");
+                    if ($availableMB < 150) {
+                        $this->log("系统可用内存不足 150MB（当前 " . round($availableMB) . "MB），等待 30 秒后重试...");
                         sleep(30);
                         continue;
                     }

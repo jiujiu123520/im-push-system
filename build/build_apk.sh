@@ -21,13 +21,23 @@
 # ============================================================
 set -e
 
+# ---------------- 路径定位（必须在 check_resources 之前，磁盘检查需要 PROJECT_DIR）----------------
+BUILD_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$BUILD_DIR")"
+APP_DIR="$PROJECT_DIR/app"
+OUTPUT_ROOT="$BUILD_DIR/output"
+LOG_ROOT="$BUILD_DIR/logs"
+KEYSTORE_DIR="$BUILD_DIR/keystore"
+KEYSTORE_PROPS="$KEYSTORE_DIR/keystore.properties"
+KEYSTORE_FILE="$KEYSTORE_DIR/release.keystore"
+
 # ---------------- 资源预检查（防止 2H2G 服务器构建时 OOM）----------------
 check_resources() {
-    # 检查可用内存（至少 300MB）
+    # 检查可用内存（至少 150MB，配合 swap）
     local available_mem
     available_mem=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
-    if [[ "${available_mem}" -lt 300 ]]; then
-        echo "[ERROR] 可用内存不足 300MB（当前 ${available_mem}MB），拒绝构建以防止服务器卡死"
+    if [[ "${available_mem}" -lt 150 ]]; then
+        echo "[ERROR] 可用内存不足 150MB（当前 ${available_mem}MB），拒绝构建以防止服务器卡死"
         exit 1
     fi
 
@@ -39,23 +49,13 @@ check_resources() {
         exit 1
     fi
 
-    # 检查是否已有 Gradle 进程在运行（防止并发构建导致内存翻倍）
-    if pgrep -f "gradle" >/dev/null 2>&1; then
-        echo "[ERROR] 检测到已有 Gradle 进程运行，拒绝并发构建"
+    # 检查是否已有 Gradle 构建进程在运行（精确匹配 assemble/compile，避免残留进程导致永久拒绝）
+    if pgrep -f "gradle.*assemble\|gradle.*compile\|gradle.*build" >/dev/null 2>&1; then
+        echo "[ERROR] 检测到已有 Gradle 构建进程运行，拒绝并发构建"
         exit 1
     fi
 }
 check_resources
-
-# ---------------- 路径定位 ----------------
-BUILD_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$BUILD_DIR")"
-APP_DIR="$PROJECT_DIR/app"
-OUTPUT_ROOT="$BUILD_DIR/output"
-LOG_ROOT="$BUILD_DIR/logs"
-KEYSTORE_DIR="$BUILD_DIR/keystore"
-KEYSTORE_PROPS="$KEYSTORE_DIR/keystore.properties"
-KEYSTORE_FILE="$KEYSTORE_DIR/release.keystore"
 
 # ---------------- 颜色输出 ----------------
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -134,7 +134,17 @@ on_fail() {
 }
 trap 'on_fail "构建过程中断（退出码 $?）"' ERR
 
-# ---------------- 1. 注入配置 ----------------
+# ---------------- 1. 清理上次构建残留 + 注入配置 ----------------
+# 恢复源码到原始状态（防止上次包名修改/配置注入残留导致编译失败）
+info "清理上次构建残留..."
+if [ -d "$PROJECT_DIR/.git" ]; then
+    git -C "$PROJECT_DIR" checkout -- app/ 2>/dev/null || true
+fi
+# 删除注入产生的临时文件
+rm -f "$APP_DIR/inject.gradle" "$APP_DIR/signing.gradle" 2>/dev/null || true
+# 清理上次构建产物（避免 find 误判旧 APK）
+rm -rf "$APP_DIR/build/outputs/apk" 2>/dev/null || true
+
 info "调用 inject_config.sh 注入配置 ..."
 # 使用数组安全存储参数（bash 版本支持）
 inject_cmd=("bash" "$BUILD_DIR/inject_config.sh")

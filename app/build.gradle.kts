@@ -47,12 +47,6 @@ android {
         // 与 Kotlin 1.9.24 对应的 Compose 编译器版本
         kotlinCompilerExtensionVersion = "1.5.14"
     }
-    // DEX 编译内存限制（2G 服务器优化）
-    dexOptions {
-        javaMaxHeapSize = "512m"
-        // 禁用预 DEX，减少内存占用（牺牲少量构建时间）
-        preDexLibraries = false
-    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

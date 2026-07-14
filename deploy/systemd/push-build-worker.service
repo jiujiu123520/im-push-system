@@ -29,10 +29,10 @@ Environment=ANDROID_SDK_ROOT=/opt/android-sdk
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools
 
 # ========= cgroup 资源限制（防止 2H2G 服务器卡死）=========
-# 内存硬限制 1.5G（给系统/MySQL/Redis/Nginx 留 500MB）
-MemoryMax=1536M
-# 内存软限制 1G（超过此值内核开始回收内存）
-MemoryHigh=1024M
+# 内存硬限制 2G（Compose 首次构建需要较多内存，配合 swap 兜底）
+MemoryMax=2G
+# 内存软限制 1.5G（超过此值内核开始回收内存）
+MemoryHigh=1536M
 # CPU 限制为 1.5 核（留 0.5 核给系统服务）
 CPUQuota=150%
 # 最大任务数 256（防止 Gradle fork 炸弹）
