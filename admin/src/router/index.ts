@@ -161,6 +161,19 @@ export const asyncRoutes: RouteRecordRaw[] = [
     ]
   },
   {
+    path: '/apk-distribution',
+    component: Layout,
+    meta: { title: 'APK分发', icon: 'Share', roles: ['admin', 'super_admin'] },
+    children: [
+      {
+        path: '',
+        name: 'ApkDistribution',
+        component: () => import('@/views/apk-distribution/index.vue'),
+        meta: { title: 'APK分发', icon: 'Share', roles: ['admin', 'super_admin'], cache: true }
+      }
+    ]
+  },
+  {
     path: '/api-keys',
     component: Layout,
     meta: { title: '开放API管理', icon: 'Connection', roles: ['admin', 'super_admin'] },

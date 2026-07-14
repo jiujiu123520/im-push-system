@@ -49,6 +49,7 @@
 - **测试推送** - 内置调试推送功能，方便开发排查
 - **分页处理** - 列表分页展示，每页 10 条
 - **用户管理** - 管理员可修改用户信息、重置密码、切换状态
+- **APK 分发** - 构建后自动生成分发记录，支持自托管下载/蓝奏云/自定义上传，二维码下载
 
 ### Android APP
 - **Kotlin + Compose** - 最新 Jetpack Compose UI
@@ -285,6 +286,72 @@ curl -X POST http://localhost:9501/api/push \
 | `/admin/messages` | GET | 消息记录 |
 | `/admin/settings/mail` | GET/POST | 邮件配置 |
 | `/admin/test-push` | POST | 测试推送 |
+
+## APK 分发管理
+
+APP 构建成功后，系统自动创建分发记录，支持三种分发方式：
+
+### 分发方式
+
+| 方式 | 说明 | 文件大小限制 | 是否需要额外配置 |
+|------|------|------------|----------------|
+| **自托管下载** | APK 存储在服务器，通过 Nginx 直接提供下载 | 无限制 | 无需配置，默认启用 |
+| **蓝奏云上传** | 自动上传到蓝奏云并生成分享链接 | 100MB | 需配置蓝奏云 Cookie |
+| **自定义上传** | 调用自定义脚本上传到任意存储服务 | 无限制 | 需配置上传脚本 |
+
+### 使用流程
+
+1. **构建 APP**：在管理后台「APP 生成」页面提交打包任务
+2. **自动创建分发记录**：构建成功后，系统自动在「APK 分发」页面创建分发记录
+3. **下载/分享**：
+   - **自托管下载**：点击「下载」按钮直接下载，或点击「二维码」生成扫码下载链接
+   - **蓝奏云**：点击「上传蓝奏云」按钮，自动上传并生成分享链接
+   - **自定义上传**：点击「自定义上传」按钮，执行配置的上传脚本
+
+### 分发设置
+
+在「APK 分发」页面点击右上角「分发设置」按钮：
+
+| 配置项 | 说明 |
+|--------|------|
+| 启用自动分发 | 开关，构建成功后是否自动创建分发记录 |
+| 蓝奏云 Cookie | 从浏览器开发者工具获取的蓝奏云登录 Cookie |
+| 自定义上传脚本路径 | 可执行脚本的绝对路径（如 /www/push-system/deploy/apk/custom-upload.sh） |
+| 下载基础 URL | 用于生成完整下载链接（留空则使用当前访问域名） |
+
+### 获取蓝奏云 Cookie
+
+1. 在浏览器登录蓝奏云（https://pan.lanzou.com）
+2. 按 F12 打开开发者工具 → Network 面板
+3. 刷新页面，找到任意请求 → Headers → Cookie
+4. 复制完整 Cookie 值，粘贴到分发设置中
+
+### 自定义上传脚本
+
+参考 `deploy/apk/custom-upload-example.sh`，复制为 `custom-upload.sh` 并修改上传逻辑：
+
+```bash
+# 复制示例脚本
+cp deploy/apk/custom-upload-example.sh deploy/apk/custom-upload.sh
+chmod +x deploy/apk/custom-upload.sh
+
+# 编辑脚本，实现你的上传逻辑（如上传到阿里云 OSS、腾讯 COS、七牛云等）
+vim deploy/apk/custom-upload.sh
+```
+
+脚本约定：
+- 参数：`<apk_path> <build_id> <app_name>`
+- 输出：第一行为上传后的 URL（http/https 开头），后续行可选
+
+### 公开下载链接
+
+每个分发记录生成一个带 token 的公开下载链接（无需登录）：
+
+```
+https://your-domain.com/api/apk-distribution/download/{token}
+```
+
+此链接可直接用于二维码分享或发送给用户下载。
 
 ## 设备掉线邮箱通知配置
 

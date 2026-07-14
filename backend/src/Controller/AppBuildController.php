@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Middleware\AdminAuth;
+use App\Service\ApkDistributionService;
 use App\Service\Response;
 
 /**
@@ -201,6 +202,26 @@ class AppBuildController
         if (!$task) {
             Response::fail($response, '构建任务不存在', Response::CODE_NOT_FOUND, 404);
             return false;
+        }
+
+        // 构建成功后自动创建分发记录（幂等：已存在则跳过）
+        if (($task['status'] ?? '') === 'success' && !empty($task['apk_path'])) {
+            $appName = (string)($task['app_name'] ?? 'app');
+            $packageName = (string)($task['package_name'] ?? '');
+            $adminId = (int)($task['admin_id'] ?? 0);
+            $versionName = (string)($task['version_name'] ?? '1.0.0');
+            try {
+                ApkDistributionService::createFromBuild(
+                    $buildId,
+                    $task['apk_path'],
+                    $appName,
+                    $packageName,
+                    $versionName,
+                    $adminId
+                );
+            } catch (\Throwable $e) {
+                // 分发记录创建失败不影响状态查询
+            }
         }
 
         return $task;

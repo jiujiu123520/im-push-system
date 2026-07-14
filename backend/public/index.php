@@ -78,6 +78,23 @@ if ($runWs) {
         $router->get('/admin/app-build/generate-icon', [\App\Controller\AppBuildController::class, 'generateIcon']);
 
         // ------------------------------------------------------------
+        // APK 分发管理（管理员鉴权）
+        // ------------------------------------------------------------
+        $router->get('/admin/apk-distribution', [\App\Controller\ApkDistributionController::class, 'index']);
+        $router->get('/admin/apk-distribution/config', [\App\Controller\ApkDistributionController::class, 'getConfig']);
+        $router->put('/admin/apk-distribution/config', [\App\Controller\ApkDistributionController::class, 'saveConfig']);
+        $router->get('/admin/apk-distribution/{id}', [\App\Controller\ApkDistributionController::class, 'show']);
+        $router->post('/admin/apk-distribution/{id}/lanzou', [\App\Controller\ApkDistributionController::class, 'uploadLanzou']);
+        $router->post('/admin/apk-distribution/{id}/custom', [\App\Controller\ApkDistributionController::class, 'uploadCustom']);
+        $router->delete('/admin/apk-distribution/{id}', [\App\Controller\ApkDistributionController::class, 'delete']);
+
+        // ------------------------------------------------------------
+        // APK 公开下载（无需鉴权，通过 token 验证）
+        // ------------------------------------------------------------
+        $router->get('/api/apk-distribution/info/{token}', [\App\Controller\ApkDistributionController::class, 'infoByToken']);
+        $router->get('/api/apk-distribution/download/{token}', [\App\Controller\ApkDistributionController::class, 'downloadByToken']);
+
+        // ------------------------------------------------------------
         // 任务3：用户注册与登录
         // ------------------------------------------------------------
 

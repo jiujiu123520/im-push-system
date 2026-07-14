@@ -1,40 +1,52 @@
-feat: 增加用户注册安全码、后台用户管理、APP登录注册界面、安装命令文档
+feat: 增加APK分发管理功能（自托管下载+蓝奏云+自定义上传+二维码）
 
-后端 - 用户注册安全码：
-- 新增数据库迁移 007_users_security_code.sql，users 表增加 security_code_hash 字段
-- UserService::register 重构：注册时自动生成 8 位数字安全码（排除全相同/顺序/重复等简单码），bcrypt 哈希存储
-- 注册成功后返回 token（自动登录）+ security_code 明文（仅此一次展示）
-- 新增 UserService::resetPasswordBySecurityCode 方法，通过安全码重置密码
-- 新增 POST /auth/reset-password 路由
+后端 - 数据库：
+- 新增迁移 008_apk_distribution.sql，创建 apk_distributions 表
+- 字段：build_id, app_name, package_name, version_name, apk_path, apk_size, md5, download_token, self_hosted_url, lanzou_url, lanzou_password, custom_url, upload_status, upload_message, admin_id
 
-后端 - 登录提示优化：
-- 账号不存在时返回"该账号未注册，请注册后使用"
-- 密码错误时返回"密码错误，请重新输入"（区分于账号不存在）
+后端 - ApkDistributionService：
+- createFromBuild：构建成功后自动创建分发记录（幂等）
+- getList/getDetail/getByToken：查询记录
+- getDownloadFile：通过 token 获取下载文件
+- uploadToLanzou：调用脚本上传到蓝奏云（Cookie 模拟登录）
+- uploadCustom：执行自定义上传脚本
+- getConfig/saveConfig：分发配置管理（admin_settings 表）
+- 生成 32 位随机下载令牌
+- 文件大小格式化
 
-后端 - 用户管理增强：
-- UserController 新增 update 方法（修改用户名/手机号/邮箱/状态）
-- UserController 新增 resetPassword 方法（管理员重置用户密码）
-- 新增路由 PUT /admin/users/{id} 和 PUT /admin/users/{id}/password
+后端 - ApkDistributionController：
+- 管理员接口：列表/详情/配置/上传蓝奏云/自定义上传/删除
+- 公开接口：通过 token 下载 APK（无需登录）、获取 APK 信息
+- 下载通过 Swoole sendfile 流式输出
 
-后端 - 测试推送修复：
-- TestPushController::selfTest 不再暴露 $e->getMessage() 内部错误
+后端 - 构建钩子：
+- AppBuildController::status 中增加自动创建分发记录逻辑
+- 构建成功且查询状态时自动触发，幂等不重复创建
 
-前端 - 管理后台用户管理：
-- 用户列表 columns 修正为 id/username/phone/email/status/created_at
-- 新增"修改密码"按钮和独立密码重置对话框
-- 编辑用户对话框 fields 改为 username/phone/email/status
+后端 - 路由注册：
+- 管理员：GET/PUT /admin/apk-distribution, POST lanzou/custom, DELETE
+- 公开：GET /api/apk-distribution/download/{token}, /info/{token}
 
-APP - 新增注册/登录界面：
-- 新建 AuthApi.kt：注册/登录/重置密码/获取验证码 API 客户端
-- 新建 RegisterScreen.kt：注册界面 + 安全码弹窗（大字体展示 + 复制按钮 + 不可关闭）
-- 新建 LoginScreen.kt：登录界面 + 忘记密码重置对话框 + 未注册提示
-- 修改 PreferencesManager.kt：增加 userTokenFlow/userInfoFlow/saveUserToken/clearUserAuth
-- 修改 PushNavigation.kt：增加 LOGIN/REGISTER 路由，有 token 跳首页无 token 跳登录
+Nginx：
+- 新增 /api/apk-distribution/download/ location，大文件传输优化
 
-APP - 测试推送修复：
-- TestPushApi.kt parseResult 增加 lowercase() 防止布尔值大小写问题
+前端 - API：
+- 新建 admin/src/api/apkDistribution.ts，类型定义 + 7 个 API 函数
+
+前端 - 页面：
+- 新建 admin/src/views/apk-distribution/index.vue
+- 分发记录列表（应用名/包名/版本/大小/MD5/状态/下载链接/操作）
+- 操作：下载/二维码/上传蓝奏云/自定义上传/删除
+- 分发设置抽屉（启用开关/蓝奏云Cookie/自定义脚本/基础URL）
+- 二维码对话框（CDN 加载 qrcode 库生成）
+
+前端 - 路由：
+- 新增 /apk-distribution 路由，位于 APP 生成之后
+
+部署脚本：
+- 新建 deploy/apk/upload-to-lanzou.sh（蓝奏云上传脚本）
+- 新建 deploy/apk/custom-upload-example.sh（自定义上传示例）
 
 文档：
-- README 增加 Root/非 Root 安装命令说明
-- README 增加安全码、登录失败限制、用户管理功能说明
-- README 增加日常更新（无需 root）说明
+- README 增加 APK 分发管理章节
+- 包含分发方式对比、使用流程、设置说明、蓝奏云Cookie获取、自定义脚本说明
