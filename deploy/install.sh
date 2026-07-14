@@ -36,10 +36,17 @@ REDIS_PORT="${REDIS_PORT:-6379}"
 HTTP_PORT="${HTTP_PORT:-9501}"
 WEBSOCKET_PORT="${WEBSOCKET_PORT:-9502}"
 
+# 安装选项（默认全部安装）
+INSTALL_ANDROID="${INSTALL_ANDROID:-1}"
+INSTALL_SSL="${INSTALL_SSL:-1}"
+INSTALL_SUDOERS="${INSTALL_SUDOERS:-1}"
+
 # 颜色输出
 COLOR_GREEN='\033[0;32m'
 COLOR_YELLOW='\033[1;33m'
 COLOR_RED='\033[0;31m'
+COLOR_BLUE='\033[0;34m'
+COLOR_CYAN='\033[0;36m'
 COLOR_RESET='\033[0m'
 
 info()  { echo -e "${COLOR_GREEN}[INFO]${COLOR_RESET} $*"; }
@@ -71,6 +78,56 @@ info "项目目录: ${PROJECT_DIR}"
 # 获取脚本所在目录（用于定位 deploy/ 下的配置文件）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 info "脚本目录: ${SCRIPT_DIR}"
+
+# ============================================================
+# 交互式安装选项
+# ============================================================
+echo ""
+echo -e "${COLOR_CYAN}============================================================${COLOR_RESET}"
+echo -e "${COLOR_CYAN}  即时消息推送系统 - 交互式安装${COLOR_RESET}"
+echo -e "${COLOR_CYAN}============================================================${COLOR_RESET}"
+echo ""
+echo "请选择安装组件（可通过环境变量跳过交互：INSTALL_ANDROID=0 INSTALL_SSL=0）："
+echo ""
+echo -e "  ${COLOR_GREEN}1.${COLOR_RESET} 核心服务（PHP+Swoole+MySQL+Redis+Nginx+管理后台）  [必选]"
+echo -e "  ${COLOR_GREEN}2.${COLOR_RESET} Android APP 打包环境（JDK 17 + Android SDK + Gradle 8.7）"
+echo -e "  ${COLOR_GREEN}3.${COLOR_RESET} SSL 证书自动申请环境（acme.sh + 自动续费 cron）"
+echo -e "  ${COLOR_GREEN}4.${COLOR_RESET} sudoers 权限配置（允许 www-data 重启服务/部署 Nginx）"
+echo ""
+
+# 交互式询问（除非通过环境变量预设）
+if [[ -t 0 ]]; then
+    read -p "是否安装 Android APP 打包环境？[Y/n] " -r reply
+    case "$reply" in
+        [Nn]*|'' ) INSTALL_ANDROID=0 ;;
+        * ) INSTALL_ANDROID=1 ;;
+    esac
+
+    read -p "是否安装 SSL 证书自动申请环境？[Y/n] " -r reply
+    case "$reply" in
+        [Nn]* ) INSTALL_SSL=0 ;;
+        * ) INSTALL_SSL=1 ;;
+    esac
+
+    read -p "是否配置 sudoers 权限？[Y/n] " -r reply
+    case "$reply" in
+        [Nn]* ) INSTALL_SUDOERS=0 ;;
+        * ) INSTALL_SUDOERS=1 ;;
+    esac
+fi
+
+echo ""
+info "安装选项："
+echo "  核心服务:         安装"
+echo "  Android 打包:    $([[ "$INSTALL_ANDROID" == "1" ]] && echo '安装' || echo '跳过')"
+echo "  SSL 证书环境:    $([[ "$INSTALL_SSL" == "1" ]] && echo '安装' || echo '跳过')"
+echo "  sudoers 配置:    $([[ "$INSTALL_SUDOERS" == "1" ]] && echo '配置' || echo '跳过')"
+echo ""
+
+read -p "确认开始安装？[Y/n] " -r reply
+case "$reply" in
+    [Nn]* ) warn "安装已取消"; exit 0 ;;
+esac
 
 # ============================================================
 # 步骤 1: 安装系统依赖
@@ -342,7 +399,7 @@ sleep 1
 systemctl restart push-build-worker
 
 # 查看服务状态
-info "服务状态："
+info "核心服务状态："
 for svc in push-http push-websocket push-build-worker; do
     if systemctl is-active --quiet "${svc}"; then
         echo -e "  ${COLOR_GREEN}●${COLOR_RESET} ${svc}    [运行中]"
@@ -350,6 +407,61 @@ for svc in push-http push-websocket push-build-worker; do
         echo -e "  ${COLOR_RED}●${COLOR_RESET} ${svc}    [未运行，请使用 journalctl -u ${svc} 查看日志]"
     fi
 done
+
+# ============================================================
+# 步骤 8: 安装 Android APP 打包环境（可选）
+# ============================================================
+if [[ "$INSTALL_ANDROID" == "1" ]]; then
+    step "8" "安装 Android APP 打包环境"
+    ANDROID_SETUP="${PROJECT_DIR}/build/setup.sh"
+    if [ -f "${ANDROID_SETUP}" ]; then
+        bash "${ANDROID_SETUP}" || warn "Android 环境安装部分失败，可稍后手动执行 build/setup.sh"
+    else
+        warn "Android 打包环境脚本不存在: ${ANDROID_SETUP}"
+    fi
+fi
+
+# ============================================================
+# 步骤 9: 安装 SSL 证书自动申请环境（可选）
+# ============================================================
+if [[ "$INSTALL_SSL" == "1" ]]; then
+    step "9" "安装 SSL 证书自动申请环境"
+    ACME_SETUP="${PROJECT_DIR}/backend/deploy/ssl/setup-acme.sh"
+    if [ -f "${ACME_SETUP}" ]; then
+        bash "${ACME_SETUP}" || warn "acme.sh 安装部分失败，可稍后手动执行"
+    else
+        warn "SSL 安装脚本不存在: ${ACME_SETUP}"
+    fi
+
+    # 安装自动续费 cron
+    RENEW_SCRIPT="${PROJECT_DIR}/backend/deploy/ssl/auto-renew-cron.sh"
+    if [ -f "${RENEW_SCRIPT}" ]; then
+        chmod +x "${RENEW_SCRIPT}"
+        echo "0 3 * * * root ${RENEW_SCRIPT}" > /etc/cron.d/push-ssl-renew
+        chmod 644 /etc/cron.d/push-ssl-renew
+        info "SSL 自动续费 cron 已安装（每天凌晨 3 点执行）"
+    fi
+fi
+
+# ============================================================
+# 步骤 10: 配置 sudoers 权限（可选）
+# ============================================================
+if [[ "$INSTALL_SUDOERS" == "1" ]]; then
+    step "10" "配置 sudoers 权限"
+    SUDOERS_FILE="${PROJECT_DIR}/deploy/sudoers-push-system-ssl"
+    if [ -f "${SUDOERS_FILE}" ]; then
+        cp "${SUDOERS_FILE}" /etc/sudoers.d/push-system
+        chmod 440 /etc/sudoers.d/push-system
+        if visudo -c >/dev/null 2>&1; then
+            info "sudoers 配置已安装"
+        else
+            warn "sudoers 语法检查失败，已移除配置"
+            rm -f /etc/sudoers.d/push-system
+        fi
+    else
+        warn "sudoers 配置文件不存在: ${SUDOERS_FILE}"
+    fi
+fi
 
 # ============================================================
 # 安装完成
@@ -364,15 +476,30 @@ echo "数据库:      ${DB_NAME}（用户: ${DB_USER}）"
 echo "HTTP API:    http://127.0.0.1:${HTTP_PORT}"
 echo "WebSocket:   ws://127.0.0.1:${WEBSOCKET_PORT}/ws"
 echo ""
+if [[ "$INSTALL_ANDROID" == "1" ]]; then
+echo "Android:    JDK 17 + Android SDK 34 + Gradle 8.7  [已安装]"
+fi
+if [[ "$INSTALL_SSL" == "1" ]]; then
+echo "SSL:        acme.sh + 自动续费 cron  [已安装]"
+fi
+if [[ "$INSTALL_SUDOERS" == "1" ]]; then
+echo "sudoers:    www-data 权限已配置  [已安装]"
+fi
+echo ""
 echo "默认管理员账号: admin"
 echo "默认管理员密码: admin123"
 echo ""
 warn "请尽快修改默认管理员密码与数据库密码！"
-warn "如需启用 HTTPS，请参考 deploy/nginx/push.conf 中的 SSL 配置示例。"
 echo ""
 info "常用命令："
 echo "  查看服务状态: systemctl status push-http push-websocket push-build-worker"
 echo "  查看服务日志: journalctl -u push-http -f"
-echo "  版本检查:     sudo bash ${PROJECT_DIR}/deploy/check-version.sh"
-echo "  更新代码:     sudo bash ${PROJECT_DIR}/deploy/update.sh"
+echo "  版本检查:     sudo bash ${PROJECT_DIR}/backend/deploy/check-version.sh"
+echo "  更新代码:     sudo bash ${PROJECT_DIR}/backend/deploy/update.sh"
 echo "  回滚代码:     sudo bash ${PROJECT_DIR}/deploy/rollback.sh"
+echo ""
+info "管理后台操作："
+echo "  域名与SSL:    添加域名 → 申请SSL → 部署Nginx"
+echo "  系统设置:     修改端口/地址/SSL开关（自动重启服务）"
+echo "  APP打包:      管理后台「APP生成」页面在线打包"
+echo ""

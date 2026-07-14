@@ -67,62 +67,86 @@
 
 ## 快速开始
 
-### 一键部署（国内服务器）
+### 一键部署（国内服务器推荐）
 
 ```bash
-# 方式1: 直接从仓库部署（推荐）
+# 方式1: 使用 gh.jasonzeng.dev 代理（国内服务器推荐，解决 GitHub 访问慢）
+curl -sSL https://gh.jasonzeng.dev/https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh | bash
+
+# 方式2: 直连 GitHub（需能访问 GitHub）
 curl -sSL https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh | bash
 
-# 方式2: 先克隆再部署
+# 方式3: 先克隆再部署
 git clone https://github.com/jiujiu123520/im-push-system.git
 cd im-push-system
 sudo bash deploy/deploy.sh
 ```
+
+### 交互式安装（推荐）
+
+部署脚本会自动询问安装组件：
+
+```bash
+sudo bash deploy/deploy.sh
+```
+
+安装过程中会询问：
+1. **核心服务**（必选）：PHP 8.2 + Swoole + MySQL + Redis + Nginx + 管理后台
+2. **Android APP 打包环境**：JDK 17 + Android SDK 34 + Gradle 8.7
+3. **SSL 证书自动申请环境**：acme.sh + Let's Encrypt + 自动续费 cron
+4. **sudoers 权限配置**：允许 www-data 重启服务 / 部署 Nginx / 申请证书
 
 ### 自定义部署参数
 
 ```bash
 sudo bash deploy/deploy.sh \
   --project-dir=/www/push-system \
-  --domain=push.example.com \
   --db-pass=YourPassword@2024 \
   --http-port=9501 \
-  --ws-port=9502
+  --ws-port=9502 \
+  --gh-proxy
 ```
 
-### 跳过 APP 构建环境
+### 跳过可选组件（仅安装核心服务）
 
 ```bash
-sudo bash deploy/deploy.sh --skip-app-build
+sudo INSTALL_ANDROID=0 INSTALL_SSL=0 bash deploy/deploy.sh
 ```
 
-### 安装 APP 构建环境（可选，需要在线打包 APK 时安装）
-
-如果需要在管理后台在线生成 Android APK，需要单独安装 Android 构建环境（JDK + Android SDK + Gradle + BuildWorker）：
+### 分步安装（已有代码）
 
 ```bash
-# 拉取最新代码
-cd /www/push-system
-git pull origin main
+# 1. 核心服务安装
+sudo bash deploy/install.sh
 
-# 一键安装 Android 构建环境（国内镜像加速）
+# 2. 单独安装 Android 打包环境（可选）
 sudo bash build/setup.sh
+
+# 3. 单独安装 SSL 证书环境（可选）
+sudo bash backend/deploy/ssl/setup-acme.sh
+sudo cp deploy/sudoers-push-system-ssl /etc/sudoers.d/push-system
+sudo chmod 440 /etc/sudoers.d/push-system
+sudo visudo -c
+
+# 4. 安装 SSL 自动续费 cron
+echo "0 3 * * * root /www/push-system/backend/deploy/ssl/auto-renew-cron.sh" | sudo tee /etc/cron.d/push-ssl-renew
+sudo chmod 644 /etc/cron.d/push-ssl-renew
 ```
 
-`build/setup.sh` 会自动完成以下 8 个步骤：
+### 安装流程（10 步）
 
-| 步骤 | 内容 |
-|------|------|
-| [1/8] | 安装 JDK 17 |
-| [2/8] | 下载 Android cmdline-tools（国内镜像备用） |
-| [3/8] | 接受许可 + 安装 SDK 组件（platform-tools、platforms、build-tools） |
-| [4/8] | 安装 Gradle 8.7（腾讯云镜像） |
-| [5/8] | 创建 local.properties 指向 Android SDK |
-| [6/8] | 删除 gradlew（强制使用全局 gradle，避免下载 distribution 超时） |
-| [7/8] | 设置 build/app/.gradle 目录权限给 www-data |
-| [8/8] | 安装并启动 push-build-worker 服务 |
-
-安装完成后，即可在管理后台「APP 生成」页面提交构建任务，BuildWorker 会自动消费队列并执行打包。
+| 步骤 | 内容 | 必选 |
+|------|------|------|
+| [1/10] | 安装系统依赖（PHP 8.2 + Swoole + MySQL + Redis + Nginx） | 是 |
+| [2/10] | 创建项目目录与数据库 | 是 |
+| [3/10] | 复制项目代码并执行迁移 | 是 |
+| [4/10] | 安装后端依赖（composer install） | 是 |
+| [5/10] | 构建管理后台（npm install && npm run build） | 是 |
+| [6/10] | 配置 systemd 服务与 Nginx | 是 |
+| [7/10] | 启动服务 | 是 |
+| [8/10] | 安装 Android APP 打包环境（JDK 17 + Android SDK + Gradle） | 可选 |
+| [9/10] | 安装 SSL 证书环境（acme.sh + 自动续费 cron） | 可选 |
+| [10/10] | 配置 sudoers 权限 | 可选 |
 
 ## 服务器配置建议
 
@@ -288,6 +312,45 @@ cat /www/push-system/build/logs/<build_id>.log
 
 # 查看 BuildWorker 运行日志
 cat /www/push-system/build/logs/worker.log
+
+# 查看 SSL 证书自动续费日志
+cat /var/log/push-ssl-renew.log
+```
+
+## 域名与 SSL 管理
+
+### 在管理后台配置
+
+1. **添加域名**：管理后台 → 域名与SSL → 添加域名
+   - 选择目标类型：管理后台 / 后端API / WebSocket / 全部
+   - 设置监听端口（0=默认80/443，>0=指定端口，支持前后端分开端口）
+   - 设置后端目标地址（支持 IP+端口 直连）
+
+2. **申请 SSL 证书**：点击「申请SSL」自动申请 Let's Encrypt 免费证书
+   - 需先在 DNS 解析域名到服务器 IP
+   - 需 80 端口可被外网访问（ACME 验证用）
+
+3. **部署 Nginx**：点击「部署」自动生成 Nginx 配置并重载
+   - 每个域名独立 server 块
+   - 前端和后端可绑定不同域名和端口
+
+4. **自动续费**：开启「自动续费」开关
+   - cron 每天凌晨 3 点自动检查
+   - 30 天内到期自动续费
+
+### 命令行操作
+
+```bash
+# 安装 SSL 环境
+sudo bash /www/push-system/backend/deploy/ssl/setup-acme.sh
+
+# 配置 sudoers
+sudo cp /www/push-system/deploy/sudoers-push-system-ssl /etc/sudoers.d/push-system
+sudo chmod 440 /etc/sudoers.d/push-system && sudo visudo -c
+
+# 安装自动续费 cron
+echo "0 3 * * * root /www/push-system/backend/deploy/ssl/auto-renew-cron.sh" | sudo tee /etc/cron.d/push-ssl-renew
+sudo chmod 644 /etc/cron.d/push-ssl-renew
 ```
 
 ## 故障排查
