@@ -1,0 +1,44 @@
+# ============================================================
+# Push System Sudoers - 允许 www-data 执行特权命令
+#
+# 安装方式：
+#   sudo cp deploy/sudoers-push-system-ssl /etc/sudoers.d/push-system
+#   sudo chmod 440 /etc/sudoers.d/push-system
+#   sudo visudo -c
+#
+# 包含：
+#   1. 端口变更后重启 push-http / push-websocket / push-build-worker 服务
+#   2. SSL 证书申请（acme.sh）与 Nginx 配置部署
+#   3. ACME webroot 与 SSL 证书目录管理
+# ============================================================
+
+# ---------- 端口变更自动重启服务 ----------
+www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-http
+www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-websocket
+www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-build-worker
+www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-http push-websocket
+www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-http push-websocket push-build-worker
+
+# ---------- acme.sh 证书申请与管理 ----------
+www-data ALL=(ALL) NOPASSWD: /root/.acme.sh/acme.sh *
+www-data ALL=(ALL) NOPASSWD: /bin/bash /www/push-system/backend/deploy/ssl/setup-acme.sh
+
+# ---------- SSL 证书目录管理 ----------
+www-data ALL=(ALL) NOPASSWD: /usr/bin/install -d /etc/nginx/ssl
+www-data ALL=(ALL) NOPASSWD: /usr/bin/mkdir -p /etc/nginx/ssl
+www-data ALL=(ALL) NOPASSWD: /usr/bin/mkdir -p /www/push-system/acme
+www-data ALL=(ALL) NOPASSWD: /bin/chown www-data:www-data /www/push-system/acme
+www-data ALL=(ALL) NOPASSWD: /bin/chown -R www-data:www-data /www/push-system/acme
+www-data ALL=(ALL) NOPASSWD: /bin/chmod 644 /etc/nginx/ssl/*
+www-data ALL=(ALL) NOPASSWD: /bin/chmod 600 /etc/nginx/ssl/*
+www-data ALL=(ALL) NOPASSWD: /bin/rm -f /etc/nginx/ssl/*
+www-data ALL=(ALL) NOPASSWD: /usr/bin/rm -f /etc/nginx/ssl/*
+
+# ---------- Nginx 配置部署 ----------
+www-data ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/nginx/sites-available/*
+www-data ALL=(ALL) NOPASSWD: /bin/ln -sf /etc/nginx/sites-available/* /etc/nginx/sites-enabled/*
+www-data ALL=(ALL) NOPASSWD: /usr/sbin/nginx -t
+www-data ALL=(ALL) NOPASSWD: /usr/sbin/nginx -s reload
+
+# ---------- openssl 证书信息读取 ----------
+www-data ALL=(ALL) NOPASSWD: /usr/bin/openssl x509 *

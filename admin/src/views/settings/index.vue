@@ -48,9 +48,29 @@
           label-position="top"
           class="setting-form"
         >
+          <el-form-item label="启用 SSL（HTTPS / WSS）">
+            <div class="ssl-toggle-row">
+              <el-switch v-model="serverForm.sslEnabled" @change="onSslToggle" />
+              <span class="ssl-toggle-hint">
+                开启后地址自动使用 https:// 和 wss:// 协议
+              </span>
+              <el-tag v-if="serverForm.sslEnabled" type="success" size="small" effect="dark">
+                <el-icon><LockIcon /></el-icon> SSL 已启用
+              </el-tag>
+              <el-tag v-else type="info" size="small">未启用</el-tag>
+            </div>
+            <div class="ssl-tip">
+              提示：启用前请先在「域名与SSL」页面申请并部署 SSL 证书，否则 HTTPS 访问会失败
+            </div>
+          </el-form-item>
+
           <div class="form-row">
             <el-form-item label="HTTP API 地址" prop="httpApiUrl">
-              <el-input v-model="serverForm.httpApiUrl" placeholder="https://api.push.com" clearable />
+              <el-input
+                v-model="serverForm.httpApiUrl"
+                :placeholder="serverForm.sslEnabled ? 'https://api.push.com' : 'http://api.push.com'"
+                clearable
+              />
             </el-form-item>
             <el-form-item label="HTTP 端口" prop="httpPort">
               <el-input-number
@@ -64,7 +84,11 @@
           </div>
           <div class="form-row">
             <el-form-item label="WebSocket 地址" prop="websocketUrl">
-              <el-input v-model="serverForm.websocketUrl" placeholder="wss://ws.push.com" clearable />
+              <el-input
+                v-model="serverForm.websocketUrl"
+                :placeholder="serverForm.sslEnabled ? 'wss://ws.push.com' : 'ws://ws.push.com'"
+                clearable
+              />
             </el-form-item>
             <el-form-item label="WebSocket 端口" prop="websocketPort">
               <el-input-number
@@ -700,7 +724,8 @@ const serverForm = reactive({
   httpApiUrl: '',
   httpPort: 443,
   websocketUrl: '',
-  websocketPort: 443
+  websocketPort: 443,
+  sslEnabled: false
 })
 const serverRules: FormRules = {
   httpApiUrl: [
@@ -1024,6 +1049,35 @@ function detectServerUrls() {
   }
 }
 
+// SSL 开关切换：自动调整地址协议和端口
+function onSslToggle(val: boolean) {
+  if (val) {
+    // 开启 SSL：http:// -> https://，ws:// -> wss://，端口默认 443
+    if (serverForm.httpApiUrl && serverForm.httpApiUrl.startsWith('http://')) {
+      serverForm.httpApiUrl = 'https://' + serverForm.httpApiUrl.slice(7)
+    }
+    if (serverForm.websocketUrl && serverForm.websocketUrl.startsWith('ws://')) {
+      serverForm.websocketUrl = 'wss://' + serverForm.websocketUrl.slice(5)
+    }
+    if (serverForm.httpPort === 80 || serverForm.httpPort === 9501) {
+      serverForm.httpPort = 443
+    }
+    if (serverForm.websocketPort === 80 || serverForm.websocketPort === 9502) {
+      serverForm.websocketPort = 443
+    }
+    ElMessage.success('SSL 已启用，地址已自动切换为 https/wss')
+  } else {
+    // 关闭 SSL：https:// -> http://，wss:// -> ws://
+    if (serverForm.httpApiUrl && serverForm.httpApiUrl.startsWith('https://')) {
+      serverForm.httpApiUrl = 'http://' + serverForm.httpApiUrl.slice(8)
+    }
+    if (serverForm.websocketUrl && serverForm.websocketUrl.startsWith('wss://')) {
+      serverForm.websocketUrl = 'ws://' + serverForm.websocketUrl.slice(6)
+    }
+    ElMessage.info('SSL 已关闭，地址已切换为 http/ws')
+  }
+}
+
 // 手动触发自动检测并填充
 function autoDetectServer() {
   const detected = detectServerUrls()
@@ -1047,6 +1101,7 @@ async function fetchSettings() {
       serverForm.httpPort = s.server.httpPort || 443
       serverForm.websocketUrl = s.server.websocketUrl || ''
       serverForm.websocketPort = s.server.websocketPort || 443
+      serverForm.sslEnabled = s.server.sslEnabled ?? (serverForm.httpApiUrl.startsWith('https://'))
     }
 
     // 如果没有配置，自动检测并填充
@@ -1056,6 +1111,7 @@ async function fetchSettings() {
       serverForm.httpPort = detected.httpPort
       serverForm.websocketUrl = detected.websocketUrl
       serverForm.websocketPort = detected.websocketPort
+      serverForm.sslEnabled = detected.httpApiUrl.startsWith('https://')
     }
 
     // 加载推送配置
@@ -1250,6 +1306,26 @@ onUnmounted(() => {
 <style lang="scss" scoped>
 .settings-page {
   animation: fade-up 0.5s ease;
+}
+
+// ===== SSL 开关 =====
+.ssl-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  .ssl-toggle-hint {
+    color: #909399;
+    font-size: 12px;
+  }
+}
+
+.ssl-tip {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #e6a23c;
+  line-height: 1.5;
 }
 
 // ===== Hero 区 =====

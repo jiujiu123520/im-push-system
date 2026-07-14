@@ -174,6 +174,19 @@ export const asyncRoutes: RouteRecordRaw[] = [
     ]
   },
   {
+    path: '/domains',
+    component: Layout,
+    meta: { title: '域名与SSL', icon: 'Link', roles: ['admin', 'super_admin'] },
+    children: [
+      {
+        path: '',
+        name: 'Domains',
+        component: () => import('@/views/domains/index.vue'),
+        meta: { title: '域名与SSL', icon: 'Link', cache: true, module: 'domains' }
+      }
+    ]
+  },
+  {
     path: '/settings',
     component: Layout,
     meta: { title: '系统设置', icon: 'Setting', roles: ['admin', 'super_admin'] },
