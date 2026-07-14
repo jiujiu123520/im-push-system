@@ -222,52 +222,87 @@ else
 fi
 
 # ============================================================
-# 交互式安装选项
+# 交互式安装选项（数字选择菜单）
 # ============================================================
 echo ""
 echo -e "${COLOR_CYAN}============================================================${COLOR_RESET}"
 echo -e "${COLOR_CYAN}  即时消息推送系统 - 交互式安装${COLOR_RESET}"
 echo -e "${COLOR_CYAN}============================================================${COLOR_RESET}"
 echo ""
-echo "请选择安装组件（可通过环境变量跳过交互：INSTALL_ANDROID=0 INSTALL_SSL=0）："
+echo "请选择安装组件（输入数字，多个用空格分隔，如: 2 3 4 或 all）："
 echo ""
 echo -e "  ${COLOR_GREEN}1.${COLOR_RESET} 核心服务（PHP+Swoole+MySQL+Redis+Nginx+管理后台）  [必选]"
 echo -e "  ${COLOR_GREEN}2.${COLOR_RESET} Android APP 打包环境（JDK 17 + Android SDK + Gradle 8.7）"
 echo -e "  ${COLOR_GREEN}3.${COLOR_RESET} SSL 证书自动申请环境（acme.sh + 自动续费 cron）"
 echo -e "  ${COLOR_GREEN}4.${COLOR_RESET} sudoers 权限配置（允许 www-data 重启服务/部署 Nginx）"
+echo -e "  ${COLOR_GREEN}all.${COLOR_RESET} 安装全部（1+2+3+4）"
+echo -e "  ${COLOR_GREEN}0.${COLOR_RESET} 仅核心服务（不安装可选组件）"
 echo ""
 
-# 交互式询问（使用 /dev/tty 确保在管道模式下也能读取用户输入）
-# 当通过 curl ... | bash 方式运行时，stdin 是管道，需要用 /dev/tty 读取终端输入
-ask_user() {
-    local prompt="$1"
-    local reply
-    read -p "$prompt [Y/n] " reply < /dev/tty
-    case "$reply" in
-        [Nn]* ) echo "n" ;;
-        * ) echo "y" ;;
-    esac
-}
+# 读取用户选择（使用 /dev/tty 确保管道模式下也能读取）
+read -p "请输入要安装的组件编号 [默认 all]: " USER_CHOICE < /dev/tty
+[[ -z "$USER_CHOICE" ]] && USER_CHOICE="all"
 
-reply=$(ask_user "是否安装 Android APP 打包环境？")
-[[ "$reply" == "y" ]] && INSTALL_ANDROID=1 || INSTALL_ANDROID=0
-
-reply=$(ask_user "是否安装 SSL 证书自动申请环境？")
-[[ "$reply" == "y" ]] && INSTALL_SSL=1 || INSTALL_SSL=0
-
-reply=$(ask_user "是否配置 sudoers 权限？")
-[[ "$reply" == "y" ]] && INSTALL_SUDOERS=1 || INSTALL_SUDOERS=0
+# 解析用户输入
+SELECTED=""
+case "$(echo "$USER_CHOICE" | tr '[:upper:]' '[:lower:]')" in
+    all|a)
+        INSTALL_ANDROID=1
+        INSTALL_SSL=1
+        INSTALL_SUDOERS=1
+        SELECTED="2 3 4"
+        ;;
+    0|none|n)
+        INSTALL_ANDROID=0
+        INSTALL_SSL=0
+        INSTALL_SUDOERS=0
+        SELECTED=""
+        ;;
+    *)
+        # 解析数字组合（如 "2 3" 或 "2,3" 或 "234"）
+        INSTALL_ANDROID=0
+        INSTALL_SSL=0
+        INSTALL_SUDOERS=0
+        # 标准化输入：逗号转空格
+        CHOICE_NORMALIZED=$(echo "$USER_CHOICE" | tr ',' ' ' | tr -s ' ')
+        for num in $CHOICE_NORMALIZED; do
+            case "$num" in
+                1) ;; # 核心服务必选，无需处理
+                2) INSTALL_ANDROID=1; SELECTED="${SELECTED} 2";;
+                3) INSTALL_SSL=1;     SELECTED="${SELECTED} 3";;
+                4) INSTALL_SUDOERS=1; SELECTED="${SELECTED} 4";;
+                [2-4][2-4]|[2-4][2-4][2-4])
+                    # 支持 "234" 连续输入形式
+                    for ((i=0; i<${#num}; i++)); do
+                        c="${num:$i:1}"
+                        case "$c" in
+                            2) INSTALL_ANDROID=1;;
+                            3) INSTALL_SSL=1;;
+                            4) INSTALL_SUDOERS=1;;
+                        esac
+                    done
+                    SELECTED="${SELECTED} ${num}"
+                    ;;
+                *)
+                    warn "忽略无效输入: ${num}（有效选项: 1-4 / all / 0）"
+                    ;;
+            esac
+        done
+        ;;
+esac
 
 echo ""
 info "安装选项："
-echo "  核心服务:         安装"
-echo "  Android 打包:    $([[ "$INSTALL_ANDROID" == "1" ]] && echo '安装' || echo '跳过')"
-echo "  SSL 证书环境:    $([[ "$INSTALL_SSL" == "1" ]] && echo '安装' || echo '跳过')"
-echo "  sudoers 配置:    $([[ "$INSTALL_SUDOERS" == "1" ]] && echo '配置' || echo '跳过')"
+echo "  核心服务:         安装 [必选]"
+echo "  Android 打包:    $([[ "$INSTALL_ANDROID" == "1" ]] && echo -e "${COLOR_GREEN}安装${COLOR_RESET}" || echo '跳过')"
+echo "  SSL 证书环境:    $([[ "$INSTALL_SSL" == "1" ]] && echo -e "${COLOR_GREEN}安装${COLOR_RESET}" || echo '跳过')"
+echo "  sudoers 配置:    $([[ "$INSTALL_SUDOERS" == "1" ]] && echo -e "${COLOR_GREEN}配置${COLOR_RESET}" || echo '跳过')"
 echo ""
 
-reply=$(ask_user "确认开始安装？")
-[[ "$reply" != "y" ]] && { warn "安装已取消"; exit 0; }
+read -p "确认开始安装？[Y/n] " -r reply < /dev/tty
+case "$reply" in
+    [Nn]* ) warn "安装已取消"; exit 0 ;;
+esac
 
 # ============================================================
 # 步骤 1: 安装系统依赖（已安装的组件自动跳过）
