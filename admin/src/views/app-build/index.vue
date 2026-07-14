@@ -398,6 +398,15 @@
               >
                 重试
               </el-button>
+              <el-button
+                size="small"
+                :icon="DeleteIcon"
+                round
+                type="danger"
+                @click="handleDelete(item)"
+              >
+                删除
+              </el-button>
             </div>
           </div>
         </div>
@@ -864,7 +873,10 @@ async function handleGenerate() {
       server_url: form.serverAddress,
       ws_url: form.websocketAddress,
       package_name: form.packageName,
-      icon_path: form.appIcon
+      icon_path: form.appIcon,
+      version: form.version,
+      platform: form.platform,
+      build_type: form.buildType
     })
     ElMessage.success('构建任务已提交，正在打包...')
     await fetchHistory()
@@ -938,7 +950,10 @@ async function handleRetry(item: AppBuildRecord) {
         server_url: item.server_url,
         ws_url: item.ws_url,
         package_name: item.package_name,
-        icon_path: item.icon_path
+        icon_path: item.icon_path,
+        version: form.version,
+        platform: form.platform,
+        build_type: form.buildType
       })
       ElMessage.success('已重新提交构建')
       await fetchHistory()
@@ -956,11 +971,12 @@ async function handleRetry(item: AppBuildRecord) {
 // 删除
 async function handleDelete(item: AppBuildRecord) {
   try {
-    await ElMessageBox.confirm(`确定删除该构建记录吗？`, '提示', {
+    await ElMessageBox.confirm(`确定删除构建记录「${item.app_name}」吗？`, '提示', {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
       type: 'warning'
     })
+    await deleteAppBuildApi(item.build_id)
     ElMessage.success('删除成功')
     await fetchHistory()
   } catch {

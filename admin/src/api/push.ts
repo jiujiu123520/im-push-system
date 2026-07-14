@@ -53,7 +53,7 @@ export function sendPushApi(data: PushParams) {
 
 // 批量删除推送记录
 export function batchDeletePushLogsApi(ids: number[]) {
-  return del('/admin/push/logs/batch', { ids })
+  return del('/admin/push-logs/batch', { ids })
 }
 
 // 重新推送

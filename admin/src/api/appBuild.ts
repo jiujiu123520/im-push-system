@@ -32,8 +32,8 @@ export function cancelAppBuildApi(id: number) {
 }
 
 // 删除打包记录
-export function deleteAppBuildApi(id: number) {
-  return del(`/admin/app-build/${id}`)
+export function deleteAppBuildApi(buildId: string) {
+  return del(`/admin/app-build/${buildId}`)
 }
 
 // 获取打包日志

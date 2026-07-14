@@ -702,8 +702,8 @@ async function handleSubmit() {
     })
     const data: any = res.data || res
     createdSecret.value = {
-      accessKey: data.key_value || data.accessKey || '',
-      secretKey: data.key_value || data.secretKey || ''
+      accessKey: data.key_value || data.access_key || data.accessKey || '',
+      secretKey: data.secret_key || data.secret || data.secretKey || ''
     }
     ElMessage.success('创建成功')
     fetchData()

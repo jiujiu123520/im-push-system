@@ -72,6 +72,7 @@ class SettingsController
 
         $pdo = Database::pdo();
         $updatedSections = [];
+        $needRestart = false;
 
         // 支持按分组更新：server / push / captcha / security
         $sections = ['server', 'push', 'captcha', 'security'];
@@ -140,7 +141,7 @@ class SettingsController
 
         $message = '配置已保存';
         if (!empty($needRestart)) {
-            $message = '配置已保存，端口变更需重启服务后生效（push-http、push-websocket）';
+            $message = '配置已保存，已自动重启了相关服务（push-http、push-websocket）';
         }
 
         return ['message' => $message, 'updated' => $updatedSections, 'need_restart' => !empty($needRestart)];
@@ -160,7 +161,7 @@ class SettingsController
         }
 
         $response = $context['response'];
-        $port = (int)($params['port'] ?? ($_GET['port'] ?? 0));
+        $port = (int)($context['get']['port'] ?? 0);
 
         if ($port <= 0 || $port > 65535) {
             Response::fail($response, '端口范围无效（1-65535）', Response::CODE_BAD_REQUEST);
@@ -836,8 +837,8 @@ class SettingsController
         if ($updated) {
             file_put_contents($envFile, implode("\n", $lines));
 
-            // 自动重启服务（非阻塞，后台执行）
-            $restartCmd = 'sudo systemctl restart push-http push-websocket 2>&1 > /dev/null &';
+            // 延迟 2 秒后重启服务（给当前 HTTP 响应留出发送时间，避免进程被杀导致响应丢失）
+            $restartCmd = '(sleep 2 && sudo systemctl restart push-http push-websocket) > /dev/null 2>&1 &';
             shell_exec($restartCmd);
         }
 

@@ -77,6 +77,7 @@ if ($runWs) {
         $router->get('/admin/app-build/download/{build_id}', [\App\Controller\AppBuildController::class, 'download']);
         $router->get('/admin/app-build/random-config', [\App\Controller\AppBuildController::class, 'randomConfig']);
         $router->get('/admin/app-build/generate-icon', [\App\Controller\AppBuildController::class, 'generateIcon']);
+        $router->delete('/admin/app-build/{build_id}', [\App\Controller\AppBuildController::class, 'delete']);
 
         // ------------------------------------------------------------
         // APK 分发管理（管理员鉴权）

@@ -333,7 +333,7 @@ class AppBuildController
         $response->header('Content-Length', (string) strlen($fullLog));
         $response->end($fullLog);
 
-        return null;
+        return false;
     }
 
     /**
@@ -535,5 +535,38 @@ class AppBuildController
                 'end'   => sprintf('#%02x%02x%02x', $endColor[0], $endColor[1], $endColor[2]),
             ],
         ];
+    }
+
+    /**
+     * DELETE /admin/app-build/{build_id}
+     * 删除构建记录
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function delete(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $buildId = $params['build_id'] ?? '';
+
+        if ($buildId === '') {
+            Response::fail($response, '缺少 build_id 参数', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        if (!self::isAvailable()) {
+            Response::fail($response, '打包服务未配置');
+            return false;
+        }
+
+        \BuildServer\BuildQueue::deleteBuild($buildId);
+
+        return ['message' => '删除成功'];
     }
 }

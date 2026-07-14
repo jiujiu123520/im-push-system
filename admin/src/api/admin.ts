@@ -33,7 +33,7 @@ export function toggleAdminStatusApi(id: number, status: number) {
 
 // 重置管理员密码
 export function resetAdminPasswordApi(id: number, password: string) {
-  return put(`/admin/admins/${id}/password`, { password })
+  return put(`/admin/users/${id}/password`, { password })
 }
 
 // 获取所有角色（用于分配）

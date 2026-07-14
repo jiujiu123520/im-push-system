@@ -28,19 +28,20 @@ Environment=ANDROID_HOME=/opt/android-sdk
 Environment=ANDROID_SDK_ROOT=/opt/android-sdk
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools
 
-# ========= cgroup 资源限制（防止 2H2G 服务器卡死）=========
-# 内存硬限制 2G（Compose 首次构建需要较多内存，配合 swap 兜底）
-MemoryMax=2G
-# 内存软限制 1.5G（超过此值内核开始回收内存）
-MemoryHigh=1536M
-# CPU 限制为 1.5 核（留 0.5 核给系统服务）
+# ========= cgroup 资源限制（2H2G 服务器平衡策略）=========
+# 内存硬限制 1.5G（留 500MB 给 MySQL/Redis/PHP/Nginx 等系统服务）
+# JVM 堆 768m + Metaspace 256m ≈ 1G，加上 native 工具（aapt2/d8）约 400MB
+MemoryMax=1536M
+# 内存软限制 1.2G（超过此值内核开始回收，给构建留足空间）
+MemoryHigh=1200M
+# CPU 限制为 1.5 核（留 0.5 核给系统服务保持响应）
 CPUQuota=150%
-# 最大任务数 256（防止 Gradle fork 炸弹）
-TasksMax=256
+# 最大任务数 128（足够 Gradle fork 子进程，同时防止 fork 炸弹）
+TasksMax=128
 # 文件描述符限制
 LimitNOFILE=65536
 # 进程数限制
-LimitNPROC=512
+LimitNPROC=256
 # 禁止产生 core dump
 LimitCORE=0
 

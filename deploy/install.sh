@@ -925,10 +925,11 @@ if [[ "$INSTALL_ANDROID" == "1" ]]; then
     step "8" "安装 Android APP 打包环境"
 
     # 创建 swap 交换分区（2G 内存服务器构建 Android 时防止 OOM 卡死）
-    SWAP_SIZE_MB=2048
+    # 3G swap：JVM 堆 768m + 系统服务 ~1G，swap 兜底构建峰值内存
+    SWAP_SIZE_MB=3072
     CURRENT_SWAP=$(swapon --show 2>/dev/null | tail -n +2 | wc -l)
     TOTAL_SWAP_MB=$(awk '/SwapTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
-    if [[ "${CURRENT_SWAP}" -eq 0 ]] && [[ "${TOTAL_SWAP_MB}" -lt 1024 ]]; then
+    if [[ "${CURRENT_SWAP}" -eq 0 ]] && [[ "${TOTAL_SWAP_MB}" -lt 2048 ]]; then
         info "创建 ${SWAP_SIZE_MB}MB swap 交换分区（防止 Android 构建时 OOM）..."
         if fallocate -l "${SWAP_SIZE_MB}M" /swapfile 2>/dev/null; then
             chmod 600 /swapfile
@@ -938,14 +939,20 @@ if [[ "$INSTALL_ANDROID" == "1" ]]; then
             if ! grep -q '/swapfile' /etc/fstab; then
                 echo '/swapfile none swap sw 0 0' >> /etc/fstab
             fi
-            # 仅在内存紧张时使用 swap（swappiness=10）
-            sysctl -w vm.swappiness=10 >/dev/null 2>&1 || true
+            # swappiness=20：构建期间适度使用 swap，避免 OOM 但不过度拖慢
+            sysctl -w vm.swappiness=20 >/dev/null 2>&1 || true
+            # 持久化 swappiness
+            if ! grep -q 'vm.swappiness' /etc/sysctl.conf 2>/dev/null; then
+                echo 'vm.swappiness=20' >> /etc/sysctl.conf
+            fi
             info "swap 创建完成（${SWAP_SIZE_MB}MB）"
         else
             warn "swap 创建失败（fallocate 不支持），建议手动创建 swap"
         fi
     else
         info "swap 已存在（${TOTAL_SWAP_MB}MB），跳过创建"
+        # 确保 swappiness 设置合理
+        sysctl -w vm.swappiness=20 >/dev/null 2>&1 || true
     fi
 
     ANDROID_SETUP="${PROJECT_DIR}/build/setup.sh"

@@ -239,6 +239,9 @@ export interface AppBuildForm {
   ws_url?: string
   icon_path?: string
   package_name?: string
+  version?: string
+  platform?: 'android' | 'ios'
+  build_type?: 'release' | 'debug'
 }
 
 // ---- 开放 API ----

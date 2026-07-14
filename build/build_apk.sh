@@ -31,14 +31,18 @@ KEYSTORE_DIR="$BUILD_DIR/keystore"
 KEYSTORE_PROPS="$KEYSTORE_DIR/keystore.properties"
 KEYSTORE_FILE="$KEYSTORE_DIR/release.keystore"
 
-# ---------------- 资源预检查（防止 2H2G 服务器构建时 OOM）----------------
+# ---------------- 资源预检查（防止 2H2G 服务器构建时 OOM，但不限制太死）----------------
 check_resources() {
-    # 检查可用内存（至少 150MB，配合 swap）
+    # 检查可用内存（至少 80MB 即可启动，配合 swap 兜底）
+    # 2G 服务器 MySQL+Redis+PHP 常驻后可用内存常低于 150MB，阈值过高会导致永远无法构建
     local available_mem
     available_mem=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
-    if [[ "${available_mem}" -lt 150 ]]; then
-        echo "[ERROR] 可用内存不足 150MB（当前 ${available_mem}MB），拒绝构建以防止服务器卡死"
+    if [[ "${available_mem}" -lt 80 ]]; then
+        echo "[ERROR] 可用内存不足 80MB（当前 ${available_mem}MB），拒绝构建以防止服务器卡死"
         exit 1
+    fi
+    if [[ "${available_mem}" -lt 150 ]]; then
+        echo "[WARN] 可用内存较低（${available_mem}MB < 150MB），将依赖 swap 进行构建，速度可能较慢"
     fi
 
     # 检查磁盘空间（至少 2GB）
@@ -261,7 +265,9 @@ set +e
 # --max-workers=1: 限制单 worker，避免多 JVM 并发（2G 服务器优化）
 # -Dorg.gradle.parallel=false: 禁用并行构建
 # JVM 堆内存由 gradle.properties 中的 org.gradle.jvmargs 控制
-"$GRADLEW" "$GRADLE_TASK" --no-daemon --max-workers=1 -Dorg.gradle.parallel=false --stacktrace 2>&1 | tee -a "$LOG_FILE"
+# nice -n 10: 降低 CPU 优先级，让系统服务保持响应
+# ionice -c 2 -n 7: 降低 IO 优先级，避免磁盘 IO 卡死其他服务
+nice -n 10 ionice -c 2 -n 7 "$GRADLEW" "$GRADLE_TASK" --no-daemon --max-workers=1 -Dorg.gradle.parallel=false --stacktrace 2>&1 | tee -a "$LOG_FILE"
 GRADLE_EXIT=${PIPESTATUS[0]}
 set -e
 

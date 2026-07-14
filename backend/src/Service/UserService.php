@@ -73,11 +73,16 @@ class UserService
             $fail['message'] = '密码长度需在 6-64 之间';
             return $fail;
         }
-        if (!preg_match('/^1[3-9]\d{9}$/', $phone)) {
+        // 手机号和邮箱至少填写一项，格式校验仅对已填写的字段生效
+        if ($phone === '' && $email === '') {
+            $fail['message'] = '手机号与邮箱至少填写一项';
+            return $fail;
+        }
+        if ($phone !== '' && !preg_match('/^1[3-9]\d{9}$/', $phone)) {
             $fail['message'] = '手机号格式不正确';
             return $fail;
         }
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $fail['message'] = '邮箱格式不正确';
             return $fail;
         }
@@ -87,11 +92,11 @@ class UserService
             $fail['message'] = '用户名已被占用';
             return $fail;
         }
-        if (self::findByPhone($phone) !== null) {
+        if ($phone !== '' && self::findByPhone($phone) !== null) {
             $fail['message'] = '手机号已注册';
             return $fail;
         }
-        if (self::findByEmail($email) !== null) {
+        if ($email !== '' && self::findByEmail($email) !== null) {
             $fail['message'] = '邮箱已注册';
             return $fail;
         }
