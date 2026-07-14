@@ -50,15 +50,40 @@ class AdminController
         $captchaToken = (string)($body['captcha_token'] ?? '');
         $captchaInput = (string)($body['captcha_input'] ?? '');
 
-        $result = AdminService::login($username, $password, $captchaToken, $captchaInput);
+        $ip = AdminAuth::getClientIp($context);
+        $result = AdminService::login($username, $password, $captchaToken, $captchaInput, $ip);
+
+        // UA 与设备信息（成功/失败均需记录）
+        $ua = (string)($context['header']['user-agent'] ?? $context['server']['http_user_agent'] ?? $_SERVER['HTTP_USER_AGENT'] ?? '');
+        $deviceInfo = self::parseUserAgent($ua);
 
         if (!$result['success']) {
+            // 失败也写入 admin_login_logs（status=0），便于审计爆破行为
+            $failAdminId = 0;
+            try {
+                $exist = \App\Service\Database::fetch(
+                    'SELECT id FROM admins WHERE username = ? LIMIT 1',
+                    [$username]
+                );
+                if ($exist !== false) {
+                    $failAdminId = (int)$exist['id'];
+                }
+            } catch (\Throwable $e) {
+            }
+            try {
+                \App\Service\Database::execute(
+                    'INSERT INTO admin_login_logs (admin_id, username, ip, user_agent, device, browser, os, status, message)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)',
+                    [$failAdminId, $username, $ip, $ua, $deviceInfo['device'], $deviceInfo['browser'], $deviceInfo['os'], $result['message']]
+                );
+            } catch (\Throwable $e) {
+                // admin_login_logs 表可能不存在，忽略
+            }
             Response::fail($context['response'], $result['message'], Response::CODE_ERROR);
             return false;
         }
 
-        // 记录登录日志（此时已拿到 admin_id）
-        $ip = AdminAuth::getClientIp($context);
+        // 记录操作日志（此时已拿到 admin_id）
         $adminId = (int)($result['admin']['id'] ?? 0);
         AdminService::logAction(
             $adminId,
@@ -70,8 +95,6 @@ class AdminController
         );
 
         // 记录详细登录日志到 admin_login_logs 表
-        $ua = (string)($_SERVER['HTTP_USER_AGENT'] ?? $context['server']['http_user_agent'] ?? $context['header']['user-agent'] ?? '');
-        $deviceInfo = self::parseUserAgent($ua);
         try {
             \App\Service\Database::execute(
                 'INSERT INTO admin_login_logs (admin_id, username, ip, user_agent, device, browser, os, status, message)

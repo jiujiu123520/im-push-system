@@ -189,8 +189,16 @@ class HttpServer
 
             Response::ok($response, $result);
         } catch (Throwable $e) {
-            // 统一异常处理
-            Response::fail($response, '服务器内部错误：' . $e->getMessage(), Response::CODE_INTERNAL, 500);
+            // 统一异常处理：详情写入日志，对外返回通用提示，避免泄露敏感信息
+            $trace = $e->getTraceAsString();
+            error_log(sprintf(
+                "[HttpServer] %s in %s:%d\n%s",
+                $e->getMessage(),
+                $e->getFile(),
+                $e->getLine(),
+                $trace
+            ));
+            Response::fail($response, '服务器内部错误，请稍后再试', Response::CODE_INTERNAL, 500);
         }
     }
 

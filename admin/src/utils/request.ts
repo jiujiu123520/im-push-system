@@ -52,14 +52,19 @@ service.interceptors.response.use(
       return response
     }
 
-    // 业务码处理
-    if (res.code !== 0 && res.code !== 200) {
+    // 业务码处理：code === 0 表示成功，其余均为失败
+    if (res.code !== 0) {
       // 401: token 失效 / 未登录 — 静默处理，由 handleRelogin 统一弹框
-      if (res.code === 401 || res.code === 40101) {
+      if (res.code === 401) {
         handleRelogin()
         return Promise.reject(new Error(res.message || '登录已失效'))
       }
-      ElMessage.error(res.message || '请求异常')
+      // 登录接口失败时不在此处弹错误（避免与 login/index.vue 双重提示），
+      // 其他接口在此统一弹出
+      const isLoginApi = response.config.url?.includes('/admin/login')
+      if (!isLoginApi) {
+        ElMessage.error(res.message || '请求异常')
+      }
       return Promise.reject(new Error(res.message || 'Error'))
     }
     return res as unknown as typeof response
@@ -67,11 +72,13 @@ service.interceptors.response.use(
   (error) => {
     NProgress.done()
     const status = error.response?.status
-    let msg = error.message || '网络异常'
+    // 尝试从响应体中取出后端返回的 message
+    const backendMsg = error.response?.data?.message
+    let msg = backendMsg || error.message || '网络异常'
 
     if (status === 401) {
       handleRelogin()
-      return Promise.reject(new Error('登录状态已失效'))
+      return Promise.reject(new Error(msg || '登录状态已失效'))
     } else if (status === 403) {
       msg = '没有权限访问该资源'
     } else if (status === 404) {
@@ -82,10 +89,12 @@ service.interceptors.response.use(
       msg = '请求超时，请稍后重试'
     }
 
-    if (status !== 401) {
+    // 登录接口的错误由 login/index.vue 统一提示，避免双重弹框
+    const isLoginApi = error.config?.url?.includes('/admin/login')
+    if (status !== 401 && !isLoginApi) {
       ElMessage.error(msg)
     }
-    return Promise.reject(error)
+    return Promise.reject(new Error(msg))
   }
 )
 

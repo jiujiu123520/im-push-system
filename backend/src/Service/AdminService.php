@@ -17,60 +17,106 @@ class AdminService
     /**
      * 管理员登录（独立接口，签发带 role 的 JWT）
      *
+     * 校验顺序（避免验证码被无谓消费、避免账号状态信息泄露）：
+     *   1. IP 黑名单检查
+     *   2. 登录失败次数限制（Redis 计数）
+     *   3. 用户名/密码非空
+     *   4. 查询管理员（用户名不存在与密码错误返回相同提示，防止枚举）
+     *   5. 账号状态检查
+     *   6. 密码校验
+     *   7. 图形验证码校验（最后消费，密码错误时不浪费验证码）
+     *   8. 清除失败计数并签发 JWT
+     *
      * @param string $username      管理员用户名
      * @param string $password      明文密码
      * @param string $captchaToken  图形验证码 token
      * @param string $captchaInput  用户输入的图形验证码
+     * @param string $ip            登录 IP（用于黑名单与失败计数）
      * @return array ["success" => bool, "message" => string, "token" => string|null, "admin" => array|null]
      */
     public static function login(
         string $username,
         string $password,
         string $captchaToken,
-        string $captchaInput
+        string $captchaInput,
+        string $ip = ''
     ): array {
-        // 1. 校验图形验证码（受系统设置 captcha.enabled 控制，默认开启）
-        $captchaEnabled = true;
-        try {
-            $row = Database::fetch(
-                'SELECT config_value FROM admin_settings WHERE config_key = ? LIMIT 1',
-                ['settings_captcha']
-            );
-            if ($row !== false) {
-                $cfg = json_decode((string)$row['config_value'], true);
-                if (is_array($cfg) && array_key_exists('enabled', $cfg)) {
-                    $captchaEnabled = (bool)$cfg['enabled'];
+        $empty = ['success' => false, 'message' => '', 'token' => null, 'admin' => null];
+
+        // 1. IP 黑名单检查
+        if ($ip !== '') {
+            try {
+                $blacklist = new BlacklistService();
+                if ($blacklist->check('ip', $ip)) {
+                    $empty['message'] = '您的 IP 已被加入黑名单，请联系管理员';
+                    return $empty;
                 }
+            } catch (\Throwable $e) {
+                // 黑名单服务异常时不阻断登录，避免影响正常用户
             }
-        } catch (\Throwable $e) {
-            // 表可能不存在或读取失败，保持默认开启
         }
 
-        if ($captchaEnabled && !CaptchaService::verifyImageCaptcha($captchaToken, $captchaInput)) {
-            return ['success' => false, 'message' => '图形验证码错误或已过期', 'token' => null, 'admin' => null];
+        // 2. 登录失败次数限制（Redis 计数）
+        $failLimit = self::getLoginFailLimit();
+        $failKey = 'admin:login_fail:' . ($ip !== '' ? $ip : $username);
+        $failCount = 0;
+        if ($failLimit > 0) {
+            try {
+                $failCount = (int)Redis::get($failKey);
+            } catch (\Throwable $e) {
+                // Redis 不可用时降级为不限制
+            }
+            if ($failCount >= $failLimit) {
+                $mins = 30;
+                try {
+                    $ttl = (int)Redis::ttl($failKey);
+                    if ($ttl > 0) {
+                        $mins = (int)max(1, ceil($ttl / 60));
+                    }
+                } catch (\Throwable $e) {
+                }
+                $empty['message'] = "登录失败次数过多，请 {$mins} 分钟后再试";
+                return $empty;
+            }
         }
 
         if ($username === '' || $password === '') {
-            return ['success' => false, 'message' => '用户名或密码不能为空', 'token' => null, 'admin' => null];
+            $empty['message'] = '用户名或密码不能为空';
+            return $empty;
         }
 
-        // 2. 查询管理员
+        // 4. 查询管理员
         $admin = self::findByUsername($username);
         if ($admin === null) {
-            return ['success' => false, 'message' => '用户名或密码错误', 'token' => null, 'admin' => null];
+            self::recordLoginFailure($failKey);
+            $empty['message'] = '用户名或密码错误';
+            return $empty;
         }
 
-        // 3. 校验状态
+        // 5. 账号状态检查
         if ((int)$admin['status'] !== 1) {
-            return ['success' => false, 'message' => '管理员账号已被禁用', 'token' => null, 'admin' => null];
+            // 不区分"账号不存在"与"账号禁用"过于严格，这里保留禁用提示以便用户联系管理员
+            $empty['message'] = '账号已被禁用，请联系超级管理员';
+            return $empty;
         }
 
-        // 4. 校验密码
+        // 6. 密码校验
         if (!password_verify($password, $admin['password_hash'])) {
-            return ['success' => false, 'message' => '用户名或密码错误', 'token' => null, 'admin' => null];
+            self::recordLoginFailure($failKey);
+            $empty['message'] = '用户名或密码错误';
+            return $empty;
         }
 
-        // 5. 签发带 role 的 JWT Token
+        // 7. 图形验证码校验（最后消费，密码错误时验证码仍可用）
+        if (self::isCaptchaEnabled() && !CaptchaService::verifyImageCaptcha($captchaToken, $captchaInput)) {
+            $empty['message'] = '图形验证码错误或已过期';
+            return $empty;
+        }
+
+        // 8. 登录成功，清除失败计数
+        self::clearLoginFailure($failKey);
+
+        // 9. 签发带 role 的 JWT Token
         $token = Jwt::issue([
             'admin_id' => (int)$admin['id'],
             'username' => $admin['username'],
@@ -84,6 +130,87 @@ class AdminService
             'token'   => $token,
             'admin'   => self::formatAdminInfo($admin),
         ];
+    }
+
+    /**
+     * 读取验证码开关（admin_settings.settings_captcha.enabled，默认开启）
+     *
+     * @return bool
+     */
+    private static function isCaptchaEnabled(): bool
+    {
+        try {
+            $row = Database::fetch(
+                'SELECT config_value FROM admin_settings WHERE config_key = ? LIMIT 1',
+                ['settings_captcha']
+            );
+            if ($row !== false) {
+                $cfg = json_decode((string)$row['config_value'], true);
+                if (is_array($cfg) && array_key_exists('enabled', $cfg)) {
+                    return (bool)$cfg['enabled'];
+                }
+            }
+        } catch (\Throwable $e) {
+            // 表可能不存在或读取失败，保持默认开启
+        }
+        return true;
+    }
+
+    /**
+     * 读取登录失败次数上限（admin_settings.settings_security.loginFailLimit，默认 5，0=不限制）
+     *
+     * @return int
+     */
+    private static function getLoginFailLimit(): int
+    {
+        try {
+            $row = Database::fetch(
+                'SELECT config_value FROM admin_settings WHERE config_key = ? LIMIT 1',
+                ['settings_security']
+            );
+            if ($row !== false) {
+                $cfg = json_decode((string)$row['config_value'], true);
+                if (is_array($cfg) && isset($cfg['loginFailLimit'])) {
+                    $val = (int)$cfg['loginFailLimit'];
+                    return $val >= 0 ? $val : 5;
+                }
+            }
+        } catch (\Throwable $e) {
+        }
+        return 5;
+    }
+
+    /**
+     * 记录一次登录失败（Redis INCR + 30 分钟过期）
+     *
+     * @param string $failKey
+     * @return void
+     */
+    private static function recordLoginFailure(string $failKey): void
+    {
+        try {
+            $count = (int)Redis::incr($failKey);
+            if ($count === 1) {
+                // 首次失败设置 30 分钟过期
+                Redis::expire($failKey, 1800);
+            }
+        } catch (\Throwable $e) {
+            // Redis 不可用时忽略
+        }
+    }
+
+    /**
+     * 清除登录失败计数
+     *
+     * @param string $failKey
+     * @return void
+     */
+    private static function clearLoginFailure(string $failKey): void
+    {
+        try {
+            Redis::del($failKey);
+        } catch (\Throwable $e) {
+        }
     }
 
     /**

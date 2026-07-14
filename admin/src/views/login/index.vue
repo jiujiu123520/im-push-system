@@ -229,6 +229,7 @@ async function handleLogin() {
     router.replace(redirect)
   } catch (err) {
     refreshCaptcha()
+    // request.ts 已对登录接口跳过自动弹框，这里统一弹出错误提示
     ElMessage.error(err instanceof Error ? err.message : '登录失败，请重试')
   } finally {
     loading.value = false
