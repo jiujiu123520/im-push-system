@@ -85,6 +85,10 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    // 用户已设置的 Key 与 build_config.json 中的默认 Key（用于显示提示）
+    val userKey by repo.preferencesManager.keyFlow.collectAsState(initial = "")
+    val defaultKey by repo.preferencesManager.defaultKeyFlow.collectAsState(initial = "")
+
     var testing by remember { mutableStateOf(false) }
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -103,7 +107,8 @@ fun HomeScreen(
                                 testing = true
                                 try {
                                     val key = repo.preferencesManager.keyFlow.first()
-                                    val serverUrl = repo.preferencesManager.serverUrlFlow.first()
+                                        .ifBlank { repo.preferencesManager.defaultKeyFlow.first() }
+                                    val serverUrl = repo.preferencesManager.httpServerUrlFlow.first()
                                     if (key.isBlank()) {
                                         snackbarHostState.showSnackbar("请先输入 Key")
                                         return@launch
@@ -162,7 +167,8 @@ fun HomeScreen(
                             testing = true
                             try {
                                 val key = repo.preferencesManager.keyFlow.first()
-                                val serverUrl = repo.preferencesManager.serverUrlFlow.first()
+                                    .ifBlank { repo.preferencesManager.defaultKeyFlow.first() }
+                                val serverUrl = repo.preferencesManager.httpServerUrlFlow.first()
                                 if (key.isBlank()) {
                                     snackbarHostState.showSnackbar("请先输入 Key")
                                     return@launch
@@ -195,6 +201,16 @@ fun HomeScreen(
                     }
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.home_test_push))
+                }
+            }
+            // 默认 Key 提示：用户未设置 Key 且 build_config.json 提供了默认 Key 时显示
+            if (userKey.isBlank() && defaultKey.isNotBlank()) {
+                item {
+                    Text(
+                        text = "默认 Key：$defaultKey（未设置自定义 Key 时使用）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
                 }
             }
             item {

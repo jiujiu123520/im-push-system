@@ -248,13 +248,13 @@ echo ""
 info "开始更新流程..."
 
 # ============================================================
-# [1/4] 拉取最新代码（支持 gh-proxy 代理）
+# [1/5] 拉取最新代码（支持 gh-proxy 代理）
 # ============================================================
 if step_done "step1_pull_code"; then
-    info "跳过 [1/4] 拉取最新代码（已完成）"
+    info "跳过 [1/5] 拉取最新代码（已完成）"
 else
-    CURRENT_STEP="[1/4] 拉取最新代码"
-    step "[1/4] 拉取最新代码..."
+    CURRENT_STEP="[1/5] 拉取最新代码"
+    step "[1/5] 拉取最新代码..."
 
     # 配置代理
     setup_git_proxy
@@ -275,13 +275,13 @@ else
 fi
 
 # ============================================================
-# [2/4] 更新依赖（composer install --no-dev --optimize-autoloader）
+# [2/5] 更新依赖（composer install --no-dev --optimize-autoloader）
 # ============================================================
 if step_done "step2_dependencies"; then
-    info "跳过 [2/4] 更新依赖（已完成）"
+    info "跳过 [2/5] 更新依赖（已完成）"
 else
-    CURRENT_STEP="[2/4] 更新依赖"
-    step "[2/4] 更新依赖..."
+    CURRENT_STEP="[2/5] 更新依赖"
+    step "[2/5] 更新依赖..."
 
     info "安装后端依赖 (composer install --no-dev --optimize-autoloader)..."
     cd "${PROJECT_DIR}/backend"
@@ -309,17 +309,17 @@ else
 fi
 
 # ============================================================
-# [3/4] 数据库迁移（如果 backend/database/migrations 下有SQL文件则执行，可跳过）
+# [3/5] 数据库迁移（如果 backend/database/migrations 下有SQL文件则执行，可跳过）
 # ============================================================
 if [[ "${SKIP_MIGRATION}" == "1" ]]; then
-    CURRENT_STEP="[3/4] 跳过数据库迁移"
-    step "[3/4] 跳过数据库迁移..."
+    CURRENT_STEP="[3/5] 跳过数据库迁移"
+    step "[3/5] 跳过数据库迁移..."
     warn "已跳过数据库迁移 (--skip-migration)"
 elif step_done "step3_migration"; then
-    info "跳过 [3/4] 数据库迁移（已完成）"
+    info "跳过 [3/5] 数据库迁移（已完成）"
 else
-    CURRENT_STEP="[3/4] 数据库迁移"
-    step "[3/4] 执行数据库迁移..."
+    CURRENT_STEP="[3/5] 数据库迁移"
+    step "[3/5] 执行数据库迁移..."
 
     MIGRATIONS_DIR="${PROJECT_DIR}/backend/database/migrations"
 

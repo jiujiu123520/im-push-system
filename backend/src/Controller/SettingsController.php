@@ -604,21 +604,25 @@ class SettingsController
         $progressNum = $progressData['progress'] ?? 0;
         $status = $progressData['status'] ?? 'running';
 
-        // 分析日志中的步骤标记
-        if (strpos($logText, '[1/4]') !== false || strpos($logText, '拉取最新代码') !== false) {
-            $step = '[1/4] 拉取最新代码';
-            $progressNum = 25;
+        // 分析日志中的步骤标记（5 步制）
+        if (strpos($logText, '[1/5]') !== false || strpos($logText, '拉取最新代码') !== false) {
+            $step = '[1/5] 拉取最新代码';
+            $progressNum = 20;
         }
-        if (strpos($logText, '[2/4]') !== false || strpos($logText, '更新依赖') !== false) {
-            $step = '[2/4] 更新依赖';
-            $progressNum = 50;
+        if (strpos($logText, '[2/5]') !== false || strpos($logText, '更新依赖') !== false) {
+            $step = '[2/5] 更新依赖';
+            $progressNum = 40;
         }
-        if (strpos($logText, '[3/4]') !== false || strpos($logText, '数据库迁移') !== false) {
-            $step = '[3/4] 数据库迁移';
-            $progressNum = 75;
+        if (strpos($logText, '[3/5]') !== false || strpos($logText, '数据库迁移') !== false) {
+            $step = '[3/5] 数据库迁移';
+            $progressNum = 60;
         }
-        if (strpos($logText, '[4/4]') !== false || strpos($logText, '重启服务') !== false) {
-            $step = '[4/4] 重启服务';
+        if (strpos($logText, '[4/5]') !== false || strpos($logText, '设置 APP 打包环境') !== false) {
+            $step = '[4/5] 设置 APP 打包环境';
+            $progressNum = 80;
+        }
+        if (strpos($logText, '[5/5]') !== false || strpos($logText, '重启服务') !== false) {
+            $step = '[5/5] 重启服务';
             $progressNum = 90;
         }
 
@@ -739,6 +743,10 @@ class SettingsController
 
         if ($updated) {
             file_put_contents($envFile, implode("\n", $lines));
+
+            // 自动重启服务（非阻塞，后台执行）
+            $restartCmd = 'sudo systemctl restart push-http push-websocket 2>&1 > /dev/null &';
+            shell_exec($restartCmd);
         }
 
         return $updated;

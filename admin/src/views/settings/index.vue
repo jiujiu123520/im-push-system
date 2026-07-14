@@ -1146,11 +1146,11 @@ async function saveSection(section: 'server' | 'push' | 'captcha' | 'security') 
     // 端口变更需重启服务生效
     if (res.data?.need_restart) {
       ElMessageBox.alert(
-        '端口配置已写入 .env 文件，需重启以下服务后生效：\n\npush-http（HTTP API）\npush-websocket（WebSocket 推送）\n\n请在服务器执行：\nsudo systemctl restart push-http push-websocket',
-        '需要重启服务',
+        '端口配置已写入 .env 文件并自动重启了相关服务。\n\n如果服务未自动重启（权限不足），请手动执行：\nsudo systemctl restart push-http push-websocket',
+        '端口已更新',
         {
           confirmButtonText: '我知道了',
-          type: 'warning',
+          type: 'success',
           appendTo: 'body'
         }
       )

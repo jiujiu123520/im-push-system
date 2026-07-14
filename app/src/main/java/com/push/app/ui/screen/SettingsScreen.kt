@@ -74,15 +74,21 @@ fun SettingsScreen() {
     val savedServerUrl by repo.preferencesManager.serverUrlFlow.collectAsState(
         initial = PreferencesManager.DEFAULT_SERVER_URL
     )
+    val savedHttpServerUrl by repo.preferencesManager.httpServerUrlFlow.collectAsState(
+        initial = PreferencesManager.DEFAULT_HTTP_SERVER_URL
+    )
     val savedHeartbeat by repo.preferencesManager.heartbeatIntervalFlow.collectAsState(
         initial = PreferencesManager.DEFAULT_HEARTBEAT
     )
     val savedKey by repo.preferencesManager.keyFlow.collectAsState(initial = "")
+    val savedDefaultKey by repo.preferencesManager.defaultKeyFlow.collectAsState(initial = "")
 
     // 本地编辑态（首次回填已保存值）
     var serverUrl by remember { mutableStateOf(savedServerUrl) }
+    var httpServerUrl by remember { mutableStateOf(savedHttpServerUrl) }
     var heartbeat by remember { mutableStateOf(savedHeartbeat.toFloat()) }
     LaunchedEffect(savedServerUrl) { serverUrl = savedServerUrl }
+    LaunchedEffect(savedHttpServerUrl) { httpServerUrl = savedHttpServerUrl }
     LaunchedEffect(savedHeartbeat) { heartbeat = savedHeartbeat.toFloat() }
 
     var showClearKeyDialog by remember { mutableStateOf(false) }
@@ -106,9 +112,17 @@ fun SettingsScreen() {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(
+                        value = httpServerUrl,
+                        onValueChange = { httpServerUrl = it },
+                        label = { Text("HTTP API 地址") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
                         value = serverUrl,
                         onValueChange = { serverUrl = it },
-                        label = { Text(stringResource(R.string.settings_server_address)) },
+                        label = { Text("WebSocket 地址") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                         modifier = Modifier.fillMaxWidth(),
@@ -127,6 +141,7 @@ fun SettingsScreen() {
                         onClick = {
                             scope.launch {
                                 repo.saveServerUrl(serverUrl.trim())
+                                repo.preferencesManager.saveHttpServerUrl(httpServerUrl.trim())
                                 repo.saveHeartbeatInterval(heartbeat.roundToInt())
                                 // 配置变更后重连以应用新参数
                                 repo.disconnect()
@@ -206,6 +221,14 @@ fun SettingsScreen() {
                         Text(
                             text = "当前 Key：${if (maskedKey.isBlank()) "未设置" else maskedKey.take(4) + "****" + maskedKey.takeLast(2)}",
                             style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    if (savedDefaultKey.isNotBlank()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "默认 Key：$savedDefaultKey（未设置自定义 Key 时使用）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
                         )
                     }
                     Spacer(Modifier.height(12.dp))

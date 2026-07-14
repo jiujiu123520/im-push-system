@@ -53,7 +53,9 @@ class TestPushApi(private val context: Context) {
         serverUrl: String,
         deviceId: String,
     ): TestPushResult = withContext(Dispatchers.IO) {
-        val url = serverUrl.trimEnd('/') + "/api/test-push-self"
+        // 兼容传入 ws/wss 协议地址，自动转换为 http/https
+        val httpUrl = normalizeHttpUrl(serverUrl)
+        val url = httpUrl.trimEnd('/') + "/api/test-push-self"
 
         val body = json.encodeToString(
             TestPushRequest.serializer(),
@@ -92,6 +94,21 @@ class TestPushApi(private val context: Context) {
             message = obj["message"]?.jsonPrimitive?.contentOrNull ?: "",
             elapsed_ms = obj["elapsed_ms"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0,
         )
+    }
+
+    /**
+     * 将 WebSocket 协议地址转换为 HTTP 协议地址：
+     * ws://  → http://
+     * wss:// → https://
+     * 其他协议保持不变。
+     */
+    private fun normalizeHttpUrl(url: String): String {
+        val trimmed = url.trim()
+        return when {
+            trimmed.startsWith("ws://") -> "http://" + trimmed.removePrefix("ws://")
+            trimmed.startsWith("wss://") -> "https://" + trimmed.removePrefix("wss://")
+            else -> trimmed
+        }
     }
 
     @Serializable
