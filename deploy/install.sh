@@ -80,6 +80,148 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 info "脚本目录: ${SCRIPT_DIR}"
 
 # ============================================================
+# 环境检测：检测已安装的组件，已安装则跳过
+# ============================================================
+info "开始环境检测..."
+
+# 检测命令是否存在
+has_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+# 检测 PHP
+PHP_INSTALLED=false
+if has_cmd php; then
+    PHP_VERSION=$(php -v 2>/dev/null | head -n1 | awk '{print $2}')
+    PHP_MAJOR=$(echo "$PHP_VERSION" | cut -d. -f1)
+    if [[ "$PHP_MAJOR" -ge 8 ]]; then
+        PHP_INSTALLED=true
+        info "  [已安装] PHP ${PHP_VERSION}"
+    else
+        warn "  [版本过低] PHP ${PHP_VERSION}，需要 8.0+，将重新安装"
+    fi
+fi
+
+# 检测 Swoole 扩展
+SWOOLE_INSTALLED=false
+if [[ "$PHP_INSTALLED" == "true" ]] && php -m 2>/dev/null | grep -q '^swoole$'; then
+    SWOOLE_INSTALLED=true
+    info "  [已安装] Swoole 扩展"
+fi
+
+# 检测 MySQL
+MYSQL_INSTALLED=false
+if has_cmd mysql; then
+    MYSQL_INSTALLED=true
+    info "  [已安装] MySQL/MariaDB 客户端"
+elif systemctl is-active --quiet mysql 2>/dev/null \
+    || systemctl is-active --quiet mysqld 2>/dev/null \
+    || systemctl is-active --quiet mariadb 2>/dev/null; then
+    MYSQL_INSTALLED=true
+    info "  [已安装] MySQL/MariaDB 服务"
+fi
+
+# 检测 Redis
+REDIS_INSTALLED=false
+if has_cmd redis-cli; then
+    REDIS_INSTALLED=true
+    info "  [已安装] Redis"
+elif systemctl is-active --quiet redis-server 2>/dev/null \
+    || systemctl is-active --quiet redis 2>/dev/null; then
+    REDIS_INSTALLED=true
+    info "  [已安装] Redis 服务"
+fi
+
+# 检测 Nginx
+NGINX_INSTALLED=false
+if has_cmd nginx; then
+    NGINX_INSTALLED=true
+    NGINX_VERSION=$(nginx -v 2>&1 | awk -F/ '{print $2}')
+    info "  [已安装] Nginx ${NGINX_VERSION}"
+fi
+
+# 检测 Node.js
+NODE_INSTALLED=false
+if has_cmd node; then
+    NODE_VERSION=$(node -v 2>/dev/null)
+    NODE_MAJOR=$(echo "$NODE_VERSION" | sed 's/v//' | cut -d. -f1)
+    if [[ "$NODE_MAJOR" -ge 16 ]]; then
+        NODE_INSTALLED=true
+        info "  [已安装] Node.js ${NODE_VERSION}"
+    else
+        warn "  [版本过低] Node.js ${NODE_VERSION}，需要 16+，将重新安装"
+    fi
+fi
+
+# 检测 Composer
+COMPOSER_INSTALLED=false
+if has_cmd composer; then
+    COMPOSER_INSTALLED=true
+    info "  [已安装] Composer"
+fi
+
+# 统计
+INSTALLED_COUNT=0
+[[ "$PHP_INSTALLED" == "true" ]] && ((INSTALLED_COUNT++))
+[[ "$SWOOLE_INSTALLED" == "true" ]] && ((INSTALLED_COUNT++))
+[[ "$MYSQL_INSTALLED" == "true" ]] && ((INSTALLED_COUNT++))
+[[ "$REDIS_INSTALLED" == "true" ]] && ((INSTALLED_COUNT++))
+[[ "$NGINX_INSTALLED" == "true" ]] && ((INSTALLED_COUNT++))
+[[ "$NODE_INSTALLED" == "true" ]] && ((INSTALLED_COUNT++))
+[[ "$COMPOSER_INSTALLED" == "true" ]] && ((INSTALLED_COUNT++))
+
+if [[ "$INSTALLED_COUNT" -eq 7 ]]; then
+    info "环境检测完成：所有依赖已安装，跳过系统依赖安装步骤"
+elif [[ "$INSTALLED_COUNT" -gt 0 ]]; then
+    info "环境检测完成：${INSTALLED_COUNT}/7 已安装，将仅安装缺失的组件"
+else
+    info "环境检测完成：未检测到已安装的依赖，将执行完整安装"
+fi
+
+# ============================================================
+# 读取已有配置（如果 .env 存在，从中读取数据库账号密码等）
+# ============================================================
+ENV_FILE="${PROJECT_DIR}/backend/.env"
+if [[ -f "$ENV_FILE" ]]; then
+    info "检测到已有 .env 配置文件，从中读取数据库配置..."
+
+    # 从 .env 读取配置（仅读取非空值覆盖默认值）
+    read_env_var() {
+        local key="$1"
+        local val
+        val=$(grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '"' || echo "")
+        echo "$val"
+    }
+
+    # 读取数据库配置
+    ENV_DB_NAME=$(read_env_var "DB_NAME")
+    ENV_DB_USER=$(read_env_var "DB_USER")
+    ENV_DB_PASS=$(read_env_var "DB_PASS")
+    ENV_DB_HOST=$(read_env_var "DB_HOST")
+    ENV_REDIS_HOST=$(read_env_var "REDIS_HOST")
+    ENV_REDIS_PORT=$(read_env_var "REDIS_PORT")
+    ENV_HTTP_PORT=$(read_env_var "HTTP_PORT")
+    ENV_WS_PORT=$(read_env_var "WEBSOCKET_PORT")
+
+    # 仅在 .env 中的值非空时覆盖默认值
+    [[ -n "$ENV_DB_NAME" ]] && DB_NAME="$ENV_DB_NAME"
+    [[ -n "$ENV_DB_USER" ]] && DB_USER="$ENV_DB_USER"
+    [[ -n "$ENV_DB_PASS" ]] && DB_PASS="$ENV_DB_PASS"
+    [[ -n "$ENV_DB_HOST" ]] && DB_HOST="$ENV_DB_HOST"
+    [[ -n "$ENV_REDIS_HOST" ]] && REDIS_HOST="$ENV_REDIS_HOST"
+    [[ -n "$ENV_REDIS_PORT" ]] && REDIS_PORT="$ENV_REDIS_PORT"
+    [[ -n "$ENV_HTTP_PORT" ]] && HTTP_PORT="$ENV_HTTP_PORT"
+    [[ -n "$ENV_WS_PORT" ]] && WEBSOCKET_PORT="$ENV_WS_PORT"
+
+    info "  数据库名:   ${DB_NAME}"
+    info "  数据库用户: ${DB_USER}"
+    info "  数据库主机: ${DB_HOST}"
+    info "  HTTP 端口:  ${HTTP_PORT}"
+    info "  WS 端口:    ${WEBSOCKET_PORT}"
+    info "已从 .env 读取配置，将复用现有数据库账号密码"
+else
+    info "未检测到 .env 配置文件，将使用默认或环境变量配置"
+fi
+
+# ============================================================
 # 交互式安装选项
 # ============================================================
 echo ""
@@ -95,26 +237,26 @@ echo -e "  ${COLOR_GREEN}3.${COLOR_RESET} SSL 证书自动申请环境（acme.sh
 echo -e "  ${COLOR_GREEN}4.${COLOR_RESET} sudoers 权限配置（允许 www-data 重启服务/部署 Nginx）"
 echo ""
 
-# 交互式询问（除非通过环境变量预设）
-if [[ -t 0 ]]; then
-    read -p "是否安装 Android APP 打包环境？[Y/n] " -r reply
+# 交互式询问（使用 /dev/tty 确保在管道模式下也能读取用户输入）
+# 当通过 curl ... | bash 方式运行时，stdin 是管道，需要用 /dev/tty 读取终端输入
+ask_user() {
+    local prompt="$1"
+    local reply
+    read -p "$prompt [Y/n] " reply < /dev/tty
     case "$reply" in
-        [Nn]*|'' ) INSTALL_ANDROID=0 ;;
-        * ) INSTALL_ANDROID=1 ;;
+        [Nn]* ) echo "n" ;;
+        * ) echo "y" ;;
     esac
+}
 
-    read -p "是否安装 SSL 证书自动申请环境？[Y/n] " -r reply
-    case "$reply" in
-        [Nn]* ) INSTALL_SSL=0 ;;
-        * ) INSTALL_SSL=1 ;;
-    esac
+reply=$(ask_user "是否安装 Android APP 打包环境？")
+[[ "$reply" == "y" ]] && INSTALL_ANDROID=1 || INSTALL_ANDROID=0
 
-    read -p "是否配置 sudoers 权限？[Y/n] " -r reply
-    case "$reply" in
-        [Nn]* ) INSTALL_SUDOERS=0 ;;
-        * ) INSTALL_SUDOERS=1 ;;
-    esac
-fi
+reply=$(ask_user "是否安装 SSL 证书自动申请环境？")
+[[ "$reply" == "y" ]] && INSTALL_SSL=1 || INSTALL_SSL=0
+
+reply=$(ask_user "是否配置 sudoers 权限？")
+[[ "$reply" == "y" ]] && INSTALL_SUDOERS=1 || INSTALL_SUDOERS=0
 
 echo ""
 info "安装选项："
@@ -124,124 +266,189 @@ echo "  SSL 证书环境:    $([[ "$INSTALL_SSL" == "1" ]] && echo '安装' || e
 echo "  sudoers 配置:    $([[ "$INSTALL_SUDOERS" == "1" ]] && echo '配置' || echo '跳过')"
 echo ""
 
-read -p "确认开始安装？[Y/n] " -r reply
-case "$reply" in
-    [Nn]* ) warn "安装已取消"; exit 0 ;;
-esac
+reply=$(ask_user "确认开始安装？")
+[[ "$reply" != "y" ]] && { warn "安装已取消"; exit 0; }
 
 # ============================================================
-# 步骤 1: 安装系统依赖
+# 步骤 1: 安装系统依赖（已安装的组件自动跳过）
 # ============================================================
 step "1/7" "安装系统依赖"
 
+if [[ "$INSTALLED_COUNT" -eq 7 ]]; then
+    info "所有依赖已安装，跳过系统依赖安装步骤"
+else
+    info "需要安装的组件: $((7 - INSTALLED_COUNT))/7"
+fi
+
 if [[ "$PKG_MANAGER" == "apt-get" ]]; then
-    # 添加 PHP 8.2 PPA 源（Ubuntu）
-    if ! command -v add-apt-repository >/dev/null 2>&1; then
+    # PHP
+    if [[ "$PHP_INSTALLED" != "true" ]]; then
+        info "安装 PHP 8.2 及扩展..."
+        if ! command -v add-apt-repository >/dev/null 2>&1; then
+            apt-get update -y
+            apt-get install -y software-properties-common
+        fi
+        add-apt-repository -y ppa:ondrej/php
         apt-get update -y
-        apt-get install -y software-properties-common
+        apt-get install -y \
+            php8.2 php8.2-cli php8.2-common \
+            php8.2-mysql php8.2-redis php8.2-curl \
+            php8.2-mbstring php8.2-xml php8.2-zip \
+            php8.2-bcmath php8.2-gd php8.2-intl \
+            php-pear php8.2-dev libssl-dev
+    else
+        info "PHP 已安装，跳过"
     fi
-    add-apt-repository -y ppa:ondrej/php
-    apt-get update -y
 
-    # 安装 PHP 8.2 及所需扩展
-    apt-get install -y \
-        php8.2 php8.2-cli php8.2-common \
-        php8.2-mysql php8.2-redis php8.2-curl \
-        php8.2-mbstring php8.2-xml php8.2-zip \
-        php8.2-bcmath php8.2-gd php8.2-intl \
-        php-pear php8.2-dev libssl-dev
-
-    # 安装 Swoole 扩展
-    if ! php -m | grep -q '^swoole$'; then
+    # Swoole
+    if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
         info "正在编译安装 Swoole 扩展..."
-        pecl install swoole
+        yes '' | pecl install swoole
         echo "extension=swoole.so" > /etc/php/8.2/mods-available/swoole.ini
         php phpenmod -v 8.2 swoole
+    else
+        info "Swoole 扩展已安装，跳过"
     fi
 
-    # 安装 MySQL / Redis / Nginx / Node.js
-    apt-get install -y mysql-server redis-server nginx
-    # 安装 Node.js 18.x LTS
-    if ! command -v node >/dev/null 2>&1; then
+    # MySQL
+    if [[ "$MYSQL_INSTALLED" != "true" ]]; then
+        info "安装 MySQL..."
+        apt-get install -y mysql-server
+    else
+        info "MySQL 已安装，跳过"
+    fi
+
+    # Redis
+    if [[ "$REDIS_INSTALLED" != "true" ]]; then
+        info "安装 Redis..."
+        apt-get install -y redis-server
+    else
+        info "Redis 已安装，跳过"
+    fi
+
+    # Nginx
+    if [[ "$NGINX_INSTALLED" != "true" ]]; then
+        info "安装 Nginx..."
+        apt-get install -y nginx
+    else
+        info "Nginx 已安装，跳过"
+    fi
+
+    # Node.js
+    if [[ "$NODE_INSTALLED" != "true" ]]; then
+        info "安装 Node.js 18.x LTS..."
         curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
         apt-get install -y nodejs
+    else
+        info "Node.js 已安装，跳过"
     fi
 
-    # 安装 Composer
-    if ! command -v composer >/dev/null 2>&1; then
+    # Composer
+    if [[ "$COMPOSER_INSTALLED" != "true" ]]; then
         info "安装 Composer..."
         curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+    else
+        info "Composer 已安装，跳过"
     fi
 
 elif [[ "$PKG_MANAGER" == "yum" ]]; then
-    # 安装 EPEL 和 Remi 源（CentOS/RHEL）
-    yum install -y epel-release
+    # PHP
+    if [[ "$PHP_INSTALLED" != "true" ]]; then
+        yum install -y epel-release
 
-    # 检测系统主版本号（7/8/9）
-    OS_MAJOR_VER=""
-    if [[ -f /etc/os-release ]]; then
-        . /etc/os-release
-        OS_MAJOR_VER="${VERSION_ID%%.*}"
-    elif [[ -f /etc/redhat-release ]]; then
-        OS_MAJOR_VER=$(rpm -E %{rhel} 2>/dev/null || echo "")
-    fi
-    info "检测到系统主版本: ${OS_MAJOR_VER:-未知}"
+        # 检测系统主版本号（7/8/9）
+        OS_MAJOR_VER=""
+        if [[ -f /etc/os-release ]]; then
+            . /etc/os-release
+            OS_MAJOR_VER="${VERSION_ID%%.*}"
+        elif [[ -f /etc/redhat-release ]]; then
+            OS_MAJOR_VER=$(rpm -E %{rhel} 2>/dev/null || echo "")
+        fi
+        info "检测到系统主版本: ${OS_MAJOR_VER:-未知}"
 
-    # 根据 CentOS/RHEL 主版本号选择正确的 Remi 源
-    REMI_RELEASE_RPM=""
-    case "$OS_MAJOR_VER" in
-        7) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-7.rpm" ;;
-        8) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-8.rpm" ;;
-        9) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-9.rpm" ;;
-        *) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-8.rpm" ;;
-    esac
+        REMI_RELEASE_RPM=""
+        case "$OS_MAJOR_VER" in
+            7) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-7.rpm" ;;
+            8) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-8.rpm" ;;
+            9) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-9.rpm" ;;
+            *) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-8.rpm" ;;
+        esac
 
-    info "安装 Remi 源: ${REMI_RELEASE_RPM}"
-    yum install -y "$REMI_RELEASE_RPM" || {
-        warn "Remi 源安装失败，尝试使用本地已有的 PHP..."
-    }
+        info "安装 Remi 源: ${REMI_RELEASE_RPM}"
+        yum install -y "$REMI_RELEASE_RPM" || warn "Remi 源安装失败，尝试使用本地已有的 PHP..."
 
-    # CentOS 7 使用 yum-config-manager 启用 remi-php82 仓库
-    # CentOS 8/9 使用 dnf module 启用 PHP 8.2 模块
-    if [[ "$OS_MAJOR_VER" == "7" ]]; then
-        info "CentOS 7: 通过 yum-config-manager 启用 remi-php82 仓库..."
-        yum install -y yum-utils
-        yum-config-manager --enable remi-php82 || warn "启用 remi-php82 仓库失败，将尝试使用默认 PHP 源"
+        if [[ "$OS_MAJOR_VER" == "7" ]]; then
+            info "CentOS 7: 通过 yum-config-manager 启用 remi-php82 仓库..."
+            yum install -y yum-utils
+            yum-config-manager --enable remi-php82 || warn "启用 remi-php82 仓库失败，将尝试使用默认 PHP 源"
+        else
+            info "CentOS ${OS_MAJOR_VER}: 通过 dnf module 启用 PHP 8.2..."
+            yum module reset -y php || true
+            yum module enable -y php:remi-8.2 || warn "启用 PHP 8.2 模块失败，将尝试使用默认 PHP 源"
+        fi
+
+        info "安装 PHP 及扩展..."
+        yum install -y \
+            php php-cli php-common \
+            php-mysqlnd php-curl \
+            php-mbstring php-xml php-zip \
+            php-bcmath php-gd php-intl \
+            php-pear php-devel openssl-devel || warn "部分 PHP 包安装失败，请检查 yum 源配置"
+
+        # Redis 扩展
+        yum install -y php-pecl-redis5 2>/dev/null || yum install -y php-redis 2>/dev/null || warn "Redis 扩展安装失败，可后续手动安装"
     else
-        info "CentOS ${OS_MAJOR_VER}: 通过 dnf module 启用 PHP 8.2..."
-        yum module reset -y php || true
-        yum module enable -y php:remi-8.2 || warn "启用 PHP 8.2 模块失败，将尝试使用默认 PHP 源"
+        info "PHP 已安装，跳过"
     fi
 
-    # 安装 PHP 及扩展（Redis 扩展包名可能因版本不同，单独处理）
-    yum install -y \
-        php php-cli php-common \
-        php-mysqlnd php-curl \
-        php-mbstring php-xml php-zip \
-        php-bcmath php-gd php-intl \
-        php-pear php-devel openssl-devel || warn "部分 PHP 包安装失败，请检查 yum 源配置"
-
-    # Redis 扩展（包名可能因 Remi 版本不同：php-pecl-redis5 / php-redis）
-    yum install -y php-pecl-redis5 2>/dev/null || yum install -y php-redis 2>/dev/null || warn "Redis 扩展安装失败，可后续手动安装"
-
-    # 安装 Swoole 扩展
-    if ! php -m | grep -q '^swoole$'; then
+    # Swoole
+    if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
         info "正在编译安装 Swoole 扩展..."
         yes '' | pecl install swoole
         echo "extension=swoole.so" > /etc/php.d/50-swoole.ini
+    else
+        info "Swoole 扩展已安装，跳过"
     fi
 
-    # 安装 MySQL / Redis / Nginx / Node.js
-    yum install -y mysql-server redis nginx || yum install -y mariadb-server redis nginx
-    if ! command -v node >/dev/null 2>&1; then
+    # MySQL
+    if [[ "$MYSQL_INSTALLED" != "true" ]]; then
+        info "安装 MySQL/MariaDB..."
+        yum install -y mysql-server redis nginx || yum install -y mariadb-server redis nginx
+    else
+        info "MySQL 已安装，跳过"
+    fi
+
+    # Redis
+    if [[ "$REDIS_INSTALLED" != "true" ]]; then
+        info "安装 Redis..."
+        yum install -y redis
+    else
+        info "Redis 已安装，跳过"
+    fi
+
+    # Nginx
+    if [[ "$NGINX_INSTALLED" != "true" ]]; then
+        info "安装 Nginx..."
+        yum install -y nginx
+    else
+        info "Nginx 已安装，跳过"
+    fi
+
+    # Node.js
+    if [[ "$NODE_INSTALLED" != "true" ]]; then
+        info "安装 Node.js 18.x LTS..."
         curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
         yum install -y nodejs
+    else
+        info "Node.js 已安装，跳过"
     fi
 
-    # 安装 Composer
-    if ! command -v composer >/dev/null 2>&1; then
+    # Composer
+    if [[ "$COMPOSER_INSTALLED" != "true" ]]; then
         info "安装 Composer..."
         curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+    else
+        info "Composer 已安装，跳过"
     fi
 fi
 
@@ -266,9 +473,14 @@ if ! systemctl is-active --quiet mysql 2>/dev/null \
     systemctl enable mysql 2>/dev/null || systemctl enable mysqld 2>/dev/null || systemctl enable mariadb
 fi
 
-# 创建数据库与用户
-info "创建数据库 ${DB_NAME} 和用户 ${DB_USER}..."
-mysql -uroot <<EOF
+# 创建数据库与用户（如果 .env 已存在则跳过，数据库已创建过）
+if [[ -f "$ENV_FILE" ]]; then
+    info "检测到已有 .env 配置，跳过数据库创建（复用现有数据库 ${DB_NAME}）"
+    # 仅确保数据库存在（防止被手动删除）
+    mysql -uroot -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || warn "确保数据库存在时失败（可能需要输入 root 密码）"
+else
+    info "创建数据库 ${DB_NAME} 和用户 ${DB_USER}..."
+    mysql -uroot <<EOF
 CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${DB_USER}'@'${DB_HOST}' IDENTIFIED WITH mysql_native_password BY '${DB_PASS}';
 GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'${DB_HOST}';
@@ -276,7 +488,8 @@ CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED WITH mysql_native_
 GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 EOF
-info "数据库与用户创建完成。"
+    info "数据库与用户创建完成。"
+fi
 
 # 启动 Redis
 if ! systemctl is-active --quiet redis-server 2>/dev/null \
