@@ -19,8 +19,9 @@ use App\Service\UserService;
  * 路由：
  *   GET  /captcha/image   获取图形验证码
  *   POST /auth/send-code  发送短信/邮箱验证码
- *   POST /auth/register   用户注册
+ *   POST /auth/register   用户注册（返回 token + security_code）
  *   POST /auth/login      用户登录
+ *   POST /auth/reset-password  通过安全码重置密码
  */
 class AuthController
 {
@@ -127,7 +128,40 @@ class AuthController
             return false;
         }
 
-        return ['user_id' => $result['user_id']];
+        // 注册成功后返回 token（自动登录）+ security_code（仅此一次展示）
+        return [
+            'user_id'       => $result['user_id'],
+            'token'         => $result['token'],
+            'user'          => $result['user'],
+            'security_code' => $result['security_code'],
+        ];
+    }
+
+    /**
+     * 通过安全码重置密码
+     * POST /auth/reset-password
+     * Body: { account, security_code, new_password }
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public static function resetPassword(array $context, array $params = [])
+    {
+        $body = self::parseJsonBody($context);
+
+        $account      = (string)($body['account'] ?? '');
+        $securityCode = (string)($body['security_code'] ?? '');
+        $newPassword  = (string)($body['new_password'] ?? '');
+
+        $result = UserService::resetPasswordBySecurityCode($account, $securityCode, $newPassword);
+
+        if (!$result['success']) {
+            Response::fail($context['response'], $result['message'], Response::CODE_ERROR);
+            return false;
+        }
+
+        return ['message' => $result['message']];
     }
 
     /**

@@ -97,9 +97,10 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" :width="currentModule === 'users' ? 260 : 180" fixed="right">
           <template #default="{ row }">
             <el-button text type="primary" :icon="EditIcon" @click="openDialog(row)">编辑</el-button>
+            <el-button v-if="currentModule === 'users'" text type="warning" :icon="KeyIcon" @click="openPasswordDialog(row)">修改密码</el-button>
             <el-button text type="danger" :icon="DeleteIcon" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -183,6 +184,34 @@
         <el-button type="primary" :loading="submitting" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 修改密码弹窗 -->
+    <el-dialog
+      v-model="passwordDialogVisible"
+      title="修改密码"
+      width="440px"
+      destroy-on-close
+    >
+      <el-form
+        ref="passwordFormRef"
+        :model="passwordForm"
+        :rules="passwordRules"
+        label-width="100px"
+      >
+        <el-form-item label="新密码" prop="password">
+          <el-input
+            v-model="passwordForm.password"
+            type="password"
+            show-password
+            placeholder="请输入新密码"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="passwordDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="resettingPassword" @click="handleResetPassword">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -198,7 +227,8 @@ import {
   Delete as DeleteIcon,
   Download as DownloadIcon,
   ArrowDown as ArrowDownIcon,
-  CopyDocument as CopyDocumentIcon
+  CopyDocument as CopyDocumentIcon,
+  Key as KeyIcon
 } from '@element-plus/icons-vue'
 import { exportPushLogsApi, getPushLogListApi } from '@/api/push'
 import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi } from '@/api/key'
@@ -214,7 +244,7 @@ import {
   deleteAdminApi
 } from '@/api/admin'
 import { getDeviceListApi } from '@/api/device'
-import { getUserListApi, createUserApi, updateUserApi, deleteUserApi } from '@/api/user'
+import { getUserListApi, createUserApi, updateUserApi, deleteUserApi, resetUserPasswordApi } from '@/api/user'
 import type { KeyForm, BlacklistForm, AdminForm } from '@/api/types'
 
 interface FieldConfig {
@@ -243,24 +273,23 @@ const moduleConfigs: Record<string, {
   users: {
     title: '用户',
     columns: [
-      { prop: 'user_id', label: '用户ID', width: 120 },
+      { prop: 'id', label: '用户ID', width: 120 },
       { prop: 'username', label: '用户名', width: 140 },
-      { prop: 'nickname', label: '昵称' },
+      { prop: 'email', label: '邮箱' },
       { prop: 'phone', label: '手机号', width: 140 },
       { prop: 'status', label: '状态', width: 90, slot: 'status' },
       { prop: 'created_at', label: '注册时间', width: 170 }
     ],
     fields: [
       { prop: 'username', label: '用户名', type: 'input', required: true },
-      { prop: 'nickname', label: '昵称', type: 'input' },
       { prop: 'phone', label: '手机号', type: 'input' },
+      { prop: 'email', label: '邮箱', type: 'input' },
       { prop: 'status', label: '状态', type: 'switch' }
     ],
     mockRow: () => ({
       id: 0,
-      user_id: 'U' + Math.floor(Math.random() * 900000 + 100000),
       username: 'user_' + Math.floor(Math.random() * 9999),
-      nickname: '用户' + Math.floor(Math.random() * 999),
+      email: 'user' + Math.floor(Math.random() * 9999) + '@example.com',
       phone: '138' + String(Math.floor(Math.random() * 100000000)).padStart(8, '0'),
       status: Math.random() > 0.2 ? 1 : 0,
       created_at: '2026-07-' + String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')
@@ -547,6 +576,47 @@ const dialogRules = computed<FormRules>(() => {
   })
   return rules
 })
+
+// 修改密码弹窗
+const passwordDialogVisible = ref(false)
+const passwordFormRef = ref<FormInstance>()
+const resettingPassword = ref(false)
+const passwordForm = reactive<{ id: number | null; password: string }>({
+  id: null,
+  password: ''
+})
+const passwordRules: FormRules = {
+  password: [
+    { required: true, message: '请输入新密码', trigger: 'blur' },
+    { min: 6, message: '密码长度不能少于6位', trigger: 'blur' }
+  ]
+}
+
+function openPasswordDialog(row: Record<string, any>) {
+  passwordForm.id = row.id
+  passwordForm.password = ''
+  passwordDialogVisible.value = true
+}
+
+async function handleResetPassword() {
+  if (!passwordFormRef.value) return
+  try {
+    await passwordFormRef.value.validate()
+  } catch {
+    return
+  }
+  const userId = passwordForm.id
+  if (userId === null) return
+  resettingPassword.value = true
+  try {
+    await resetUserPasswordApi(userId, passwordForm.password)
+    ElMessage.success('密码修改成功')
+    passwordDialogVisible.value = false
+  } catch (error) {
+    ElMessage.error('密码修改失败')
+  }
+  resettingPassword.value = false
+}
 
 // 生成模拟数据
 function generateMockData(): Record<string, any>[] {

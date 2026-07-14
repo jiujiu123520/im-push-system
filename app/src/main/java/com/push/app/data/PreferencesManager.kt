@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.json.Json
 import org.json.JSONObject
 
 // 顶层扩展，保证全局唯一 DataStore 实例
@@ -33,6 +34,14 @@ class PreferencesManager(private val context: Context) {
         val SERVER_URL = stringPreferencesKey("server_url")
         val HTTP_SERVER_URL = stringPreferencesKey("http_server_url")
         val HEARTBEAT_INTERVAL = intPreferencesKey("heartbeat_interval")
+        val USER_TOKEN = stringPreferencesKey("user_token")
+        val USER_INFO = stringPreferencesKey("user_info")
+    }
+
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        encodeDefaults = true
     }
 
     // 启动时一次性读取 assets/build_config.json，作为默认值回退（文件不存在或解析失败为 null）
@@ -63,6 +72,18 @@ class PreferencesManager(private val context: Context) {
     val heartbeatIntervalFlow: Flow<Int> =
         context.pushDataStore.data.map { it[Keys.HEARTBEAT_INTERVAL] ?: DEFAULT_HEARTBEAT }
 
+    /** 用户 JWT Token（注册 / 登录成功后保存） */
+    val userTokenFlow: Flow<String> =
+        context.pushDataStore.data.map { it[Keys.USER_TOKEN] ?: "" }
+
+    /** 用户信息（JSON 序列化存储，反序列化为 [UserInfo]） */
+    val userInfoFlow: Flow<UserInfo?> =
+        context.pushDataStore.data.map { pref ->
+            pref[Keys.USER_INFO]?.let {
+                runCatching { json.decodeFromString(UserInfo.serializer(), it) }.getOrNull()
+            }
+        }
+
     /** 同步读取当前 Key（仅用于启动判断） */
     suspend fun getKeySync(): String =
         context.pushDataStore.data.map { it[Keys.PUSH_KEY] ?: "" }.first()
@@ -89,11 +110,30 @@ class PreferencesManager(private val context: Context) {
         context.pushDataStore.edit { it[Keys.HEARTBEAT_INTERVAL] = clamped }
     }
 
+    /** 保存用户 JWT Token（注册 / 登录成功后调用） */
+    suspend fun saveUserToken(token: String) {
+        context.pushDataStore.edit { it[Keys.USER_TOKEN] = token.trim() }
+    }
+
+    /** 保存用户信息（序列化为 JSON 存储） */
+    suspend fun saveUserInfo(user: UserInfo) {
+        val encoded = json.encodeToString(UserInfo.serializer(), user)
+        context.pushDataStore.edit { it[Keys.USER_INFO] = encoded }
+    }
+
+    /** 清除用户认证信息（token + userInfo） */
+    suspend fun clearUserAuth() {
+        context.pushDataStore.edit {
+            it.remove(Keys.USER_TOKEN)
+            it.remove(Keys.USER_INFO)
+        }
+    }
+
     /** 读取 assets/build_config.json，不存在或解析失败返回 null */
     private fun loadBuildConfig(context: Context): JSONObject? {
         return try {
-            val json = context.assets.open("build_config.json").bufferedReader().use { it.readText() }
-            JSONObject(json)
+            val text = context.assets.open("build_config.json").bufferedReader().use { it.readText() }
+            JSONObject(text)
         } catch (e: Exception) {
             null
         }

@@ -319,7 +319,8 @@ class TestPushController
             $stmt->execute([$key]);
             $keyRow = $stmt->fetch(\PDO::FETCH_ASSOC);
         } catch (\Throwable $e) {
-            Response::fail($response, '服务器错误：' . $e->getMessage(), Response::CODE_INTERNAL, 500);
+            error_log('[TestPush] selfTest Key查询失败: ' . $e->getMessage());
+            Response::fail($response, '服务器错误，请稍后再试', Response::CODE_INTERNAL, 500);
             return false;
         }
 

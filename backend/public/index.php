@@ -87,11 +87,14 @@ if ($runWs) {
         // 发送短信/邮箱验证码
         $router->post('/auth/send-code', [\App\Controller\AuthController::class, 'sendCode']);
 
-        // 用户注册
+        // 用户注册（返回 token + security_code）
         $router->post('/auth/register', [\App\Controller\AuthController::class, 'register']);
 
         // 用户登录
         $router->post('/auth/login', [\App\Controller\AuthController::class, 'login']);
+
+        // 通过安全码重置密码
+        $router->post('/auth/reset-password', [\App\Controller\AuthController::class, 'resetPassword']);
 
         // ------------------------------------------------------------
         // 任务4：管理员账号管理
@@ -147,6 +150,8 @@ if ($runWs) {
         // ============================================================
         $router->get('/admin/users',              [\App\Controller\UserController::class, 'index']);
         $router->get('/admin/users/{id}',         [\App\Controller\UserController::class, 'show']);
+        $router->put('/admin/users/{id}',         [\App\Controller\UserController::class, 'update']);
+        $router->put('/admin/users/{id}/password', [\App\Controller\UserController::class, 'resetPassword']);
         $router->delete('/admin/users/{id}',      [\App\Controller\UserController::class, 'delete']);
         $router->delete('/admin/users',           [\App\Controller\UserController::class, 'clearAll']);
         $router->put('/admin/users/{id}/status',  [\App\Controller\UserController::class, 'toggleStatus']);

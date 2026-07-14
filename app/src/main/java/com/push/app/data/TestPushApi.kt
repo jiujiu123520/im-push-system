@@ -89,8 +89,8 @@ class TestPushApi(private val context: Context) {
 
     private fun parseResult(obj: JsonObject): TestPushResult {
         return TestPushResult(
-            online = obj["online"]?.jsonPrimitive?.contentOrNull == "true",
-            success = obj["success"]?.jsonPrimitive?.contentOrNull == "true",
+            online = obj["online"]?.jsonPrimitive?.contentOrNull?.lowercase() == "true",
+            success = obj["success"]?.jsonPrimitive?.contentOrNull?.lowercase() == "true",
             message = obj["message"]?.jsonPrimitive?.contentOrNull ?: "",
             elapsed_ms = obj["elapsed_ms"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0,
         )

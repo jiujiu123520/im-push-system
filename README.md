@@ -40,12 +40,15 @@
 - **设备指纹** - 记录设备 IP、UA、指纹，支持拉黑
 - **黑名单管理** - 按用户/设备/IP 维度拉黑，实时断连
 - **管理员鉴权** - JWT Token 鉴权，支持多角色权限
+- **安全码** - 注册时自动生成 8 位数字安全码，用于忘记密码时重置
+- **登录失败限制** - 管理员登录失败次数限制（Redis 计数，默认 5 次锁定 30 分钟）
 
 ### 管理功能
 - **管理后台** - Vue3 + Element Plus，美观易用
 - **消息导出** - 支持导出推送记录和消息记录（CSV/JSON）
 - **测试推送** - 内置调试推送功能，方便开发排查
 - **分页处理** - 列表分页展示，每页 10 条
+- **用户管理** - 管理员可修改用户信息、重置密码、切换状态
 
 ### Android APP
 - **Kotlin + Compose** - 最新 Jetpack Compose UI
@@ -67,19 +70,45 @@
 
 ## 快速开始
 
-### 一键部署（国内服务器推荐）
+### 一键部署
+
+#### Root 用户安装（推荐）
 
 ```bash
 # 方式1: 使用 gh.jasonzeng.dev 代理（国内服务器推荐，解决 GitHub 访问慢）
-curl -sSL https://gh.jasonzeng.dev/https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh | bash
+curl -sSL https://gh.jasonzeng.dev/https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh | sudo bash
 
 # 方式2: 直连 GitHub（需能访问 GitHub）
-curl -sSL https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh | bash
+curl -sSL https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh | sudo bash
 
 # 方式3: 先克隆再部署
 git clone https://github.com/jiujiu123520/im-push-system.git
 cd im-push-system
 sudo bash deploy/deploy.sh
+```
+
+#### 非 Root 用户安装
+
+非 root 用户需先通过 sudo 提权安装，安装完成后日常更新无需 root：
+
+```bash
+# 1. 首次安装（需要 sudo 权限）
+git clone https://github.com/jiujiu123520/im-push-system.git
+cd im-push-system
+sudo bash deploy/deploy.sh
+
+# 2. 后续更新（无需 root，使用更新脚本）
+bash backend/deploy/update.sh
+```
+
+#### 仅安装核心服务（跳过可选组件）
+
+```bash
+# root 用户
+sudo INSTALL_ANDROID=0 INSTALL_SSL=0 bash deploy/deploy.sh
+
+# 非 root 用户（通过 sudo 提权）
+sudo INSTALL_ANDROID=0 INSTALL_SSL=0 bash deploy/deploy.sh
 ```
 
 ### 交互式安装（推荐）
@@ -107,22 +136,16 @@ sudo bash deploy/deploy.sh \
   --gh-proxy
 ```
 
-### 跳过可选组件（仅安装核心服务）
-
-```bash
-sudo INSTALL_ANDROID=0 INSTALL_SSL=0 bash deploy/deploy.sh
-```
-
 ### 分步安装（已有代码）
 
 ```bash
-# 1. 核心服务安装
+# 1. 核心服务安装（需要 root）
 sudo bash deploy/install.sh
 
-# 2. 单独安装 Android 打包环境（可选）
+# 2. 单独安装 Android 打包环境（可选，需要 root）
 sudo bash build/setup.sh
 
-# 3. 单独安装 SSL 证书环境（可选）
+# 3. 单独安装 SSL 证书环境（可选，需要 root）
 sudo bash backend/deploy/ssl/setup-acme.sh
 sudo cp deploy/sudoers-push-system-ssl /etc/sudoers.d/push-system
 sudo chmod 440 /etc/sudoers.d/push-system
@@ -132,6 +155,18 @@ sudo visudo -c
 echo "0 3 * * * root /www/push-system/backend/deploy/ssl/auto-renew-cron.sh" | sudo tee /etc/cron.d/push-ssl-renew
 sudo chmod 644 /etc/cron.d/push-ssl-renew
 ```
+
+### 日常更新（无需 root）
+
+安装完成后，日常代码更新使用更新脚本即可，无需 root 权限：
+
+```bash
+cd /www/push-system
+bash backend/deploy/update.sh
+```
+
+> 更新脚本会自动拉取代码、安装依赖、执行数据库迁移、构建前端、重启服务。
+> 如涉及端口变更或服务配置修改，需使用 `sudo systemctl restart push-http push-websocket push-build-worker`。
 
 ### 安装流程（10 步）
 

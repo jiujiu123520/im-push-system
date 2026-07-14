@@ -1,0 +1,40 @@
+feat: 增加用户注册安全码、后台用户管理、APP登录注册界面、安装命令文档
+
+后端 - 用户注册安全码：
+- 新增数据库迁移 007_users_security_code.sql，users 表增加 security_code_hash 字段
+- UserService::register 重构：注册时自动生成 8 位数字安全码（排除全相同/顺序/重复等简单码），bcrypt 哈希存储
+- 注册成功后返回 token（自动登录）+ security_code 明文（仅此一次展示）
+- 新增 UserService::resetPasswordBySecurityCode 方法，通过安全码重置密码
+- 新增 POST /auth/reset-password 路由
+
+后端 - 登录提示优化：
+- 账号不存在时返回"该账号未注册，请注册后使用"
+- 密码错误时返回"密码错误，请重新输入"（区分于账号不存在）
+
+后端 - 用户管理增强：
+- UserController 新增 update 方法（修改用户名/手机号/邮箱/状态）
+- UserController 新增 resetPassword 方法（管理员重置用户密码）
+- 新增路由 PUT /admin/users/{id} 和 PUT /admin/users/{id}/password
+
+后端 - 测试推送修复：
+- TestPushController::selfTest 不再暴露 $e->getMessage() 内部错误
+
+前端 - 管理后台用户管理：
+- 用户列表 columns 修正为 id/username/phone/email/status/created_at
+- 新增"修改密码"按钮和独立密码重置对话框
+- 编辑用户对话框 fields 改为 username/phone/email/status
+
+APP - 新增注册/登录界面：
+- 新建 AuthApi.kt：注册/登录/重置密码/获取验证码 API 客户端
+- 新建 RegisterScreen.kt：注册界面 + 安全码弹窗（大字体展示 + 复制按钮 + 不可关闭）
+- 新建 LoginScreen.kt：登录界面 + 忘记密码重置对话框 + 未注册提示
+- 修改 PreferencesManager.kt：增加 userTokenFlow/userInfoFlow/saveUserToken/clearUserAuth
+- 修改 PushNavigation.kt：增加 LOGIN/REGISTER 路由，有 token 跳首页无 token 跳登录
+
+APP - 测试推送修复：
+- TestPushApi.kt parseResult 增加 lowercase() 防止布尔值大小写问题
+
+文档：
+- README 增加 Root/非 Root 安装命令说明
+- README 增加安全码、登录失败限制、用户管理功能说明
+- README 增加日常更新（无需 root）说明
