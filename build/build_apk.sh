@@ -54,7 +54,8 @@ check_resources() {
     fi
 
     # 检查是否已有 Gradle 构建进程在运行（精确匹配 assemble/compile，避免残留进程导致永久拒绝）
-    if pgrep -f "gradle.*assemble\|gradle.*compile\|gradle.*build" >/dev/null 2>&1; then
+    # 注意：pgrep 使用 POSIX ERE 正则，| 是交替运算符，不需要反斜杠转义
+    if pgrep -f "gradle.*(assemble|compile|build)" >/dev/null 2>&1; then
         echo "[ERROR] 检测到已有 Gradle 构建进程运行，拒绝并发构建"
         exit 1
     fi

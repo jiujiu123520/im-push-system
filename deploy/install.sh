@@ -340,7 +340,7 @@ if [[ "$PKG_MANAGER" == "apt-get" ]]; then
         info "正在编译安装 Swoole 扩展..."
         yes '' | pecl install swoole
         echo "extension=swoole.so" > /etc/php/8.2/mods-available/swoole.ini
-        php phpenmod -v 8.2 swoole
+        phpenmod -v 8.2 swoole
     else
         info "Swoole 扩展已安装，跳过"
     fi
@@ -674,6 +674,8 @@ if [[ ! -f "${PROJECT_DIR}/backend/.env" ]]; then
     sed -i "s/^JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET_NEW}/" "${PROJECT_DIR}/backend/.env"
     sed -i "s/^AES_KEY=.*/AES_KEY=${AES_KEY_NEW}/" "${PROJECT_DIR}/backend/.env"
     # 写入数据库配置
+    sed -i "s/^DB_HOST=.*/DB_HOST=${DB_HOST}/" "${PROJECT_DIR}/backend/.env"
+    sed -i "s/^DB_PORT=.*/DB_PORT=${DB_PORT}/" "${PROJECT_DIR}/backend/.env"
     sed -i "s/^DB_NAME=.*/DB_NAME=${DB_NAME}/" "${PROJECT_DIR}/backend/.env"
     sed -i "s/^DB_USER=.*/DB_USER=${DB_USER}/" "${PROJECT_DIR}/backend/.env"
     sed -i "s/^DB_PASS=.*/DB_PASS=${DB_PASS}/" "${PROJECT_DIR}/backend/.env"

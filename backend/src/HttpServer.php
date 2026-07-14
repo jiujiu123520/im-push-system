@@ -43,7 +43,8 @@ class HttpServer
         $this->routeRegistrar = $routeRegistrar;
         $this->router = new Router();
 
-        $host = (string)Config::env('WEBSOCKET_HOST', '0.0.0.0');
+        // HTTP 服务器绑定地址：优先使用 HTTP_HOST，回退到 WEBSOCKET_HOST
+        $host = (string)Config::env('HTTP_HOST', Config::env('WEBSOCKET_HOST', '0.0.0.0'));
         $port = (int)Config::env('HTTP_PORT', 9501);
 
         $this->server = new Server($host, $port);

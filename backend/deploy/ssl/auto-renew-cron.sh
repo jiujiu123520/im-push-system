@@ -16,10 +16,30 @@
 
 set -e
 
-PROJECT_ROOT="/www/push-system"
+# 项目根目录：优先从脚本位置推断，兜底使用默认路径
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-$(dirname "$(dirname "$(dirname "$SCRIPT_DIR")")")}"
+if [ ! -f "${PROJECT_ROOT}/backend/.env" ]; then
+    PROJECT_ROOT="/www/push-system"
+fi
 LOG_FILE="/var/log/push-ssl-renew.log"
-ACME_SH="/root/.acme.sh/acme.sh"
 SSL_DIR="/etc/nginx/ssl"
+
+# 多路径检测 acme.sh 安装位置
+ACME_SH=""
+for candidate in /root/.acme.sh/acme.sh /home/ubuntu/.acme.sh/acme.sh /usr/local/bin/acme.sh "$HOME/.acme.sh/acme.sh"; do
+    if [ -x "$candidate" ]; then
+        ACME_SH="$candidate"
+        break
+    fi
+done
+if [ -z "$ACME_SH" ]; then
+    ACME_SH="$(which acme.sh 2>/dev/null || echo '')"
+fi
+if [ -z "$ACME_SH" ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] 未找到 acme.sh，请先安装" >> "$LOG_FILE"
+    exit 1
+fi
 
 # 读取数据库配置
 ENV_FILE="${PROJECT_ROOT}/backend/.env"

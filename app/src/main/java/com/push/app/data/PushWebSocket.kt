@@ -155,6 +155,9 @@ class PushWebSocket(
     private fun openConnection() {
         val cfg = config ?: return
         cancelJobs()
+        // 关闭旧 socket，避免重复连接导致连接泄漏
+        socket?.close(1000, "reconnect")
+        socket = null
         _state.value = if (reconnectAttempts > 0) ConnectionState.RECONNECTING
         else ConnectionState.CONNECTING
 
@@ -202,7 +205,7 @@ class PushWebSocket(
         val env = runCatching { json.decodeFromString(ServerEnvelope.serializer(), text) }.getOrNull()
             ?: return
 
-        when (env.type) {
+        when (env.type.takeUnless { it.isNullOrBlank() }) {
             "auth_result" -> {
                 if (env.success || env.code == 0) {
                     Log.i(TAG, "auth success")
@@ -212,6 +215,11 @@ class PushWebSocket(
                     Log.w(TAG, "auth failed: ${env.message}")
                     // 鉴权失败不重连，避免无效循环
                     shouldReconnect = false
+                    // 主动关闭 socket，避免连接泄漏
+                    socket?.close(1008, "auth failed")
+                    socket = null
+                    heartbeatJob?.cancel()
+                    heartbeatJob = null
                     _state.value = ConnectionState.DISCONNECTED
                 }
             }
@@ -235,8 +243,8 @@ class PushWebSocket(
                 onPushMessage(msg)
             }
             else -> {
-                // 兼容旧格式：type 为空但 code==0 时，尝试从 data 提取推送消息
-                if (env.type == null && env.code == 0) {
+                // 兼容旧格式：type 为空/空白但 code==0 或 -1（默认值）时，尝试从 data 提取推送消息
+                if (env.type.isNullOrBlank() && (env.code == 0 || env.code == -1)) {
                     val msgId = extractStringFromData(env.data, "message_id")
                         ?: extractStringFromData(env.data, "id")
                     val title = extractStringFromData(env.data, "title") ?: ""
@@ -289,12 +297,19 @@ class PushWebSocket(
                 if (sock == null) break
                 // 发送心跳 ping
                 val sent = sock.send(json.encodeToString(PingMessage.serializer(), PingMessage()))
-                if (sent) pendingPongs.incrementAndGet()
+                if (sent) {
+                    pendingPongs.incrementAndGet()
+                } else {
+                    // send 失败说明 socket 已关闭，直接触发重连（避免空转）
+                    Log.w(TAG, "heartbeat send failed, socket may be closed, reconnecting")
+                    onSocketLost()
+                    break
+                }
                 // 连续 MAX_MISSED_PONG 次未响应则判定连接死亡，触发重连
                 if (pendingPongs.get() >= MAX_MISSED_PONG) {
                     Log.w(TAG, "heartbeat timeout (${pendingPongs.get()} missed), reconnecting")
+                    // 仅调用 cancel，让 onFailure 统一处理 onSocketLost，避免双重触发
                     socket?.cancel()
-                    onSocketLost()
                     break
                 }
                 delay(intervalSeconds * 1000L)
@@ -316,12 +331,14 @@ class PushWebSocket(
     /** 安排一次重连（指数退避 + 抖动） */
     private fun scheduleReconnect() {
         reconnectJob?.cancel()
-        reconnectAttempts++
-        val delayMs = (RECONNECT_BASE_MS * (1L shl (reconnectAttempts - 1)))
-            .coerceAtMost(RECONNECT_MAX_MS)
+        reconnectAttempts = (reconnectAttempts + 1).coerceAtMost(20)
+        // 限制 shift 位数防止溢出：最多移位 5 位（2^5=32倍），超出后维持最大退避
+        val shiftBits = (reconnectAttempts - 1).coerceAtMost(5)
+        val delayMs = (RECONNECT_BASE_MS * (1L shl shiftBits))
+            .coerceIn(RECONNECT_BASE_MS, RECONNECT_MAX_MS)
         // 加入 ±20% 抖动，避免雷同重连风暴
-        val jitter = (delayMs * 0.2 * (Math.random() - 0.5) * 2).toLong()
-        val actualDelay = (delayMs + jitter).coerceAtLeast(500L)
+        val jitter = (delayMs * 0.2 * (Math.random() * 2 - 1)).toLong()
+        val actualDelay = (delayMs + jitter).coerceIn(500L, RECONNECT_MAX_MS)
         Log.i(TAG, "scheduleReconnect attempt=$reconnectAttempts delay=${actualDelay}ms")
         _state.value = ConnectionState.RECONNECTING
         reconnectJob = scope.launch {

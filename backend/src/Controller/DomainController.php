@@ -51,6 +51,8 @@ class DomainController
 
         // 实时检查每个域名的证书状态
         foreach ($list as &$row) {
+            // 统一初始化 days_left，确保每行结构一致
+            $row['days_left'] = null;
             if ((int)$row['ssl_enabled'] === 1 && $row['ssl_status'] === 'issued') {
                 $certInfo = SslService::checkCertificate($row['domain']);
                 if (!$certInfo['valid']) {

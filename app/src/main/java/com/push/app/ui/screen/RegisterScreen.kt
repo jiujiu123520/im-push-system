@@ -594,7 +594,7 @@ private fun friendlyError(e: Throwable): String {
         msg.contains("failed to connect", ignoreCase = true) ||
         msg.contains("unable to resolve", ignoreCase = true) ||
         msg.contains("timeout", ignoreCase = true) ||
-        msg.contains("timeout", ignoreCase = true)
+        msg.contains("timed out", ignoreCase = true)
     ) {
         "网络错误，请检查网络连接"
     } else if (msg.startsWith("服务器返回")) {

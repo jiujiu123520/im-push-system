@@ -160,7 +160,14 @@ class MessageStore(private val storageDir: File) {
     private fun persist(list: List<PushMessage>) {
         runCatching {
             val text = json.encodeToString(ListSerializer(PushMessage.serializer()), list)
-            messageFile.writeText(text)
+            // 原子写入：先写临时文件，再 rename，避免写入中途崩溃导致数据损坏
+            val tmpFile = java.io.File(messageFile.parentFile, "${messageFile.name}.tmp")
+            tmpFile.writeText(text)
+            if (!tmpFile.renameTo(messageFile)) {
+                // rename 失败时回退到直接写入（跨文件系统时 rename 可能失败）
+                messageFile.writeText(text)
+                tmpFile.delete()
+            }
         }
     }
 

@@ -20,7 +20,10 @@ www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-http push-websocket
 www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-http push-websocket push-build-worker
 
 # ---------- acme.sh 证书申请与管理 ----------
+# 支持多路径 acme.sh 安装位置（root/ubuntu/全局）
 www-data ALL=(ALL) NOPASSWD: /root/.acme.sh/acme.sh *
+www-data ALL=(ALL) NOPASSWD: /home/ubuntu/.acme.sh/acme.sh *
+www-data ALL=(ALL) NOPASSWD: /usr/local/bin/acme.sh *
 www-data ALL=(ALL) NOPASSWD: /bin/bash /www/push-system/backend/deploy/ssl/setup-acme.sh
 
 # ---------- SSL 证书目录管理 ----------
