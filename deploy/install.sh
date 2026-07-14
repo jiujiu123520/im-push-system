@@ -509,7 +509,7 @@ if ! systemctl is-active --quiet mysql 2>/dev/null \
 fi
 
 # ------------------------------------------------------------
-# 检测 MySQL root 连接方式（尝试多种方式）
+# 检测 MySQL root 连接方式（自动尝试多种方式，最后才询问密码）
 # ------------------------------------------------------------
 info "检测 MySQL root 连接方式..."
 MYSQL_ROOT_CMD=""
@@ -524,23 +524,89 @@ elif sudo mysql -e "SELECT 1" >/dev/null 2>&1; then
     MYSQL_ROOT_CMD="sudo mysql"
     info "  MySQL root 通过 sudo 连接（auth_socket）"
 
-# 方式3: 交互式询问 root 密码
 else
-    warn "  MySQL root 无法无密码连接，需要输入密码"
-    echo ""
-    read -s -p "请输入 MySQL root 密码: " MYSQL_ROOT_PASS < /dev/tty
-    echo ""
+    # 方式3-5: 自动读取密码（无需用户输入）
+    AUTO_FOUND_PASS=""
 
-    # 测试密码是否正确
-    if mysql -uroot -p"${MYSQL_ROOT_PASS}" -e "SELECT 1" >/dev/null 2>&1; then
-        # 密码中可能包含特殊字符，使用 MYSQL_PWD 环境变量传递更安全
-        MYSQL_ROOT_CMD="MYSQL_PWD=${MYSQL_ROOT_PASS} mysql -uroot"
+    # 方式3: 从 /root/.mysql.cnf 或 ~/.my.cnf 读取（Debian/Ubuntu 包安装时可能生成）
+    for CNF_FILE in /root/.mysql.cnf /root/.my.cnf ~/.mysql.cnf ~/.my.cnf /etc/mysql/debian.cnf; do
+        if [[ -f "$CNF_FILE" ]]; then
+            # 尝试从 [client] section 读取 password
+            CNF_PASS=$(awk -F'=' '/^\[client\]/,/^$/ { if ($1 ~ /password/) { sub(/^[ \t]+/, "", $2); sub(/[ \t]+$/, "", $2); gsub(/^"|"$/, "", $2); print $2; exit } }' "$CNF_FILE" 2>/dev/null)
+            if [[ -n "$CNF_PASS" ]] && mysql -uroot -p"${CNF_PASS}" -e "SELECT 1" >/dev/null 2>&1; then
+                AUTO_FOUND_PASS="$CNF_PASS"
+                info "  从 ${CNF_FILE} 读取到 MySQL root 密码"
+                break
+            fi
+            # debian.cnf 格式不同，尝试 user/password 字段
+            CNF_USER=$(awk -F'=' '/^[[:space:]]*user/ {gsub(/[ \t]/, "", $2); print $2; exit}' "$CNF_FILE" 2>/dev/null)
+            CNF_PASS=$(awk -F'=' '/^[[:space:]]*password/ {gsub(/[ \t]/, "", $2); print $2; exit}' "$CNF_FILE" 2>/dev/null)
+            if [[ -n "$CNF_PASS" ]] && [[ "$CNF_USER" == "root" || -z "$CNF_USER" ]]; then
+                if mysql -uroot -p"${CNF_PASS}" -e "SELECT 1" >/dev/null 2>&1; then
+                    AUTO_FOUND_PASS="$CNF_PASS"
+                    info "  从 ${CNF_FILE} 读取到 MySQL root 密码"
+                    break
+                fi
+            fi
+        fi
+    done
+
+    # 方式4: 从 MySQL 错误日志读取临时密码（MySQL 8 首次安装）
+    if [[ -z "$AUTO_FOUND_PASS" ]]; then
+        for LOG_FILE in /var/log/mysqld.log /var/log/mysql/error.log /var/log/mysql/mysql.log; do
+            if [[ -f "$LOG_FILE" ]]; then
+                TMP_PASS=$(grep -oP 'temporary password is generated for root@localhost: \K\S+' "$LOG_FILE" 2>/dev/null | tail -1)
+                if [[ -n "$TMP_PASS" ]] && mysql -uroot -p"${TMP_PASS}" -e "SELECT 1" >/dev/null 2>&1; then
+                    AUTO_FOUND_PASS="$TMP_PASS"
+                    info "  从 MySQL 日志 ${LOG_FILE} 读取到 root 临时密码"
+                    break
+                fi
+            fi
+        done
+    fi
+
+    # 方式5: 从 .env 文件读取之前配置的数据库密码（复用）
+    if [[ -z "$AUTO_FOUND_PASS" ]] && [[ -f "$ENV_FILE" ]]; then
+        ENV_PASS=$(grep -E "^DB_PASS=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' || echo "")
+        if [[ -n "$ENV_PASS" ]] && mysql -uroot -p"${ENV_PASS}" -e "SELECT 1" >/dev/null 2>&1; then
+            AUTO_FOUND_PASS="$ENV_PASS"
+            info "  从 .env 配置读取到数据库密码（可能与 root 密码相同）"
+        fi
+    fi
+
+    # 方式6: 通过环境变量 MYSQL_ROOT_PASSWORD 传入
+    if [[ -z "$AUTO_FOUND_PASS" ]] && [[ -n "${MYSQL_ROOT_PASSWORD:-}" ]]; then
+        if mysql -uroot -p"${MYSQL_ROOT_PASSWORD}" -e "SELECT 1" >/dev/null 2>&1; then
+            AUTO_FOUND_PASS="${MYSQL_ROOT_PASSWORD}"
+            info "  从环境变量 MYSQL_ROOT_PASSWORD 读取到 root 密码"
+        fi
+    fi
+
+    # 如果自动获取到密码
+    if [[ -n "$AUTO_FOUND_PASS" ]]; then
+        MYSQL_ROOT_CMD="MYSQL_PWD=${AUTO_FOUND_PASS} mysql -uroot"
         info "  MySQL root 密码验证成功"
+
+    # 方式7: 所有自动方式失败，交互式询问
     else
-        error "MySQL root 密码错误，无法连接数据库"
-        error "请确认 MySQL root 密码后重新运行安装脚本"
-        error "如果忘记 root 密码，可重置：https://dev.mysql.com/doc/refman/8.0/en/resetting-permissions.html"
-        exit 1
+        warn "  无法自动获取 MySQL root 密码，需要手动输入"
+        info "  提示：可通过以下方式预设密码避免交互："
+        info "    1. 创建 /root/.my.cnf 包含 [client] password=xxx"
+        info "    2. 设置环境变量: sudo MYSQL_ROOT_PASSWORD=xxx bash deploy.sh"
+        echo ""
+        read -s -p "请输入 MySQL root 密码: " MYSQL_ROOT_PASS < /dev/tty
+        echo ""
+
+        # 测试密码是否正确
+        if mysql -uroot -p"${MYSQL_ROOT_PASS}" -e "SELECT 1" >/dev/null 2>&1; then
+            MYSQL_ROOT_CMD="MYSQL_PWD=${MYSQL_ROOT_PASS} mysql -uroot"
+            info "  MySQL root 密码验证成功"
+        else
+            error "MySQL root 密码错误，无法连接数据库"
+            error "请确认 MySQL root 密码后重新运行安装脚本"
+            error "如果忘记 root 密码，可重置：https://dev.mysql.com/doc/refman/8.0/en/resetting-permissions.html"
+            exit 1
+        fi
     fi
 fi
 
