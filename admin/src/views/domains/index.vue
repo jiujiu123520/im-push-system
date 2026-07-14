@@ -197,7 +197,7 @@
             <el-switch
               :model-value="row.ssl_auto_renew === 1"
               :disabled="row.ssl_status !== 'issued'"
-              @change="(val: boolean) => toggleAutoRenew(row, val)"
+              @change="(val) => toggleAutoRenew(row as DomainRecord, val as boolean)"
             />
           </template>
         </el-table-column>
@@ -214,7 +214,7 @@
           <template #default="{ row }">
             <el-switch
               :model-value="row.status === 1"
-              @change="(val: boolean) => toggleStatus(row, val)"
+              @change="(val) => toggleStatus(row as DomainRecord, val as boolean)"
             />
           </template>
         </el-table-column>
@@ -227,7 +227,7 @@
               type="warning"
               size="small"
               :icon="StarIcon"
-              @click="setPrimary(row)"
+              @click="setPrimary(row as DomainRecord)"
             >
               设主
             </el-button>
@@ -237,7 +237,7 @@
               size="small"
               :icon="LockIcon"
               :loading="actionLoading[row.id] === 'ssl'"
-              @click="applySsl(row)"
+              @click="applySsl(row as DomainRecord)"
             >
               申请SSL
             </el-button>
@@ -248,7 +248,7 @@
               size="small"
               :icon="RefreshRightIcon"
               :loading="actionLoading[row.id] === 'renew'"
-              @click="renewSsl(row)"
+              @click="renewSsl(row as DomainRecord)"
             >
               续费
             </el-button>
@@ -258,7 +258,7 @@
               size="small"
               :icon="PromotionIcon"
               :loading="actionLoading[row.id] === 'deploy'"
-              @click="deployNginx(row)"
+              @click="deployNginx(row as DomainRecord)"
             >
               部署
             </el-button>
@@ -267,7 +267,7 @@
               type="danger"
               size="small"
               :icon="DeleteIcon"
-              @click="remove(row)"
+              @click="remove(row as DomainRecord)"
             >
               删除
             </el-button>
@@ -440,7 +440,7 @@ const targetTypeTextMap: Record<string, string> = {
   all: '全部'
 }
 
-const targetTypeTagMap: Record<string, '' | 'success' | 'warning' | 'info' | 'danger'> = {
+const targetTypeTagMap: Record<string, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
   frontend: 'warning',
   backend: 'success',
   ws: 'info',

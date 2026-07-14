@@ -9,6 +9,7 @@
         "ext-pdo": "*",
         "ext-json": "*",
         "ext-openssl": "*",
+        "ext-gd": "*",
         "firebase/php-jwt": "^6.0",
         "predis/predis": "^2.0",
         "vlucas/phpdotenv": "^5.4",

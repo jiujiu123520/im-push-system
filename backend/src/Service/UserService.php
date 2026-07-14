@@ -40,16 +40,28 @@ class UserService
         $fail = ['success' => false, 'message' => '', 'user_id' => null, 'token' => null, 'user' => null, 'security_code' => null];
 
         // 1. 校验验证码
-        if (!CaptchaService::verifyCode($codeType, $codeTarget, $codeInput)) {
-            $fail['message'] = '验证码错误或已过期';
-            return $fail;
-        }
+        // 支持两种验证码方式：
+        //   a) 图形验证码（codeType='captcha'）：codeTarget=验证码token，codeInput=图形验证码
+        //   b) 短信/邮箱验证码（codeType='sms'/'email'）：codeTarget=手机号/邮箱，codeInput=收到的验证码
+        if (strtolower($codeType) === 'captcha') {
+            // 图形验证码模式：codeTarget 是验证码 token，codeInput 是图形码
+            if (!CaptchaService::verifyImageCaptcha($codeTarget, $codeInput)) {
+                $fail['message'] = '验证码错误或已过期';
+                return $fail;
+            }
+        } else {
+            // 短信/邮箱验证码模式
+            if (!CaptchaService::verifyCode($codeType, $codeTarget, $codeInput)) {
+                $fail['message'] = '验证码错误或已过期';
+                return $fail;
+            }
 
-        // 2. 校验验证码目标与注册信息一致（防绕过）
-        $expectedTarget = $codeType === 'sms' ? $phone : $email;
-        if ($codeTarget !== $expectedTarget) {
-            $fail['message'] = '验证码目标与注册信息不匹配';
-            return $fail;
+            // 2. 校验验证码目标与注册信息一致（防绕过）
+            $expectedTarget = $codeType === 'sms' ? $phone : $email;
+            if ($codeTarget !== $expectedTarget) {
+                $fail['message'] = '验证码目标与注册信息不匹配';
+                return $fail;
+            }
         }
 
         // 3. 参数基础校验

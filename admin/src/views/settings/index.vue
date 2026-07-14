@@ -1079,8 +1079,9 @@ function detectServerUrls() {
 }
 
 // SSL 开关切换：自动调整地址协议和端口
-function onSslToggle(val: boolean) {
-  if (val) {
+function onSslToggle(val: string | number | boolean) {
+  const enabled = Boolean(val)
+  if (enabled) {
     // 开启 SSL：http:// -> https://，ws:// -> wss://
     if (serverForm.frontendUrl && serverForm.frontendUrl.startsWith('http://')) {
       serverForm.frontendUrl = 'https://' + serverForm.frontendUrl.slice(7)

@@ -54,7 +54,8 @@ class AdminController
         $result = AdminService::login($username, $password, $captchaToken, $captchaInput, $ip);
 
         // UA 与设备信息（成功/失败均需记录）
-        $ua = (string)($context['header']['user-agent'] ?? $context['server']['http_user_agent'] ?? $_SERVER['HTTP_USER_AGENT'] ?? '');
+        // 注意：Swoole 常驻进程模式下 $_SERVER 不会随请求更新，仅使用 $context 中的值
+        $ua = (string)($context['header']['user-agent'] ?? $context['server']['http_user_agent'] ?? '');
         $deviceInfo = self::parseUserAgent($ua);
 
         if (!$result['success']) {

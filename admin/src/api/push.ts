@@ -68,7 +68,7 @@ export function cancelPushApi(id: number) {
 
 // ---- 仪表盘统计 ----
 export function getDashboardStatsApi() {
-  return get<DashboardStats>('/admin/dashboard/stats')
+  return get<DashboardStats>('/admin/dashboard/overview')
 }
 
 // 在线设备趋势（近 7 天）
@@ -83,7 +83,7 @@ export function getTodayPushTrendApi() {
 
 // 设备平台分布
 export function getPlatformDistApi() {
-  return get<PlatformDist[]>('/admin/dashboard/platform-dist')
+  return get<PlatformDist[]>('/admin/dashboard/device-platform')
 }
 
 // 近 7 天推送量趋势

@@ -96,7 +96,7 @@ class Aes
     private static function getKey(): string
     {
         $hexKey = (string)Config::env('AES_KEY', '');
-        // 兼容 hex 字符串与原始字符串
+        // AES_KEY 必须是 64 位 hex 字符串（32 字节）
         if (strlen($hexKey) === 64) {
             $key = @hex2bin($hexKey);
             if ($key === false || strlen($key) !== 32) {
@@ -104,8 +104,7 @@ class Aes
             }
             return $key;
         }
-        // 退化处理：直接按字符串补齐或截断到 32 字节
-        $key = str_pad($hexKey, 32, "\0");
-        return substr($key, 0, 32);
+        // AES_KEY 未配置或不合法时直接报错，不使用弱密钥回退（避免全零密钥导致验证码加密形同虚设）
+        throw new \RuntimeException('AES_KEY 未配置或格式不正确（需 64 位 hex 字符串，请在 .env 中设置）');
     }
 }

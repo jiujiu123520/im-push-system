@@ -141,7 +141,7 @@
               link
               type="primary"
               :icon="DownloadIcon"
-              @click="handleDownload(row)"
+              @click="handleDownload(row as ApkDistributionRecord)"
             >
               下载
             </el-button>
@@ -149,7 +149,7 @@
               link
               type="success"
               :icon="GridIcon"
-              @click="openQrDialog(row)"
+              @click="openQrDialog(row as ApkDistributionRecord)"
             >
               二维码
             </el-button>
@@ -160,7 +160,7 @@
               :icon="UploadIcon"
               :loading="uploadingId === row.id && uploadType === 'lanzou'"
               :disabled="row.upload_status === 'uploading'"
-              @click="handleUploadLanzou(row)"
+              @click="handleUploadLanzou(row as ApkDistributionRecord)"
             >
               上传蓝奏云
             </el-button>
@@ -171,7 +171,7 @@
               :icon="UploadIcon"
               :loading="uploadingId === row.id && uploadType === 'custom'"
               :disabled="row.upload_status === 'uploading'"
-              @click="handleUploadCustom(row)"
+              @click="handleUploadCustom(row as ApkDistributionRecord)"
             >
               自定义上传
             </el-button>
@@ -179,7 +179,7 @@
               title="确定删除该分发记录吗？"
               confirm-button-text="删除"
               cancel-button-text="取消"
-              @confirm="handleDelete(row)"
+              @confirm="handleDelete(row as ApkDistributionRecord)"
             >
               <template #reference>
                 <el-button link type="danger" :icon="DeleteIcon">删除</el-button>

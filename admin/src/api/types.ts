@@ -276,10 +276,13 @@ export interface Settings {
   siteLogo?: string
   siteDescription?: string
   server?: {
+    frontendUrl?: string
+    frontendPort?: number
     httpApiUrl: string
     httpPort: number
     websocketUrl: string
     websocketPort: number
+    sslEnabled?: boolean
   }
   push: {
     defaultRetry: number
@@ -290,6 +293,7 @@ export interface Settings {
     maxConnections?: number
   }
   captcha?: {
+    enabled?: number
     smsApiKey?: string
     smsApiUrl?: string
     mailHost?: string

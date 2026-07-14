@@ -98,8 +98,11 @@ if ($runWs) {
         // 任务3：用户注册与登录
         // ------------------------------------------------------------
 
-        // 获取图形验证码
+        // 获取图形验证码（同时注册 /captcha/image 和 /api/captcha/image 两个路由）
+        // APP 端调用 /captcha/image（不带 /api 前缀）
+        // 前端管理后台调用 /api/captcha/image（带 /api 前缀，因前端 axios baseURL=/api）
         $router->get('/captcha/image', [\App\Controller\AuthController::class, 'captchaImage']);
+        $router->get('/api/captcha/image', [\App\Controller\AuthController::class, 'captchaImage']);
 
         // 发送短信/邮箱验证码
         $router->post('/auth/send-code', [\App\Controller\AuthController::class, 'sendCode']);

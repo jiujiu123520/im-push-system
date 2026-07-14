@@ -245,7 +245,7 @@ import {
 } from '@/api/admin'
 import { getDeviceListApi } from '@/api/device'
 import { getUserListApi, createUserApi, updateUserApi, deleteUserApi, resetUserPasswordApi } from '@/api/user'
-import type { KeyForm, BlacklistForm, AdminForm } from '@/api/types'
+import type { KeyForm, BlacklistForm, AdminForm, UserForm } from '@/api/types'
 
 interface FieldConfig {
   prop: string
@@ -755,10 +755,10 @@ async function handleSubmit() {
     const mod = currentModule.value
     if (mod === 'users') {
       if (isEdit.value) {
-        await updateUserApi(dialogForm.id, dialogForm)
+        await updateUserApi(dialogForm.id, dialogForm as unknown as UserForm)
         ElMessage.success('更新成功')
       } else {
-        await createUserApi(dialogForm)
+        await createUserApi(dialogForm as unknown as UserForm)
         ElMessage.success('新增成功')
       }
     } else if (mod === 'keys') {
