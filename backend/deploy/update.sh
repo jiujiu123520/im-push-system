@@ -339,6 +339,36 @@ CREATE TABLE IF NOT EXISTS \`${MIGRATIONS_TABLE}\` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 EOF
 
+        # 补录已应用但未记录的迁移（兼容旧版无 schema_migrations 表的数据库升级）
+        record_if_applied() {
+            local filename="$1"
+            local check_sql="$2"
+            local exists
+            exists=$(mysql "${MYSQL_OPTS[@]}" "${DB_NAME}" -sN -e "${check_sql}" 2>/dev/null || echo 0)
+            if [[ "${exists}" == "1" ]]; then
+                mysql "${MYSQL_OPTS[@]}" "${DB_NAME}" -e \
+                    "INSERT IGNORE INTO \`${MIGRATIONS_TABLE}\` (filename) VALUES ('${filename}');" 2>/dev/null || true
+                info "  补录已应用迁移: ${filename}"
+            fi
+        }
+
+        record_if_applied "001_init.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='users'),1,0);"
+        record_if_applied "002_add_notify_fields.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='push_keys' AND COLUMN_NAME='notify_email'),1,0);"
+        record_if_applied "003_add_admin_settings.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='admin_settings'),1,0);"
+        record_if_applied "004_admin_login_logs.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='admin_login_logs'),1,0);"
+        record_if_applied "005_domains.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='domains'),1,0);"
+        record_if_applied "006_domains_extend.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='domains' AND COLUMN_NAME='listen_port'),1,0);"
+        record_if_applied "007_users_security_code.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='users' AND COLUMN_NAME='security_code_hash'),1,0);"
+        record_if_applied "008_apk_distribution.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='apk_distributions'),1,0);"
+
         APPLIED_COUNT=0
         SKIPPED_COUNT=0
 

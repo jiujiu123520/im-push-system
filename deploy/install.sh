@@ -684,15 +684,89 @@ if [[ ! -f "${PROJECT_DIR}/backend/.env" ]]; then
     info "已生成随机 JWT_SECRET 与 AES_KEY 并写入 .env"
 fi
 
-# 执行数据库迁移脚本（按文件名顺序）
+# 执行数据库迁移脚本（幂等：已应用的自动跳过，与 update.sh 使用同一张 schema_migrations 表）
 MIGRATIONS_DIR="${PROJECT_DIR}/backend/database/migrations"
+MIGRATIONS_TABLE="schema_migrations"
 if [[ -d "${MIGRATIONS_DIR}" ]]; then
     info "执行数据库迁移..."
-    for sql_file in $(ls -1 "${MIGRATIONS_DIR}"/*.sql 2>/dev/null | sort); do
-        info "  执行: $(basename "${sql_file}")"
-        $MYSQL_ROOT_CMD "${DB_NAME}" < "${sql_file}"
-    done
-    info "数据库迁移完成。"
+
+    # 创建迁移记录表（如不存在），记录已应用的迁移文件
+    $MYSQL_ROOT_CMD "${DB_NAME}" <<EOF
+CREATE TABLE IF NOT EXISTS \`${MIGRATIONS_TABLE}\` (
+    \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    \`filename\` VARCHAR(255) NOT NULL UNIQUE,
+    \`applied_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='迁移记录表';
+EOF
+
+    # 补录已应用但未记录的迁移（兼容旧版无 schema_migrations 表的数据库升级）
+    # 通过检测各迁移对应的表/列/索引是否已存在来判断是否已应用
+    record_if_applied() {
+        local filename="$1"
+        local check_sql="$2"
+        local exists
+        exists=$($MYSQL_ROOT_CMD "${DB_NAME}" -sN -e "${check_sql}" 2>/dev/null || echo 0)
+        if [[ "${exists}" == "1" ]]; then
+            $MYSQL_ROOT_CMD "${DB_NAME}" -e \
+                "INSERT IGNORE INTO \`${MIGRATIONS_TABLE}\` (filename) VALUES ('${filename}');" 2>/dev/null || true
+            info "  补录已应用迁移: ${filename}"
+        fi
+    }
+
+    record_if_applied "001_init.sql" \
+        "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='users'),1,0);"
+    record_if_applied "002_add_notify_fields.sql" \
+        "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='push_keys' AND COLUMN_NAME='notify_email'),1,0);"
+    record_if_applied "003_add_admin_settings.sql" \
+        "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='admin_settings'),1,0);"
+    record_if_applied "004_admin_login_logs.sql" \
+        "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='admin_login_logs'),1,0);"
+    record_if_applied "005_domains.sql" \
+        "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='domains'),1,0);"
+    record_if_applied "006_domains_extend.sql" \
+        "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='domains' AND COLUMN_NAME='listen_port'),1,0);"
+    record_if_applied "007_users_security_code.sql" \
+        "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='users' AND COLUMN_NAME='security_code_hash'),1,0);"
+    record_if_applied "008_apk_distribution.sql" \
+        "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='apk_distributions'),1,0);"
+
+    APPLIED_COUNT=0
+    SKIPPED_COUNT=0
+
+    # 按文件名顺序执行迁移（使用数组避免空格问题）
+    shopt -s nullglob
+    sql_files=("${MIGRATIONS_DIR}"/*.sql)
+    shopt -u nullglob
+    if [[ ${#sql_files[@]} -gt 0 ]]; then
+        IFS=$'\n' sorted_sql_files=($(sort <<<"${sql_files[*]}"))
+        unset IFS
+
+        for sql_file in "${sorted_sql_files[@]}"; do
+            filename=$(basename "${sql_file}")
+
+            # 检查是否已执行（避免重复执行报错，如 Duplicate column name）
+            ALREADY_APPLIED=$($MYSQL_ROOT_CMD "${DB_NAME}" -sN -e \
+                "SELECT COUNT(*) FROM \`${MIGRATIONS_TABLE}\` WHERE filename='${filename}';" 2>/dev/null || echo 0)
+
+            if [[ "${ALREADY_APPLIED}" -gt 0 ]]; then
+                info "  跳过(已应用): ${filename}"
+                SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+            else
+                info "  执行: ${filename}"
+                if $MYSQL_ROOT_CMD "${DB_NAME}" < "${sql_file}"; then
+                    $MYSQL_ROOT_CMD "${DB_NAME}" -e \
+                        "INSERT INTO \`${MIGRATIONS_TABLE}\` (filename) VALUES ('${filename}');"
+                    APPLIED_COUNT=$((APPLIED_COUNT + 1))
+                else
+                    error "迁移失败: ${filename}"
+                    exit 1
+                fi
+            fi
+        done
+        info "数据库迁移完成（本次应用 ${APPLIED_COUNT} 个，跳过 ${SKIPPED_COUNT} 个）。"
+    else
+        info "未找到待执行的迁移文件。"
+    fi
 else
     warn "未找到迁移脚本目录: ${MIGRATIONS_DIR}"
 fi
