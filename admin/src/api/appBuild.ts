@@ -41,6 +41,15 @@ export function getBuildLogApi(id: string) {
   return get<string>(`/admin/app-build/log/${id}`)
 }
 
+// 下载打包日志
+export function downloadBuildLogApi(buildId: string) {
+  return request<Blob>({
+    method: 'get',
+    url: `/admin/app-build/log/${buildId}/download`,
+    responseType: 'blob'
+  })
+}
+
 // 获取打包配置模板
 export function getBuildTemplatesApi() {
   return get<{ name: string; platform: string; config: Record<string, any> }[]>(

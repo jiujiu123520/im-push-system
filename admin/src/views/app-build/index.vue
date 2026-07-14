@@ -409,15 +409,26 @@
             <el-icon class="title-icon"><DocumentIcon /></el-icon>
             <span>构建日志</span>
           </div>
-          <el-tag
-            v-if="currentLogRecord"
-            :type="statusTagType(currentLogRecord.status)"
-            effect="light"
-            round
-            size="small"
-          >
-            {{ statusLabel(currentLogRecord.status) }}
-          </el-tag>
+          <div class="drawer-actions">
+            <el-tag
+              v-if="currentLogRecord"
+              :type="statusTagType(currentLogRecord.status)"
+              effect="light"
+              round
+              size="small"
+            >
+              {{ statusLabel(currentLogRecord.status) }}
+            </el-tag>
+            <el-button
+              v-if="currentLogRecord"
+              type="primary"
+              size="small"
+              :icon="DownloadIcon"
+              @click="handleDownloadLog"
+            >
+              下载日志
+            </el-button>
+          </div>
         </div>
       </template>
 
@@ -497,7 +508,8 @@ import {
   deleteAppBuildApi,
   getRandomConfigApi,
   generateIconApi,
-  downloadApkApi
+  downloadApkApi,
+  downloadBuildLogApi
 } from '@/api/appBuild'
 import { getKeyListApi } from '@/api/key'
 import type { AppBuildRecord } from '@/api/types'
@@ -828,6 +840,29 @@ async function handleDownload(item: AppBuildRecord) {
     ElMessage.success('开始下载')
   } catch {
     ElMessage.error('下载失败')
+  }
+}
+
+// 下载构建日志
+async function handleDownloadLog() {
+  if (!currentLogRecord.value?.build_id) {
+    ElMessage.warning('构建ID不存在')
+    return
+  }
+  try {
+    const res: any = await downloadBuildLogApi(currentLogRecord.value.build_id)
+    const blob = new Blob([res.data], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `build-${currentLogRecord.value.build_id}.log`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    ElMessage.success('日志下载开始')
+  } catch {
+    ElMessage.error('日志下载失败')
   }
 }
 
@@ -1594,6 +1629,12 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+
+  .drawer-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
 
   .drawer-title {
     display: flex;

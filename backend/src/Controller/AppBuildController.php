@@ -268,6 +268,75 @@ class AppBuildController
     }
 
     /**
+     * GET /admin/app-build/log/{build_id}/download
+     * 下载构建日志文件
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function downloadLog(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+
+        if (!self::isAvailable()) {
+            Response::fail($response, '打包服务未配置', Response::CODE_ERROR, 503);
+            return false;
+        }
+
+        $buildId = (string)($params['build_id'] ?? '');
+        if ($buildId === '') {
+            Response::fail($response, '缺少 build_id', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        $task = \BuildServer\BuildQueue::getBuildStatus($buildId);
+        if (!$task) {
+            Response::fail($response, '构建任务不存在', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+
+        $logContent = \BuildServer\BuildQueue::getBuildLog($buildId);
+        if ($logContent === null || $logContent === '') {
+            $logContent = '（日志为空）';
+        }
+
+        // 构建元信息头部
+        $header = sprintf(
+            "========================================\n" .
+            " 构建日志\n" .
+            "========================================\n" .
+            "应用名称: %s\n" .
+            "构建ID:   %s\n" .
+            "包名:     %s\n" .
+            "状态:     %s\n" .
+            "创建时间: %s\n" .
+            "========================================\n\n",
+            $task['app_name'] ?? '-',
+            $buildId,
+            $task['package_name'] ?? '-',
+            $task['status'] ?? '-',
+            $task['created_at'] ?? '-'
+        );
+
+        $fullLog = $header . $logContent;
+
+        // 直接输出原始内容（非 JSON），设置下载头
+        $filename = sprintf('build-%s.log', $buildId);
+        $response->header('Content-Type', 'text/plain; charset=utf-8');
+        $response->header('Content-Disposition', sprintf('attachment; filename="%s"', $filename));
+        $response->header('Content-Length', (string) strlen($fullLog));
+        $response->end($fullLog);
+
+        return null;
+    }
+
+    /**
      * GET /admin/app-build/download/{build_id}
      * 下载 APK
      *

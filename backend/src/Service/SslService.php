@@ -29,11 +29,52 @@ class SslService
     public const DEFAULT_WS = '127.0.0.1:9502';
 
     /**
-     * 检查 acme.sh 是否已安装
+     * 检查 acme.sh 是否已安装（多路径检测）
+     * acme.sh 默认安装到执行用户的家目录，不同用户路径不同：
+     *   root: /root/.acme.sh/acme.sh
+     *   ubuntu: /home/ubuntu/.acme.sh/acme.sh
+     *   www-data: /var/www/.acme.sh/acme.sh
+     * 也可能全局安装到 /usr/local/bin/acme.sh
      */
     public static function isAcmeInstalled(): bool
     {
-        return file_exists(self::ACME_SH);
+        // 检测常见安装路径
+        $candidates = [
+            self::ACME_SH,                          // root 用户
+            '/home/ubuntu/.acme.sh/acme.sh',         // ubuntu 用户
+            '/var/www/.acme.sh/acme.sh',            // www-data 用户
+            '/usr/local/bin/acme.sh',               // 全局安装
+            getenv('HOME') . '/.acme.sh/acme.sh',   // 当前用户家目录
+        ];
+        foreach ($candidates as $path) {
+            if ($path && file_exists($path)) {
+                return true;
+            }
+        }
+        // 最后用 which/command 检测
+        $which = trim((string) shell_exec('which acme.sh 2>/dev/null') ?? '');
+        return $which !== '';
+    }
+
+    /**
+     * 获取 acme.sh 实际安装路径
+     */
+    public static function getAcmePath(): string
+    {
+        $candidates = [
+            self::ACME_SH,
+            '/home/ubuntu/.acme.sh/acme.sh',
+            '/var/www/.acme.sh/acme.sh',
+            '/usr/local/bin/acme.sh',
+            getenv('HOME') . '/.acme.sh/acme.sh',
+        ];
+        foreach ($candidates as $path) {
+            if ($path && file_exists($path)) {
+                return $path;
+            }
+        }
+        $which = trim((string) shell_exec('which acme.sh 2>/dev/null') ?? '');
+        return $which ?: self::ACME_SH;
     }
 
     /**
@@ -98,7 +139,7 @@ class SslService
 
         $cmd = sprintf(
             'sudo %s --issue -d %s -w %s --keylength ec-256 2>&1',
-            escapeshellarg(self::ACME_SH),
+            escapeshellarg(self::getAcmePath()),
             escapeshellarg($domain),
             escapeshellarg(self::ACME_WEBROOT)
         );
@@ -113,7 +154,7 @@ class SslService
 
         $installCmd = sprintf(
             'sudo %s --install-cert -d %s --ecc --key-file %s --fullchain-file %s --reloadcmd "sudo nginx -s reload" 2>&1',
-            escapeshellarg(self::ACME_SH),
+            escapeshellarg(self::getAcmePath()),
             escapeshellarg($domain),
             escapeshellarg($keyFile),
             escapeshellarg($certFile)
@@ -156,7 +197,7 @@ class SslService
         // 强制续费（即使未到期也会重新签发）
         $cmd = sprintf(
             'sudo %s --renew -d %s --ecc --force 2>&1',
-            escapeshellarg(self::ACME_SH),
+            escapeshellarg(self::getAcmePath()),
             escapeshellarg($domain)
         );
         $output = shell_exec($cmd);
@@ -168,7 +209,7 @@ class SslService
         if (file_exists($certFile)) {
             $installCmd = sprintf(
                 'sudo %s --install-cert -d %s --ecc --key-file %s --fullchain-file %s --reloadcmd "sudo nginx -s reload" 2>&1',
-                escapeshellarg(self::ACME_SH),
+                escapeshellarg(self::getAcmePath()),
                 escapeshellarg($domain),
                 escapeshellarg($keyFile),
                 escapeshellarg($certFile)
@@ -637,7 +678,7 @@ class SslService
         $keyFile  = self::SSL_DIR . '/' . $domain . '.key';
 
         if (self::isAcmeInstalled()) {
-            shell_exec(sprintf('sudo %s --remove -d %s --ecc 2>&1', escapeshellarg(self::ACME_SH), escapeshellarg($domain)));
+            shell_exec(sprintf('sudo %s --remove -d %s --ecc 2>&1', escapeshellarg(self::getAcmePath()), escapeshellarg($domain)));
         }
 
         if (file_exists($certFile)) {
