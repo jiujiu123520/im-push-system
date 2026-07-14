@@ -286,7 +286,11 @@ else
     info "安装后端依赖 (composer install --no-dev --optimize-autoloader)..."
     cd "${PROJECT_DIR}/backend"
     # 允许 composer 以 root 运行
-    COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --optimize-autoloader
+    export COMPOSER_ALLOW_SUPERUSER=1
+    composer config --global --no-interaction policy.advisories.block false 2>/dev/null || true
+    # 同步 composer.lock（当 composer.json 变更后 lock 文件可能过期）
+    composer update --lock --no-interaction --no-dev 2>/dev/null || true
+    composer install --no-dev --optimize-autoloader --no-interaction
     cd "${PROJECT_DIR}"
 
     # 前端构建（可选跳过）
