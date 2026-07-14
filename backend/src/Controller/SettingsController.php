@@ -147,6 +147,98 @@ class SettingsController
     }
 
     /**
+     * 检测端口可用性
+     * 路由：GET /admin/settings/check-port?port=9501
+     *
+     * 检测指定端口是否被占用，以及是否为系统保留端口
+     */
+    public function checkPort(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $port = (int)($params['port'] ?? ($_GET['port'] ?? 0));
+
+        if ($port <= 0 || $port > 65535) {
+            Response::fail($response, '端口范围无效（1-65535）', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        // 系统保留端口（0-1023 需要 root 权限）
+        $isPrivileged = $port < 1024;
+
+        // 常见已占用端口
+        $wellKnownPorts = [
+            22 => 'SSH',
+            25 => 'SMTP',
+            53 => 'DNS',
+            80 => 'HTTP(Nginx)',
+            110 => 'POP3',
+            143 => 'IMAP',
+            443 => 'HTTPS(Nginx)',
+            3306 => 'MySQL',
+            5432 => 'PostgreSQL',
+            6379 => 'Redis',
+            8080 => '常见HTTP备用',
+            8443 => '常见HTTPS备用',
+            27017 => 'MongoDB',
+        ];
+
+        $wellKnown = $wellKnownPorts[$port] ?? null;
+
+        // 检测端口是否被占用（尝试 socket bind）
+        $inUse = false;
+        $sock = @socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+        if ($sock !== false) {
+            // SO_REUSEADDR 允许绑定处于 TIME_WAIT 状态的端口
+            if (!@socket_set_option($sock, SOL_SOCKET, SO_REUSEADDR, 1)) {
+                // 忽略设置失败
+            }
+            $bindResult = @socket_bind($sock, '127.0.0.1', $port);
+            if ($bindResult === false) {
+                $inUse = true;
+            }
+            @socket_close($sock);
+        }
+
+        // 检测系统当前监听端口（通过 ss/netstat 命令）
+        $listeningProcess = '';
+        if ($inUse) {
+            // 尝试用 ss 命令获取占用进程
+            $ssOutput = trim((string) shell_exec("ss -tlnp 2>/dev/null | grep ':{$port} ' | head -1") ?? '');
+            if ($ssOutput !== '') {
+                // 提取进程名
+                if (preg_match('/users:\(\("([^"]+)"/', $ssOutput, $m)) {
+                    $listeningProcess = $m[1];
+                }
+            }
+            if ($listeningProcess === '') {
+                // 尝试 netstat
+                $netstatOutput = trim((string) shell_exec("netstat -tlnp 2>/dev/null | grep ':{$port} ' | head -1") ?? '');
+                if ($netstatOutput !== '' && preg_match('/\d+\/(\S+)/', $netstatOutput, $m)) {
+                    $listeningProcess = $m[1];
+                }
+            }
+        }
+
+        // 判断是否可用
+        $available = !$inUse;
+
+        return [
+            'port' => $port,
+            'available' => $available,
+            'in_use' => $inUse,
+            'process' => $listeningProcess,
+            'is_privileged' => $isPrivileged,
+            'well_known' => $wellKnown,
+            'recommend' => $available && !$isPrivileged && $wellKnown === null,
+        ];
+    }
+
+    /**
      * 获取邮件配置
      * 路由：GET /admin/settings/mail
      */

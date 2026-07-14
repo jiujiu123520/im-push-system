@@ -106,7 +106,7 @@
           <el-form-item label="默认 Key" prop="defaultKey">
             <el-select
               v-model="form.defaultKey"
-              placeholder="选择已有 Key 或输入新 Key"
+              placeholder="选择已有 Key 或输入新 Key，如 my_app_key"
               filterable
               allow-create
               default-first-option
@@ -120,6 +120,9 @@
                 :value="k.value"
               />
             </el-select>
+            <div class="form-tip">
+              APP 首次启动默认使用的推送 Key，可在「Key 管理」中预先创建。案例：<code>my_app_key</code>、<code>android_v2</code>
+            </div>
           </el-form-item>
 
           <!-- 服务器地址 + WebSocket 地址 -->
@@ -127,18 +130,24 @@
             <el-form-item label="服务器地址（HTTP API）" prop="serverAddress">
               <el-input
                 v-model="form.serverAddress"
-                placeholder="https://api.push.com"
+                placeholder="例如：http://192.168.1.10:9501 或 https://api.push.com"
                 :prefix-icon="LinkIcon"
                 clearable
               />
+              <div class="form-tip">
+                根据系统设置的 HTTP 端口自动填写（含端口号）。案例：<code>http://192.168.1.10:9501</code>、<code>https://api.push.com</code>
+              </div>
             </el-form-item>
             <el-form-item label="WebSocket 地址" prop="websocketAddress">
               <el-input
                 v-model="form.websocketAddress"
-                placeholder="wss://ws.push.com"
+                placeholder="例如：ws://192.168.1.10:9502 或 wss://ws.push.com"
                 :prefix-icon="ConnectionIcon"
                 clearable
               />
+              <div class="form-tip">
+                根据系统设置的 WebSocket 端口自动填写。案例：<code>ws://192.168.1.10:9502</code>、<code>wss://ws.push.com</code>
+              </div>
             </el-form-item>
           </div>
 
@@ -512,6 +521,7 @@ import {
   downloadBuildLogApi
 } from '@/api/appBuild'
 import { getKeyListApi } from '@/api/key'
+import { getSettingsApi } from '@/api/settings'
 import type { AppBuildRecord } from '@/api/types'
 
 // ---- 表单数据 ----
@@ -727,16 +737,62 @@ watch(
   }
 )
 
-// 自动检测服务器地址
-function detectServerUrls() {
-  const protocol = window.location.protocol
-  const host = window.location.hostname
+// 自动检测服务器地址（优先读取系统设置中的端口，拼接完整地址）
+async function detectServerUrls() {
+  // 默认使用浏览器当前访问的协议与主机
+  const browserProtocol = window.location.protocol
+  const browserHost = window.location.hostname
+  const httpProtocol = browserProtocol === 'https:' ? 'https:' : 'http:'
+  const wsProtocol = browserProtocol === 'https:' ? 'wss:' : 'ws:'
 
-  const httpUrl = `${protocol}//${host}`
-  const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsUrl = `${wsProtocol}//${host}`
+  let httpHost = browserHost
+  let wsHost = browserHost
+  let httpPort = 0
+  let wsPort = 0
+  let sslEnabled = false
+
+  // 尝试从系统设置读取端口与地址
+  try {
+    const res: any = await getSettingsApi()
+    const server = res?.data?.server || res?.server
+    if (server) {
+      sslEnabled = !!server.sslEnabled
+      // 若系统设置已配置 sslEnabled，则以系统设置协议为准
+      if (sslEnabled) {
+        // 协议已通过 ssl 决定，无需再覆盖
+      }
+      // 优先采用系统设置里填写的地址（去掉协议前缀，只取 host）
+      if (server.httpApiUrl) {
+        httpHost = stripProtocol(server.httpApiUrl) || httpHost
+      }
+      if (server.websocketUrl) {
+        wsHost = stripProtocol(server.websocketUrl) || wsHost
+      }
+      httpPort = Number(server.httpPort) || 0
+      wsPort = Number(server.websocketPort) || 0
+    }
+  } catch {
+    // 读取失败则使用浏览器地址
+  }
+
+  const httpUrl = buildUrl(sslEnabled ? 'https:' : httpProtocol, httpHost, httpPort)
+  const wsUrl = buildUrl(sslEnabled ? 'wss:' : wsProtocol, wsHost, wsPort)
 
   return { httpUrl, wsUrl }
+}
+
+// 去掉 URL 的协议前缀，返回 host[:port]
+function stripProtocol(url: string): string {
+  if (!url) return ''
+  return url.replace(/^https?:\/\//i, '').replace(/^wss?:\/\//i, '')
+}
+
+// 拼接带端口的完整 URL（端口为 0 或空则不加）
+function buildUrl(protocol: string, host: string, port: number): string {
+  if (port && port > 0 && port !== 80 && port !== 443) {
+    return `${protocol}//${host}:${port}`
+  }
+  return `${protocol}//${host}`
 }
 
 // 监听图标模式切换
@@ -954,13 +1010,15 @@ async function openLog(item: AppBuildRecord) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   fetchKeyOptions()
   fetchHistory()
-  
-  const detected = detectServerUrls()
-  form.serverAddress = detected.httpUrl
-  form.websocketAddress = detected.wsUrl
+
+  // 根据系统设置中保存的端口自动填入服务器地址（含端口号）
+  const detected = await detectServerUrls()
+  // 仅在用户尚未手动填写时自动填充
+  if (!form.serverAddress) form.serverAddress = detected.httpUrl
+  if (!form.websocketAddress) form.websocketAddress = detected.wsUrl
 })
 
 onBeforeUnmount(() => {
@@ -1189,6 +1247,15 @@ onBeforeUnmount(() => {
     font-size: 12px;
     color: var(--text-secondary);
     margin-top: 4px;
+
+    code {
+      background: var(--bg-secondary, #f5f7fa);
+      color: var(--color-primary, #409eff);
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', Menlo, Consolas, monospace;
+    }
   }
 }
 

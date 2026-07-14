@@ -142,14 +142,14 @@
           <el-input
             v-if="field.type === 'input'"
             v-model="dialogForm[field.prop]"
-            :placeholder="`请输入${field.label}`"
+            :placeholder="field.placeholder || `请输入${field.label}`"
           />
           <el-input
             v-else-if="field.type === 'textarea'"
             v-model="dialogForm[field.prop]"
             type="textarea"
             :rows="3"
-            :placeholder="`请输入${field.label}`"
+            :placeholder="field.placeholder || `请输入${field.label}`"
           />
           <el-input-number
             v-else-if="field.type === 'number'"
@@ -161,7 +161,7 @@
           <el-select
             v-else-if="field.type === 'select'"
             v-model="dialogForm[field.prop]"
-            :placeholder="`请选择${field.label}`"
+            :placeholder="field.placeholder || `请选择${field.label}`"
             style="width: 100%"
           >
             <el-option
@@ -177,6 +177,7 @@
             :active-value="1"
             :inactive-value="0"
           />
+          <div v-if="field.tip" class="field-tip">{{ field.tip }}</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -254,6 +255,7 @@ interface FieldConfig {
   options?: { label: string; value: any }[]
   required?: boolean
   placeholder?: string
+  tip?: string
 }
 
 interface ColumnConfig {
@@ -371,13 +373,13 @@ const moduleConfigs: Record<string, {
       { prop: 'created_at', label: '时间', width: 170 }
     ],
     fields: [
-      { prop: 'title', label: '标题', type: 'input', required: true },
-      { prop: 'content', label: '内容', type: 'textarea', required: true },
+      { prop: 'title', label: '标题', type: 'input', required: true, placeholder: '例如：系统维护通知', tip: '推送消息的标题，会显示在设备通知栏' },
+      { prop: 'content', label: '内容', type: 'textarea', required: true, placeholder: '例如：系统将于今晚 22:00-23:00 进行维护升级，期间推送服务可能短暂不可用', tip: '推送消息正文，支持纯文本' },
       { prop: 'target_type', label: '目标类型', type: 'select', required: true, options: [
         { label: '设备', value: 'device' },
         { label: 'Key', value: 'key' }
-      ] },
-      { prop: 'target_value', label: '目标值', type: 'input', required: true }
+      ], placeholder: '选择推送目标类型：设备=指定 device_id，Key=按 key 分组推送', tip: '设备：精确推送到指定 device_id；Key：按 key 分组推送给该 key 下所有设备' },
+      { prop: 'target_value', label: '目标值', type: 'input', required: true, placeholder: 'device_id 或 key_value，多个用英文逗号分隔，如：dev_001,dev_002', tip: '案例：device 类型填 dev_001,dev_002；key 类型填 my_app_key' }
     ],
     mockRow: () => ({
       id: 0,
@@ -986,6 +988,13 @@ async function handleExport(format: string) {
 .header-actions {
   display: flex;
   align-items: center;
+}
+
+.field-tip {
+  font-size: 12px;
+  color: var(--el-text-color-secondary, #909399);
+  margin-top: 4px;
+  line-height: 1.5;
 }
 
 @keyframes fade-up {

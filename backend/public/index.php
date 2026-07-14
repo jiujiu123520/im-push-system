@@ -242,6 +242,7 @@ if ($runWs) {
         // ============================================================
         $router->get('/admin/settings',                    [\App\Controller\SettingsController::class, 'getSettings']);
         $router->put('/admin/settings',                     [\App\Controller\SettingsController::class, 'updateSettings']);
+        $router->get('/admin/settings/check-port',          [\App\Controller\SettingsController::class, 'checkPort']);
         $router->get('/admin/settings/mail',               [\App\Controller\SettingsController::class, 'getMailConfig']);
         $router->post('/admin/settings/mail',              [\App\Controller\SettingsController::class, 'saveMailConfig']);
         $router->post('/admin/settings/mail/test',        [\App\Controller\SettingsController::class, 'testMailConfig']);

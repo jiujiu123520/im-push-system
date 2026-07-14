@@ -80,8 +80,14 @@
                 :max="65535"
                 controls-position="right"
                 style="width: 100%"
+                @change="(v: any) => onPortChange('frontend', v)"
               />
-              <div class="form-tip">0=默认端口（80/443）</div>
+              <div class="form-tip">0=默认端口（80/443），Nginx 反向代理时通常用 80/443</div>
+              <div v-if="portCheck.frontend" class="port-check-result" :class="{ 'port-ok': portCheck.frontend.available, 'port-bad': !portCheck.frontend.available }">
+                <el-icon v-if="portCheck.frontend.available"><CircleCheckIcon /></el-icon>
+                <el-icon v-else><CircleCloseIcon /></el-icon>
+                {{ portCheck.frontend.message }}
+              </div>
             </el-form-item>
           </div>
 
@@ -101,8 +107,14 @@
                 :max="65535"
                 controls-position="right"
                 style="width: 100%"
+                @change="(v: any) => onPortChange('http', v)"
               />
-              <div class="form-tip">0=默认端口（80/443）</div>
+              <div class="form-tip">0=默认端口（80/443），Swoole HTTP 默认 9501</div>
+              <div v-if="portCheck.http" class="port-check-result" :class="{ 'port-ok': portCheck.http.available, 'port-bad': !portCheck.http.available }">
+                <el-icon v-if="portCheck.http.available"><CircleCheckIcon /></el-icon>
+                <el-icon v-else><CircleCloseIcon /></el-icon>
+                {{ portCheck.http.message }}
+              </div>
             </el-form-item>
           </div>
           <div class="form-row">
@@ -120,10 +132,29 @@
                 :max="65535"
                 controls-position="right"
                 style="width: 100%"
+                @change="(v: any) => onPortChange('websocket', v)"
               />
-              <div class="form-tip">0=默认端口（80/443）</div>
+              <div class="form-tip">0=默认端口（80/443），Swoole WebSocket 默认 9502</div>
+              <div v-if="portCheck.websocket" class="port-check-result" :class="{ 'port-ok': portCheck.websocket.available, 'port-bad': !portCheck.websocket.available }">
+                <el-icon v-if="portCheck.websocket.available"><CircleCheckIcon /></el-icon>
+                <el-icon v-else><CircleCloseIcon /></el-icon>
+                {{ portCheck.websocket.message }}
+              </div>
             </el-form-item>
           </div>
+
+          <!-- 端口使用提示 -->
+          <el-alert type="info" :closable="false" class="port-tip-alert">
+            <template #title>
+              <div class="port-tip-content">
+                <strong>端口使用建议：</strong>
+                <div>· <b>推荐使用</b>：9501-9999、10000-65535（高位端口无冲突风险）</div>
+                <div>· <b>默认端口</b>：0 = 使用 80（HTTP）或 443（HTTPS），需 Nginx 反向代理</div>
+                <div>· <b>避免使用</b>：22(SSH)、80(Nginx)、443(Nginx)、3306(MySQL)、6379(Redis)、8080、8443</div>
+                <div>· <b>系统保留</b>：1-1023 需要 root 权限，不建议直接使用</div>
+              </div>
+            </template>
+          </el-alert>
           <div class="form-actions">
             <el-button
               :icon="RefreshIcon"
@@ -726,11 +757,14 @@ import {
   Clock as ClockIcon,
   CircleCheckFilled as CircleCheckFilledIcon,
   Upload as UploadIcon,
-  Download as DownloadIcon
+  Download as DownloadIcon,
+  CircleCheck as CircleCheckIcon,
+  CircleClose as CircleCloseIcon
 } from '@element-plus/icons-vue'
 import {
   getSettingsApi,
   updateSettingsApi,
+  checkPortApi,
   getMailConfigApi,
   saveMailConfigApi,
   testMailConfigApi,
@@ -767,6 +801,39 @@ const serverRules: FormRules = {
     { pattern: /^wss?:\/\/.+/, message: '请输入合法 ws/wss 地址', trigger: 'blur' }
   ],
   websocketPort: [{ required: true, message: '请输入端口', trigger: 'blur' }]
+}
+
+// 端口检测结果
+const portCheck = reactive<Record<string, { available: boolean; message: string } | null>>({
+  frontend: null,
+  http: null,
+  websocket: null
+})
+
+// 端口变更时自动检测
+async function onPortChange(type: 'frontend' | 'http' | 'websocket', port: number) {
+  if (!port || port <= 0) {
+    portCheck[type] = { available: true, message: '使用默认端口（80/443）' }
+    return
+  }
+  try {
+    const res: any = await checkPortApi(port)
+    const data = res.data || res
+    if (data.available) {
+      if (data.is_privileged) {
+        portCheck[type] = { available: false, message: `端口 ${port} 是系统保留端口（1-1023），需要 root 权限` }
+      } else if (data.well_known) {
+        portCheck[type] = { available: false, message: `端口 ${port} 通常被 ${data.well_known} 占用，不建议使用` }
+      } else {
+        portCheck[type] = { available: true, message: `端口 ${port} 可用` }
+      }
+    } else {
+      const proc = data.process ? `（被 ${data.process} 占用）` : ''
+      portCheck[type] = { available: false, message: `端口 ${port} 已被占用${proc}` }
+    }
+  } catch {
+    portCheck[type] = null
+  }
 }
 
 // ---- 推送配置 ----
@@ -1329,10 +1396,20 @@ async function testMail() {
   }
 }
 
-onMounted(() => {
-  fetchSettings()
+onMounted(async () => {
+  await fetchSettings()
   fetchMailConfig()
   fetchSystemInfo()
+  // 加载完成后对已配置的端口做一次可用性检测
+  if (serverForm.frontendPort && serverForm.frontendPort > 0) {
+    onPortChange('frontend', serverForm.frontendPort)
+  }
+  if (serverForm.httpPort && serverForm.httpPort > 0) {
+    onPortChange('http', serverForm.httpPort)
+  }
+  if (serverForm.websocketPort && serverForm.websocketPort > 0) {
+    onPortChange('websocket', serverForm.websocketPort)
+  }
 })
 
 onUnmounted(() => {
@@ -1577,6 +1654,42 @@ onUnmounted(() => {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
+  }
+}
+
+// 端口检测结果
+.port-check-result {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+
+  &.port-ok {
+    color: #67c23a;
+    background: #f0f9eb;
+  }
+
+  &.port-bad {
+    color: #f56c6c;
+    background: #fef0f0;
+  }
+}
+
+// 端口提示
+.port-tip-alert {
+  margin: 12px 0;
+
+  .port-tip-content {
+    line-height: 1.8;
+    font-size: 12px;
+
+    strong {
+      display: block;
+      margin-bottom: 4px;
+    }
   }
 }
 

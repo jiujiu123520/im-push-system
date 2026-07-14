@@ -11,6 +11,19 @@ export function updateSettingsApi(data: Partial<Settings>) {
   return put('/admin/settings', data)
 }
 
+// 检测端口可用性
+export function checkPortApi(port: number) {
+  return get<{
+    port: number
+    available: boolean
+    in_use: boolean
+    process: string
+    is_privileged: boolean
+    well_known: string | null
+    recommend: boolean
+  }>('/admin/settings/check-port', { port })
+}
+
 // 获取邮件配置（用于设备掉线通知）
 export function getMailConfigApi() {
   return get<{
