@@ -176,16 +176,53 @@ if [[ "$PKG_MANAGER" == "apt-get" ]]; then
 elif [[ "$PKG_MANAGER" == "yum" ]]; then
     # 安装 EPEL 和 Remi 源（CentOS/RHEL）
     yum install -y epel-release
-    yum install -y "https://rpms.remirepo.net/enterprise/remi-release-8.rpm" || true
-    yum module reset -y php || true
-    yum module enable -y php:remi-8.2
 
+    # 检测系统主版本号（7/8/9）
+    OS_MAJOR_VER=""
+    if [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        OS_MAJOR_VER="${VERSION_ID%%.*}"
+    elif [[ -f /etc/redhat-release ]]; then
+        OS_MAJOR_VER=$(rpm -E %{rhel} 2>/dev/null || echo "")
+    fi
+    info "检测到系统主版本: ${OS_MAJOR_VER:-未知}"
+
+    # 根据 CentOS/RHEL 主版本号选择正确的 Remi 源
+    REMI_RELEASE_RPM=""
+    case "$OS_MAJOR_VER" in
+        7) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-7.rpm" ;;
+        8) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-8.rpm" ;;
+        9) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-9.rpm" ;;
+        *) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-8.rpm" ;;
+    esac
+
+    info "安装 Remi 源: ${REMI_RELEASE_RPM}"
+    yum install -y "$REMI_RELEASE_RPM" || {
+        warn "Remi 源安装失败，尝试使用本地已有的 PHP..."
+    }
+
+    # CentOS 7 使用 yum-config-manager 启用 remi-php82 仓库
+    # CentOS 8/9 使用 dnf module 启用 PHP 8.2 模块
+    if [[ "$OS_MAJOR_VER" == "7" ]]; then
+        info "CentOS 7: 通过 yum-config-manager 启用 remi-php82 仓库..."
+        yum install -y yum-utils
+        yum-config-manager --enable remi-php82 || warn "启用 remi-php82 仓库失败，将尝试使用默认 PHP 源"
+    else
+        info "CentOS ${OS_MAJOR_VER}: 通过 dnf module 启用 PHP 8.2..."
+        yum module reset -y php || true
+        yum module enable -y php:remi-8.2 || warn "启用 PHP 8.2 模块失败，将尝试使用默认 PHP 源"
+    fi
+
+    # 安装 PHP 及扩展（Redis 扩展包名可能因版本不同，单独处理）
     yum install -y \
         php php-cli php-common \
-        php-mysqlnd php-pecl-redis5 php-curl \
+        php-mysqlnd php-curl \
         php-mbstring php-xml php-zip \
         php-bcmath php-gd php-intl \
-        php-pear php-devel openssl-devel
+        php-pear php-devel openssl-devel || warn "部分 PHP 包安装失败，请检查 yum 源配置"
+
+    # Redis 扩展（包名可能因 Remi 版本不同：php-pecl-redis5 / php-redis）
+    yum install -y php-pecl-redis5 2>/dev/null || yum install -y php-redis 2>/dev/null || warn "Redis 扩展安装失败，可后续手动安装"
 
     # 安装 Swoole 扩展
     if ! php -m | grep -q '^swoole$'; then
