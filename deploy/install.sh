@@ -796,7 +796,15 @@ step "5/7" "构建管理后台"
 cd "${PROJECT_DIR}/admin"
 # 使用国内镜像加速（淘宝镜像）
 npm config set registry https://registry.npmmirror.com
+# 修复 node_modules/.bin 权限（可能因之前 root 安装导致 ubuntu 用户无执行权限）
+if [[ -d node_modules/.bin ]]; then
+    chmod -R +x node_modules/.bin 2>/dev/null || true
+fi
+# 确保 admin 目录归属当前用户（root 安装后可能文件属主是 root）
+chown -R "$(stat -c '%U:%G' "${PROJECT_DIR}")" "${PROJECT_DIR}/admin" 2>/dev/null || true
 npm install
+# 安装后再次确保 .bin 可执行（npm install 偶发不设置可执行位）
+chmod -R +x node_modules/.bin 2>/dev/null || true
 npm run build
 info "管理后台构建完成。"
 

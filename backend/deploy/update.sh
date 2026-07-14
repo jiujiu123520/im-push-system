@@ -298,7 +298,11 @@ else
         info "构建管理后台 (npm install && npm run build)..."
         if [[ -d "${PROJECT_DIR}/admin" ]]; then
             cd "${PROJECT_DIR}/admin"
+            # 修复 node_modules/.bin 权限（可能因 root 安装导致普通用户无执行权限）
+            [[ -d node_modules/.bin ]] && chmod -R +x node_modules/.bin 2>/dev/null || true
             npm install
+            # 安装后再次确保 .bin 可执行
+            chmod -R +x node_modules/.bin 2>/dev/null || true
             npm run build
             cd "${PROJECT_DIR}"
         else
