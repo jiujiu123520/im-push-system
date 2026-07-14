@@ -658,7 +658,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 // 图标重命名导入（避免与 unplugin-vue-components 自动导入的组件名冲突）
 import {
   Monitor as MonitorIcon,
@@ -1142,8 +1142,21 @@ async function saveSection(section: 'server' | 'push' | 'captcha' | 'security') 
     } else if (section === 'security') {
       payload.security = { ...securityForm }
     }
-    await updateSettingsApi(payload)
-    ElMessage.success('配置保存成功')
+    const res = await updateSettingsApi(payload)
+    // 端口变更需重启服务生效
+    if (res.data?.need_restart) {
+      ElMessageBox.alert(
+        '端口配置已写入 .env 文件，需重启以下服务后生效：\n\npush-http（HTTP API）\npush-websocket（WebSocket 推送）\n\n请在服务器执行：\nsudo systemctl restart push-http push-websocket',
+        '需要重启服务',
+        {
+          confirmButtonText: '我知道了',
+          type: 'warning',
+          appendTo: 'body'
+        }
+      )
+    } else {
+      ElMessage.success('配置保存成功')
+    }
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : '保存失败')
   } finally {

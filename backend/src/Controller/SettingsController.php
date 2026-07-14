@@ -122,6 +122,14 @@ class SettingsController
                 $json = json_encode($configData, JSON_UNESCAPED_UNICODE);
                 $stmt->execute(["settings_{$section}", $json, $json]);
                 $updatedSections[] = $section;
+
+                // 服务器配置：同步端口到 .env 文件（需重启服务生效）
+                if ($section === 'server') {
+                    $envUpdated = self::syncPortsToEnv($configData);
+                    if ($envUpdated) {
+                        $needRestart = true;
+                    }
+                }
             }
         }
 
@@ -130,7 +138,12 @@ class SettingsController
             return false;
         }
 
-        return ['message' => '配置已保存', 'updated' => $updatedSections];
+        $message = '配置已保存';
+        if (!empty($needRestart)) {
+            $message = '配置已保存，端口变更需重启服务后生效（push-http、push-websocket）';
+        }
+
+        return ['message' => $message, 'updated' => $updatedSections, 'need_restart' => !empty($needRestart)];
     }
 
     /**
@@ -673,5 +686,61 @@ class SettingsController
             }
         }
         return [];
+    }
+
+    /**
+     * 将端口配置同步写入 .env 文件
+     *
+     * @param array $configData server 分组配置
+     * @return bool 是否有端口被更新
+     */
+    private static function syncPortsToEnv(array $configData): bool
+    {
+        $envFile = dirname(__DIR__, 2) . '/.env';
+        if (!is_file($envFile) || !is_writable($envFile)) {
+            return false;
+        }
+
+        $updated = false;
+        $content = (string)file_get_contents($envFile);
+        $lines = explode("\n", $content);
+
+        $httpPort = isset($configData['httpPort']) ? (int)$configData['httpPort'] : null;
+        $wsPort = isset($configData['websocketPort']) ? (int)$configData['websocketPort'] : null;
+
+        if ($httpPort === null && $wsPort === null) {
+            return false;
+        }
+
+        $httpPortFound = false;
+        $wsPortFound = false;
+
+        foreach ($lines as $i => $line) {
+            if ($httpPort !== null && preg_match('/^HTTP_PORT\s*=\s*(.+)$/', $line, $m)) {
+                $lines[$i] = 'HTTP_PORT=' . $httpPort;
+                $httpPortFound = true;
+                $updated = true;
+            } elseif ($wsPort !== null && preg_match('/^WEBSOCKET_PORT\s*=\s*(.+)$/', $line, $m)) {
+                $lines[$i] = 'WEBSOCKET_PORT=' . $wsPort;
+                $wsPortFound = true;
+                $updated = true;
+            }
+        }
+
+        // 如果 .env 中没有该行，追加到文件末尾
+        if ($httpPort !== null && !$httpPortFound) {
+            $lines[] = 'HTTP_PORT=' . $httpPort;
+            $updated = true;
+        }
+        if ($wsPort !== null && !$wsPortFound) {
+            $lines[] = 'WEBSOCKET_PORT=' . $wsPort;
+            $updated = true;
+        }
+
+        if ($updated) {
+            file_put_contents($envFile, implode("\n", $lines));
+        }
+
+        return $updated;
     }
 }
