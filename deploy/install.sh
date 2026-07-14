@@ -473,14 +473,50 @@ if ! systemctl is-active --quiet mysql 2>/dev/null \
     systemctl enable mysql 2>/dev/null || systemctl enable mysqld 2>/dev/null || systemctl enable mariadb
 fi
 
+# ------------------------------------------------------------
+# 检测 MySQL root 连接方式（尝试多种方式）
+# ------------------------------------------------------------
+info "检测 MySQL root 连接方式..."
+MYSQL_ROOT_CMD=""
+
+# 方式1: mysql -uroot（无密码，某些系统默认）
+if mysql -uroot -e "SELECT 1" >/dev/null 2>&1; then
+    MYSQL_ROOT_CMD="mysql -uroot"
+    info "  MySQL root 可无密码连接"
+
+# 方式2: sudo mysql（Ubuntu auth_socket 插件）
+elif sudo mysql -e "SELECT 1" >/dev/null 2>&1; then
+    MYSQL_ROOT_CMD="sudo mysql"
+    info "  MySQL root 通过 sudo 连接（auth_socket）"
+
+# 方式3: 交互式询问 root 密码
+else
+    warn "  MySQL root 无法无密码连接，需要输入密码"
+    echo ""
+    read -s -p "请输入 MySQL root 密码: " MYSQL_ROOT_PASS < /dev/tty
+    echo ""
+
+    # 测试密码是否正确
+    if mysql -uroot -p"${MYSQL_ROOT_PASS}" -e "SELECT 1" >/dev/null 2>&1; then
+        # 密码中可能包含特殊字符，使用 MYSQL_PWD 环境变量传递更安全
+        MYSQL_ROOT_CMD="MYSQL_PWD=${MYSQL_ROOT_PASS} mysql -uroot"
+        info "  MySQL root 密码验证成功"
+    else
+        error "MySQL root 密码错误，无法连接数据库"
+        error "请确认 MySQL root 密码后重新运行安装脚本"
+        error "如果忘记 root 密码，可重置：https://dev.mysql.com/doc/refman/8.0/en/resetting-permissions.html"
+        exit 1
+    fi
+fi
+
 # 创建数据库与用户（如果 .env 已存在则跳过，数据库已创建过）
 if [[ -f "$ENV_FILE" ]]; then
     info "检测到已有 .env 配置，跳过数据库创建（复用现有数据库 ${DB_NAME}）"
     # 仅确保数据库存在（防止被手动删除）
-    mysql -uroot -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || warn "确保数据库存在时失败（可能需要输入 root 密码）"
+    $MYSQL_ROOT_CMD -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || warn "确保数据库存在时失败"
 else
     info "创建数据库 ${DB_NAME} 和用户 ${DB_USER}..."
-    mysql -uroot <<EOF
+    $MYSQL_ROOT_CMD <<EOF
 CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${DB_USER}'@'${DB_HOST}' IDENTIFIED WITH mysql_native_password BY '${DB_PASS}';
 GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'${DB_HOST}';
@@ -545,7 +581,7 @@ if [[ -d "${MIGRATIONS_DIR}" ]]; then
     info "执行数据库迁移..."
     for sql_file in $(ls -1 "${MIGRATIONS_DIR}"/*.sql 2>/dev/null | sort); do
         info "  执行: $(basename "${sql_file}")"
-        mysql -uroot "${DB_NAME}" < "${sql_file}"
+        $MYSQL_ROOT_CMD "${DB_NAME}" < "${sql_file}"
     done
     info "数据库迁移完成。"
 else
