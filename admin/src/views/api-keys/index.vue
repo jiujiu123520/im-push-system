@@ -747,7 +747,20 @@ const errorCodes = [
   { code: 503, message: 'Service Unavailable', desc: '服务不可用' }
 ]
 
-const docCurlExample = `curl -X POST https://your-domain.com/api/push \\
+// ---- 动态服务器地址 ----
+// 根据当前访问的域名或IP自动生成 API 示例地址
+const serverBaseUrl = computed(() => {
+  const protocol = window.location.protocol
+  const host = window.location.hostname
+  const port = window.location.port
+  // Nginx 反向代理场景：使用标准 80/443 端口时不显示端口号
+  if (port && port !== '80' && port !== '443') {
+    return `${protocol}//${host}:${port}`
+  }
+  return `${protocol}//${host}`
+})
+
+const docCurlExample = computed(() => `curl -X POST ${serverBaseUrl.value}/api/push \\
   -H "Content-Type: application/json" \\
   -H "X-Api-Key: your-api-key-here" \\
   -d '{
@@ -760,7 +773,7 @@ const docCurlExample = `curl -X POST https://your-domain.com/api/push \\
       "type": "notification",
       "action": "open_page"
     }
-  }'`
+  }'`)
 
 const docBodyExample = `{
   "target_type": "key",
@@ -774,9 +787,9 @@ const docBodyExample = `{
   }
 }`
 
-const docJsExample = `// 使用 fetch 调用推送 API
+const docJsExample = computed(() => `// 使用 fetch 调用推送 API
 async function sendPush(apiKey, params) {
-  const res = await fetch('https://your-domain.com/api/push', {
+  const res = await fetch('${serverBaseUrl.value}/api/push', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -784,13 +797,13 @@ async function sendPush(apiKey, params) {
     },
     body: JSON.stringify(params)
   })
-  
+
   const data = await res.json()
-  
+
   if (!res.ok) {
     throw new Error(data.message || '推送失败')
   }
-  
+
   return data
 }
 
@@ -805,7 +818,7 @@ sendPush('your-api-key-here', {
   console.log('推送成功:', result)
 }).catch(err => {
   console.error('推送失败:', err.message)
-})`
+})`)
 
 const docResponseExample = `{
   "success_count": 2,
@@ -837,7 +850,7 @@ function scrollToExamples() {
   examplesOpen.value = true
 }
 
-const curlExample = `curl -X POST https://your-domain.com/api/push \\
+const curlExample = computed(() => `curl -X POST ${serverBaseUrl.value}/api/push \\
   -H "Content-Type: application/json" \\
   -H "X-Api-Key: pk_xxxxxxxxxxxxxxxx" \\
   -d '{
@@ -846,7 +859,7 @@ const curlExample = `curl -X POST https://your-domain.com/api/push \\
     "title": "欢迎使用推送服务",
     "content": "这是一条测试消息",
     "priority": "normal"
-  }'`
+  }'`)
 
 const jsonExample = `{
   "target_type": "key",
@@ -860,9 +873,9 @@ const jsonExample = `{
   }
 }`
 
-const jsExample = `// 使用 fetch 调用推送 API
+const jsExample = computed(() => `// 使用 fetch 调用推送 API
 async function sendPush(apiKey, params) {
-  const res = await fetch('https://your-domain.com/api/push', {
+  const res = await fetch('${serverBaseUrl.value}/api/push', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -889,7 +902,7 @@ sendPush('pk_your_api_key_here', {
   console.log('推送成功:', result)
 }).catch(err => {
   console.error('推送失败:', err.message)
-})`
+})`)
 
 // 简易语法高亮（无需依赖库，使用 span 着色）
 function escapeHtml(s: string): string {
