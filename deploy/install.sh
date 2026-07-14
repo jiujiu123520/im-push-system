@@ -160,13 +160,13 @@ fi
 
 # 统计
 INSTALLED_COUNT=0
-[[ "$PHP_INSTALLED" == "true" ]] && ((INSTALLED_COUNT++))
-[[ "$SWOOLE_INSTALLED" == "true" ]] && ((INSTALLED_COUNT++))
-[[ "$MYSQL_INSTALLED" == "true" ]] && ((INSTALLED_COUNT++))
-[[ "$REDIS_INSTALLED" == "true" ]] && ((INSTALLED_COUNT++))
-[[ "$NGINX_INSTALLED" == "true" ]] && ((INSTALLED_COUNT++))
-[[ "$NODE_INSTALLED" == "true" ]] && ((INSTALLED_COUNT++))
-[[ "$COMPOSER_INSTALLED" == "true" ]] && ((INSTALLED_COUNT++))
+[[ "$PHP_INSTALLED" == "true" ]] && INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+[[ "$SWOOLE_INSTALLED" == "true" ]] && INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+[[ "$MYSQL_INSTALLED" == "true" ]] && INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+[[ "$REDIS_INSTALLED" == "true" ]] && INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+[[ "$NGINX_INSTALLED" == "true" ]] && INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+[[ "$NODE_INSTALLED" == "true" ]] && INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+[[ "$COMPOSER_INSTALLED" == "true" ]] && INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
 
 if [[ "$INSTALLED_COUNT" -eq 7 ]]; then
     info "环境检测完成：所有依赖已安装，跳过系统依赖安装步骤"
