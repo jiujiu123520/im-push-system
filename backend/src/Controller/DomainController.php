@@ -13,21 +13,24 @@ use App\Service\SslService;
  *
  * 路由：
  *   GET    /admin/domains                       域名列表
- *   GET    /admin/domains/{id}                   域名详情
- *   POST   /admin/domains                        添加域名
- *   PUT    /admin/domains/{id}                   更新域名
- *   DELETE /admin/domains/{id}                   删除域名
- *   POST   /admin/domains/{id}/set-primary       设为主域名
- *   POST   /admin/domains/{id}/ssl-apply         申请 SSL 证书
- *   POST   /admin/domains/{id}/ssl-deploy        部署 Nginx（生成配置+reload）
- *   POST   /admin/domains/sync-nginx             同步所有域名 Nginx 配置
- *   GET    /admin/domains/environment            检查 SSL 环境
- *   POST   /admin/domains/install-acme           安装 acme.sh
+ *   GET    /admin/domains/environment           检查 SSL 环境
+ *   POST   /admin/domains/install-acme         安装 acme.sh
+ *   POST   /admin/domains                       添加域名
+ *   GET    /admin/domains/{id}                  域名详情
+ *   PUT    /admin/domains/{id}                  更新域名
+ *   DELETE /admin/domains/{id}                  删除域名
+ *   POST   /admin/domains/{id}/set-primary      设为主域名
+ *   POST   /admin/domains/{id}/ssl-apply        申请 SSL 证书
+ *   POST   /admin/domains/{id}/ssl-renew        续费 SSL 证书
+ *   POST   /admin/domains/{id}/ssl-deploy       部署 Nginx
+ *   POST   /admin/domains/{id}/toggle-auto-renew 切换自动续费
+ *   POST   /admin/domains/sync-nginx            同步所有域名 Nginx
+ *   POST   /admin/domains/renew-all             批量续费即将过期证书
  */
 class DomainController
 {
-    /** 允许的域名用途 */
-    private const ALLOWED_TYPES = ['admin', 'api', 'ws'];
+    /** 允许的目标类型 */
+    private const ALLOWED_TARGET_TYPES = ['frontend', 'backend', 'ws', 'all'];
 
     /**
      * 域名列表
@@ -39,18 +42,18 @@ class DomainController
         }
 
         $list = Database::fetchAll(
-            'SELECT id, domain, type, ssl_enabled, ssl_status, ssl_expire_at,
+            'SELECT id, domain, listen_port, type, target_type, target_host,
+                    ssl_enabled, ssl_status, ssl_expire_at, ssl_auto_renew, ssl_last_renew_at,
                     ssl_cert_path, ssl_key_path, ssl_error, nginx_deployed,
                     is_primary, status, remark, created_at, updated_at
              FROM domains ORDER BY is_primary DESC, id ASC'
         );
 
-        // 检查每个域名的证书实际状态
+        // 实时检查每个域名的证书状态
         foreach ($list as &$row) {
             if ((int)$row['ssl_enabled'] === 1 && $row['ssl_status'] === 'issued') {
                 $certInfo = SslService::checkCertificate($row['domain']);
                 if (!$certInfo['valid']) {
-                    // 证书已过期或文件丢失，更新状态
                     $row['ssl_status'] = 'expired';
                     $row['ssl_error'] = $certInfo['reason'] ?? '';
                     Database::execute(
@@ -60,14 +63,16 @@ class DomainController
                 } else {
                     $row['ssl_expire_at'] = $certInfo['expire_at'];
                     $row['days_left'] = $certInfo['days_left'];
-                    // 同步过期时间
                     Database::execute(
                         'UPDATE domains SET ssl_expire_at = ? WHERE id = ?',
                         [$certInfo['expire_at'], $row['id']]
                     );
                 }
             }
+            // 类型转换
+            $row['listen_port'] = (int)$row['listen_port'];
             $row['ssl_enabled'] = (int)$row['ssl_enabled'];
+            $row['ssl_auto_renew'] = (int)$row['ssl_auto_renew'];
             $row['nginx_deployed'] = (int)$row['nginx_deployed'];
             $row['is_primary'] = (int)$row['is_primary'];
             $row['status'] = (int)$row['status'];
@@ -93,10 +98,7 @@ class DomainController
         }
 
         $row = Database::fetch(
-            'SELECT id, domain, type, ssl_enabled, ssl_status, ssl_expire_at,
-                    ssl_cert_path, ssl_key_path, ssl_error, nginx_deployed,
-                    is_primary, status, remark, created_at, updated_at
-             FROM domains WHERE id = ? LIMIT 1',
+            'SELECT * FROM domains WHERE id = ? LIMIT 1',
             [$id]
         );
 
@@ -120,41 +122,60 @@ class DomainController
         $response = $context['response'];
         $body = $this->parseBody($context);
 
-        $domain = strtolower(trim((string)($body['domain'] ?? '')));
-        $type   = (string)($body['type'] ?? 'admin');
-        $remark = (string)($body['remark'] ?? '');
+        $domain     = strtolower(trim((string)($body['domain'] ?? '')));
+        $targetType = (string)($body['target_type'] ?? $body['type'] ?? 'frontend');
+        $listenPort = (int)($body['listen_port'] ?? 0);
+        $targetHost = (string)($body['target_host'] ?? '127.0.0.1:9501');
+        $remark     = (string)($body['remark'] ?? '');
 
         if ($domain === '') {
             Response::fail($response, '域名不能为空', Response::CODE_BAD_REQUEST, 400);
             return false;
         }
 
-        // 简单域名校验
         if (!preg_match('/^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)+$/', $domain)) {
             Response::fail($response, '域名格式不正确', Response::CODE_BAD_REQUEST, 400);
             return false;
         }
 
-        if (!in_array($type, self::ALLOWED_TYPES, true)) {
-            Response::fail($response, '域名用途非法，允许：' . implode(', ', self::ALLOWED_TYPES), Response::CODE_BAD_REQUEST, 400);
+        if (!in_array($targetType, self::ALLOWED_TARGET_TYPES, true)) {
+            Response::fail($response, '目标类型非法，允许：' . implode(', ', self::ALLOWED_TARGET_TYPES), Response::CODE_BAD_REQUEST, 400);
             return false;
         }
 
-        // 检查是否已存在
+        if ($listenPort < 0 || $listenPort > 65535) {
+            Response::fail($response, '监听端口非法', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
         $exists = Database::fetch('SELECT id FROM domains WHERE domain = ? LIMIT 1', [$domain]);
         if ($exists !== false) {
             Response::fail($response, '域名已存在', Response::CODE_BAD_REQUEST, 400);
             return false;
         }
 
-        // 如果是第一个域名，自动设为主域名
+        // 检查端口是否被占用（同端口+同SSL状态不能重复）
+        if ($listenPort > 0) {
+            $portConflict = Database::fetch(
+                'SELECT id FROM domains WHERE listen_port = ? AND status = 1 LIMIT 1',
+                [$listenPort]
+            );
+            if ($portConflict !== false) {
+                Response::fail($response, "端口 {$listenPort} 已被其他启用域名占用", Response::CODE_BAD_REQUEST, 400);
+                return false;
+            }
+        }
+
         $count = (int)(Database::fetch('SELECT COUNT(*) AS c FROM domains')['c'] ?? 0);
         $isPrimary = $count === 0 ? 1 : 0;
 
+        // 兼容旧 type 字段
+        $oldType = $targetType === 'frontend' ? 'admin' : $targetType;
+
         Database::execute(
-            'INSERT INTO domains (domain, type, is_primary, remark, created_at, updated_at)
-             VALUES (?, ?, ?, ?, NOW(), NOW())',
-            [$domain, $type, $isPrimary, $remark]
+            'INSERT INTO domains (domain, listen_port, type, target_type, target_host, is_primary, remark, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())',
+            [$domain, $listenPort, $oldType, $targetType, $targetHost, $isPrimary, $remark]
         );
 
         $newId = (int)Database::pdo()->lastInsertId();
@@ -183,21 +204,11 @@ class DomainController
         }
 
         $body = $this->parseBody($context);
-        $domain = strtolower(trim((string)($body['domain'] ?? '')));
-        $type   = (string)($body['type'] ?? '');
-        $remark = (string)($body['remark'] ?? '');
-        $status = $body['status'] ?? null;
-
-        $row = Database::fetch('SELECT id FROM domains WHERE id = ? LIMIT 1', [$id]);
-        if ($row === false) {
-            Response::fail($response, '域名不存在', Response::CODE_NOT_FOUND, 404);
-            return false;
-        }
-
         $updates = [];
         $args = [];
 
-        if ($domain !== '') {
+        if (isset($body['domain'])) {
+            $domain = strtolower(trim($body['domain']));
             if (!preg_match('/^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)+$/', $domain)) {
                 Response::fail($response, '域名格式不正确', Response::CODE_BAD_REQUEST, 400);
                 return false;
@@ -211,19 +222,56 @@ class DomainController
             $args[] = $domain;
         }
 
-        if ($type !== '' && in_array($type, self::ALLOWED_TYPES, true)) {
+        if (isset($body['target_type'])) {
+            if (!in_array($body['target_type'], self::ALLOWED_TARGET_TYPES, true)) {
+                Response::fail($response, '目标类型非法', Response::CODE_BAD_REQUEST, 400);
+                return false;
+            }
+            $updates[] = 'target_type = ?';
+            $args[] = $body['target_type'];
+            // 同步旧 type 字段
             $updates[] = 'type = ?';
-            $args[] = $type;
+            $args[] = $body['target_type'] === 'frontend' ? 'admin' : $body['target_type'];
         }
 
-        if ($remark !== '') {
+        if (isset($body['listen_port'])) {
+            $port = (int)$body['listen_port'];
+            if ($port < 0 || $port > 65535) {
+                Response::fail($response, '监听端口非法', Response::CODE_BAD_REQUEST, 400);
+                return false;
+            }
+            if ($port > 0) {
+                $portConflict = Database::fetch(
+                    'SELECT id FROM domains WHERE listen_port = ? AND id != ? AND status = 1 LIMIT 1',
+                    [$port, $id]
+                );
+                if ($portConflict !== false) {
+                    Response::fail($response, "端口 {$port} 已被其他启用域名占用", Response::CODE_BAD_REQUEST, 400);
+                    return false;
+                }
+            }
+            $updates[] = 'listen_port = ?';
+            $args[] = $port;
+        }
+
+        if (isset($body['target_host'])) {
+            $updates[] = 'target_host = ?';
+            $args[] = (string)$body['target_host'];
+        }
+
+        if (isset($body['remark'])) {
             $updates[] = 'remark = ?';
-            $args[] = $remark;
+            $args[] = (string)$body['remark'];
         }
 
-        if ($status !== null) {
+        if (isset($body['status'])) {
             $updates[] = 'status = ?';
-            $args[] = (int)$status;
+            $args[] = (int)$body['status'];
+        }
+
+        if (isset($body['ssl_auto_renew'])) {
+            $updates[] = 'ssl_auto_renew = ?';
+            $args[] = (int)$body['ssl_auto_renew'] ? 1 : 0;
         }
 
         if (empty($updates)) {
@@ -260,17 +308,15 @@ class DomainController
 
         $row = Database::fetch('SELECT id, domain, is_primary, ssl_enabled FROM domains WHERE id = ? LIMIT 1', [$id]);
         if ($row === false) {
-            Response::fail($response, '域名不存在', Response::CODE_NOT_FOUND, 404);
+            Response::fail($context['response'], '域名不存在', Response::CODE_NOT_FOUND, 404);
             return false;
         }
 
-        // 如果是主域名，阻止删除（需先取消主域名）
         if ((int)$row['is_primary'] === 1) {
             Response::fail($response, '不能删除主域名，请先设置其他域名为主域名', Response::CODE_BAD_REQUEST, 400);
             return false;
         }
 
-        // 删除证书文件
         if ((int)$row['ssl_enabled'] === 1) {
             SslService::removeCertificate($row['domain']);
         }
@@ -307,9 +353,7 @@ class DomainController
             return false;
         }
 
-        // 取消其他主域名
         Database::execute('UPDATE domains SET is_primary = 0, updated_at = NOW()');
-        // 设置新的主域名
         Database::execute('UPDATE domains SET is_primary = 1, updated_at = NOW() WHERE id = ?', [$id]);
 
         return ['message' => '已设为主域名'];
@@ -331,24 +375,22 @@ class DomainController
             return false;
         }
 
-        $row = Database::fetch('SELECT id, domain, ssl_status FROM domains WHERE id = ? LIMIT 1', [$id]);
+        $row = Database::fetch('SELECT id, domain FROM domains WHERE id = ? LIMIT 1', [$id]);
         if ($row === false) {
             Response::fail($response, '域名不存在', Response::CODE_NOT_FOUND, 404);
             return false;
         }
 
-        // 标记为申请中
         Database::execute(
             'UPDATE domains SET ssl_enabled = 1, ssl_status = ?, ssl_error = "" WHERE id = ?',
             ['pending', $id]
         );
 
-        // 执行证书申请
         $result = SslService::issueCertificate($row['domain']);
 
         if ($result['success']) {
             Database::execute(
-                'UPDATE domains SET ssl_status = ?, ssl_expire_at = ?, ssl_cert_path = ?, ssl_key_path = ?, ssl_error = "" WHERE id = ?',
+                'UPDATE domains SET ssl_status = ?, ssl_expire_at = ?, ssl_cert_path = ?, ssl_key_path = ?, ssl_error = "", ssl_last_renew_at = NOW() WHERE id = ?',
                 ['issued', $result['expire_at'], $result['cert_path'], $result['key_path'], $id]
             );
             return [
@@ -359,7 +401,6 @@ class DomainController
             ];
         }
 
-        // 失败
         Database::execute(
             'UPDATE domains SET ssl_status = ?, ssl_error = ? WHERE id = ?',
             ['failed', mb_substr($result['message'] . ': ' . ($result['output'] ?? ''), 0, 500), $id]
@@ -369,7 +410,90 @@ class DomainController
     }
 
     /**
-     * 部署 Nginx 配置（生成配置文件 + reload）
+     * 续费 SSL 证书
+     */
+    public function renewSsl(array $context, array $params)
+    {
+        if (AdminAuth::authenticate($context) === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $id = (int)($params['id'] ?? 0);
+        if ($id <= 0) {
+            Response::fail($response, '无效的 ID', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        $row = Database::fetch('SELECT id, domain FROM domains WHERE id = ? LIMIT 1', [$id]);
+        if ($row === false) {
+            Response::fail($response, '域名不存在', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+
+        $result = SslService::renewCertificate($row['domain']);
+
+        if ($result['success']) {
+            Database::execute(
+                'UPDATE domains SET ssl_status = "issued", ssl_expire_at = ?, ssl_last_renew_at = NOW(), ssl_error = "" WHERE id = ?',
+                [$result['expire_at'], $id]
+            );
+            return [
+                'message'     => '证书续费成功',
+                'expire_at'   => $result['expire_at'],
+            ];
+        }
+
+        Database::execute(
+            'UPDATE domains SET ssl_error = ? WHERE id = ?',
+            [mb_substr($result['message'], 0, 500), $id]
+        );
+        Response::fail($response, '证书续费失败：' . $result['message'], Response::CODE_ERROR, 500);
+        return false;
+    }
+
+    /**
+     * 批量续费所有即将过期证书
+     */
+    public function renewAll(array $context, array $params)
+    {
+        if (AdminAuth::authenticate($context) === null) {
+            return false;
+        }
+
+        $result = SslService::renewAllExpiring();
+        return $result;
+    }
+
+    /**
+     * 切换自动续费
+     */
+    public function toggleAutoRenew(array $context, array $params)
+    {
+        if (AdminAuth::authenticate($context) === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $id = (int)($params['id'] ?? 0);
+        if ($id <= 0) {
+            Response::fail($response, '无效的 ID', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        $body = $this->parseBody($context);
+        $autoRenew = (int)($body['ssl_auto_renew'] ?? 0) ? 1 : 0;
+
+        Database::execute('UPDATE domains SET ssl_auto_renew = ?, updated_at = NOW() WHERE id = ?', [$autoRenew, $id]);
+
+        return [
+            'message' => $autoRenew ? '已开启自动续费' : '已关闭自动续费',
+            'ssl_auto_renew' => $autoRenew,
+        ];
+    }
+
+    /**
+     * 部署 Nginx
      */
     public function deployNginx(array $context, array $params)
     {
@@ -384,13 +508,6 @@ class DomainController
             return false;
         }
 
-        $row = Database::fetch('SELECT id FROM domains WHERE id = ? LIMIT 1', [$id]);
-        if ($row === false) {
-            Response::fail($response, '域名不存在', Response::CODE_NOT_FOUND, 404);
-            return false;
-        }
-
-        // 生成并部署所有域名的 Nginx 配置（一个 server 块共用）
         $domains = Database::fetchAll(
             'SELECT * FROM domains WHERE status = 1 ORDER BY is_primary DESC, id ASC'
         );
@@ -412,7 +529,6 @@ class DomainController
             return false;
         }
 
-        // 更新所有域名的 nginx_deployed 状态
         Database::execute('UPDATE domains SET nginx_deployed = 1, updated_at = NOW() WHERE status = 1');
 
         return [
@@ -422,7 +538,7 @@ class DomainController
     }
 
     /**
-     * 同步所有域名 Nginx 配置
+     * 同步所有域名 Nginx
      */
     public function syncNginx(array $context, array $params)
     {
@@ -493,9 +609,6 @@ class DomainController
         return ['message' => $result['message'], 'output' => $result['output']];
     }
 
-    /**
-     * 解析请求体
-     */
     private function parseBody(array $context): array
     {
         $body = $context['post'] ?? [];

@@ -9,7 +9,7 @@
       <div class="hero-content">
         <div>
           <h2 class="hero-title">域名与 SSL</h2>
-          <p class="hero-sub">绑定域名、自动申请 Let's Encrypt 证书、部署 Nginx</p>
+          <p class="hero-sub">独立绑定域名、独立端口访问、自动申请/续费 Let's Encrypt 证书</p>
         </div>
         <div class="hero-stats">
           <div class="stat-mini">
@@ -35,13 +35,18 @@
           <el-icon class="env-icon"><SetUpIcon /></el-icon>
           <span>SSL 环境状态</span>
         </div>
-        <el-button
-          :icon="RefreshIcon"
-          size="small"
-          @click="checkEnvironment"
-        >
-          重新检查
-        </el-button>
+        <div class="env-actions">
+          <el-button :icon="RefreshIcon" size="small" @click="checkEnvironment">重新检查</el-button>
+          <el-button
+            type="warning"
+            size="small"
+            :icon="RefreshRightIcon"
+            :loading="renewAllLoading"
+            @click="renewAll"
+          >
+            批量续费
+          </el-button>
+        </div>
       </div>
       <div class="env-grid">
         <div class="env-item" :class="{ ok: env.acme_sh, fail: !env.acme_sh }">
@@ -107,25 +112,25 @@
         </div>
         <div class="head-text">
           <h3 class="card-title">域名绑定</h3>
-          <p class="card-sub">管理绑定的域名与 SSL 证书</p>
+          <p class="card-sub">前端/后端可独立绑定域名与端口，支持 IP+端口 直连</p>
         </div>
         <div class="head-actions">
           <el-button :icon="RefreshIcon" @click="loadList">刷新</el-button>
-          <el-button :icon="PromotionIcon" :loading="syncing" @click="syncNginx">
-            同步 Nginx
-          </el-button>
-          <el-button type="primary" :icon="PlusIcon" @click="openAddDialog">
-            添加域名
-          </el-button>
+          <el-button :icon="PromotionIcon" :loading="syncing" @click="syncNginx">同步 Nginx</el-button>
+          <el-button type="primary" :icon="PlusIcon" @click="openAddDialog">添加域名</el-button>
         </div>
       </div>
 
       <el-table :data="list" stripe style="width: 100%">
-        <el-table-column label="域名" min-width="200">
+        <el-table-column label="域名 / 端口" min-width="220">
           <template #default="{ row }">
             <div class="domain-cell">
               <el-icon class="domain-icon"><LinkIcon /></el-icon>
               <span class="domain-name">{{ row.domain }}</span>
+              <el-tag v-if="row.listen_port > 0" type="primary" size="small">
+                :{{ row.listen_port }}
+              </el-tag>
+              <el-tag v-else type="info" size="small">默认80/443</el-tag>
               <el-tag v-if="row.is_primary" type="warning" size="small" effect="dark">
                 <el-icon><StarIcon /></el-icon> 主域名
               </el-tag>
@@ -133,11 +138,18 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="用途" width="100" align="center">
+        <el-table-column label="目标类型" width="110" align="center">
           <template #default="{ row }">
-            <el-tag :type="typeTagMap[row.type]" size="small">
-              {{ typeTextMap[row.type] }}
+            <el-tag :type="targetTypeTagMap[row.target_type]" size="small">
+              {{ targetTypeTextMap[row.target_type] || row.target_type }}
             </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="后端目标" min-width="140">
+          <template #default="{ row }">
+            <span v-if="row.target_type === 'frontend'" class="text-muted">-</span>
+            <span v-else class="mono-text">{{ row.target_host }}</span>
           </template>
         </el-table-column>
 
@@ -164,11 +176,15 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="证书过期时间" min-width="170">
+        <el-table-column label="证书过期" min-width="170">
           <template #default="{ row }">
             <template v-if="row.ssl_expire_at">
               <div>{{ row.ssl_expire_at }}</div>
-              <el-text v-if="row.days_left !== undefined" :type="row.days_left < 7 ? 'danger' : row.days_left < 30 ? 'warning' : 'success'" size="small">
+              <el-text
+                v-if="row.days_left !== undefined"
+                :type="row.days_left < 7 ? 'danger' : row.days_left < 30 ? 'warning' : 'success'"
+                size="small"
+              >
                 剩余 {{ row.days_left }} 天
               </el-text>
             </template>
@@ -176,7 +192,17 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="Nginx" width="100" align="center">
+        <el-table-column label="自动续费" width="90" align="center">
+          <template #default="{ row }">
+            <el-switch
+              :model-value="row.ssl_auto_renew === 1"
+              :disabled="row.ssl_status !== 'issued'"
+              @change="(val: boolean) => toggleAutoRenew(row, val)"
+            />
+          </template>
+        </el-table-column>
+
+        <el-table-column label="Nginx" width="90" align="center">
           <template #default="{ row }">
             <el-tag :type="row.nginx_deployed ? 'success' : 'info'" size="small">
               {{ row.nginx_deployed ? '已部署' : '未部署' }}
@@ -184,7 +210,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="状态" width="80" align="center">
+        <el-table-column label="状态" width="70" align="center">
           <template #default="{ row }">
             <el-switch
               :model-value="row.status === 1"
@@ -193,7 +219,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="340" fixed="right">
           <template #default="{ row }">
             <el-button
               v-if="!row.is_primary"
@@ -214,6 +240,17 @@
               @click="applySsl(row)"
             >
               申请SSL
+            </el-button>
+            <el-button
+              v-if="row.ssl_status === 'issued' || row.ssl_status === 'expired'"
+              link
+              type="primary"
+              size="small"
+              :icon="RefreshRightIcon"
+              :loading="actionLoading[row.id] === 'renew'"
+              @click="renewSsl(row)"
+            >
+              续费
             </el-button>
             <el-button
               link
@@ -241,11 +278,11 @@
       <el-empty v-if="!loading && list.length === 0" description="暂无绑定域名，点击「添加域名」开始" />
     </div>
 
-    <!-- 添加域名弹窗 -->
+    <!-- 添加/编辑域名弹窗 -->
     <el-dialog
       v-model="dialogVisible"
-      title="添加域名"
-      width="480px"
+      :title="editingId ? '编辑域名' : '添加域名'"
+      width="520px"
       :close-on-click-modal="false"
     >
       <el-form
@@ -262,13 +299,43 @@
           />
           <div class="form-tip">不含 http:// 和端口，仅域名</div>
         </el-form-item>
-        <el-form-item label="用途" prop="type">
-          <el-select v-model="form.type" style="width: 100%">
-            <el-option label="管理后台" value="admin" />
-            <el-option label="开放 API" value="api" />
-            <el-option label="WebSocket" value="ws" />
-          </el-select>
+
+        <el-form-item label="目标类型" prop="target_type">
+          <el-radio-group v-model="form.target_type">
+            <el-radio-button value="frontend">管理后台（前端）</el-radio-button>
+            <el-radio-button value="backend">后端 API</el-radio-button>
+            <el-radio-button value="ws">WebSocket</el-radio-button>
+            <el-radio-button value="all">全部（前端+后端+WS）</el-radio-button>
+          </el-radio-group>
+          <div class="form-tip">
+            <span v-if="form.target_type === 'frontend'">仅提供管理后台静态文件 + /api/admin/ 代理</span>
+            <span v-else-if="form.target_type === 'backend'">仅提供 /api/ /admin /auth /captcha /health 代理</span>
+            <span v-else-if="form.target_type === 'ws'">仅提供 /ws WebSocket 代理</span>
+            <span v-else>前端+后端+WebSocket 全部代理（最常用）</span>
+          </div>
         </el-form-item>
+
+        <div class="form-row">
+          <el-form-item label="监听端口" prop="listen_port">
+            <el-input-number
+              v-model="form.listen_port"
+              :min="0"
+              :max="65535"
+              controls-position="right"
+              style="width: 100%"
+            />
+            <div class="form-tip">0=默认（80/443），>0=指定端口</div>
+          </el-form-item>
+          <el-form-item v-if="form.target_type !== 'frontend'" label="后端目标地址" prop="target_host">
+            <el-input
+              v-model="form.target_host"
+              placeholder="127.0.0.1:9501"
+              clearable
+            />
+            <div class="form-tip">后端 API 地址（IP:端口）</div>
+          </el-form-item>
+        </div>
+
         <el-form-item label="备注" prop="remark">
           <el-input
             v-model="form.remark"
@@ -292,6 +359,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Refresh as RefreshIcon,
+  RefreshRight as RefreshRightIcon,
   Plus as PlusIcon,
   Promotion as PromotionIcon,
   Delete as DeleteIcon,
@@ -307,16 +375,19 @@ import type { FormInstance, FormRules } from 'element-plus'
 import {
   getDomainListApi,
   createDomainApi,
+  updateDomainApi,
   deleteDomainApi,
   setPrimaryDomainApi,
   applySslApi,
+  renewSslApi,
   deployNginxApi,
   syncNginxApi,
+  renewAllApi,
+  toggleAutoRenewApi,
   getSslEnvironmentApi,
-  installAcmeApi,
-  updateDomainApi
+  installAcmeApi
 } from '@/api/domain'
-import type { DomainRecord, SslEnvironment } from '@/api/domain'
+import type { DomainRecord, SslEnvironment, TargetType } from '@/api/domain'
 
 // 数据
 const list = ref<DomainRecord[]>([])
@@ -325,7 +396,9 @@ const envLoading = ref(false)
 const installing = ref(false)
 const syncing = ref(false)
 const submitting = ref(false)
+const renewAllLoading = ref(false)
 const dialogVisible = ref(false)
+const editingId = ref<number>(0)
 const formRef = ref<FormInstance>()
 const actionLoading = reactive<Record<number, string>>({})
 
@@ -342,7 +415,9 @@ const env = reactive<SslEnvironment>({
 
 const form = reactive({
   domain: '',
-  type: 'admin',
+  target_type: 'all' as TargetType,
+  listen_port: 0,
+  target_host: '127.0.0.1:9501',
   remark: ''
 })
 
@@ -355,19 +430,21 @@ const formRules: FormRules = {
       trigger: 'blur'
     }
   ],
-  type: [{ required: true, message: '请选择用途', trigger: 'change' }]
+  target_type: [{ required: true, message: '请选择目标类型', trigger: 'change' }]
 }
 
-const typeTextMap: Record<string, string> = {
-  admin: '管理后台',
-  api: '开放API',
-  ws: 'WebSocket'
+const targetTypeTextMap: Record<string, string> = {
+  frontend: '管理后台',
+  backend: '后端API',
+  ws: 'WebSocket',
+  all: '全部'
 }
 
-const typeTagMap: Record<string, '' | 'success' | 'warning' | 'info' | 'danger'> = {
-  admin: 'warning',
-  api: 'success',
-  ws: 'info'
+const targetTypeTagMap: Record<string, '' | 'success' | 'warning' | 'info' | 'danger'> = {
+  frontend: 'warning',
+  backend: 'success',
+  ws: 'info',
+  all: 'danger'
 }
 
 // 加载域名列表
@@ -421,29 +498,40 @@ async function installAcme() {
 
 // 打开添加弹窗
 function openAddDialog() {
+  editingId.value = 0
   form.domain = ''
-  form.type = 'admin'
+  form.target_type = 'all'
+  form.listen_port = 0
+  form.target_host = '127.0.0.1:9501'
   form.remark = ''
   dialogVisible.value = true
 }
 
-// 提交添加
+// 提交添加/编辑
 async function submitAdd() {
   if (!formRef.value) return
   await formRef.value.validate(async (valid) => {
     if (!valid) return
     submitting.value = true
     try {
-      const res = await createDomainApi({
+      const payload = {
         domain: form.domain.toLowerCase().trim(),
-        type: form.type,
+        target_type: form.target_type,
+        listen_port: form.listen_port,
+        target_host: form.target_host,
         remark: form.remark
-      })
-      ElMessage.success(res.data?.message || '添加成功')
+      }
+      if (editingId.value) {
+        await updateDomainApi(editingId.value, payload)
+        ElMessage.success('更新成功')
+      } else {
+        const res = await createDomainApi(payload)
+        ElMessage.success(res.data?.message || '添加成功')
+      }
       dialogVisible.value = false
       await loadList()
     } catch (e: any) {
-      ElMessage.error(e.message || '添加失败')
+      ElMessage.error(e.message || '操作失败')
     } finally {
       submitting.value = false
     }
@@ -481,11 +569,22 @@ async function toggleStatus(row: DomainRecord, val: boolean) {
   }
 }
 
+// 切换自动续费
+async function toggleAutoRenew(row: DomainRecord, val: boolean) {
+  try {
+    const res = await toggleAutoRenewApi(row.id, val)
+    row.ssl_auto_renew = val ? 1 : 0
+    ElMessage.success(res.data?.message || '操作成功')
+  } catch (e: any) {
+    ElMessage.error(e.message || '操作失败')
+  }
+}
+
 // 申请 SSL 证书
 async function applySsl(row: DomainRecord) {
   try {
     await ElMessageBox.confirm(
-      `将为「${row.domain}」申请 Let's Encrypt 免费证书。\n请确保：\n1. 域名已解析到本服务器\n2. 80 端口可被外网访问\n3. Nginx 已运行\n\n是否继续？`,
+      `将为「${row.domain}」申请 Let's Encrypt 免费证书。\n\n请确保：\n1. 域名已解析到本服务器\n2. 80 端口可被外网访问（ACME 验证用）\n3. Nginx 已运行\n\n是否继续？`,
       '申请 SSL 证书',
       { type: 'info', confirmButtonText: '开始申请' }
     )
@@ -501,6 +600,21 @@ async function applySsl(row: DomainRecord) {
   } catch (e: any) {
     ElMessage.error(e.message || '证书申请失败')
     await loadList()
+  } finally {
+    delete actionLoading[row.id]
+  }
+}
+
+// 续费 SSL 证书
+async function renewSsl(row: DomainRecord) {
+  actionLoading[row.id] = 'renew'
+  try {
+    ElMessage.info('证书续费中，请稍候...')
+    const res = await renewSslApi(row.id)
+    ElMessage.success(res.data?.message || '证书续费成功')
+    await loadList()
+  } catch (e: any) {
+    ElMessage.error(e.message || '证书续费失败')
   } finally {
     delete actionLoading[row.id]
   }
@@ -531,6 +645,30 @@ async function syncNginx() {
     ElMessage.error(e.message || '同步失败')
   } finally {
     syncing.value = false
+  }
+}
+
+// 批量续费
+async function renewAll() {
+  try {
+    await ElMessageBox.confirm(
+      '将批量续费所有 30 天内即将过期的证书，是否继续？',
+      '批量续费',
+      { type: 'info', confirmButtonText: '开始续费' }
+    )
+  } catch {
+    return
+  }
+  renewAllLoading.value = true
+  try {
+    ElMessage.info('批量续费中，请稍候...')
+    const res = await renewAllApi()
+    ElMessage.success(res.data?.message || '批量续费完成')
+    await loadList()
+  } catch (e: any) {
+    ElMessage.error(e.message || '批量续费失败')
+  } finally {
+    renewAllLoading.value = false
   }
 }
 
@@ -565,7 +703,6 @@ onMounted(() => {
   padding: 20px;
 }
 
-/* 页头复用 settings 风格 */
 .page-hero {
   position: relative;
   overflow: hidden;
@@ -602,7 +739,6 @@ onMounted(() => {
 .status-warn { color: #e6a23c; }
 .stat-divider { width: 1px; height: 32px; background: rgba(255,255,255,0.3); }
 
-/* 环境检查卡片 */
 .env-card {
   background: #fff;
   border-radius: 12px;
@@ -618,6 +754,7 @@ onMounted(() => {
 }
 .env-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; }
 .env-icon { color: #409eff; }
+.env-actions { display: flex; gap: 8px; }
 .env-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -640,7 +777,6 @@ onMounted(() => {
 .env-desc { font-size: 11px; color: #909399; }
 .env-action { margin-top: 16px; }
 
-/* 域名列表卡片 */
 .domains-card {
   background: #fff;
   border-radius: 12px;
@@ -665,9 +801,12 @@ onMounted(() => {
 .card-sub { font-size: 12px; color: #909399; margin: 4px 0 0; }
 .head-actions { display: flex; gap: 8px; }
 
-.domain-cell { display: flex; align-items: center; gap: 8px; }
+.domain-cell { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .domain-icon { color: #909399; }
 .domain-name { font-weight: 500; }
 .text-muted { color: #c0c4cc; }
+.mono-text { font-family: 'Courier New', monospace; font-size: 12px; color: #606266; }
 .form-tip { font-size: 12px; color: #909399; margin-top: 4px; }
+.form-row { display: flex; gap: 12px; }
+.form-row > * { flex: 1; }
 </style>

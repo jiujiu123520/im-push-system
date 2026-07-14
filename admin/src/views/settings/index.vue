@@ -65,21 +65,44 @@
           </el-form-item>
 
           <div class="form-row">
-            <el-form-item label="HTTP API 地址" prop="httpApiUrl">
+            <el-form-item label="前端访问地址（管理后台）" prop="frontendUrl">
+              <el-input
+                v-model="serverForm.frontendUrl"
+                :placeholder="serverForm.sslEnabled ? 'https://admin.push.com' : 'http://admin.push.com'"
+                clearable
+              />
+              <div class="form-tip">管理后台页面的访问地址（可与后端 API 分开绑定域名）</div>
+            </el-form-item>
+            <el-form-item label="前端端口" prop="frontendPort">
+              <el-input-number
+                v-model="serverForm.frontendPort"
+                :min="0"
+                :max="65535"
+                controls-position="right"
+                style="width: 100%"
+              />
+              <div class="form-tip">0=默认端口（80/443）</div>
+            </el-form-item>
+          </div>
+
+          <div class="form-row">
+            <el-form-item label="后端 API 地址" prop="httpApiUrl">
               <el-input
                 v-model="serverForm.httpApiUrl"
                 :placeholder="serverForm.sslEnabled ? 'https://api.push.com' : 'http://api.push.com'"
                 clearable
               />
+              <div class="form-tip">后端 API 接口地址（可与前端分开绑定域名/端口）</div>
             </el-form-item>
-            <el-form-item label="HTTP 端口" prop="httpPort">
+            <el-form-item label="后端 API 端口" prop="httpPort">
               <el-input-number
                 v-model="serverForm.httpPort"
-                :min="1"
+                :min="0"
                 :max="65535"
                 controls-position="right"
                 style="width: 100%"
               />
+              <div class="form-tip">0=默认端口（80/443）</div>
             </el-form-item>
           </div>
           <div class="form-row">
@@ -93,11 +116,12 @@
             <el-form-item label="WebSocket 端口" prop="websocketPort">
               <el-input-number
                 v-model="serverForm.websocketPort"
-                :min="1"
+                :min="0"
                 :max="65535"
                 controls-position="right"
                 style="width: 100%"
               />
+              <div class="form-tip">0=默认端口（80/443）</div>
             </el-form-item>
           </div>
           <div class="form-actions">
@@ -721,13 +745,18 @@ const loading = ref(false)
 // ---- 服务器配置 ----
 const serverFormRef = ref<FormInstance>()
 const serverForm = reactive({
+  frontendUrl: '',
+  frontendPort: 0,
   httpApiUrl: '',
-  httpPort: 443,
+  httpPort: 0,
   websocketUrl: '',
-  websocketPort: 443,
+  websocketPort: 0,
   sslEnabled: false
 })
 const serverRules: FormRules = {
+  frontendUrl: [
+    { pattern: /^https?:\/\/.+/, message: '请输入合法地址（以 http:// 或 https:// 开头）', trigger: 'blur' }
+  ],
   httpApiUrl: [
     { required: true, message: '请输入 HTTP API 地址', trigger: 'blur' },
     { pattern: /^https?:\/\/.+/, message: '请输入合法地址', trigger: 'blur' }
@@ -1052,22 +1081,23 @@ function detectServerUrls() {
 // SSL 开关切换：自动调整地址协议和端口
 function onSslToggle(val: boolean) {
   if (val) {
-    // 开启 SSL：http:// -> https://，ws:// -> wss://，端口默认 443
+    // 开启 SSL：http:// -> https://，ws:// -> wss://
+    if (serverForm.frontendUrl && serverForm.frontendUrl.startsWith('http://')) {
+      serverForm.frontendUrl = 'https://' + serverForm.frontendUrl.slice(7)
+    }
     if (serverForm.httpApiUrl && serverForm.httpApiUrl.startsWith('http://')) {
       serverForm.httpApiUrl = 'https://' + serverForm.httpApiUrl.slice(7)
     }
     if (serverForm.websocketUrl && serverForm.websocketUrl.startsWith('ws://')) {
       serverForm.websocketUrl = 'wss://' + serverForm.websocketUrl.slice(5)
     }
-    if (serverForm.httpPort === 80 || serverForm.httpPort === 9501) {
-      serverForm.httpPort = 443
-    }
-    if (serverForm.websocketPort === 80 || serverForm.websocketPort === 9502) {
-      serverForm.websocketPort = 443
-    }
+    // 端口为 0（默认）或 80 时，切到 SSL 不需要改端口（仍由 Nginx 监听 443）
     ElMessage.success('SSL 已启用，地址已自动切换为 https/wss')
   } else {
     // 关闭 SSL：https:// -> http://，wss:// -> ws://
+    if (serverForm.frontendUrl && serverForm.frontendUrl.startsWith('https://')) {
+      serverForm.frontendUrl = 'http://' + serverForm.frontendUrl.slice(8)
+    }
     if (serverForm.httpApiUrl && serverForm.httpApiUrl.startsWith('https://')) {
       serverForm.httpApiUrl = 'http://' + serverForm.httpApiUrl.slice(8)
     }
@@ -1081,6 +1111,8 @@ function onSslToggle(val: boolean) {
 // 手动触发自动检测并填充
 function autoDetectServer() {
   const detected = detectServerUrls()
+  serverForm.frontendUrl = detected.httpApiUrl
+  serverForm.frontendPort = detected.httpPort
   serverForm.httpApiUrl = detected.httpApiUrl
   serverForm.httpPort = detected.httpPort
   serverForm.websocketUrl = detected.websocketUrl
@@ -1097,16 +1129,20 @@ async function fetchSettings() {
 
     // 如果后端返回了服务器配置，使用后端的值；否则自动检测
     if (s?.server) {
+      serverForm.frontendUrl = s.server.frontendUrl || ''
+      serverForm.frontendPort = s.server.frontendPort ?? 0
       serverForm.httpApiUrl = s.server.httpApiUrl || ''
-      serverForm.httpPort = s.server.httpPort || 443
+      serverForm.httpPort = s.server.httpPort ?? 0
       serverForm.websocketUrl = s.server.websocketUrl || ''
-      serverForm.websocketPort = s.server.websocketPort || 443
+      serverForm.websocketPort = s.server.websocketPort ?? 0
       serverForm.sslEnabled = s.server.sslEnabled ?? (serverForm.httpApiUrl.startsWith('https://'))
     }
 
     // 如果没有配置，自动检测并填充
     if (!serverForm.httpApiUrl) {
       const detected = detectServerUrls()
+      serverForm.frontendUrl = detected.httpApiUrl
+      serverForm.frontendPort = detected.httpPort
       serverForm.httpApiUrl = detected.httpApiUrl
       serverForm.httpPort = detected.httpPort
       serverForm.websocketUrl = detected.websocketUrl

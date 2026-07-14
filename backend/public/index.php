@@ -230,14 +230,17 @@ if ($runWs) {
         $router->get('/admin/domains',                          [\App\Controller\DomainController::class, 'index']);
         $router->get('/admin/domains/environment',              [\App\Controller\DomainController::class, 'environment']);
         $router->post('/admin/domains',                         [\App\Controller\DomainController::class, 'create']);
+        $router->post('/admin/domains/sync-nginx',              [\App\Controller\DomainController::class, 'syncNginx']);
+        $router->post('/admin/domains/renew-all',               [\App\Controller\DomainController::class, 'renewAll']);
+        $router->post('/admin/domains/install-acme',            [\App\Controller\DomainController::class, 'installAcme']);
         $router->get('/admin/domains/{id}',                     [\App\Controller\DomainController::class, 'show']);
         $router->put('/admin/domains/{id}',                     [\App\Controller\DomainController::class, 'update']);
         $router->delete('/admin/domains/{id}',                  [\App\Controller\DomainController::class, 'delete']);
         $router->post('/admin/domains/{id}/set-primary',        [\App\Controller\DomainController::class, 'setPrimary']);
         $router->post('/admin/domains/{id}/ssl-apply',         [\App\Controller\DomainController::class, 'applySsl']);
+        $router->post('/admin/domains/{id}/ssl-renew',         [\App\Controller\DomainController::class, 'renewSsl']);
         $router->post('/admin/domains/{id}/ssl-deploy',         [\App\Controller\DomainController::class, 'deployNginx']);
-        $router->post('/admin/domains/sync-nginx',              [\App\Controller\DomainController::class, 'syncNginx']);
-        $router->post('/admin/domains/install-acme',            [\App\Controller\DomainController::class, 'installAcme']);
+        $router->post('/admin/domains/{id}/toggle-auto-renew',  [\App\Controller\DomainController::class, 'toggleAutoRenew']);
     };
 
     $server = new \App\HttpServer($routeRegistrar);
