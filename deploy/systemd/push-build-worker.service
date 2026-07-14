@@ -14,7 +14,7 @@ WorkingDirectory=/www/push-system
 ExecStart=/usr/bin/php /www/push-system/build/queue/BuildWorker.php
 # 优雅停止
 KillSignal=SIGTERM
-TimeoutStopSec=15
+TimeoutStopSec=30
 # 自动重启：崩溃后 5 秒重启（打包进程可能因 Gradle 失败退出）
 Restart=always
 RestartSec=5
@@ -27,6 +27,23 @@ Environment=APP_ENV=production
 Environment=ANDROID_HOME=/opt/android-sdk
 Environment=ANDROID_SDK_ROOT=/opt/android-sdk
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools
+
+# ========= cgroup 资源限制（防止 2H2G 服务器卡死）=========
+# 内存硬限制 1.5G（给系统/MySQL/Redis/Nginx 留 500MB）
+MemoryMax=1536M
+# 内存软限制 1G（超过此值内核开始回收内存）
+MemoryHigh=1024M
+# CPU 限制为 1.5 核（留 0.5 核给系统服务）
+CPUQuota=150%
+# 最大任务数 256（防止 Gradle fork 炸弹）
+TasksMax=256
+# 文件描述符限制
+LimitNOFILE=65536
+# 进程数限制
+LimitNPROC=512
+# 禁止产生 core dump
+LimitCORE=0
+
 # 标准输出重定向到 journalctl
 StandardOutput=journal
 StandardError=journal

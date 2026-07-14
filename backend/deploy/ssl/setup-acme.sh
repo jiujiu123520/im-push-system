@@ -33,11 +33,44 @@ if [ -f "${ACME_SCRIPT}" ]; then
     echo "  acme.sh 已存在，执行升级..."
     "${ACME_SCRIPT}" --upgrade 2>/dev/null || true
 else
-    curl -fsSL https://get.acme.sh | sh -s email=admin@push-system.local
-    # 国内服务器使用备用源
-    if [ ! -f "${ACME_SCRIPT}" ]; then
-        echo "  官方源安装失败，尝试备用源..."
-        curl -fsSL https://ghproxy.com/https://raw.githubusercontent.com/acmesh-official/get.acme.sh/master/get.acme.sh | sh -s email=admin@push-system.local 2>/dev/null || true
+    # 多源安装 acme.sh（每个源 30 秒超时，避免国内服务器卡死）
+    ACME_EMAIL="admin@push-system.local"
+    ACME_INSTALLED=false
+
+    # 源1: gh.jasonzeng.dev 代理（国内推荐）
+    echo "  尝试源1: gh.jasonzeng.dev 代理..."
+    if curl -fsSL --connect-timeout 30 --max-time 120 "https://gh.jasonzeng.dev/https://raw.githubusercontent.com/acmesh-official/get.acme.sh/master/get.acme.sh" | sh -s "email=${ACME_EMAIL}" 2>/dev/null; then
+        ACME_INSTALLED=true
+    fi
+
+    # 源2: 官方源 get.acme.sh
+    if [ "$ACME_INSTALLED" != "true" ]; then
+        echo "  尝试源2: get.acme.sh 官方源..."
+        if curl -fsSL --connect-timeout 30 --max-time 120 "https://get.acme.sh" | sh -s "email=${ACME_EMAIL}" 2>/dev/null; then
+            ACME_INSTALLED=true
+        fi
+    fi
+
+    # 源3: ghproxy.com 代理
+    if [ "$ACME_INSTALLED" != "true" ]; then
+        echo "  尝试源3: ghproxy.com 代理..."
+        if curl -fsSL --connect-timeout 30 --max-time 120 "https://ghproxy.com/https://raw.githubusercontent.com/acmesh-official/get.acme.sh/master/get.acme.sh" | sh -s "email=${ACME_EMAIL}" 2>/dev/null; then
+            ACME_INSTALLED=true
+        fi
+    fi
+
+    # 源4: gitee 镜像
+    if [ "$ACME_INSTALLED" != "true" ]; then
+        echo "  尝试源4: gitee 镜像..."
+        if curl -fsSL --connect-timeout 30 --max-time 120 "https://gitee.com/neilpang/acme.sh/raw/master/get.acme.sh" | sh -s "email=${ACME_EMAIL}" 2>/dev/null; then
+            ACME_INSTALLED=true
+        fi
+    fi
+
+    if [ "$ACME_INSTALLED" != "true" ]; then
+        echo "  [WARN] acme.sh 在线安装失败（网络问题），可稍后手动执行："
+        echo "         curl -fsSL https://gh.jasonzeng.dev/https://raw.githubusercontent.com/acmesh-official/get.acme.sh/master/get.acme.sh | sh -s email=your@email.com"
+        echo "         SSL 证书自动申请功能暂不可用，但不影响其他功能。"
     fi
 fi
 echo "[2/6] acme.sh 安装完成"

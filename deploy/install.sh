@@ -890,6 +890,31 @@ done
 # ============================================================
 if [[ "$INSTALL_ANDROID" == "1" ]]; then
     step "8" "安装 Android APP 打包环境"
+
+    # 创建 swap 交换分区（2G 内存服务器构建 Android 时防止 OOM 卡死）
+    SWAP_SIZE_MB=2048
+    CURRENT_SWAP=$(swapon --show 2>/dev/null | tail -n +2 | wc -l)
+    TOTAL_SWAP_MB=$(awk '/SwapTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
+    if [[ "${CURRENT_SWAP}" -eq 0 ]] && [[ "${TOTAL_SWAP_MB}" -lt 1024 ]]; then
+        info "创建 ${SWAP_SIZE_MB}MB swap 交换分区（防止 Android 构建时 OOM）..."
+        if fallocate -l "${SWAP_SIZE_MB}M" /swapfile 2>/dev/null; then
+            chmod 600 /swapfile
+            mkswap /swapfile
+            swapon /swapfile
+            # 持久化到 fstab
+            if ! grep -q '/swapfile' /etc/fstab; then
+                echo '/swapfile none swap sw 0 0' >> /etc/fstab
+            fi
+            # 仅在内存紧张时使用 swap（swappiness=10）
+            sysctl -w vm.swappiness=10 >/dev/null 2>&1 || true
+            info "swap 创建完成（${SWAP_SIZE_MB}MB）"
+        else
+            warn "swap 创建失败（fallocate 不支持），建议手动创建 swap"
+        fi
+    else
+        info "swap 已存在（${TOTAL_SWAP_MB}MB），跳过创建"
+    fi
+
     ANDROID_SETUP="${PROJECT_DIR}/build/setup.sh"
     if [ -f "${ANDROID_SETUP}" ]; then
         bash "${ANDROID_SETUP}" || warn "Android 环境安装部分失败，可稍后手动执行 build/setup.sh"

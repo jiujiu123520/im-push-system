@@ -123,6 +123,17 @@ final class BuildWorker
             pcntl_signal_dispatch();
 
             try {
+                // 构建前检查系统可用内存（防止 2G 服务器 OOM）
+                $memInfo = @file_get_contents('/proc/meminfo');
+                if ($memInfo && preg_match('/MemAvailable:\s+(\d+)/', $memInfo, $m)) {
+                    $availableMB = (int)$m[1] / 1024;
+                    if ($availableMB < 300) {
+                        $this->log("系统可用内存不足 300MB（当前 " . round($availableMB) . "MB），等待 30 秒后重试...");
+                        sleep(30);
+                        continue;
+                    }
+                }
+
                 $result = $this->queue->processQueue();
             } catch (\Throwable $e) {
                 $this->log('处理任务异常：' . $e->getMessage());

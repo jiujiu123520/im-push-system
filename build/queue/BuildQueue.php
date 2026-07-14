@@ -25,8 +25,8 @@ class BuildQueue
     public const INDEX_KEY = 'build:tasks';
     /** 单页条数 */
     public const PAGE_SIZE = 10;
-    /** 构建超时时间（秒）—— 首次构建需要下载依赖，设为 2 小时 */
-    public const BUILD_TIMEOUT = 7200;
+    /** 构建超时时间（秒）—— 2H2G 服务器设为 30 分钟（首次含依赖下载，后续构建应在 10 分钟内） */
+    public const BUILD_TIMEOUT = 1800;
 
     /**
      * 获取项目根目录

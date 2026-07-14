@@ -21,6 +21,32 @@
 # ============================================================
 set -e
 
+# ---------------- 资源预检查（防止 2H2G 服务器构建时 OOM）----------------
+check_resources() {
+    # 检查可用内存（至少 300MB）
+    local available_mem
+    available_mem=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
+    if [[ "${available_mem}" -lt 300 ]]; then
+        echo "[ERROR] 可用内存不足 300MB（当前 ${available_mem}MB），拒绝构建以防止服务器卡死"
+        exit 1
+    fi
+
+    # 检查磁盘空间（至少 2GB）
+    local available_disk
+    available_disk=$(df -m "${PROJECT_DIR}" 2>/dev/null | awk 'NR==2{print $4}')
+    if [[ -n "${available_disk}" ]] && [[ "${available_disk}" -lt 2048 ]]; then
+        echo "[ERROR] 磁盘剩余空间不足 2GB（当前 ${available_disk}MB），拒绝构建"
+        exit 1
+    fi
+
+    # 检查是否已有 Gradle 进程在运行（防止并发构建导致内存翻倍）
+    if pgrep -f "gradle" >/dev/null 2>&1; then
+        echo "[ERROR] 检测到已有 Gradle 进程运行，拒绝并发构建"
+        exit 1
+    fi
+}
+check_resources
+
 # ---------------- 路径定位 ----------------
 BUILD_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$BUILD_DIR")"
@@ -218,10 +244,14 @@ EOF
 fi
 
 info "执行 $GRADLEW $GRADLE_TASK ..."
-log "执行命令：$GRADLEW $GRADLE_TASK --no-daemon"
+log "执行命令：$GRADLEW $GRADLE_TASK --no-daemon --max-workers=1 -Dorg.gradle.parallel=false"
 # 关闭 ERR trap 仅在 gradle 调用期间判断退出码
 set +e
-"$GRADLEW" "$GRADLE_TASK" --no-daemon --stacktrace 2>&1 | tee -a "$LOG_FILE"
+# --no-daemon: 禁用 daemon，构建后释放内存
+# --max-workers=1: 限制单 worker，避免多 JVM 并发（2G 服务器优化）
+# -Dorg.gradle.parallel=false: 禁用并行构建
+# JVM 堆内存由 gradle.properties 中的 org.gradle.jvmargs 控制
+"$GRADLEW" "$GRADLE_TASK" --no-daemon --max-workers=1 -Dorg.gradle.parallel=false --stacktrace 2>&1 | tee -a "$LOG_FILE"
 GRADLE_EXIT=${PIPESTATUS[0]}
 set -e
 
