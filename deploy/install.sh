@@ -1725,9 +1725,22 @@ mkdir -p "${PROJECT_DIR}/backend/storage" 2>/dev/null || true
 mkdir -p "${PROJECT_DIR}/build/logs" 2>/dev/null || true
 mkdir -p "${PROJECT_DIR}/build/output" 2>/dev/null || true
 mkdir -p "${PROJECT_DIR}/app/src/main/assets" 2>/dev/null || true
+# Gradle 项目级缓存目录（www-data 用户需要写入权限）
+mkdir -p "${PROJECT_DIR}/.gradle" 2>/dev/null || true
+# Gradle 用户级缓存目录（www-data home 目录下，用于存放 native 库和全局缓存）
+if [[ "${WEB_USER}" == "www-data" ]]; then
+    mkdir -p /var/www/.gradle 2>/dev/null || true
+    chown -R www-data:www-data /var/www 2>/dev/null || true
+elif [[ "${WEB_USER}" == "nginx" ]]; then
+    # CentOS/RHEL 系 nginx 用户的 home 目录
+    NGINX_HOME=$(getent passwd nginx 2>/dev/null | cut -d: -f6 || echo "/var/lib/nginx")
+    mkdir -p "${NGINX_HOME}/.gradle" 2>/dev/null || true
+    chown -R nginx:nginx "${NGINX_HOME}" 2>/dev/null || true
+fi
 chown -R "${WEB_USER}:${WEB_USER}" "${PROJECT_DIR}/backend/runtime" 2>/dev/null || true
 chown -R "${WEB_USER}:${WEB_USER}" "${PROJECT_DIR}/build/logs" "${PROJECT_DIR}/build/output" 2>/dev/null || true
 chown -R "${WEB_USER}:${WEB_USER}" "${PROJECT_DIR}/app/src/main/assets" 2>/dev/null || true
+chown -R "${WEB_USER}:${WEB_USER}" "${PROJECT_DIR}/.gradle" 2>/dev/null || true
 
 # 设置目录权限（仅对运行时目录，避免递归整个项目）
 find "${PROJECT_DIR}/backend/storage" -type d -exec chmod 775 {} \; 2>/dev/null || true

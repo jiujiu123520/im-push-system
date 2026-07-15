@@ -30,6 +30,8 @@ Environment=APP_ENV=production
 Environment=ANDROID_HOME=/opt/android-sdk
 Environment=ANDROID_SDK_ROOT=/opt/android-sdk
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/opt/gradle-8.7/bin
+# Gradle 用户级缓存目录（www-data 用户需要可写的 home 目录存放 native 库和缓存）
+Environment=GRADLE_USER_HOME=/var/www/.gradle
 
 # ========= cgroup 资源限制（2H2G 服务器平衡策略）=========
 # 注意：以下指令需要 systemd 227+（CentOS 7 的 systemd 219 不支持）
