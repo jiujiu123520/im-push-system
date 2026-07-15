@@ -179,20 +179,54 @@ info "Web 用户: ${WEB_USER}"
 info "项目目录: ${PROJECT_DIR}"
 
 # ============================================================
-# CentOS 7 EOL 兼容：基础源已下线，需切换到 vault 归档源
+# 国内镜像源配置（所有发行版）
+# 大陆服务器必须使用国内镜像，否则下载极慢或超时
+# ============================================================
+configure_domestic_mirrors() {
+    case "$OS_ID" in
+        ubuntu)
+            info "配置 Ubuntu 阿里云镜像源..."
+            if [[ -f /etc/apt/sources.list ]]; then
+                sed -i 's|archive.ubuntu.com|mirrors.aliyun.com|g; s|security.ubuntu.com|mirrors.aliyun.com|g' /etc/apt/sources.list
+            fi
+            # Ubuntu 22.04+ 使用 sources.list.d 而非 sources.list
+            if [[ -d /etc/apt/sources.list.d ]]; then
+                for f in /etc/apt/sources.list.d/*.list; do
+                    [[ -f "$f" ]] && sed -i 's|archive.ubuntu.com|mirrors.aliyun.com|g; s|security.ubuntu.com|mirrors.aliyun.com|g' "$f"
+                done
+            fi
+            ;;
+        debian)
+            info "配置 Debian 阿里云镜像源..."
+            if [[ -f /etc/apt/sources.list ]]; then
+                sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list
+            fi
+            ;;
+    esac
+}
+
+# ============================================================
+# CentOS 7 EOL 兼容：基础源已下线，需切换到阿里云 vault 归档源
 # CentOS 7 于 2024-06-30 EOL，mirrorlist.centos.org 已不可达
+# EPEL 7 也已 EOL，需切换到 epel-archive
 # ============================================================
 if [[ "$OS_ID" == "centos" && "$OS_MAJOR_VER" == "7" ]]; then
-    info "检测到 CentOS 7（已 EOL），修复 yum 基础源（切换到 vault 归档）..."
-    for repo_file in /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Vault.repo; do
+    info "检测到 CentOS 7（已 EOL），修复 yum 基础源（阿里云 vault 归档）..."
+    # 修复 CentOS Base 源
+    for repo_file in /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Vault.repo /etc/yum.repos.d/CentOS-*.repo; do
         if [[ -f "$repo_file" ]]; then
             sed -i 's|^mirrorlist=|#mirrorlist=|g' "$repo_file"
-            sed -i 's|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' "$repo_file"
+            sed -i 's|^#baseurl=http://mirror.centos.org|baseurl=https://mirrors.aliyun.com|g' "$repo_file"
+            # CentOS 7 在阿里云的路径是 centos-vault
+            sed -i 's|/centos/|/centos-vault/|g' "$repo_file" 2>/dev/null || true
         fi
     done
     # 更新 ca-certificates 防止旧证书导致 HTTPS 失败
     yum update -y ca-certificates curl nss 2>/dev/null || true
 fi
+
+# 执行国内镜像配置
+configure_domestic_mirrors
 
 # 获取脚本所在目录（用于定位 deploy/ 下的配置文件）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -499,7 +533,7 @@ if ! command -v rsync >/dev/null 2>&1; then
 fi
 
 # ============================================================
-# PHP 安装
+# PHP 安装（所有源均使用国内镜像）
 # ============================================================
 if [[ "$PHP_INSTALLED" != "true" ]]; then
     info "安装 PHP 8.x 及扩展..."
@@ -514,11 +548,17 @@ if [[ "$PHP_INSTALLED" != "true" ]]; then
             # Ubuntu 用 PPA，Debian 用 Sury
             if [[ "$OS_ID" == "ubuntu" ]]; then
                 add-apt-repository -y ppa:ondrej/php
+                # PPA 源替换为清华镜像（Launchpad PPA 国内访问极慢）
+                if [[ -f /etc/apt/sources.list.d/ondrej-ubuntu-php-*.list ]]; then
+                    sed -i 's|http://ppa.launchpad.net|https://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/ondrej-ubuntu-php-*.list
+                    info "PPA 源已替换为清华镜像"
+                fi
             else
-                # Debian: 使用 Sury 源
+                # Debian: 使用 Sury 源（清华镜像）
                 apt-get install -y lsb-release ca-certificates curl
-                curl -sSL https://packages.sury.org/php/apt.gpg -o /etc/apt/trusted.gpg.d/sury-php.gpg
-                echo "deb [signed-by=/etc/apt/trusted.gpg.d/sury-php.gpg] https://packages.sury.org/php $(lsb_release -sc) main" > /etc/apt/sources.list.d/sury-php.list
+                curl -sSL https://mirrors.tuna.tsinghua.edu.cn/sury/php/apt.gpg -o /etc/apt/trusted.gpg.d/sury-php.gpg
+                echo "deb [signed-by=/etc/apt/trusted.gpg.d/sury-php.gpg] https://mirrors.tuna.tsinghua.edu.cn/sury/php $(lsb_release -sc) main" > /etc/apt/sources.list.d/sury-php.list
+                info "Sury 源已配置为清华镜像"
             fi
             apt-get update -y
             install_pkgs \
@@ -530,25 +570,55 @@ if [[ "$PHP_INSTALLED" != "true" ]]; then
             ;;
 
         dnf|yum)
-            # CentOS/RHEL/Rocky/AlmaLinux: 使用 Remi 源
+            # CentOS/RHEL/Rocky/AlmaLinux: 使用 EPEL + Remi 源（阿里云镜像）
             "$PKG_MANAGER" install -y epel-release
 
+            # EPEL 源替换为阿里云镜像（CentOS 7 EPEL 7 已 EOL，需用 epel-archive）
+            if [[ "$OS_MAJOR_VER" == "7" ]]; then
+                sed -i 's|^metalink=|#metalink=|g' /etc/yum.repos.d/epel*.repo 2>/dev/null || true
+                sed -i 's|^#baseurl=https://download.fedoraproject.org/pub/epel|baseurl=https://mirrors.aliyun.com/epel-archive|g' /etc/yum.repos.d/epel*.repo 2>/dev/null || true
+                sed -i 's|^baseurl=https://download.fedoraproject.org/pub/epel|baseurl=https://mirrors.aliyun.com/epel-archive|g' /etc/yum.repos.d/epel*.repo 2>/dev/null || true
+                info "EPEL 源已替换为阿里云 epel-archive 镜像（CentOS 7 EOL）"
+            else
+                sed -i 's|^metalink=|#metalink=|g' /etc/yum.repos.d/epel*.repo 2>/dev/null || true
+                sed -i 's|^#baseurl=https://download.fedoraproject.org/pub/epel|baseurl=https://mirrors.aliyun.com/epel|g' /etc/yum.repos.d/epel*.repo 2>/dev/null || true
+                sed -i 's|^baseurl=https://download.fedoraproject.org/pub/epel|baseurl=https://mirrors.aliyun.com/epel|g' /etc/yum.repos.d/epel*.repo 2>/dev/null || true
+                info "EPEL 源已替换为阿里云镜像"
+            fi
+
+            # Remi 源（阿里云镜像）
             REMI_RELEASE_RPM=""
             case "$OS_MAJOR_VER" in
-                7) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-7.rpm" ;;
-                8) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-8.rpm" ;;
-                9) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-9.rpm" ;;
-                *) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-9.rpm" ;;
+                7) REMI_RELEASE_RPM="https://mirrors.aliyun.com/remi/enterprise/remi-release-7.rpm" ;;
+                8) REMI_RELEASE_RPM="https://mirrors.aliyun.com/remi/enterprise/remi-release-8.rpm" ;;
+                9) REMI_RELEASE_RPM="https://mirrors.aliyun.com/remi/enterprise/remi-release-9.rpm" ;;
+                *) REMI_RELEASE_RPM="https://mirrors.aliyun.com/remi/enterprise/remi-release-9.rpm" ;;
             esac
-            info "安装 Remi 源: ${REMI_RELEASE_RPM}"
-            "$PKG_MANAGER" install -y "$REMI_RELEASE_RPM" || warn "Remi 源安装失败，尝试使用本地已有的 PHP..."
+            info "安装 Remi 源（阿里云镜像）: ${REMI_RELEASE_RPM}"
+            "$PKG_MANAGER" install -y "$REMI_RELEASE_RPM" || {
+                error "Remi 源安装失败！无法安装 PHP 8.2"
+                error "请检查网络连接或手动配置 Remi 源"
+                exit 1
+            }
+
+            # Remi 源替换为阿里云镜像
+            if [[ -f /etc/yum.repos.d/remi.repo ]]; then
+                sed -i 's|http://rpms.remirepo.net|https://mirrors.aliyun.com/remi|g; s|mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/remi.repo
+            fi
+            for remi_file in /etc/yum.repos.d/remi-*.repo; do
+                [[ -f "$remi_file" ]] && sed -i 's|http://rpms.remirepo.net|https://mirrors.aliyun.com/remi|g; s|mirrorlist=|#mirrorlist=|g' "$remi_file"
+            done
+            info "Remi 源已替换为阿里云镜像"
 
             if [[ "$OS_MAJOR_VER" == "7" ]]; then
                 "$PKG_MANAGER" install -y yum-utils
-                yum-config-manager --enable remi-php82 || warn "启用 remi-php82 仓库失败"
+                yum-config-manager --enable remi-php82 || {
+                    error "启用 remi-php82 仓库失败"
+                    exit 1
+                }
             else
                 "$PKG_MANAGER" module reset -y php || true
-                "$PKG_MANAGER" module enable -y php:remi-8.2 || warn "启用 PHP 8.2 模块失败"
+                "$PKG_MANAGER" module enable -y php:remi-8.2 || warn "启用 PHP 8.2 模块失败（可能需要手动启用）"
             fi
 
             install_pkgs \
@@ -556,7 +626,10 @@ if [[ "$PHP_INSTALLED" != "true" ]]; then
                 php-mysqlnd php-curl \
                 php-mbstring php-xml php-zip \
                 php-bcmath php-gd php-intl \
-                php-pear php-devel openssl-devel || warn "部分 PHP 包安装失败"
+                php-pear php-devel openssl-devel || {
+                error "PHP 包安装失败！请检查 Remi 源配置"
+                exit 1
+            }
             # Redis 扩展
             "$PKG_MANAGER" install -y php-pecl-redis5 2>/dev/null || "$PKG_MANAGER" install -y php-redis 2>/dev/null || warn "Redis 扩展安装失败，可后续手动安装"
             ;;
@@ -569,6 +642,8 @@ if [[ "$PHP_INSTALLED" != "true" ]]; then
                 php82-mbstring php82-xml php82-zip \
                 php82-bcmath php82-gd php82-intl \
                 php82-pecl swoole php82-pear php82-dev openssl-dev
+            # Alpine 的 php82 没有创建 /usr/bin/php 软链
+            ln -sf /usr/bin/php82 /usr/bin/php 2>/dev/null || true
             ;;
 
         zypper)
@@ -590,6 +665,18 @@ if [[ "$PHP_INSTALLED" != "true" ]]; then
                 php-pear
             ;;
     esac
+
+    # ============================================================
+    # PHP 版本校验（防止 Remi 源失败导致装到 PHP 5.4）
+    # ============================================================
+    PHP_MAJOR_CHECK=$(php -v 2>/dev/null | head -n1 | awk '{print $2}' | cut -d. -f1)
+    if [[ -z "$PHP_MAJOR_CHECK" || "$PHP_MAJOR_CHECK" -lt 8 ]]; then
+        error "PHP 版本不满足要求（需 8.0+），当前: $(php -v 2>/dev/null | head -n1)"
+        error "可能是 Remi/PPA 源安装失败，fallback 到了系统默认的旧版 PHP"
+        error "请检查网络连接或手动安装 PHP 8.0+"
+        exit 1
+    fi
+    info "PHP 版本校验通过: $(php -v | head -n1)"
 else
     info "PHP 已安装，跳过"
 fi
@@ -613,7 +700,7 @@ if [[ "$PKG_MANAGER" == "dnf" || "$PKG_MANAGER" == "yum" ]]; then
 fi
 
 # ============================================================
-# Swoole 扩展（通用：pecl 编译安装）
+# Swoole 扩展（通用：pecl 编译安装，国内镜像加速）
 # ============================================================
 if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
     info "正在编译安装 Swoole 扩展..."
@@ -627,6 +714,15 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
             ;;
         dnf|yum)
             install_pkgs gcc gcc-c++ make autoconf git brotli-devel openssl-devel zlib-devel libcurl-devel 2>/dev/null || warn "部分编译依赖安装失败"
+            # CentOS 7 特殊处理：gcc 4.8.5 不支持 C++11，需 devtoolset-11
+            # OpenSSL 1.0.2 不满足 Swoole 5.x 要求，需 openssl11-devel
+            if [[ "$OS_ID" == "centos" && "$OS_MAJOR_VER" == "7" ]]; then
+                info "CentOS 7: 安装 devtoolset-11（gcc 4.8.5 不支持 C++11）..."
+                yum install -y centos-release-scl 2>/dev/null || true
+                yum install -y devtoolset-11 2>/dev/null || yum install -y devtoolset-9 2>/dev/null || yum install -y devtoolset-7 2>/dev/null || warn "devtoolset 安装失败，Swoole 编译可能失败"
+                # 安装 OpenSSL 1.1 开发包（EPEL 提供 openssl11-devel）
+                yum install -y openssl11-devel 2>/dev/null || warn "openssl11-devel 安装失败，将使用系统默认 OpenSSL 1.0.2"
+            fi
             ;;
         apk)
             install_pkgs build-base git brotli-dev openssl-dev zlib-dev curl-dev 2>/dev/null || warn "部分编译依赖安装失败"
@@ -639,24 +735,62 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
             ;;
     esac
 
-    # 使用 pecl 安装 Swoole
-    # 依赖 brotli-devel 已在上面安装，pecl 会自动检测
-    yes '' | pecl install swoole || {
-        warn "pecl 安装 Swoole 失败，尝试从源码编译（禁用 brotli）..."
-        SWOOLE_SRC="/tmp/swoole-src"
-        rm -rf "$SWOOLE_SRC"
-        git clone --depth 1 https://github.com/swoole/swoole-src.git "$SWOOLE_SRC" 2>/dev/null || \
-            git clone --depth 1 https://gh.jasonzeng.dev/https://github.com/swoole/swoole-src.git "$SWOOLE_SRC"
-        if [[ -d "$SWOOLE_SRC" ]]; then
-            cd "$SWOOLE_SRC"
-            phpize
-            ./configure --enable-brotli=no --enable-openssl=yes --enable-swoole-curl=yes
-            make -j"$(nproc)" && make install
-            cd "${PROJECT_DIR}"
-        else
-            error "Swoole 源码下载失败，请手动安装 Swoole 扩展"
+    # CentOS 7: 启用 devtoolset（提供 gcc 11，替代系统默认 gcc 4.8.5）
+    SWOOLE_BUILD_ENV=""
+    if [[ "$OS_ID" == "centos" && "$OS_MAJOR_VER" == "7" ]]; then
+        if [[ -f /opt/rh/devtoolset-11/enable ]]; then
+            source /opt/rh/devtoolset-11/enable
+            info "已启用 devtoolset-11: $(gcc --version | head -n1)"
+        elif [[ -f /opt/rh/devtoolset-9/enable ]]; then
+            source /opt/rh/devtoolset-9/enable
+            info "已启用 devtoolset-9: $(gcc --version | head -n1)"
+        elif [[ -f /opt/rh/devtoolset-7/enable ]]; then
+            source /opt/rh/devtoolset-7/enable
+            info "已启用 devtoolset-7: $(gcc --version | head -n1)"
         fi
-    }
+    fi
+
+    # 优先从源码编译 Swoole（更可控，避免 pecl 交互式提示）
+    # 使用 gh.jasonzeng.dev 代理加速 GitHub 克隆（国内服务器优先）
+    SWOOLE_SRC="/tmp/swoole-src"
+    rm -rf "$SWOOLE_SRC"
+    info "从 GitHub 克隆 Swoole 源码（优先使用代理）..."
+    git clone --depth 1 https://gh.jasonzeng.dev/https://github.com/swoole/swoole-src.git "$SWOOLE_SRC" 2>/dev/null || \
+        git clone --depth 1 https://github.com/swoole/swoole-src.git "$SWOOLE_SRC" 2>/dev/null || true
+
+    SWOOLE_BUILD_SUCCESS=false
+    if [[ -d "$SWOOLE_SRC" ]]; then
+        cd "$SWOOLE_SRC"
+        phpize
+        # 启用 openssl、swoole-curl、brotli（核心功能依赖）
+        # CentOS 7 如已安装 openssl11-devel，pkg-config 会自动找到 OpenSSL 1.1
+        if ./configure --enable-openssl=yes --enable-swoole-curl=yes --enable-brotli=yes --enable-mysqlnd=yes; then
+            if make -j"$(nproc)" && make install; then
+                SWOOLE_BUILD_SUCCESS=true
+                info "Swoole 源码编译安装成功"
+            else
+                warn "Swoole 源码编译失败，尝试禁用 brotli..."
+                make clean 2>/dev/null || true
+                if ./configure --enable-openssl=yes --enable-swoole-curl=yes --enable-brotli=no --enable-mysqlnd=yes; then
+                    if make -j"$(nproc)" && make install; then
+                        SWOOLE_BUILD_SUCCESS=true
+                        info "Swoole 源码编译安装成功（禁用 brotli）"
+                    fi
+                fi
+            fi
+        fi
+        cd "${PROJECT_DIR}"
+    fi
+
+    # 如果源码编译失败，尝试 pecl 安装
+    if [[ "$SWOOLE_BUILD_SUCCESS" != "true" ]]; then
+        warn "源码编译失败，尝试 pecl 安装 Swoole..."
+        # 预答参数：openssl=yes, http2=yes, curl=yes, brotli=yes, ...
+        printf "yes\nno\nyes\nno\nyes\nyes\nno\n" | pecl install swoole || {
+            warn "pecl 安装 Swoole 也失败，尝试禁用 brotli..."
+            printf "yes\nno\nyes\nno\nyes\nno\nno\n" | pecl install swoole || true
+        }
+    fi
 
     # 验证 Swoole 是否安装成功
     if ! php -m 2>/dev/null | grep -q '^swoole$'; then
@@ -664,6 +798,7 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
         error "请检查编译错误日志，或尝试手动安装：pecl install swoole"
         exit 1
     fi
+    info "Swoole 扩展已加载: $(php -m | grep swoole)"
 
     # 写入 PHP 扩展配置目录（适配各发行版）
     mkdir -p "$PHP_CONF_DIR"
@@ -689,22 +824,20 @@ if [[ "$MYSQL_INSTALLED" != "true" ]]; then
             ;;
         dnf|yum)
             # CentOS 7: base 源的 mariadb-server 是 5.5（过旧，不支持 CREATE USER IF NOT EXISTS）
-            # 优先安装 MySQL 社区版，失败则安装 MariaDB 10.x（通过 MariaDB 官方源）
+            # 优先安装 MariaDB 10.x（通过 MariaDB 官方阿里云镜像源，稳定可靠）
+            # MySQL 社区版需要额外配置源且 CentOS 7 兼容性差，故直接用 MariaDB 10.11
             if [[ "$OS_ID" == "centos" && "$OS_MAJOR_VER" == "7" ]]; then
-                # 尝试安装 MySQL 8.0 社区版
-                if ! install_pkgs mysql-community-server 2>/dev/null; then
-                    warn "MySQL 社区版安装失败，尝试安装 MariaDB 10.x..."
-                    # 添加 MariaDB 10.11 官方源（CentOS 7）
-                    cat > /etc/yum.repos.d/MariaDB.repo <<MARIADB_EOF
+                info "CentOS 7: 安装 MariaDB 10.11（阿里云镜像源）..."
+                cat > /etc/yum.repos.d/MariaDB.repo <<MARIADB_EOF
 [mariadb]
 name = MariaDB
 baseurl = https://mirrors.aliyun.com/mariadb/yum/10.11/centos7-amd64
 gpgkey = https://mirrors.aliyun.com/mariadb/yum/RPM-GPG-KEY-MariaDB
 gpgcheck = 1
 MARIADB_EOF
-                    install_pkgs MariaDB-server MariaDB-client 2>/dev/null || install_pkgs mariadb-server
-                fi
+                install_pkgs MariaDB-server MariaDB-client 2>/dev/null || install_pkgs mariadb-server
             else
+                # CentOS 8/9 等：直接安装 mysql-server 或 mariadb-server
                 install_pkgs mysql-server 2>/dev/null || install_pkgs mariadb-server
             fi
             ;;
@@ -807,11 +940,21 @@ else
 fi
 
 # ============================================================
-# Composer（通用，与发行版无关）
+# Composer（使用国内镜像下载，与发行版无关）
 # ============================================================
 if [[ "$COMPOSER_INSTALLED" != "true" ]]; then
-    info "安装 Composer..."
-    curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+    info "安装 Composer（国内镜像）..."
+    # 优先使用阿里云 Composer 镜像
+    if curl -fsSL https://mirrors.aliyun.com/composer/composer.phar -o /usr/local/bin/composer 2>/dev/null; then
+        chmod +x /usr/local/bin/composer
+        info "Composer 安装完成（阿里云镜像）"
+    else
+        # Fallback: 使用官方 installer
+        curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+        info "Composer 安装完成（官方源）"
+    fi
+    # 配置 Packagist 国内镜像（阿里云）
+    composer config -g repo.packagist composer https://mirrors.aliyun.com/composer/ 2>/dev/null || true
 else
     info "Composer 已安装，跳过"
 fi
@@ -948,13 +1091,32 @@ if [[ -n "$MYSQL_ROOT_PASS" ]]; then
 fi
 
 # 创建数据库与用户（如果 .env 已存在则跳过，数据库已创建过）
+# 检测 MySQL 还是 MariaDB（MariaDB 不支持 IDENTIFIED WITH mysql_native_password 语法）
+MYSQL_IS_MARIADB=false
+if $MYSQL_ROOT_CMD --version 2>/dev/null | grep -qi mariadb; then
+    MYSQL_IS_MARIADB=true
+fi
+
 if [[ -f "$ENV_FILE" ]]; then
     info "检测到已有 .env 配置，跳过数据库创建（复用现有数据库 ${DB_NAME}）"
     # 仅确保数据库存在（防止被手动删除）
     $MYSQL_ROOT_CMD -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || warn "确保数据库存在时失败"
 else
     info "创建数据库 ${DB_NAME} 和用户 ${DB_USER}..."
-    $MYSQL_ROOT_CMD <<EOF
+    if [[ "$MYSQL_IS_MARIADB" == "true" ]]; then
+        # MariaDB 不支持 IDENTIFIED WITH mysql_native_password 语法
+        # MariaDB 默认就是 mysql_native_password，直接用 IDENTIFIED BY 即可
+        $MYSQL_ROOT_CMD <<EOF
+CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '${DB_USER}'@'${DB_HOST}' IDENTIFIED BY '${DB_PASS}';
+GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'${DB_HOST}';
+CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';
+GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
+FLUSH PRIVILEGES;
+EOF
+    else
+        # MySQL 8.0+：显式指定 mysql_native_password 确保 PHP PDO 兼容
+        $MYSQL_ROOT_CMD <<EOF
 CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${DB_USER}'@'${DB_HOST}' IDENTIFIED WITH mysql_native_password BY '${DB_PASS}';
 GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'${DB_HOST}';
@@ -962,7 +1124,8 @@ CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED WITH mysql_native_
 GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 EOF
-    info "数据库与用户创建完成。"
+    fi
+    info "数据库与用户创建完成（${MYSQL_IS_MARIADB:+MariaDB}${MYSQL_IS_MARIADB:-MySQL}）。"
 fi
 
 # 启动 Redis
@@ -1237,7 +1400,9 @@ fi
 # 设置项目目录权限（使用检测到的 Web 用户）
 chown -R "${WEB_USER}:${WEB_USER}" "${PROJECT_DIR}" 2>/dev/null || chown -R www-data:www-data "${PROJECT_DIR}" 2>/dev/null || chown -R nginx:nginx "${PROJECT_DIR}" 2>/dev/null || true
 find "${PROJECT_DIR}" -type d -exec chmod 755 {} \;
-find "${PROJECT_DIR}" -type f -exec chmod 644 {} \;
+# 普通文件设为 644，但保留 .sh 脚本的可执行权限（755）
+find "${PROJECT_DIR}" -type f ! -name "*.sh" -exec chmod 644 {} \;
+find "${PROJECT_DIR}" -type f -name "*.sh" -exec chmod 755 {} \;
 # 存储目录与缓存目录需要写权限
 chmod -R 775 "${PROJECT_DIR}/backend/storage" 2>/dev/null || true
 chmod -R 775 "${PROJECT_DIR}/build/output" 2>/dev/null || true

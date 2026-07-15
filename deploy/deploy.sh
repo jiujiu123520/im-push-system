@@ -60,6 +60,9 @@ info()  { echo -e "${COLOR_GREEN}[INFO]${COLOR_RESET} $*"; }
 warn()  { echo -e "${COLOR_YELLOW}[WARN]${COLOR_RESET} $*"; }
 error() { echo -e "${COLOR_RED}[ERROR]${COLOR_RESET} $*" >&2; }
 
+# GitHub 代理开关（默认根据网络自动检测）
+GH_PROXY="${GH_PROXY:-0}"
+
 # ------------------------------------------------------------
 # 安装 git（支持所有主流 Linux 发行版）
 # ------------------------------------------------------------

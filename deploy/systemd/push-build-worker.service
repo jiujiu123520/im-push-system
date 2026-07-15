@@ -29,7 +29,7 @@ Environment=APP_ENV=production
 # Android SDK 路径（按实际安装路径调整）
 Environment=ANDROID_HOME=/opt/android-sdk
 Environment=ANDROID_SDK_ROOT=/opt/android-sdk
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/opt/gradle-8.7/bin
 
 # ========= cgroup 资源限制（2H2G 服务器平衡策略）=========
 # 注意：以下指令需要 systemd 227+（CentOS 7 的 systemd 219 不支持）
