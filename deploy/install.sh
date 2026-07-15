@@ -618,24 +618,24 @@ fi
 if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
     info "正在编译安装 Swoole 扩展..."
 
-    # 先安装 Swoole 编译所需的依赖（编译工具 + brotli/zlib/openssl 开发包）
-    # Swoole 5.x 默认启用 brotli，缺少 libbrotlienc 会编译失败
+    # 先安装 Swoole 编译所需的依赖（编译工具 + brotli/zlib/openssl/libcurl 开发包）
+    # Swoole 5.x 默认启用 brotli 和 swoole-curl，需要 libbrotli 和 libcurl >= 7.56.0
     # 最小化系统可能没有 gcc/make/autoconf，需一并安装
     case "$PKG_MANAGER" in
         apt-get)
-            install_pkgs build-essential git libbrotli-dev libssl-dev zlib1g-dev 2>/dev/null || warn "部分编译依赖安装失败"
+            install_pkgs build-essential git libbrotli-dev libssl-dev zlib1g-dev libcurl4-openssl-dev 2>/dev/null || warn "部分编译依赖安装失败"
             ;;
         dnf|yum)
-            install_pkgs gcc gcc-c++ make autoconf git brotli-devel openssl-devel zlib-devel 2>/dev/null || warn "部分编译依赖安装失败"
+            install_pkgs gcc gcc-c++ make autoconf git brotli-devel openssl-devel zlib-devel libcurl-devel 2>/dev/null || warn "部分编译依赖安装失败"
             ;;
         apk)
-            install_pkgs build-base git brotli-dev openssl-dev zlib-dev 2>/dev/null || warn "部分编译依赖安装失败"
+            install_pkgs build-base git brotli-dev openssl-dev zlib-dev curl-dev 2>/dev/null || warn "部分编译依赖安装失败"
             ;;
         zypper)
-            install_pkgs gcc gcc-c++ make autoconf git libbrotli-devel libopenssl-devel zlib-devel 2>/dev/null || warn "部分编译依赖安装失败"
+            install_pkgs gcc gcc-c++ make autoconf git libbrotli-devel libopenssl-devel zlib-devel libcurl-devel 2>/dev/null || warn "部分编译依赖安装失败"
             ;;
         pacman)
-            install_pkgs base-devel git brotli zlib openssl 2>/dev/null || warn "部分编译依赖安装失败"
+            install_pkgs base-devel git brotli zlib openssl curl 2>/dev/null || warn "部分编译依赖安装失败"
             ;;
     esac
 
