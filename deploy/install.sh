@@ -26,6 +26,15 @@
 set -e
 
 # ------------------------------------------------------------
+# 禁用交互式提示（Ubuntu/Debian 安装时可能弹出 needrestart 菜单）
+# ------------------------------------------------------------
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+export NEEDRESTART_SUSPEND=1
+# 避免 apt 安装时弹出配置菜单（如 timezone、keyboard 等）
+export DEBCONF_NONINTERACTIVE_SEEN=true
+
+# ------------------------------------------------------------
 # 配置项（可通过环境变量覆盖）
 # ------------------------------------------------------------
 PROJECT_DIR="${PROJECT_DIR:-/www/push-system}"
@@ -553,7 +562,11 @@ fi
 install_pkgs() {
     case "$PKG_MANAGER" in
         apt-get)
-            apt-get install -y "$@"
+            DEBIAN_FRONTEND=noninteractive apt-get install -y \
+                -o Dpkg::Options::="--force-confold" \
+                -o Dpkg::Options::="--force-confdef" \
+                -o NeedRestart::Mode=auto \
+                "$@"
             ;;
         dnf|yum)
             "$PKG_MANAGER" install -y "$@"
