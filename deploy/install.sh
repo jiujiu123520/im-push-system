@@ -1,18 +1,20 @@
 #!/bin/bash
 # ============================================================
-# 即时消息推送系统 - 一键安装脚本（国内服务器专用）
+# 即时消息推送系统 - 一键安装脚本（支持所有主流 Linux 发行版）
 #
 # 用法:
 #   sudo bash deploy/install.sh
 #
 # 功能:
-#   1. 安装系统依赖（PHP 8.2 + Swoole + MySQL + Redis + Nginx + Composer + Node）
-#   2. 创建数据库并执行迁移
-#   3. 安装后端依赖（composer install）
-#   4. 构建管理后台（npm install && npm run build）
-#   5. 复制 systemd 服务文件
-#   6. 复制 Nginx 配置
-#   7. 启动服务
+#   1. 自动检测系统类型（Ubuntu/Debian/CentOS/RHEL/Rocky/AlmaLinux/
+#      Fedora/Alpine/openSUSE/Arch 等）并适配对应包管理器
+#   2. 安装系统依赖（PHP 8.x + Swoole + MySQL + Redis + Nginx + Composer + Node）
+#   3. 创建数据库并执行迁移
+#   4. 安装后端依赖（composer install）
+#   5. 构建管理后台（npm install && npm run build）
+#   6. 复制 systemd 服务文件（自动适配 Web 用户）
+#   7. 复制 Nginx 配置（自动适配配置目录）
+#   8. 启动服务
 #
 # 注意:
 #   - 脚本必须在 root 或具有 sudo 权限的用户下执行
@@ -62,17 +64,117 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-# 检测包管理器
-if command -v apt-get >/dev/null 2>&1; then
-    PKG_MANAGER="apt-get"
-elif command -v yum >/dev/null 2>&1; then
-    PKG_MANAGER="yum"
-else
-    error "不支持的系统：未找到 apt-get 或 yum。"
-    exit 1
+# ============================================================
+# 操作系统检测（支持所有主流 Linux 发行版）
+# ============================================================
+OS_ID="unknown"
+OS_VERSION=""
+OS_MAJOR_VER=""
+PKG_MANAGER="unknown"
+WEB_USER="www-data"          # 运行 Web 服务的系统用户
+PHP_FPM_SERVICE=""           # PHP-FPM 服务名
+PHP_CONF_DIR=""              # PHP 扩展配置目录
+NGINX_CONF_DIR=""            # Nginx 站点配置目录
+PHP_PKG_PREFIX=""            # PHP 扩展包名前缀（如 php8.2- 或 php-）
+
+if [[ -f /etc/os-release ]]; then
+    . /etc/os-release
+    OS_ID="${ID:-unknown}"
+    OS_VERSION="${VERSION_ID:-}"
+    OS_MAJOR_VER="${OS_VERSION%%.*}"
 fi
 
-info "检测到包管理器: ${PKG_MANAGER}"
+# 兼容 ID_LIKE（如 ubuntu 的 ID_LIKE=debian）
+OS_FAMILY="${ID_LIKE:-$OS_ID}"
+
+case "$OS_ID" in
+    ubuntu|debian)
+        PKG_MANAGER="apt-get"
+        WEB_USER="www-data"
+        PHP_FPM_SERVICE="php8.2-fpm"
+        PHP_CONF_DIR="/etc/php/8.2/mods-available"
+        NGINX_CONF_DIR="/etc/nginx/sites-available"
+        PHP_PKG_PREFIX="php8.2-"
+        ;;
+    centos|rhel|rocky|almalinux|fedora|ol)
+        # 检测使用 dnf 还是 yum
+        if command -v dnf >/dev/null 2>&1; then
+            PKG_MANAGER="dnf"
+        else
+            PKG_MANAGER="yum"
+        fi
+        WEB_USER="nginx"
+        PHP_FPM_SERVICE="php-fpm"
+        PHP_CONF_DIR="/etc/php.d"
+        NGINX_CONF_DIR="/etc/nginx/conf.d"
+        PHP_PKG_PREFIX="php-"
+        ;;
+    alpine)
+        PKG_MANAGER="apk"
+        WEB_USER="nginx"
+        PHP_FPM_SERVICE="php-fpm82"
+        PHP_CONF_DIR="/etc/php82/conf.d"
+        NGINX_CONF_DIR="/etc/nginx/http.d"
+        PHP_PKG_PREFIX="php82-"
+        ;;
+    opensuse*|suse|sles)
+        PKG_MANAGER="zypper"
+        WEB_USER="nginx"
+        PHP_FPM_SERVICE="php-fpm"
+        PHP_CONF_DIR="/etc/php8/conf.d"
+        NGINX_CONF_DIR="/etc/nginx/vhosts.d"
+        PHP_PKG_PREFIX="php8-"
+        ;;
+    arch|manjaro)
+        PKG_MANAGER="pacman"
+        WEB_USER="http"
+        PHP_FPM_SERVICE="php-fpm"
+        PHP_CONF_DIR="/etc/php/conf.d"
+        NGINX_CONF_DIR="/etc/nginx/sites-available"
+        PHP_PKG_PREFIX="php-"
+        ;;
+    *)
+        # 未知发行版，尝试通过包管理器推断
+        if command -v apt-get >/dev/null 2>&1; then
+            PKG_MANAGER="apt-get"
+            WEB_USER="www-data"
+            PHP_FPM_SERVICE="php8.2-fpm"
+            PHP_CONF_DIR="/etc/php/8.2/mods-available"
+            NGINX_CONF_DIR="/etc/nginx/sites-available"
+            PHP_PKG_PREFIX="php8.2-"
+        elif command -v dnf >/dev/null 2>&1; then
+            PKG_MANAGER="dnf"
+            WEB_USER="nginx"
+            PHP_FPM_SERVICE="php-fpm"
+            PHP_CONF_DIR="/etc/php.d"
+            NGINX_CONF_DIR="/etc/nginx/conf.d"
+            PHP_PKG_PREFIX="php-"
+        elif command -v yum >/dev/null 2>&1; then
+            PKG_MANAGER="yum"
+            WEB_USER="nginx"
+            PHP_FPM_SERVICE="php-fpm"
+            PHP_CONF_DIR="/etc/php.d"
+            NGINX_CONF_DIR="/etc/nginx/conf.d"
+            PHP_PKG_PREFIX="php-"
+        elif command -v apk >/dev/null 2>&1; then
+            PKG_MANAGER="apk"
+            WEB_USER="nginx"
+            PHP_FPM_SERVICE="php-fpm82"
+            PHP_CONF_DIR="/etc/php82/conf.d"
+            NGINX_CONF_DIR="/etc/nginx/http.d"
+            PHP_PKG_PREFIX="php82-"
+        else
+            error "不支持的系统：未找到 apt-get/dnf/yum/apk/zypper/pacman。"
+            error "请手动安装 PHP 8.0+、MySQL、Redis、Nginx、Node.js 18+ 后重试。"
+            exit 1
+        fi
+        warn "未识别的发行版（$OS_ID），使用包管理器 $PKG_MANAGER 推断配置"
+        ;;
+esac
+
+info "操作系统: ${OS_ID} ${OS_VERSION}（主版本 ${OS_MAJOR_VER:-未知}）"
+info "包管理器: ${PKG_MANAGER}"
+info "Web 用户: ${WEB_USER}"
 info "项目目录: ${PROJECT_DIR}"
 
 # 获取脚本所在目录（用于定位 deploy/ 下的配置文件）
@@ -234,7 +336,7 @@ echo ""
 echo -e "  ${COLOR_GREEN}1.${COLOR_RESET} 核心服务（PHP+Swoole+MySQL+Redis+Nginx+管理后台）  [必选]"
 echo -e "  ${COLOR_GREEN}2.${COLOR_RESET} Android APP 打包环境（JDK 17 + Android SDK + Gradle 8.7）"
 echo -e "  ${COLOR_GREEN}3.${COLOR_RESET} SSL 证书自动申请环境（acme.sh + 自动续费 cron）"
-echo -e "  ${COLOR_GREEN}4.${COLOR_RESET} sudoers 权限配置（允许 www-data 重启服务/部署 Nginx）"
+echo -e "  ${COLOR_GREEN}4.${COLOR_RESET} sudoers 权限配置（允许 Web 用户重启服务/部署 Nginx）"
 echo -e "  ${COLOR_GREEN}all.${COLOR_RESET} 安装全部（1+2+3+4）"
 echo -e "  ${COLOR_GREEN}0.${COLOR_RESET} 仅核心服务（不安装可选组件）"
 echo ""
@@ -315,176 +417,237 @@ else
     info "需要安装的组件: $((7 - INSTALLED_COUNT))/7"
 fi
 
-if [[ "$PKG_MANAGER" == "apt-get" ]]; then
-    # PHP
-    if [[ "$PHP_INSTALLED" != "true" ]]; then
-        info "安装 PHP 8.2 及扩展..."
-        if ! command -v add-apt-repository >/dev/null 2>&1; then
+# ============================================================
+# 统一安装函数：根据包管理器适配不同发行版
+# ============================================================
+
+# install_pkgs <包名列表...>  —— 通用包安装函数
+install_pkgs() {
+    case "$PKG_MANAGER" in
+        apt-get)
+            apt-get install -y "$@"
+            ;;
+        dnf|yum)
+            "$PKG_MANAGER" install -y "$@"
+            ;;
+        apk)
+            apk add --no-cache "$@"
+            ;;
+        zypper)
+            zypper install -y "$@"
+            ;;
+        pacman)
+            pacman -S --noconfirm "$@"
+            ;;
+        *)
+            error "未知包管理器: $PKG_MANAGER"
+            return 1
+            ;;
+    esac
+}
+
+# update_pkg_index  —— 更新包索引
+update_pkg_index() {
+    case "$PKG_MANAGER" in
+        apt-get)   apt-get update -y ;;
+        dnf|yum)   "$PKG_MANAGER" makecache 2>/dev/null || true ;;
+        apk)       apk update ;;
+        zypper)    zypper refresh ;;
+        pacman)    pacman -Sy ;;
+    esac
+}
+
+# ============================================================
+# PHP 安装
+# ============================================================
+if [[ "$PHP_INSTALLED" != "true" ]]; then
+    info "安装 PHP 8.x 及扩展..."
+
+    case "$PKG_MANAGER" in
+        apt-get)
+            # Debian/Ubuntu: 使用 ondrej PPA（Ubuntu）或 Sury（Debian）
+            if ! command -v add-apt-repository >/dev/null 2>&1; then
+                apt-get update -y
+                apt-get install -y software-properties-common
+            fi
+            # Ubuntu 用 PPA，Debian 用 Sury
+            if [[ "$OS_ID" == "ubuntu" ]]; then
+                add-apt-repository -y ppa:ondrej/php
+            else
+                # Debian: 使用 Sury 源
+                apt-get install -y lsb-release ca-certificates curl
+                curl -sSL https://packages.sury.org/php/apt.gpg -o /etc/apt/trusted.gpg.d/sury-php.gpg
+                echo "deb [signed-by=/etc/apt/trusted.gpg.d/sury-php.gpg] https://packages.sury.org/php $(lsb_release -sc) main" > /etc/apt/sources.list.d/sury-php.list
+            fi
             apt-get update -y
-            apt-get install -y software-properties-common
-        fi
-        add-apt-repository -y ppa:ondrej/php
-        apt-get update -y
-        apt-get install -y \
-            php8.2 php8.2-cli php8.2-common \
-            php8.2-mysql php8.2-redis php8.2-curl \
-            php8.2-mbstring php8.2-xml php8.2-zip \
-            php8.2-bcmath php8.2-gd php8.2-intl \
-            php-pear php8.2-dev libssl-dev
-    else
-        info "PHP 已安装，跳过"
+            install_pkgs \
+                php8.2 php8.2-cli php8.2-common \
+                php8.2-mysql php8.2-redis php8.2-curl \
+                php8.2-mbstring php8.2-xml php8.2-zip \
+                php8.2-bcmath php8.2-gd php8.2-intl \
+                php-pear php8.2-dev libssl-dev
+            ;;
+
+        dnf|yum)
+            # CentOS/RHEL/Rocky/AlmaLinux: 使用 Remi 源
+            "$PKG_MANAGER" install -y epel-release
+
+            REMI_RELEASE_RPM=""
+            case "$OS_MAJOR_VER" in
+                7) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-7.rpm" ;;
+                8) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-8.rpm" ;;
+                9) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-9.rpm" ;;
+                *) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-9.rpm" ;;
+            esac
+            info "安装 Remi 源: ${REMI_RELEASE_RPM}"
+            "$PKG_MANAGER" install -y "$REMI_RELEASE_RPM" || warn "Remi 源安装失败，尝试使用本地已有的 PHP..."
+
+            if [[ "$OS_MAJOR_VER" == "7" ]]; then
+                "$PKG_MANAGER" install -y yum-utils
+                yum-config-manager --enable remi-php82 || warn "启用 remi-php82 仓库失败"
+            else
+                "$PKG_MANAGER" module reset -y php || true
+                "$PKG_MANAGER" module enable -y php:remi-8.2 || warn "启用 PHP 8.2 模块失败"
+            fi
+
+            install_pkgs \
+                php php-cli php-common \
+                php-mysqlnd php-curl \
+                php-mbstring php-xml php-zip \
+                php-bcmath php-gd php-intl \
+                php-pear php-devel openssl-devel || warn "部分 PHP 包安装失败"
+            # Redis 扩展
+            "$PKG_MANAGER" install -y php-pecl-redis5 2>/dev/null || "$PKG_MANAGER" install -y php-redis 2>/dev/null || warn "Redis 扩展安装失败，可后续手动安装"
+            ;;
+
+        apk)
+            # Alpine Linux
+            install_pkgs \
+                php82 php82-cli php82-common \
+                php82-mysqlnd php82-pecl-redis php82-curl \
+                php82-mbstring php82-xml php82-zip \
+                php82-bcmath php82-gd php82-intl \
+                php82-pecl swoole php82-pear php82-dev openssl-dev
+            ;;
+
+        zypper)
+            # openSUSE
+            install_pkgs \
+                php8 php8-cli php8-mysql php8-redis php8-curl \
+                php8-mbstring php8-xml php8-zip \
+                php8-bcmath php8-gd php8-intl \
+                php8-pear php8-devel libopenssl-devel
+            ;;
+
+        pacman)
+            # Arch Linux/Manjaro
+            install_pkgs \
+                php php-cli \
+                php-mysql php-redis php-curl \
+                php-mbstring php-xml php-zip \
+                php-bcmath php-gd php-intl \
+                php-pear
+            ;;
+    esac
+else
+    info "PHP 已安装，跳过"
+fi
+
+# ============================================================
+# Swoole 扩展（通用：pecl 编译安装）
+# ============================================================
+if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
+    info "正在编译安装 Swoole 扩展..."
+    yes '' | pecl install swoole
+    # 写入 PHP 扩展配置目录（适配各发行版）
+    mkdir -p "$PHP_CONF_DIR"
+    echo "extension=swoole.so" > "${PHP_CONF_DIR}/50-swoole.ini"
+    # Debian/Ubuntu 额外需要 phpenmod 启用（如果命令存在）
+    if command -v phpenmod >/dev/null 2>&1; then
+        phpenmod -v 8.2 swoole 2>/dev/null || true
     fi
+else
+    info "Swoole 扩展已安装，跳过"
+fi
 
-    # Swoole
-    if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
-        info "正在编译安装 Swoole 扩展..."
-        yes '' | pecl install swoole
-        echo "extension=swoole.so" > /etc/php/8.2/mods-available/swoole.ini
-        phpenmod -v 8.2 swoole
-    else
-        info "Swoole 扩展已安装，跳过"
-    fi
+# ============================================================
+# MySQL/MariaDB
+# ============================================================
+if [[ "$MYSQL_INSTALLED" != "true" ]]; then
+    info "安装 MySQL/MariaDB..."
+    case "$PKG_MANAGER" in
+        apt-get)   install_pkgs mysql-server ;;
+        dnf|yum)   install_pkgs mysql-server 2>/dev/null || install_pkgs mariadb-server ;;
+        apk)       install_pkgs mariadb ;;
+        zypper)    install_pkgs mariadb ;;
+        pacman)    install_pkgs mariadb ;;
+    esac
+else
+    info "MySQL 已安装，跳过"
+fi
 
-    # MySQL
-    if [[ "$MYSQL_INSTALLED" != "true" ]]; then
-        info "安装 MySQL..."
-        apt-get install -y mysql-server
-    else
-        info "MySQL 已安装，跳过"
-    fi
+# ============================================================
+# Redis
+# ============================================================
+if [[ "$REDIS_INSTALLED" != "true" ]]; then
+    info "安装 Redis..."
+    case "$PKG_MANAGER" in
+        apt-get)   install_pkgs redis-server ;;
+        dnf|yum)   install_pkgs redis ;;
+        apk)       install_pkgs redis ;;
+        zypper)    install_pkgs redis ;;
+        pacman)    install_pkgs redis ;;
+    esac
+else
+    info "Redis 已安装，跳过"
+fi
 
-    # Redis
-    if [[ "$REDIS_INSTALLED" != "true" ]]; then
-        info "安装 Redis..."
-        apt-get install -y redis-server
-    else
-        info "Redis 已安装，跳过"
-    fi
+# ============================================================
+# Nginx
+# ============================================================
+if [[ "$NGINX_INSTALLED" != "true" ]]; then
+    info "安装 Nginx..."
+    install_pkgs nginx
+else
+    info "Nginx 已安装，跳过"
+fi
 
-    # Nginx
-    if [[ "$NGINX_INSTALLED" != "true" ]]; then
-        info "安装 Nginx..."
-        apt-get install -y nginx
-    else
-        info "Nginx 已安装，跳过"
-    fi
+# ============================================================
+# Node.js
+# ============================================================
+if [[ "$NODE_INSTALLED" != "true" ]]; then
+    info "安装 Node.js 18.x LTS..."
+    case "$PKG_MANAGER" in
+        apt-get)
+            curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+            apt-get install -y nodejs
+            ;;
+        dnf|yum)
+            curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
+            "$PKG_MANAGER" install -y nodejs
+            ;;
+        apk)
+            install_pkgs nodejs npm
+            ;;
+        zypper)
+            install_pkgs nodejs18 npm18
+            ;;
+        pacman)
+            install_pkgs nodejs npm
+            ;;
+    esac
+else
+    info "Node.js 已安装，跳过"
+fi
 
-    # Node.js
-    if [[ "$NODE_INSTALLED" != "true" ]]; then
-        info "安装 Node.js 18.x LTS..."
-        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-        apt-get install -y nodejs
-    else
-        info "Node.js 已安装，跳过"
-    fi
-
-    # Composer
-    if [[ "$COMPOSER_INSTALLED" != "true" ]]; then
-        info "安装 Composer..."
-        curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
-    else
-        info "Composer 已安装，跳过"
-    fi
-
-elif [[ "$PKG_MANAGER" == "yum" ]]; then
-    # PHP
-    if [[ "$PHP_INSTALLED" != "true" ]]; then
-        yum install -y epel-release
-
-        # 检测系统主版本号（7/8/9）
-        OS_MAJOR_VER=""
-        if [[ -f /etc/os-release ]]; then
-            . /etc/os-release
-            OS_MAJOR_VER="${VERSION_ID%%.*}"
-        elif [[ -f /etc/redhat-release ]]; then
-            OS_MAJOR_VER=$(rpm -E %{rhel} 2>/dev/null || echo "")
-        fi
-        info "检测到系统主版本: ${OS_MAJOR_VER:-未知}"
-
-        REMI_RELEASE_RPM=""
-        case "$OS_MAJOR_VER" in
-            7) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-7.rpm" ;;
-            8) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-8.rpm" ;;
-            9) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-9.rpm" ;;
-            *) REMI_RELEASE_RPM="https://rpms.remirepo.net/enterprise/remi-release-8.rpm" ;;
-        esac
-
-        info "安装 Remi 源: ${REMI_RELEASE_RPM}"
-        yum install -y "$REMI_RELEASE_RPM" || warn "Remi 源安装失败，尝试使用本地已有的 PHP..."
-
-        if [[ "$OS_MAJOR_VER" == "7" ]]; then
-            info "CentOS 7: 通过 yum-config-manager 启用 remi-php82 仓库..."
-            yum install -y yum-utils
-            yum-config-manager --enable remi-php82 || warn "启用 remi-php82 仓库失败，将尝试使用默认 PHP 源"
-        else
-            info "CentOS ${OS_MAJOR_VER}: 通过 dnf module 启用 PHP 8.2..."
-            yum module reset -y php || true
-            yum module enable -y php:remi-8.2 || warn "启用 PHP 8.2 模块失败，将尝试使用默认 PHP 源"
-        fi
-
-        info "安装 PHP 及扩展..."
-        yum install -y \
-            php php-cli php-common \
-            php-mysqlnd php-curl \
-            php-mbstring php-xml php-zip \
-            php-bcmath php-gd php-intl \
-            php-pear php-devel openssl-devel || warn "部分 PHP 包安装失败，请检查 yum 源配置"
-
-        # Redis 扩展
-        yum install -y php-pecl-redis5 2>/dev/null || yum install -y php-redis 2>/dev/null || warn "Redis 扩展安装失败，可后续手动安装"
-    else
-        info "PHP 已安装，跳过"
-    fi
-
-    # Swoole
-    if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
-        info "正在编译安装 Swoole 扩展..."
-        yes '' | pecl install swoole
-        echo "extension=swoole.so" > /etc/php.d/50-swoole.ini
-    else
-        info "Swoole 扩展已安装，跳过"
-    fi
-
-    # MySQL
-    if [[ "$MYSQL_INSTALLED" != "true" ]]; then
-        info "安装 MySQL/MariaDB..."
-        yum install -y mysql-server redis nginx || yum install -y mariadb-server redis nginx
-    else
-        info "MySQL 已安装，跳过"
-    fi
-
-    # Redis
-    if [[ "$REDIS_INSTALLED" != "true" ]]; then
-        info "安装 Redis..."
-        yum install -y redis
-    else
-        info "Redis 已安装，跳过"
-    fi
-
-    # Nginx
-    if [[ "$NGINX_INSTALLED" != "true" ]]; then
-        info "安装 Nginx..."
-        yum install -y nginx
-    else
-        info "Nginx 已安装，跳过"
-    fi
-
-    # Node.js
-    if [[ "$NODE_INSTALLED" != "true" ]]; then
-        info "安装 Node.js 18.x LTS..."
-        curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
-        yum install -y nodejs
-    else
-        info "Node.js 已安装，跳过"
-    fi
-
-    # Composer
-    if [[ "$COMPOSER_INSTALLED" != "true" ]]; then
-        info "安装 Composer..."
-        curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
-    else
-        info "Composer 已安装，跳过"
-    fi
+# ============================================================
+# Composer（通用，与发行版无关）
+# ============================================================
+if [[ "$COMPOSER_INSTALLED" != "true" ]]; then
+    info "安装 Composer..."
+    curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+else
+    info "Composer 已安装，跳过"
 fi
 
 info "PHP 版本: $(php -v | head -n1)"
@@ -847,38 +1010,52 @@ if [[ -d "${SYSTEMD_SRC}" ]]; then
     for svc_file in "${SYSTEMD_SRC}"/*.service; do
         [[ -f "${svc_file}" ]] || continue
         info "安装 systemd 服务: $(basename "${svc_file}")"
-        cp "${svc_file}" "${SYSTEMD_DST}/$(basename "${svc_file}")"
+        # 动态替换 User=/Group= 为当前发行版的 Web 用户（默认 www-data）
+        sed "s/^User=www-data$/User=${WEB_USER}/g; s/^Group=www-data$/Group=${WEB_USER}/g" \
+            "${svc_file}" > "${SYSTEMD_DST}/$(basename "${svc_file}")"
     done
     systemctl daemon-reload
-    info "systemd 服务已安装。"
+    info "systemd 服务已安装（运行用户: ${WEB_USER}）。"
 fi
 
 # 复制 Nginx 配置
 NGINX_SRC="${PROJECT_DIR}/deploy/nginx/push.conf"
+NGINX_INSTALLED_PATH=""
 if [[ -f "${NGINX_SRC}" ]]; then
+    # 根据发行版选择 Nginx 配置目录
     if [[ -d "/etc/nginx/sites-available" ]]; then
         cp "${NGINX_SRC}" /etc/nginx/sites-available/push.conf
         ln -sf /etc/nginx/sites-available/push.conf /etc/nginx/sites-enabled/push.conf
-        # 移除默认站点（避免端口冲突）
         rm -f /etc/nginx/sites-enabled/default
+        NGINX_INSTALLED_PATH="/etc/nginx/sites-available/push.conf"
     elif [[ -d "/etc/nginx/conf.d" ]]; then
         cp "${NGINX_SRC}" /etc/nginx/conf.d/push.conf
+        NGINX_INSTALLED_PATH="/etc/nginx/conf.d/push.conf"
+    elif [[ -d "/etc/nginx/http.d" ]]; then
+        # Alpine Linux
+        cp "${NGINX_SRC}" /etc/nginx/http.d/push.conf
+        NGINX_INSTALLED_PATH="/etc/nginx/http.d/push.conf"
+    elif [[ -d "/etc/nginx/vhosts.d" ]]; then
+        # openSUSE
+        cp "${NGINX_SRC}" /etc/nginx/vhosts.d/push.conf
+        NGINX_INSTALLED_PATH="/etc/nginx/vhosts.d/push.conf"
     else
         cp "${NGINX_SRC}" /etc/nginx/push.conf
+        NGINX_INSTALLED_PATH="/etc/nginx/push.conf"
     fi
-    info "Nginx 配置已安装。"
+    info "Nginx 配置已安装到: ${NGINX_INSTALLED_PATH}"
     # 校验并重新加载
     if nginx -t; then
         systemctl reload nginx
         info "Nginx 已重新加载。"
     else
-        error "Nginx 配置校验失败，请检查 /etc/nginx/sites-available/push.conf"
+        error "Nginx 配置校验失败，请检查 ${NGINX_INSTALLED_PATH}"
         error "请根据实际域名修改 server_name 后重试。"
     fi
 fi
 
-# 设置项目目录权限（确保 www-data 可读写）
-chown -R www-data:www-data "${PROJECT_DIR}" 2>/dev/null || chown -R nginx:nginx "${PROJECT_DIR}"
+# 设置项目目录权限（使用检测到的 Web 用户）
+chown -R "${WEB_USER}:${WEB_USER}" "${PROJECT_DIR}" 2>/dev/null || chown -R www-data:www-data "${PROJECT_DIR}" 2>/dev/null || chown -R nginx:nginx "${PROJECT_DIR}" 2>/dev/null || true
 find "${PROJECT_DIR}" -type d -exec chmod 755 {} \;
 find "${PROJECT_DIR}" -type f -exec chmod 644 {} \;
 # 存储目录与缓存目录需要写权限
@@ -892,14 +1069,31 @@ info "目录权限已设置。"
 step "7/7" "启动服务"
 
 # 启动 PHP-FPM（用于 opcache 管理）
-if systemctl list-unit-files | grep -q 'php8.2-fpm'; then
-    systemctl restart php8.2-fpm
-    systemctl enable php8.2-fpm
-    info "php8.2-fpm 已启动。"
-elif systemctl list-unit-files | grep -q 'php-fpm'; then
-    systemctl restart php-fpm
-    systemctl enable php-fpm
-    info "php-fpm 已启动。"
+# 优先使用检测到的服务名，再尝试常见服务名
+PHP_FPM_STARTED=false
+for _svc in "${PHP_FPM_SERVICE}" php8.2-fpm php8.1-fpm php8.0-fpm php-fpm php-fpm82 php-fpm81 php-fpm80; do
+    [[ -z "$_svc" ]] && continue
+    if systemctl list-unit-files 2>/dev/null | grep -q "${_svc}"; then
+        systemctl restart "${_svc}" 2>/dev/null || true
+        systemctl enable "${_svc}" 2>/dev/null || true
+        info "${_svc} 已启动。"
+        PHP_FPM_STARTED=true
+        break
+    fi
+done
+if [[ "$PHP_FPM_STARTED" == "false" ]]; then
+    # Alpine: OpenRC 兼容
+    if command -v rc-service >/dev/null 2>&1 && rc-service php-fpm82 status >/dev/null 2>&1; then
+        rc-service php-fpm82 restart
+        rc-update add php-fpm82 default 2>/dev/null || true
+        info "php-fpm82 已启动（OpenRC）。"
+    elif command -v rc-service >/dev/null 2>&1 && rc-service php-fpm status >/dev/null 2>&1; then
+        rc-service php-fpm restart
+        rc-update add php-fpm default 2>/dev/null || true
+        info "php-fpm 已启动（OpenRC）。"
+    else
+        warn "未找到 PHP-FPM 服务，跳过（Swoole 独立运行，不影响核心功能）。"
+    fi
 fi
 
 # 启动推送服务
@@ -994,10 +1188,11 @@ if [[ "$INSTALL_SUDOERS" == "1" ]]; then
     step "10" "配置 sudoers 权限"
     SUDOERS_FILE="${PROJECT_DIR}/deploy/sudoers-push-system-ssl"
     if [ -f "${SUDOERS_FILE}" ]; then
-        cp "${SUDOERS_FILE}" /etc/sudoers.d/push-system
+        # 动态替换 www-data 为当前发行版的 Web 用户
+        sed "s/\bwww-data\b/${WEB_USER}/g" "${SUDOERS_FILE}" > /etc/sudoers.d/push-system
         chmod 440 /etc/sudoers.d/push-system
         if visudo -c >/dev/null 2>&1; then
-            info "sudoers 配置已安装"
+            info "sudoers 配置已安装（用户: ${WEB_USER}）"
         else
             warn "sudoers 语法检查失败，已移除配置"
             rm -f /etc/sudoers.d/push-system
@@ -1027,7 +1222,7 @@ if [[ "$INSTALL_SSL" == "1" ]]; then
 echo "SSL:        acme.sh + 自动续费 cron  [已安装]"
 fi
 if [[ "$INSTALL_SUDOERS" == "1" ]]; then
-echo "sudoers:    www-data 权限已配置  [已安装]"
+echo "sudoers:    ${WEB_USER} 权限已配置  [已安装]"
 fi
 echo ""
 echo "默认管理员账号: admin"

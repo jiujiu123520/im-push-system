@@ -7,12 +7,20 @@
 #   2. 调用 deploy/install.sh 交互式安装
 #   3. 安装全部环境（核心服务 + Android 打包 + SSL + sudoers）
 #
+# 支持的 Linux 发行版:
+#   - Ubuntu / Debian（apt-get + PPA/Sury）
+#   - CentOS / RHEL / Rocky / AlmaLinux / Fedora（dnf/yum + Remi）
+#   - Alpine Linux（apk）
+#   - openSUSE / SLES（zypper）
+#   - Arch / Manjaro（pacman）
+#   安装时自动检测系统类型并适配对应的环境
+#
 # 用法:
 #   方式1: 从 GitHub 直接部署（国内服务器推荐，使用 gh.jasonzeng.dev 代理）
-#     curl -sSL https://gh.jasonzeng.dev/https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh | bash
+#     curl -sSL https://gh.jasonzeng.dev/https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh | sudo bash
 #
 #   方式2: 直接从 GitHub 部署（需能直连 GitHub）
-#     curl -sSL https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh | bash
+#     curl -sSL https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh | sudo bash
 #
 #   方式3: 本地执行（已有代码）
 #     sudo bash deploy/deploy.sh
@@ -22,6 +30,9 @@
 #
 #   方式5: 跳过可选组件（仅安装核心服务）
 #     sudo INSTALL_ANDROID=0 INSTALL_SSL=0 bash deploy/deploy.sh
+#
+#   注意: 复制粘贴命令时，URL 前后不要包含任何符号（如反引号 ` 或引号），
+#         直接复制整条 curl 命令即可。
 #
 # 环境变量:
 #   PROJECT_DIR     - 项目目录（默认 /www/push-system）
@@ -48,6 +59,32 @@ COLOR_RESET='\033[0m'
 info()  { echo -e "${COLOR_GREEN}[INFO]${COLOR_RESET} $*"; }
 warn()  { echo -e "${COLOR_YELLOW}[WARN]${COLOR_RESET} $*"; }
 error() { echo -e "${COLOR_RED}[ERROR]${COLOR_RESET} $*" >&2; }
+
+# ------------------------------------------------------------
+# 安装 git（支持所有主流 Linux 发行版）
+# ------------------------------------------------------------
+install_git() {
+    if command -v git >/dev/null 2>&1; then
+        return 0
+    fi
+    info "安装 git..."
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -qq && apt-get install -y -qq git
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y -q git
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y -q git
+    elif command -v apk >/dev/null 2>&1; then
+        apk add --no-cache git
+    elif command -v zypper >/dev/null 2>&1; then
+        zypper install -y git
+    elif command -v pacman >/dev/null 2>&1; then
+        pacman -S --noconfirm git
+    else
+        error "无法安装 git：未识别的包管理器，请手动安装 git 后重试。"
+        exit 1
+    fi
+}
 
 # 默认配置
 PROJECT_DIR="${PROJECT_DIR:-/www/push-system}"
@@ -112,15 +149,8 @@ echo ""
 if [ ! -f "${PROJECT_DIR}/deploy/install.sh" ]; then
     info "本地无代码，开始从 GitHub 克隆..."
 
-    # 安装 git
-    if ! command -v git >/dev/null 2>&1; then
-        info "安装 git..."
-        if command -v apt-get >/dev/null 2>&1; then
-            apt-get update -qq && apt-get install -y -qq git
-        elif command -v yum >/dev/null 2>&1; then
-            yum install -y -q git
-        fi
-    fi
+    # 安装 git（支持所有发行版）
+    install_git
 
     mkdir -p "$(dirname "${PROJECT_DIR}")"
 
@@ -142,15 +172,8 @@ if [ ! -f "${PROJECT_DIR}/deploy/install.sh" ]; then
 else
     info "本地已有代码，检测云端最新版本..."
 
-    # 确保 git 已安装
-    if ! command -v git >/dev/null 2>&1; then
-        info "安装 git..."
-        if command -v apt-get >/dev/null 2>&1; then
-            apt-get update -qq && apt-get install -y -qq git
-        elif command -v yum >/dev/null 2>&1; then
-            yum install -y -q git
-        fi
-    fi
+    # 确保 git 已安装（支持所有发行版）
+    install_git
 
     # 检测是否 git 仓库
     if [ -d "${PROJECT_DIR}/.git" ]; then
