@@ -167,7 +167,15 @@ if [ ! -f "${PROJECT_DIR}/deploy/install.sh" ]; then
     fi
 
     info "克隆代码: ${CLONE_URL}"
-    git clone --depth 1 "${CLONE_URL}" "${PROJECT_DIR}"
+    # 设置 git 超时参数，防止网络问题导致无限卡住
+    git config --global http.lowSpeedLimit 1000 2>/dev/null || true
+    git config --global http.lowSpeedTime 60 2>/dev/null || true
+    # 使用 timeout 命令兜底，最多等待 5 分钟
+    if ! timeout 300 git clone --depth 1 "${CLONE_URL}" "${PROJECT_DIR}"; then
+        error "代码克隆失败或超时（可能是网络问题）"
+        error "请检查网络连通性，或手动执行: git clone ${CLONE_URL} ${PROJECT_DIR}"
+        exit 1
+    fi
     info "代码克隆完成"
 else
     info "本地已有代码，检测云端最新版本..."
@@ -185,15 +193,18 @@ else
         info "  本地版本: ${LOCAL_SHORT}"
 
         # 尝试获取云端最新 commit（不修改本地代码）
+        # 优先使用代理，失败再尝试直连，并记录成功的 URL 供后续 fetch 使用
         REMOTE_COMMIT=""
         REMOTE_SHORT=""
+        WORKING_URL=""
         for URL in \
             "https://gh.jasonzeng.dev/https://github.com/jiujiu123520/im-push-system.git" \
             "https://github.com/jiujiu123520/im-push-system.git"; do
-            REMOTE_COMMIT=$(git ls-remote "${URL}" refs/heads/main 2>/dev/null | awk '{print $1}')
+            REMOTE_COMMIT=$(timeout 30 git ls-remote "${URL}" refs/heads/main 2>/dev/null | awk '{print $1}')
             if [[ -n "$REMOTE_COMMIT" ]]; then
                 REMOTE_SHORT=$(echo "$REMOTE_COMMIT" | cut -c1-7)
                 info "  云端版本: ${REMOTE_SHORT}"
+                WORKING_URL="${URL}"
                 break
             fi
         done
@@ -232,15 +243,23 @@ else
                         git remote add origin "${REPO_URL}"
                     fi
 
-                    # 选择 URL（国内服务器使用代理）
-                    FETCH_URL="${REPO_URL}"
-                    if [[ "${GH_PROXY}" == "1" ]]; then
-                        FETCH_URL="${GH_PROXY_URL}"
-                    fi
+                    # 选择 fetch URL：优先复用 ls-remote 成功的 URL，否则 fallback 到代理
+                    FETCH_URL="${WORKING_URL:-${GH_PROXY_URL}}"
                     git remote set-url origin "${FETCH_URL}"
+                    info "  使用: ${FETCH_URL}"
+
+                    # 设置 git 超时参数，防止网络问题导致无限卡住
+                    # 连接超时 30 秒，低速超时 60 秒（60秒内速度低于1000字节则中断）
+                    git config --local http.lowSpeedLimit 1000 2>/dev/null || true
+                    git config --local http.lowSpeedTime 60 2>/dev/null || true
 
                     # 拉取最新代码（保留本地 .env 等修改）
-                    git fetch origin main
+                    # 使用 timeout 命令兜底，最多等待 5 分钟
+                    if ! timeout 300 git fetch origin main; then
+                        error "拉取代码超时或失败（可能是网络问题）"
+                        error "请检查网络连通性，或手动执行: cd ${PROJECT_DIR} && git fetch ${FETCH_URL} main"
+                        exit 1
+                    fi
                     git merge origin/main --no-edit || {
                         warn "自动合并失败，可能有本地修改冲突"
                         read -p "是否强制使用云端版本？[y/N] " -r force_reply < /dev/tty
