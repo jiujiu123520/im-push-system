@@ -751,33 +751,45 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
     # 最小化系统可能没有 gcc/make/autoconf，需一并安装
     case "$PKG_MANAGER" in
         apt-get)
-            install_pkgs build-essential git libbrotli-dev libssl-dev zlib1g-dev libcurl4-openssl-dev 2>/dev/null || warn "部分编译依赖安装失败"
+            install_pkgs build-essential git libbrotli-dev libssl-dev zlib1g-dev libcurl4-openssl-dev libc-ares-dev 2>/dev/null || warn "部分编译依赖安装失败"
             ;;
         dnf|yum)
-            install_pkgs gcc gcc-c++ make autoconf git brotli-devel openssl-devel zlib-devel libcurl-devel 2>/dev/null || warn "部分编译依赖安装失败"
-            # CentOS 7 特殊处理：gcc 4.8.5 不支持 C++11，需 devtoolset-11
-            # OpenSSL 1.0.2 不满足 Swoole 5.x 要求，需 openssl11-devel
+            install_pkgs gcc gcc-c++ make autoconf git brotli-devel openssl-devel zlib-devel libcurl-devel c-ares-devel 2>/dev/null || warn "部分编译依赖安装失败"
+            # CentOS 7 特殊处理：gcc 4.8.5 不支持 C++11，需 devtoolset
+            # centos-release-scl 源也可能失效，需要修复
             if [[ "$OS_ID" == "centos" && "$OS_MAJOR_VER" == "7" ]]; then
-                info "CentOS 7: 安装 devtoolset-11（gcc 4.8.5 不支持 C++11）..."
+                info "CentOS 7: 安装 devtoolset（gcc 4.8.5 不支持 C++11）..."
+                # 安装 SCL 源（CentOS 7 SCL 也已 EOL，需修复源）
                 yum install -y centos-release-scl 2>/dev/null || true
+                # 修复 SCL 源为阿里云镜像
+                if [[ -f /etc/yum.repos.d/CentOS-SCLo-scl.repo ]]; then
+                    sed -i 's|^mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/CentOS-SCLo-scl.repo
+                    sed -i 's|^# baseurl=http://mirror.centos.org|baseurl=https://mirrors.aliyun.com|g' /etc/yum.repos.d/CentOS-SCLo-scl.repo
+                    sed -i 's|/centos/|/centos-vault/|g' /etc/yum.repos.d/CentOS-SCLo-scl.repo 2>/dev/null || true
+                fi
+                if [[ -f /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo ]]; then
+                    sed -i 's|^mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
+                    sed -i 's|^# baseurl=http://mirror.centos.org|baseurl=https://mirrors.aliyun.com|g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
+                    sed -i 's|/centos/|/centos-vault/|g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo 2>/dev/null || true
+                fi
+                # 安装 devtoolset（11 优先，fallback 9/7）
                 yum install -y devtoolset-11 2>/dev/null || yum install -y devtoolset-9 2>/dev/null || yum install -y devtoolset-7 2>/dev/null || warn "devtoolset 安装失败，Swoole 编译可能失败"
                 # 安装 OpenSSL 1.1 开发包（EPEL 提供 openssl11-devel）
                 yum install -y openssl11-devel 2>/dev/null || warn "openssl11-devel 安装失败，将使用系统默认 OpenSSL 1.0.2"
             fi
             ;;
         apk)
-            install_pkgs build-base git brotli-dev openssl-dev zlib-dev curl-dev 2>/dev/null || warn "部分编译依赖安装失败"
+            install_pkgs build-base git brotli-dev openssl-dev zlib-dev curl-dev c-ares-dev 2>/dev/null || warn "部分编译依赖安装失败"
             ;;
         zypper)
-            install_pkgs gcc gcc-c++ make autoconf git libbrotli-devel libopenssl-devel zlib-devel libcurl-devel 2>/dev/null || warn "部分编译依赖安装失败"
+            install_pkgs gcc gcc-c++ make autoconf git libbrotli-devel libopenssl-devel zlib-devel libcurl-devel libcares-devel 2>/dev/null || warn "部分编译依赖安装失败"
             ;;
         pacman)
-            install_pkgs base-devel git brotli zlib openssl curl 2>/dev/null || warn "部分编译依赖安装失败"
+            install_pkgs base-devel git brotli zlib openssl curl c-ares 2>/dev/null || warn "部分编译依赖安装失败"
             ;;
     esac
 
     # CentOS 7: 启用 devtoolset（提供 gcc 11，替代系统默认 gcc 4.8.5）
-    SWOOLE_BUILD_ENV=""
     if [[ "$OS_ID" == "centos" && "$OS_MAJOR_VER" == "7" ]]; then
         if [[ -f /opt/rh/devtoolset-11/enable ]]; then
             source /opt/rh/devtoolset-11/enable
@@ -788,6 +800,21 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
         elif [[ -f /opt/rh/devtoolset-7/enable ]]; then
             source /opt/rh/devtoolset-7/enable
             info "已启用 devtoolset-7: $(gcc --version | head -n1)"
+        fi
+    fi
+
+    # 检测系统 libcurl 版本（Swoole swoole-curl 需要 >= 7.56.0）
+    # CentOS 7 默认 libcurl 7.29.0 太旧，需要禁用 swoole-curl
+    LIBCURL_VER=$(curl-config --version 2>/dev/null | awk '{print $2}' || echo "0")
+    LIBCURL_MAJOR=$(echo "$LIBCURL_VER" | cut -d. -f1)
+    LIBCURL_MINOR=$(echo "$LIBCURL_VER" | cut -d. -f2)
+    SWOOLE_CURL_OPT="yes"
+    if [[ -n "$LIBCURL_MAJOR" && -n "$LIBCURL_MINOR" ]]; then
+        if [[ "$LIBCURL_MAJOR" -lt 7 || ("$LIBCURL_MAJOR" == "7" && "$LIBCURL_MINOR" -lt 56) ]]; then
+            SWOOLE_CURL_OPT="no"
+            warn "系统 libcurl ${LIBCURL_VER} < 7.56.0，禁用 swoole-curl（不影响 WebSocket/HTTP 核心功能）"
+        else
+            info "系统 libcurl ${LIBCURL_VER} >= 7.56.0，启用 swoole-curl"
         fi
     fi
 
@@ -803,33 +830,65 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
     if [[ -d "$SWOOLE_SRC" ]]; then
         cd "$SWOOLE_SRC"
         phpize
-        # 启用 openssl、swoole-curl、brotli（核心功能依赖）
-        # CentOS 7 如已安装 openssl11-devel，pkg-config 会自动找到 OpenSSL 1.1
-        if ./configure --enable-openssl=yes --enable-swoole-curl=yes --enable-brotli=yes --enable-mysqlnd=yes; then
+
+        # 构造 configure 参数
+        # 注意：Swoole 6.x 的 openssl 选项是 --with-openssl-dir，不是 --enable-openssl
+        # cares/brotli/curl 根据系统环境动态决定
+        SWOOLE_CONFIGURE_OPTS="--enable-sockets=yes --enable-mysqlnd=yes --enable-swoole-curl=${SWOOLE_CURL_OPT} --enable-cares=no"
+
+        # 尝试 1：启用 brotli + openssl（完整功能）
+        info "尝试编译 Swoole（启用 openssl + brotli）..."
+        if ./configure $SWOOLE_CONFIGURE_OPTS --enable-brotli=yes; then
             if make -j"$(nproc)" && make install; then
                 SWOOLE_BUILD_SUCCESS=true
                 info "Swoole 源码编译安装成功"
-            else
-                warn "Swoole 源码编译失败，尝试禁用 brotli..."
-                make clean 2>/dev/null || true
-                if ./configure --enable-openssl=yes --enable-swoole-curl=yes --enable-brotli=no --enable-mysqlnd=yes; then
-                    if make -j"$(nproc)" && make install; then
-                        SWOOLE_BUILD_SUCCESS=true
-                        info "Swoole 源码编译安装成功（禁用 brotli）"
-                    fi
+            fi
+        fi
+
+        # 尝试 2：禁用 brotli（减少依赖）
+        if [[ "$SWOOLE_BUILD_SUCCESS" != "true" ]]; then
+            warn "完整编译失败，尝试禁用 brotli..."
+            make clean 2>/dev/null || true
+            phpize --clean 2>/dev/null || true
+            phpize
+            if ./configure $SWOOLE_CONFIGURE_OPTS --enable-brotli=no; then
+                if make -j"$(nproc)" && make install; then
+                    SWOOLE_BUILD_SUCCESS=true
+                    info "Swoole 源码编译安装成功（禁用 brotli）"
                 fi
             fi
         fi
+
+        # 尝试 3：最小化编译（禁用所有可选功能，只保留核心 WebSocket/HTTP）
+        if [[ "$SWOOLE_BUILD_SUCCESS" != "true" ]]; then
+            warn "禁用 brotli 也失败，尝试最小化编译..."
+            make clean 2>/dev/null || true
+            phpize --clean 2>/dev/null || true
+            phpize
+            if ./configure --enable-sockets=no --enable-mysqlnd=yes --enable-swoole-curl=no --enable-cares=no --enable-brotli=no; then
+                if make -j"$(nproc)" && make install; then
+                    SWOOLE_BUILD_SUCCESS=true
+                    info "Swoole 源码编译安装成功（最小化模式，核心 WebSocket/HTTP 功能正常）"
+                fi
+            fi
+        fi
+
         cd "${PROJECT_DIR}"
     fi
 
-    # 如果源码编译失败，尝试 pecl 安装
+    # 如果源码编译失败，尝试 pecl 安装（预答参数禁用 cares/brotli）
     if [[ "$SWOOLE_BUILD_SUCCESS" != "true" ]]; then
-        warn "源码编译失败，尝试 pecl 安装 Swoole..."
-        # 预答参数：openssl=yes, http2=yes, curl=yes, brotli=yes, ...
-        printf "yes\nno\nyes\nno\nyes\nyes\nno\n" | pecl install swoole || {
-            warn "pecl 安装 Swoole 也失败，尝试禁用 brotli..."
-            printf "yes\nno\nyes\nno\nyes\nno\nno\n" | pecl install swoole || true
+        warn "源码编译失败，尝试 pecl 安装 Swoole（禁用 cares/brotli）..."
+        # pecl 预答参数顺序（Swoole 6.x）：
+        # 1. enable sockets? [no] -> yes
+        # 2. openssl dir? [no] -> no
+        # 3. enable mysqlnd? [no] -> yes
+        # 4. enable curl? [no] -> ${SWOOLE_CURL_OPT}
+        # 5. enable cares? [no] -> no (避免 libcares 依赖)
+        # 6. enable brotli? [yes] -> no (避免 libbrotli 依赖)
+        # 7. brotli dir? [no] -> no
+        printf "yes\nno\nyes\n${SWOOLE_CURL_OPT}\nno\nno\nno\n" | pecl install swoole || {
+            warn "pecl 安装 Swoole 也失败"
         }
     fi
 
