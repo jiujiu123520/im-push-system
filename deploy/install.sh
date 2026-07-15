@@ -930,23 +930,49 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
         }
     fi
 
+    # 确保创建 swoole.ini 配置文件（make install 不会自动创建）
+    # 即使编译成功，如果没有 ini 文件，php -m 也检测不到 swoole 扩展
+    if ! php -m 2>/dev/null | grep -q '^swoole$'; then
+        info "Swoole 编译成功但未加载，创建 swoole.ini 配置文件..."
+        mkdir -p "$PHP_CONF_DIR" 2>/dev/null || true
+
+        # 查找 swoole.so 的实际路径
+        SWOOLE_SO_PATH=""
+        # PHP 扩展目录（通过 php-config 获取）
+        PHP_EXT_DIR=$(php-config --extension-dir 2>/dev/null || echo "")
+        if [[ -n "$PHP_EXT_DIR" && -f "${PHP_EXT_DIR}/swoole.so" ]]; then
+            SWOOLE_SO_PATH="${PHP_EXT_DIR}/swoole.so"
+        fi
+
+        # 创建 ini 配置文件
+        SWOOLE_INI="${PHP_CONF_DIR}/50-swoole.ini"
+        if [[ -n "$SWOOLE_SO_PATH" ]]; then
+            echo "extension=${SWOOLE_SO_PATH}" > "$SWOOLE_INI"
+        else
+            echo "extension=swoole.so" > "$SWOOLE_INI"
+        fi
+        info "  已创建: ${SWOOLE_INI}"
+
+        # Debian/Ubuntu 额外需要 phpenmod 启用
+        if command -v phpenmod >/dev/null 2>&1; then
+            SWOOLE_PHP_VER="${PHP_ACTUAL_VER:-8.2}"
+            phpenmod -v "${SWOOLE_PHP_VER}" swoole 2>/dev/null || true
+            info "  已执行 phpenmod"
+        fi
+    fi
+
     # 验证 Swoole 是否安装成功
     if ! php -m 2>/dev/null | grep -q '^swoole$'; then
-        error "Swoole 扩展安装失败！核心服务无法启动。"
-        error "请检查编译错误日志，或尝试手动安装：pecl install swoole"
+        error "Swoole 扩展加载失败！核心服务无法启动。"
+        error "  Swoole 编译可能成功，但 ini 配置文件未生效。"
+        error "  请手动检查:"
+        error "    1. php-config --extension-dir 查看扩展目录"
+        error "    2. ls \$(php-config --extension-dir)/swoole.so 确认 .so 文件存在"
+        error "    3. 在 PHP 配置目录创建 50-swoole.ini: extension=swoole.so"
+        error "    4. php -m | grep swoole 验证扩展是否加载"
         exit 1
     fi
     info "Swoole 扩展已加载: $(php -m | grep swoole)"
-
-    # 写入 PHP 扩展配置目录（适配各发行版）
-    mkdir -p "$PHP_CONF_DIR"
-    echo "extension=swoole.so" > "${PHP_CONF_DIR}/50-swoole.ini"
-    # Debian/Ubuntu 额外需要 phpenmod 启用（如果命令存在）
-    # 使用实际检测到的 PHP 版本号，避免硬编码 8.2
-    if command -v phpenmod >/dev/null 2>&1; then
-        SWOOLE_PHP_VER="${PHP_ACTUAL_VER:-8.2}"
-        phpenmod -v "${SWOOLE_PHP_VER}" swoole 2>/dev/null || true
-    fi
 else
     info "Swoole 扩展已安装，跳过"
 fi
