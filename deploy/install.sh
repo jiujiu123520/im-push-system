@@ -181,28 +181,53 @@ info "项目目录: ${PROJECT_DIR}"
 # ============================================================
 # 国内镜像源配置（所有发行版）
 # 大陆服务器必须使用国内镜像，否则下载极慢或超时
+# 注意：函数内所有命令必须返回 0，否则 set -e 会中断脚本
 # ============================================================
 configure_domestic_mirrors() {
     case "$OS_ID" in
         ubuntu)
             info "配置 Ubuntu 阿里云镜像源..."
+            # 传统格式：/etc/apt/sources.list
             if [[ -f /etc/apt/sources.list ]]; then
-                sed -i 's|archive.ubuntu.com|mirrors.aliyun.com|g; s|security.ubuntu.com|mirrors.aliyun.com|g' /etc/apt/sources.list
+                sed -i 's|archive.ubuntu.com|mirrors.aliyun.com|g; s|security.ubuntu.com|mirrors.aliyun.com|g' /etc/apt/sources.list || true
+                info "  已替换 /etc/apt/sources.list"
             fi
-            # Ubuntu 22.04+ 使用 sources.list.d 而非 sources.list
+            # Ubuntu 22.04+ 可能使用 sources.list.d/*.list
             if [[ -d /etc/apt/sources.list.d ]]; then
                 for f in /etc/apt/sources.list.d/*.list; do
-                    [[ -f "$f" ]] && sed -i 's|archive.ubuntu.com|mirrors.aliyun.com|g; s|security.ubuntu.com|mirrors.aliyun.com|g' "$f"
+                    [[ -f "$f" ]] || continue
+                    sed -i 's|archive.ubuntu.com|mirrors.aliyun.com|g; s|security.ubuntu.com|mirrors.aliyun.com|g' "$f" || true
+                done
+                # Ubuntu 24.04+ 使用 DEB822 格式 ubuntu.sources
+                for f in /etc/apt/sources.list.d/*.sources; do
+                    [[ -f "$f" ]] || continue
+                    sed -i 's|archive.ubuntu.com|mirrors.aliyun.com|g; s|security.ubuntu.com|mirrors.aliyun.com|g' "$f" || true
                 done
             fi
+            # 更新 apt 索引
+            apt-get update -y || true
+            info "  Ubuntu 阿里云镜像源配置完成"
             ;;
         debian)
             info "配置 Debian 阿里云镜像源..."
             if [[ -f /etc/apt/sources.list ]]; then
-                sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list
+                sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list || true
             fi
+            if [[ -d /etc/apt/sources.list.d ]]; then
+                for f in /etc/apt/sources.list.d/*.list; do
+                    [[ -f "$f" ]] || continue
+                    sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' "$f" || true
+                done
+                for f in /etc/apt/sources.list.d/*.sources; do
+                    [[ -f "$f" ]] || continue
+                    sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' "$f" || true
+                done
+            fi
+            apt-get update -y || true
+            info "  Debian 阿里云镜像源配置完成"
             ;;
     esac
+    return 0
 }
 
 # ============================================================
