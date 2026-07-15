@@ -146,13 +146,17 @@ if [ -d "$PROJECT_DIR/.git" ]; then
     git -C "$PROJECT_DIR" checkout -- app/ 2>/dev/null || true
 fi
 # 清理 build.gradle.kts 中之前注入的 apply 行（防止 git checkout 无效时残留）
+# 注意：不用 ^ 锚定，兼容行首空格/制表符；同时清理 Kotlin DSL 和 Groovy 两种语法
 if [ -f "$APP_DIR/build.gradle.kts" ]; then
-    sed -i '/^apply(from = "inject.gradle")/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
-    sed -i '/^apply(from = "signing.gradle")/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
-    sed -i '/^apply from: "inject.gradle"/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
-    sed -i '/^apply from: "signing.gradle"/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+    sed -i '/apply(from = "inject.gradle")/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+    sed -i '/apply(from = "signing.gradle")/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+    sed -i '/apply from: "inject.gradle"/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+    sed -i '/apply from: "signing.gradle"/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
     sed -i '/自动注入打包配置/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
     sed -i '/自动注入签名配置/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+    sed -i '/自动生成.*debug 签名兜底/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+    # 清理尾部空行（防止多次注入后留下大量空行）
+    sed -i -e :a -e '/^\n*$/{$d;N;};/\n$/ba' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
 fi
 # 删除注入产生的临时文件
 rm -f "$APP_DIR/inject.gradle" "$APP_DIR/signing.gradle" 2>/dev/null || true
@@ -231,12 +235,12 @@ android {
 EOF
         # 在 build.gradle.kts 追加 apply（Kotlin DSL 语法，幂等）
         APPLY_LINE='apply(from = "signing.gradle")'
-        # 先移除旧的 Groovy 语法行（兼容历史残留）
-        sed -i '/^apply from: "signing.gradle"/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+        # 先彻底清理旧的注入行（两种语法、注释行都清理，不用 ^ 锚定）
+        sed -i '/apply from: "signing.gradle"/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+        sed -i '/apply(from = "signing.gradle")/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
         sed -i '/自动注入签名配置/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
-        if ! grep -qF "$APPLY_LINE" "$APP_DIR/build.gradle.kts"; then
-            printf '\n// 自动注入签名配置（由 build_apk.sh 维护）\n%s\n' "$APPLY_LINE" >> "$APP_DIR/build.gradle.kts"
-        fi
+        sed -i '/自动生成.*debug 签名兜底/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+        printf '\n// 自动注入签名配置（由 build_apk.sh 维护）\n%s\n' "$APPLY_LINE" >> "$APP_DIR/build.gradle.kts"
         use_release_signing="true"
         info "release 签名已配置"
     fi
@@ -264,17 +268,29 @@ android {
 }
 EOF
         APPLY_LINE='apply(from = "signing.gradle")'
-        # 先移除旧的 Groovy 语法行（兼容历史残留）
-        sed -i '/^apply from: "signing.gradle"/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+        # 先彻底清理旧的注入行（两种语法、注释行都清理，不用 ^ 锚定）
+        sed -i '/apply from: "signing.gradle"/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+        sed -i '/apply(from = "signing.gradle")/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
         sed -i '/自动注入签名配置/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
-        if ! grep -qF "$APPLY_LINE" "$APP_DIR/build.gradle.kts"; then
-            printf '\n// 自动注入签名配置（由 build_apk.sh 维护）\n%s\n' "$APPLY_LINE" >> "$APP_DIR/build.gradle.kts"
-        fi
+        sed -i '/自动生成.*debug 签名兜底/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+        printf '\n// 自动注入签名配置（由 build_apk.sh 维护）\n%s\n' "$APPLY_LINE" >> "$APP_DIR/build.gradle.kts"
     fi
 fi
 
 info "执行 $GRADLEW $GRADLE_TASK ..."
 log "执行命令：$GRADLEW $GRADLE_TASK --no-daemon --max-workers=1 -Dorg.gradle.parallel=false"
+
+# 构建前验证：确保 build.gradle.kts 中没有 Groovy 语法残留，且注入正确
+if [ -f "$APP_DIR/build.gradle.kts" ]; then
+    if grep -q 'apply from:' "$APP_DIR/build.gradle.kts"; then
+        warn "警告：build.gradle.kts 中仍包含 Groovy 语法的 apply from:，尝试再次清理..."
+        sed -i '/apply from: "inject.gradle"/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+        sed -i '/apply from: "signing.gradle"/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+    fi
+    # 输出文件末尾10行到日志，便于调试
+    log "build.gradle.kts 末尾10行："
+    tail -n 10 "$APP_DIR/build.gradle.kts" | tee -a "$LOG_FILE"
+fi
 # 关闭 ERR trap 仅在 gradle 调用期间判断退出码
 set +e
 # --no-daemon: 禁用 daemon，构建后释放内存

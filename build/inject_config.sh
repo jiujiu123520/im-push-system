@@ -112,20 +112,23 @@ android {
 }
 EOF
 
-# 在 build.gradle.kts 末尾追加 apply from（Kotlin DSL 语法，幂等）
+# 在 build.gradle.kts 末尾追加 apply from（Kotlin DSL 语法）
 APPLY_LINE='apply(from = "inject.gradle")'
-APPLY_LINE_GROOVY='apply from: "inject.gradle"'
 BUILD_GRADLE="$APP_DIR/build.gradle.kts"
 if [ -f "$BUILD_GRADLE" ]; then
-    # 先移除旧的 Groovy 语法行（兼容历史残留）
-    sed -i "/^apply from: \"inject.gradle\"/d" "$BUILD_GRADLE" 2>/dev/null || true
-    sed -i "/自动注入打包配置/d" "$BUILD_GRADLE" 2>/dev/null || true
-    if ! grep -qF "$APPLY_LINE" "$BUILD_GRADLE"; then
-        info "在 build.gradle.kts 追加 apply inject.gradle ..."
-        printf '\n// 自动注入打包配置（由 build/inject_config.sh 维护）\n%s\n' "$APPLY_LINE" >> "$BUILD_GRADLE"
-    else
-        info "build.gradle.kts 已包含 apply inject.gradle，跳过"
-    fi
+    # 先彻底清理所有旧的注入行（两种语法、注释行都清理，不用 ^ 锚定）
+    sed -i '/apply from: "inject.gradle"/d' "$BUILD_GRADLE" 2>/dev/null || true
+    sed -i '/apply(from = "inject.gradle")/d' "$BUILD_GRADLE" 2>/dev/null || true
+    sed -i '/apply from: "signing.gradle"/d' "$BUILD_GRADLE" 2>/dev/null || true
+    sed -i '/apply(from = "signing.gradle")/d' "$BUILD_GRADLE" 2>/dev/null || true
+    sed -i '/自动注入打包配置/d' "$BUILD_GRADLE" 2>/dev/null || true
+    sed -i '/自动注入签名配置/d' "$BUILD_GRADLE" 2>/dev/null || true
+    sed -i '/自动生成.*debug 签名兜底/d' "$BUILD_GRADLE" 2>/dev/null || true
+    # 清理尾部空行
+    sed -i -e :a -e '/^\n*$/{$d;N;};/\n$/ba' "$BUILD_GRADLE" 2>/dev/null || true
+    # 追加 Kotlin DSL 语法的 apply
+    info "在 build.gradle.kts 追加 apply inject.gradle ..."
+    printf '\n// 自动注入打包配置（由 build/inject_config.sh 维护）\n%s\n' "$APPLY_LINE" >> "$BUILD_GRADLE"
 else
     warn "未找到 $BUILD_GRADLE，跳过 apply 注入"
 fi
