@@ -1,6 +1,6 @@
 [Unit]
 Description=IM Push System - HTTP API 服务
-Documentation=即时消息推送系统 HTTP API（基于 PHP + Swoole）
+Documentation=https://github.com/jiujiu123520/im-push-system
 After=network.target mysql.service redis-server.service
 Wants=mysql.service redis-server.service
 # 启动失败重试上限（systemd 219 用 StartLimitInterval，230+ 用 StartLimitIntervalSec）

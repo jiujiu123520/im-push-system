@@ -1,6 +1,6 @@
 [Unit]
 Description=IM Push System - WebSocket 推送服务
-Documentation=即时消息推送系统 WebSocket 服务（基于 PHP + Swoole）
+Documentation=https://github.com/jiujiu123520/im-push-system
 After=network.target mysql.service redis-server.service
 Wants=mysql.service redis-server.service
 # WebSocket 服务在 HTTP API 之后启动（共享数据库/Redis）
