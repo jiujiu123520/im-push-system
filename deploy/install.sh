@@ -934,30 +934,50 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
     # 即使编译成功，如果没有 ini 文件，php -m 也检测不到 swoole 扩展
     if ! php -m 2>/dev/null | grep -q '^swoole$'; then
         info "Swoole 编译成功但未加载，创建 swoole.ini 配置文件..."
-        mkdir -p "$PHP_CONF_DIR" 2>/dev/null || true
 
         # 查找 swoole.so 的实际路径
         SWOOLE_SO_PATH=""
-        # PHP 扩展目录（通过 php-config 获取）
         PHP_EXT_DIR=$(php-config --extension-dir 2>/dev/null || echo "")
         if [[ -n "$PHP_EXT_DIR" && -f "${PHP_EXT_DIR}/swoole.so" ]]; then
             SWOOLE_SO_PATH="${PHP_EXT_DIR}/swoole.so"
-        fi
-
-        # 创建 ini 配置文件
-        SWOOLE_INI="${PHP_CONF_DIR}/50-swoole.ini"
-        if [[ -n "$SWOOLE_SO_PATH" ]]; then
-            echo "extension=${SWOOLE_SO_PATH}" > "$SWOOLE_INI"
+            info "  找到 swoole.so: ${SWOOLE_SO_PATH}"
         else
-            echo "extension=swoole.so" > "$SWOOLE_INI"
+            warn "  未找到 swoole.so，使用相对路径 extension=swoole.so"
         fi
-        info "  已创建: ${SWOOLE_INI}"
 
-        # Debian/Ubuntu 额外需要 phpenmod 启用
+        # 构造 extension 配置行
+        if [[ -n "$SWOOLE_SO_PATH" ]]; then
+            SWOOLE_EXT_LINE="extension=${SWOOLE_SO_PATH}"
+        else
+            SWOOLE_EXT_LINE="extension=swoole.so"
+        fi
+
+        # Debian/Ubuntu: 创建 mods-available + phpenmod 创建软链
+        # CentOS/Alpine/openSUSE: 直接创建到 conf.d
         if command -v phpenmod >/dev/null 2>&1; then
+            # Debian/Ubuntu 模式
             SWOOLE_PHP_VER="${PHP_ACTUAL_VER:-8.2}"
+            MODS_DIR="/etc/php/${SWOOLE_PHP_VER}/mods-available"
+            mkdir -p "$MODS_DIR" 2>/dev/null || true
+            echo "$SWOOLE_EXT_LINE" > "${MODS_DIR}/swoole.ini"
+            info "  已创建: ${MODS_DIR}/swoole.ini"
+            # 为 SAPI（cli/fpm）创建软链
             phpenmod -v "${SWOOLE_PHP_VER}" swoole 2>/dev/null || true
-            info "  已执行 phpenmod"
+            # 验证软链是否创建成功，如果失败则手动创建
+            for SAPI in cli fpm; do
+                CONF_D="/etc/php/${SWOOLE_PHP_VER}/${SAPI}/conf.d"
+                mkdir -p "$CONF_D" 2>/dev/null || true
+                if [[ ! -f "${CONF_D}/20-swoole.ini" && ! -f "${CONF_D}/50-swoole.ini" ]]; then
+                    ln -sf "${MODS_DIR}/swoole.ini" "${CONF_D}/20-swoole.ini" 2>/dev/null || \
+                        echo "$SWOOLE_EXT_LINE" > "${CONF_D}/20-swoole.ini"
+                    info "  已创建: ${CONF_D}/20-swoole.ini"
+                fi
+            done
+        else
+            # 非 Debian 系：直接创建到 PHP_CONF_DIR
+            mkdir -p "$PHP_CONF_DIR" 2>/dev/null || true
+            echo "$SWOOLE_EXT_LINE" > "${PHP_CONF_DIR}/50-swoole.ini"
+            info "  已创建: ${PHP_CONF_DIR}/50-swoole.ini"
         fi
     fi
 
