@@ -1710,24 +1710,38 @@ PROJECT_OWNER=$(stat -c '%U' "${PROJECT_DIR}" 2>/dev/null || echo "ubuntu")
 info "项目目录属主: ${PROJECT_OWNER}，Web 用户: ${WEB_USER}"
 
 # 仅 chown 后端运行时需要的目录（保持 .git 等目录的原属主）
+# 注意：app 目录需要 www-data 可写（BuildWorker 需要写入 assets 和 signing.gradle）
+#       build 目录需要 www-data 可写（构建日志、输出、keystore）
 chown -R "${WEB_USER}:${WEB_USER}" \
     "${PROJECT_DIR}/backend/storage" \
     "${PROJECT_DIR}/backend/runtime" \
-    "${PROJECT_DIR}/build/output" \
+    "${PROJECT_DIR}/build" \
+    "${PROJECT_DIR}/app" \
     2>/dev/null || true
 
 # 创建运行时所需目录（如不存在）
 mkdir -p "${PROJECT_DIR}/backend/runtime/logs" 2>/dev/null || true
 mkdir -p "${PROJECT_DIR}/backend/storage" 2>/dev/null || true
+mkdir -p "${PROJECT_DIR}/build/logs" 2>/dev/null || true
+mkdir -p "${PROJECT_DIR}/build/output" 2>/dev/null || true
+mkdir -p "${PROJECT_DIR}/app/src/main/assets" 2>/dev/null || true
 chown -R "${WEB_USER}:${WEB_USER}" "${PROJECT_DIR}/backend/runtime" 2>/dev/null || true
+chown -R "${WEB_USER}:${WEB_USER}" "${PROJECT_DIR}/build/logs" "${PROJECT_DIR}/build/output" 2>/dev/null || true
+chown -R "${WEB_USER}:${WEB_USER}" "${PROJECT_DIR}/app/src/main/assets" 2>/dev/null || true
 
 # 设置目录权限（仅对运行时目录，避免递归整个项目）
 find "${PROJECT_DIR}/backend/storage" -type d -exec chmod 775 {} \; 2>/dev/null || true
 find "${PROJECT_DIR}/backend/runtime" -type d -exec chmod 775 {} \; 2>/dev/null || true
-find "${PROJECT_DIR}/build/output" -type d -exec chmod 775 {} \; 2>/dev/null || true
+find "${PROJECT_DIR}/build" -type d -exec chmod 775 {} \; 2>/dev/null || true
+find "${PROJECT_DIR}/app" -type d -exec chmod 775 {} \; 2>/dev/null || true
 # storage/runtime 下的文件可写
 find "${PROJECT_DIR}/backend/storage" -type f -exec chmod 664 {} \; 2>/dev/null || true
 find "${PROJECT_DIR}/backend/runtime" -type f -exec chmod 664 {} \; 2>/dev/null || true
+find "${PROJECT_DIR}/build" -type f -exec chmod 664 {} \; 2>/dev/null || true
+# build 目录下的 .sh 脚本保持可执行
+find "${PROJECT_DIR}/build" -type f -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
+# app 目录下的 .gradle / .properties 文件可读
+find "${PROJECT_DIR}/app" -type f \( -name "*.gradle" -o -name "*.properties" -o -name "*.gradle.kts" \) -exec chmod 644 {} \; 2>/dev/null || true
 # 保留 .sh 脚本的可执行权限
 find "${PROJECT_DIR}" -type f -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
 info "目录权限已设置（保留 .git 属主: ${PROJECT_OWNER}）。"
