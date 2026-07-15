@@ -145,6 +145,15 @@ info "清理上次构建残留..."
 if [ -d "$PROJECT_DIR/.git" ]; then
     git -C "$PROJECT_DIR" checkout -- app/ 2>/dev/null || true
 fi
+# 清理 build.gradle.kts 中之前注入的 apply 行（防止 git checkout 无效时残留）
+if [ -f "$APP_DIR/build.gradle.kts" ]; then
+    sed -i '/^apply(from = "inject.gradle")/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+    sed -i '/^apply(from = "signing.gradle")/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+    sed -i '/^apply from: "inject.gradle"/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+    sed -i '/^apply from: "signing.gradle"/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+    sed -i '/自动注入打包配置/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+    sed -i '/自动注入签名配置/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+fi
 # 删除注入产生的临时文件
 rm -f "$APP_DIR/inject.gradle" "$APP_DIR/signing.gradle" 2>/dev/null || true
 # 清理上次构建产物（避免 find 误判旧 APK）
@@ -220,8 +229,11 @@ android {
     }
 }
 EOF
-        # 在 build.gradle.kts 追加 apply（幂等）
-        APPLY_LINE='apply from: "signing.gradle"'
+        # 在 build.gradle.kts 追加 apply（Kotlin DSL 语法，幂等）
+        APPLY_LINE='apply(from = "signing.gradle")'
+        # 先移除旧的 Groovy 语法行（兼容历史残留）
+        sed -i '/^apply from: "signing.gradle"/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+        sed -i '/自动注入签名配置/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
         if ! grep -qF "$APPLY_LINE" "$APP_DIR/build.gradle.kts"; then
             printf '\n// 自动注入签名配置（由 build_apk.sh 维护）\n%s\n' "$APPLY_LINE" >> "$APP_DIR/build.gradle.kts"
         fi
@@ -251,7 +263,10 @@ android {
     }
 }
 EOF
-        APPLY_LINE='apply from: "signing.gradle"'
+        APPLY_LINE='apply(from = "signing.gradle")'
+        # 先移除旧的 Groovy 语法行（兼容历史残留）
+        sed -i '/^apply from: "signing.gradle"/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
+        sed -i '/自动注入签名配置/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
         if ! grep -qF "$APPLY_LINE" "$APP_DIR/build.gradle.kts"; then
             printf '\n// 自动注入签名配置（由 build_apk.sh 维护）\n%s\n' "$APPLY_LINE" >> "$APP_DIR/build.gradle.kts"
         fi

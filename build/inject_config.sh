@@ -112,10 +112,14 @@ android {
 }
 EOF
 
-# 在 build.gradle.kts 末尾追加 apply from（幂等）
-APPLY_LINE='apply from: "inject.gradle"'
+# 在 build.gradle.kts 末尾追加 apply from（Kotlin DSL 语法，幂等）
+APPLY_LINE='apply(from = "inject.gradle")'
+APPLY_LINE_GROOVY='apply from: "inject.gradle"'
 BUILD_GRADLE="$APP_DIR/build.gradle.kts"
 if [ -f "$BUILD_GRADLE" ]; then
+    # 先移除旧的 Groovy 语法行（兼容历史残留）
+    sed -i "/^apply from: \"inject.gradle\"/d" "$BUILD_GRADLE" 2>/dev/null || true
+    sed -i "/自动注入打包配置/d" "$BUILD_GRADLE" 2>/dev/null || true
     if ! grep -qF "$APPLY_LINE" "$BUILD_GRADLE"; then
         info "在 build.gradle.kts 追加 apply inject.gradle ..."
         printf '\n// 自动注入打包配置（由 build/inject_config.sh 维护）\n%s\n' "$APPLY_LINE" >> "$BUILD_GRADLE"
