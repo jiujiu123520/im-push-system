@@ -3,6 +3,9 @@ Description=IM Push System - HTTP API 服务
 Documentation=即时消息推送系统 HTTP API（基于 PHP + Swoole）
 After=network.target mysql.service redis-server.service
 Wants=mysql.service redis-server.service
+# 启动失败重试上限（systemd 219 用 StartLimitInterval，230+ 用 StartLimitIntervalSec）
+StartLimitBurst=5
+StartLimitIntervalSec=30
 
 [Service]
 Type=simple
@@ -16,9 +19,6 @@ TimeoutStopSec=10
 # 自动重启：崩溃后 3 秒重启
 Restart=always
 RestartSec=3
-# 启动失败重试上限
-StartLimitBurst=5
-StartLimitIntervalSec=30
 # 以指定用户运行（避免 root 权限）
 User=www-data
 Group=www-data

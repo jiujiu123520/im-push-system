@@ -5,6 +5,9 @@ After=network.target mysql.service redis-server.service
 Wants=mysql.service redis-server.service
 # 打包工作进程依赖 Redis 队列（与推送服务共享）
 After=push-http.service
+# 启动失败重试上限
+StartLimitBurst=5
+StartLimitIntervalSec=30
 
 [Service]
 Type=simple
@@ -29,6 +32,8 @@ Environment=ANDROID_SDK_ROOT=/opt/android-sdk
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools
 
 # ========= cgroup 资源限制（2H2G 服务器平衡策略）=========
+# 注意：以下指令需要 systemd 227+（CentOS 7 的 systemd 219 不支持）
+# install.sh 部署时会检测 systemd 版本，过低则自动移除这些指令
 # 内存硬限制 1.5G（留 500MB 给 MySQL/Redis/PHP/Nginx 等系统服务）
 # JVM 堆 768m + Metaspace 256m ≈ 1G，加上 native 工具（aapt2/d8）约 400MB
 MemoryMax=1536M

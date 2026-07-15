@@ -5,6 +5,9 @@ After=network.target mysql.service redis-server.service
 Wants=mysql.service redis-server.service
 # WebSocket 服务在 HTTP API 之后启动（共享数据库/Redis）
 After=push-http.service
+# 启动失败重试上限
+StartLimitBurst=5
+StartLimitIntervalSec=30
 
 [Service]
 Type=simple
@@ -18,9 +21,6 @@ TimeoutStopSec=10
 # 自动重启：崩溃后 3 秒重启
 Restart=always
 RestartSec=3
-# 启动失败重试上限
-StartLimitBurst=5
-StartLimitIntervalSec=30
 # 以指定用户运行（避免 root 权限）
 User=www-data
 Group=www-data

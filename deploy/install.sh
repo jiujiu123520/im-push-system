@@ -33,6 +33,7 @@ DB_NAME="${DB_NAME:-im_push}"
 DB_USER="${DB_USER:-im_push}"
 DB_PASS="${DB_PASS:-ImPush@2024}"
 DB_HOST="${DB_HOST:-127.0.0.1}"
+DB_PORT="${DB_PORT:-3306}"
 REDIS_HOST="${REDIS_HOST:-127.0.0.1}"
 REDIS_PORT="${REDIS_PORT:-6379}"
 HTTP_PORT="${HTTP_PORT:-9501}"
@@ -177,6 +178,22 @@ info "包管理器: ${PKG_MANAGER}"
 info "Web 用户: ${WEB_USER}"
 info "项目目录: ${PROJECT_DIR}"
 
+# ============================================================
+# CentOS 7 EOL 兼容：基础源已下线，需切换到 vault 归档源
+# CentOS 7 于 2024-06-30 EOL，mirrorlist.centos.org 已不可达
+# ============================================================
+if [[ "$OS_ID" == "centos" && "$OS_MAJOR_VER" == "7" ]]; then
+    info "检测到 CentOS 7（已 EOL），修复 yum 基础源（切换到 vault 归档）..."
+    for repo_file in /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Vault.repo; do
+        if [[ -f "$repo_file" ]]; then
+            sed -i 's|^mirrorlist=|#mirrorlist=|g' "$repo_file"
+            sed -i 's|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' "$repo_file"
+        fi
+    done
+    # 更新 ca-certificates 防止旧证书导致 HTTPS 失败
+    yum update -y ca-certificates curl nss 2>/dev/null || true
+fi
+
 # 获取脚本所在目录（用于定位 deploy/ 下的配置文件）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 info "脚本目录: ${SCRIPT_DIR}"
@@ -191,12 +208,21 @@ has_cmd() { command -v "$1" >/dev/null 2>&1; }
 
 # 检测 PHP
 PHP_INSTALLED=false
+PHP_ACTUAL_VER=""
 if has_cmd php; then
     PHP_VERSION=$(php -v 2>/dev/null | head -n1 | awk '{print $2}')
     PHP_MAJOR=$(echo "$PHP_VERSION" | cut -d. -f1)
     if [[ "$PHP_MAJOR" -ge 8 ]]; then
         PHP_INSTALLED=true
-        info "  [已安装] PHP ${PHP_VERSION}"
+        # 提取实际版本号（如 8.1 或 8.2），用于动态适配配置路径
+        PHP_ACTUAL_VER=$(echo "$PHP_VERSION" | cut -d. -f1-2)
+        # 若已安装 PHP 版本与默认配置不同，更新 PHP_FPM_SERVICE 和 PHP_CONF_DIR
+        if [[ "$OS_ID" == "ubuntu" || "$OS_ID" == "debian" ]]; then
+            PHP_FPM_SERVICE="php${PHP_ACTUAL_VER}-fpm"
+            PHP_CONF_DIR="/etc/php/${PHP_ACTUAL_VER}/mods-available"
+            PHP_PKG_PREFIX="php${PHP_ACTUAL_VER}-"
+        fi
+        info "  [已安装] PHP ${PHP_VERSION}（配置路径: ${PHP_CONF_DIR}）"
     else
         warn "  [版本过低] PHP ${PHP_VERSION}，需要 8.0+，将重新安装"
     fi
@@ -298,6 +324,7 @@ if [[ -f "$ENV_FILE" ]]; then
     ENV_DB_USER=$(read_env_var "DB_USER")
     ENV_DB_PASS=$(read_env_var "DB_PASS")
     ENV_DB_HOST=$(read_env_var "DB_HOST")
+    ENV_DB_PORT=$(read_env_var "DB_PORT")
     ENV_REDIS_HOST=$(read_env_var "REDIS_HOST")
     ENV_REDIS_PORT=$(read_env_var "REDIS_PORT")
     ENV_HTTP_PORT=$(read_env_var "HTTP_PORT")
@@ -308,6 +335,7 @@ if [[ -f "$ENV_FILE" ]]; then
     [[ -n "$ENV_DB_USER" ]] && DB_USER="$ENV_DB_USER"
     [[ -n "$ENV_DB_PASS" ]] && DB_PASS="$ENV_DB_PASS"
     [[ -n "$ENV_DB_HOST" ]] && DB_HOST="$ENV_DB_HOST"
+    [[ -n "$ENV_DB_PORT" ]] && DB_PORT="$ENV_DB_PORT"
     [[ -n "$ENV_REDIS_HOST" ]] && REDIS_HOST="$ENV_REDIS_HOST"
     [[ -n "$ENV_REDIS_PORT" ]] && REDIS_PORT="$ENV_REDIS_PORT"
     [[ -n "$ENV_HTTP_PORT" ]] && HTTP_PORT="$ENV_HTTP_PORT"
@@ -458,6 +486,19 @@ update_pkg_index() {
 }
 
 # ============================================================
+# 安装基础工具（rsync 用于文件复制，最小化系统可能未安装）
+# ============================================================
+if ! command -v rsync >/dev/null 2>&1; then
+    case "$PKG_MANAGER" in
+        apt-get)   install_pkgs rsync ;;
+        dnf|yum)   install_pkgs rsync ;;
+        apk)       install_pkgs rsync ;;
+        zypper)    install_pkgs rsync ;;
+        pacman)    install_pkgs rsync ;;
+    esac 2>/dev/null || warn "rsync 安装失败，将使用 cp -a 替代"
+fi
+
+# ============================================================
 # PHP 安装
 # ============================================================
 if [[ "$PHP_INSTALLED" != "true" ]]; then
@@ -553,29 +594,48 @@ else
     info "PHP 已安装，跳过"
 fi
 
+# 修复 PHP-FPM 运行用户（CentOS/RHEL 默认是 apache，需改为 $WEB_USER）
+# Ubuntu/Debian 的 PHP-FPM 默认就是 www-data，无需修改
+if [[ "$PKG_MANAGER" == "dnf" || "$PKG_MANAGER" == "yum" ]]; then
+    PHP_FPM_WWW_CONF=""
+    for _conf in /etc/php-fpm.d/www.conf /etc/php.d/*/php-fpm.d/www.conf /etc/php-fpm.d/*/www.conf; do
+        if [[ -f "$_conf" ]]; then
+            PHP_FPM_WWW_CONF="$_conf"
+            break
+        fi
+    done
+    if [[ -n "$PHP_FPM_WWW_CONF" && -f "$PHP_FPM_WWW_CONF" ]]; then
+        if grep -q '^user = apache' "$PHP_FPM_WWW_CONF" 2>/dev/null; then
+            sed -i "s/^user = apache/user = ${WEB_USER}/g; s/^group = apache/group = ${WEB_USER}/g" "$PHP_FPM_WWW_CONF"
+            info "PHP-FPM 用户已修改为 ${WEB_USER}: ${PHP_FPM_WWW_CONF}"
+        fi
+    fi
+fi
+
 # ============================================================
 # Swoole 扩展（通用：pecl 编译安装）
 # ============================================================
 if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
     info "正在编译安装 Swoole 扩展..."
 
-    # 先安装 Swoole 编译所需的依赖（brotli/zlib/openssl 开发包）
+    # 先安装 Swoole 编译所需的依赖（编译工具 + brotli/zlib/openssl 开发包）
     # Swoole 5.x 默认启用 brotli，缺少 libbrotlienc 会编译失败
+    # 最小化系统可能没有 gcc/make/autoconf，需一并安装
     case "$PKG_MANAGER" in
         apt-get)
-            install_pkgs libbrotli-dev libssl-dev zlib1g-dev 2>/dev/null || warn "部分编译依赖安装失败"
+            install_pkgs build-essential git libbrotli-dev libssl-dev zlib1g-dev 2>/dev/null || warn "部分编译依赖安装失败"
             ;;
         dnf|yum)
-            install_pkgs brotli-devel openssl-devel zlib-devel 2>/dev/null || warn "部分编译依赖安装失败"
+            install_pkgs gcc gcc-c++ make autoconf git brotli-devel openssl-devel zlib-devel 2>/dev/null || warn "部分编译依赖安装失败"
             ;;
         apk)
-            install_pkgs brotli-dev openssl-dev zlib-dev 2>/dev/null || warn "部分编译依赖安装失败"
+            install_pkgs build-base git brotli-dev openssl-dev zlib-dev 2>/dev/null || warn "部分编译依赖安装失败"
             ;;
         zypper)
-            install_pkgs libbrotli-devel libopenssl-devel zlib-devel 2>/dev/null || warn "部分编译依赖安装失败"
+            install_pkgs gcc gcc-c++ make autoconf git libbrotli-devel libopenssl-devel zlib-devel 2>/dev/null || warn "部分编译依赖安装失败"
             ;;
         pacman)
-            install_pkgs brotli zlib openssl 2>/dev/null || warn "部分编译依赖安装失败"
+            install_pkgs base-devel git brotli zlib openssl 2>/dev/null || warn "部分编译依赖安装失败"
             ;;
     esac
 
@@ -598,12 +658,21 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
         fi
     }
 
+    # 验证 Swoole 是否安装成功
+    if ! php -m 2>/dev/null | grep -q '^swoole$'; then
+        error "Swoole 扩展安装失败！核心服务无法启动。"
+        error "请检查编译错误日志，或尝试手动安装：pecl install swoole"
+        exit 1
+    fi
+
     # 写入 PHP 扩展配置目录（适配各发行版）
     mkdir -p "$PHP_CONF_DIR"
     echo "extension=swoole.so" > "${PHP_CONF_DIR}/50-swoole.ini"
     # Debian/Ubuntu 额外需要 phpenmod 启用（如果命令存在）
+    # 使用实际检测到的 PHP 版本号，避免硬编码 8.2
     if command -v phpenmod >/dev/null 2>&1; then
-        phpenmod -v 8.2 swoole 2>/dev/null || true
+        SWOOLE_PHP_VER="${PHP_ACTUAL_VER:-8.2}"
+        phpenmod -v "${SWOOLE_PHP_VER}" swoole 2>/dev/null || true
     fi
 else
     info "Swoole 扩展已安装，跳过"
@@ -615,8 +684,30 @@ fi
 if [[ "$MYSQL_INSTALLED" != "true" ]]; then
     info "安装 MySQL/MariaDB..."
     case "$PKG_MANAGER" in
-        apt-get)   install_pkgs mysql-server ;;
-        dnf|yum)   install_pkgs mysql-server 2>/dev/null || install_pkgs mariadb-server ;;
+        apt-get)
+            install_pkgs mysql-server
+            ;;
+        dnf|yum)
+            # CentOS 7: base 源的 mariadb-server 是 5.5（过旧，不支持 CREATE USER IF NOT EXISTS）
+            # 优先安装 MySQL 社区版，失败则安装 MariaDB 10.x（通过 MariaDB 官方源）
+            if [[ "$OS_ID" == "centos" && "$OS_MAJOR_VER" == "7" ]]; then
+                # 尝试安装 MySQL 8.0 社区版
+                if ! install_pkgs mysql-community-server 2>/dev/null; then
+                    warn "MySQL 社区版安装失败，尝试安装 MariaDB 10.x..."
+                    # 添加 MariaDB 10.11 官方源（CentOS 7）
+                    cat > /etc/yum.repos.d/MariaDB.repo <<MARIADB_EOF
+[mariadb]
+name = MariaDB
+baseurl = https://mirrors.aliyun.com/mariadb/yum/10.11/centos7-amd64
+gpgkey = https://mirrors.aliyun.com/mariadb/yum/RPM-GPG-KEY-MariaDB
+gpgcheck = 1
+MARIADB_EOF
+                    install_pkgs MariaDB-server MariaDB-client 2>/dev/null || install_pkgs mariadb-server
+                fi
+            else
+                install_pkgs mysql-server 2>/dev/null || install_pkgs mariadb-server
+            fi
+            ;;
         apk)       install_pkgs mariadb ;;
         zypper)    install_pkgs mariadb ;;
         pacman)    install_pkgs mariadb ;;
@@ -652,29 +743,65 @@ else
 fi
 
 # ============================================================
-# Node.js
+# Node.js（通过 npmmirror.com 二进制包安装，兼容所有发行版含 CentOS 7）
+# CentOS 7 的 glibc 2.17 无法运行 Node.js 18+ 官方预编译（需 glibc 2.28+）
+# 使用 npmmirror 提供的 unofficial-builds（glibc-217 兼容版）
 # ============================================================
 if [[ "$NODE_INSTALLED" != "true" ]]; then
-    info "安装 Node.js 18.x LTS..."
-    case "$PKG_MANAGER" in
-        apt-get)
-            curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-            apt-get install -y nodejs
-            ;;
-        dnf|yum)
-            curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
-            "$PKG_MANAGER" install -y nodejs
-            ;;
-        apk)
-            install_pkgs nodejs npm
-            ;;
-        zypper)
-            install_pkgs nodejs18 npm18
-            ;;
-        pacman)
-            install_pkgs nodejs npm
-            ;;
+    info "安装 Node.js 20.x LTS..."
+
+    NODE_MAJOR_VER=20
+    NODE_ARCH=$(uname -m)
+    case "$NODE_ARCH" in
+        x86_64)  NODE_ARCH="x64" ;;
+        aarch64) NODE_ARCH="arm64" ;;
+        *)       NODE_ARCH="x64" ;;
     esac
+
+    # 检测 glibc 版本（CentOS 7 = 2.17）
+    GLIBC_VER=$(ldd --version 2>/dev/null | head -n1 | awk '{print $NF}')
+    GLIBC_MAJOR=$(echo "$GLIBC_VER" | cut -d. -f1)
+    GLIBC_MINOR=$(echo "$GLIBC_VER" | cut -d. -f2)
+    NEED_GLIBC217_BUILD=false
+    if [[ "$GLIBC_MAJOR" == "2" && "$GLIBC_MINOR" -lt 28 ]]; then
+        # glibc < 2.28（如 CentOS 7 的 2.17），需要 unofficial-builds
+        NEED_GLIBC217_BUILD=true
+        info "  检测到 glibc ${GLIBC_VER} < 2.28，使用 unofficial-builds（兼容 glibc 2.17）"
+    fi
+
+    if [[ "$NEED_GLIBC217_BUILD" == "true" ]]; then
+        # CentOS 7 等 glibc 2.17 系统：使用 unofficial-builds 的 glibc-217 版本
+        NODE_VERSION="v20.18.0"
+        NODE_FILENAME="node-${NODE_VERSION}-linux-${NODE_ARCH}-glibc-217"
+        NODE_URL="https://npmmirror.com/mirrors/node/${NODE_VERSION}/${NODE_FILENAME}.tar.gz"
+    else
+        # 标准系统：使用官方预编译
+        NODE_VERSION="v20.18.0"
+        NODE_FILENAME="node-${NODE_VERSION}-linux-${NODE_ARCH}"
+        NODE_URL="https://npmmirror.com/mirrors/node/${NODE_VERSION}/${NODE_FILENAME}.tar.gz"
+    fi
+
+    info "  下载: ${NODE_URL}"
+    if curl -fsSL "$NODE_URL" -o /tmp/node.tar.gz; then
+        rm -rf /usr/local/lib/nodejs
+        mkdir -p /usr/local/lib/nodejs
+        tar -xzf /tmp/node.tar.gz -C /usr/local/lib/nodejs --strip-components=1
+        rm -f /tmp/node.tar.gz
+
+        # 创建符号链接到 /usr/local/bin
+        ln -sf /usr/local/lib/nodejs/bin/node /usr/local/bin/node
+        ln -sf /usr/local/lib/nodejs/bin/npm /usr/local/bin/npm
+        ln -sf /usr/local/lib/nodejs/bin/npx /usr/local/bin/npx
+
+        # 配置 npm 镜像加速
+        npm config set registry https://registry.npmmirror.com 2>/dev/null || true
+
+        info "  Node.js 安装完成: $(node -v)"
+    else
+        error "Node.js 二进制包下载失败"
+        error "请手动安装 Node.js 16+ 后重新运行"
+        exit 1
+    fi
 else
     info "Node.js 已安装，跳过"
 fi
@@ -1045,16 +1172,30 @@ step "6/7" "配置 systemd 服务与 Nginx"
 # 复制 systemd 服务文件
 SYSTEMD_SRC="${PROJECT_DIR}/deploy/systemd"
 SYSTEMD_DST="/etc/systemd/system"
+# 检测 systemd 版本（CentOS 7 = 219，不支持 MemoryMax/MemoryHigh/TasksMax/StartLimitIntervalSec）
+SYSTEMD_VERSION=$(systemctl --version 2>/dev/null | head -n1 | awk '{print $2}')
+SYSTEMD_VERSION=${SYSTEMD_VERSION:-0}
 if [[ -d "${SYSTEMD_SRC}" ]]; then
     for svc_file in "${SYSTEMD_SRC}"/*.service; do
         [[ -f "${svc_file}" ]] || continue
         info "安装 systemd 服务: $(basename "${svc_file}")"
+        DST_FILE="${SYSTEMD_DST}/$(basename "${svc_file}")"
         # 动态替换 User=/Group= 为当前发行版的 Web 用户（默认 www-data）
         sed "s/^User=www-data$/User=${WEB_USER}/g; s/^Group=www-data$/Group=${WEB_USER}/g" \
-            "${svc_file}" > "${SYSTEMD_DST}/$(basename "${svc_file}")"
+            "${svc_file}" > "$DST_FILE"
+        # systemd < 227: 移除 cgroup 资源限制指令（MemoryMax/MemoryHigh/TasksMax/CPUQuota）
+        # systemd < 230: 将 StartLimitIntervalSec 改为 StartLimitInterval（并移到 [Unit] 段）
+        if [[ "$SYSTEMD_VERSION" -gt 0 && "$SYSTEMD_VERSION" -lt 227 ]]; then
+            sed -i '/^MemoryMax=/d; /^MemoryHigh=/d; /^TasksMax=/d; /^CPUQuota=/d' "$DST_FILE"
+            warn "systemd ${SYSTEMD_VERSION} < 227，已移除 cgroup 资源限制指令: $(basename "${svc_file}")"
+        fi
+        if [[ "$SYSTEMD_VERSION" -gt 0 && "$SYSTEMD_VERSION" -lt 230 ]]; then
+            # 将 StartLimitIntervalSec 替换为 StartLimitInterval（systemd 219 兼容）
+            sed -i 's/^StartLimitIntervalSec=/StartLimitInterval=/' "$DST_FILE"
+        fi
     done
     systemctl daemon-reload
-    info "systemd 服务已安装（运行用户: ${WEB_USER}）。"
+    info "systemd 服务已安装（运行用户: ${WEB_USER}，systemd ${SYSTEMD_VERSION}）。"
 fi
 
 # 复制 Nginx 配置
