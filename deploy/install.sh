@@ -1649,15 +1649,34 @@ if [[ -f "${NGINX_SRC}" ]]; then
 fi
 
 # 设置项目目录权限（使用检测到的 Web 用户）
-chown -R "${WEB_USER}:${WEB_USER}" "${PROJECT_DIR}" 2>/dev/null || chown -R www-data:www-data "${PROJECT_DIR}" 2>/dev/null || chown -R nginx:nginx "${PROJECT_DIR}" 2>/dev/null || true
-find "${PROJECT_DIR}" -type d -exec chmod 755 {} \;
-# 普通文件设为 644，但保留 .sh 脚本的可执行权限（755）
-find "${PROJECT_DIR}" -type f ! -name "*.sh" -exec chmod 644 {} \;
-find "${PROJECT_DIR}" -type f -name "*.sh" -exec chmod 755 {} \;
-# 存储目录与缓存目录需要写权限
-chmod -R 775 "${PROJECT_DIR}/backend/storage" 2>/dev/null || true
-chmod -R 775 "${PROJECT_DIR}/build/output" 2>/dev/null || true
-info "目录权限已设置。"
+# 注意：chown 整个项目目录会破坏 .git 权限导致后续 git fetch 失败
+# 需要保留 .git / node_modules / vendor 的原属主，仅 chown 运行时需要的目录
+# 检测项目目录的当前属主（通常是部署用户，如 ubuntu）
+PROJECT_OWNER=$(stat -c '%U' "${PROJECT_DIR}" 2>/dev/null || echo "ubuntu")
+info "项目目录属主: ${PROJECT_OWNER}，Web 用户: ${WEB_USER}"
+
+# 仅 chown 后端运行时需要的目录（保持 .git 等目录的原属主）
+chown -R "${WEB_USER}:${WEB_USER}" \
+    "${PROJECT_DIR}/backend/storage" \
+    "${PROJECT_DIR}/backend/runtime" \
+    "${PROJECT_DIR}/build/output" \
+    2>/dev/null || true
+
+# 创建运行时所需目录（如不存在）
+mkdir -p "${PROJECT_DIR}/backend/runtime/logs" 2>/dev/null || true
+mkdir -p "${PROJECT_DIR}/backend/storage" 2>/dev/null || true
+chown -R "${WEB_USER}:${WEB_USER}" "${PROJECT_DIR}/backend/runtime" 2>/dev/null || true
+
+# 设置目录权限（仅对运行时目录，避免递归整个项目）
+find "${PROJECT_DIR}/backend/storage" -type d -exec chmod 775 {} \; 2>/dev/null || true
+find "${PROJECT_DIR}/backend/runtime" -type d -exec chmod 775 {} \; 2>/dev/null || true
+find "${PROJECT_DIR}/build/output" -type d -exec chmod 775 {} \; 2>/dev/null || true
+# storage/runtime 下的文件可写
+find "${PROJECT_DIR}/backend/storage" -type f -exec chmod 664 {} \; 2>/dev/null || true
+find "${PROJECT_DIR}/backend/runtime" -type f -exec chmod 664 {} \; 2>/dev/null || true
+# 保留 .sh 脚本的可执行权限
+find "${PROJECT_DIR}" -type f -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
+info "目录权限已设置（保留 .git 属主: ${PROJECT_OWNER}）。"
 
 # ============================================================
 # 步骤 7: 启动服务
@@ -1785,12 +1804,18 @@ if [[ "$INSTALL_SUDOERS" == "1" ]]; then
     SUDOERS_FILE="${PROJECT_DIR}/deploy/sudoers-push-system-ssl"
     if [ -f "${SUDOERS_FILE}" ]; then
         # 动态替换 www-data 为当前发行版的 Web 用户
-        sed "s/\bwww-data\b/${WEB_USER}/g" "${SUDOERS_FILE}" > /etc/sudoers.d/push-system
+        # 注意：先用 dos2unix 风格去除可能的 CRLF 换行符（Windows 编辑过的文件）
+        # CRLF 会导致 visudo 报 "syntax error" 而 sudoers 文件被拒绝
+        sed "s/\bwww-data\b/${WEB_USER}/g; s/\r$//" "${SUDOERS_FILE}" > /etc/sudoers.d/push-system
         chmod 440 /etc/sudoers.d/push-system
-        if visudo -c >/dev/null 2>&1; then
+        # 校验语法（捕获详细错误输出便于诊断）
+        SUDOERS_ERR=$(visudo -c -f /etc/sudoers.d/push-system 2>&1) || true
+        if echo "${SUDOERS_ERR}" | grep -q "parsed OK\|syntax OK"; then
             info "sudoers 配置已安装（用户: ${WEB_USER}）"
         else
             warn "sudoers 语法检查失败，已移除配置"
+            warn "详细错误: ${SUDOERS_ERR}"
+            warn "（常见原因: CRLF 换行符、用户名不存在、命令路径不存在）"
             rm -f /etc/sudoers.d/push-system
         fi
     else
