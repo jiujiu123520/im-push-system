@@ -1487,6 +1487,8 @@ cd "${PROJECT_DIR}/backend"
 # 允许 root 用户运行 composer（仅安装环境，无安全风险）
 export COMPOSER_ALLOW_SUPERUSER=1
 # 关闭安全公告阻断（国内镜像可能返回安全公告）
+# Composer 2.4+ 使用 audit.block-insecure（旧版使用 policy.advisories.block，已废弃）
+composer config --global --no-interaction audit.block-insecure false 2>/dev/null || true
 composer config --global --no-interaction policy.advisories.block false 2>/dev/null || true
 # 配置 Packagist 阿里云镜像（如果之前未配置）
 composer config --global repo.packagist composer https://mirrors.aliyun.com/composer/ 2>/dev/null || true
@@ -1496,12 +1498,14 @@ composer config repo.packagist composer https://mirrors.aliyun.com/composer/ 2>/
 # 同步 composer.lock（当 composer.json 变更后 lock 文件可能过期）
 # --lock 仅更新 lock 文件的内容哈希，不会升级依赖版本
 # 添加超时保护（120秒），避免网络问题导致卡死
-timeout 120 composer update --lock --no-interaction --no-dev 2>/dev/null || warn "composer update --lock 超时或失败，继续 install..."
+# --no-audit 跳过安全公告检测，避免阻断安装
+timeout 120 composer update --lock --no-interaction --no-dev --no-audit 2>/dev/null || warn "composer update --lock 超时或失败，继续 install..."
 # composer install 添加超时保护（600秒=10分钟）
+# --no-audit 跳过安全公告检测（firebase/php-jwt 和 guzzlehttp/psr7 有已知公告但无替代版本）
 info "执行 composer install（超时 10 分钟）..."
-timeout 600 composer install --no-dev --optimize-autoloader --no-interaction || {
+timeout 600 composer install --no-dev --optimize-autoloader --no-interaction --no-audit || {
     error "composer install 失败（超时或网络问题）"
-    error "请手动执行: cd ${PROJECT_DIR}/backend && composer install"
+    error "请手动执行: cd ${PROJECT_DIR}/backend && composer install --no-audit"
     exit 1
 }
 info "后端依赖安装完成。"
