@@ -204,8 +204,8 @@ else
                 * )
                     info "拉取最新代码..."
 
-                    # 确保有 remote origin
-                    if ! git remote get-url origin >/dev/null 2>&1; then
+                    # 确保有 remote origin（兼容旧版 git，不使用 git remote get-url）
+                    if ! git remote | grep -q '^origin$'; then
                         git remote add origin "${REPO_URL}"
                     fi
 
