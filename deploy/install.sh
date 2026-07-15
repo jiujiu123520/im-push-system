@@ -558,7 +558,46 @@ fi
 # ============================================================
 if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
     info "正在编译安装 Swoole 扩展..."
-    yes '' | pecl install swoole
+
+    # 先安装 Swoole 编译所需的依赖（brotli/zlib/openssl 开发包）
+    # Swoole 5.x 默认启用 brotli，缺少 libbrotlienc 会编译失败
+    case "$PKG_MANAGER" in
+        apt-get)
+            install_pkgs libbrotli-dev libssl-dev zlib1g-dev 2>/dev/null || warn "部分编译依赖安装失败"
+            ;;
+        dnf|yum)
+            install_pkgs brotli-devel openssl-devel zlib-devel 2>/dev/null || warn "部分编译依赖安装失败"
+            ;;
+        apk)
+            install_pkgs brotli-dev openssl-dev zlib-dev 2>/dev/null || warn "部分编译依赖安装失败"
+            ;;
+        zypper)
+            install_pkgs libbrotli-devel libopenssl-devel zlib-devel 2>/dev/null || warn "部分编译依赖安装失败"
+            ;;
+        pacman)
+            install_pkgs brotli zlib openssl 2>/dev/null || warn "部分编译依赖安装失败"
+            ;;
+    esac
+
+    # 使用 pecl 安装 Swoole
+    # 依赖 brotli-devel 已在上面安装，pecl 会自动检测
+    yes '' | pecl install swoole || {
+        warn "pecl 安装 Swoole 失败，尝试从源码编译（禁用 brotli）..."
+        SWOOLE_SRC="/tmp/swoole-src"
+        rm -rf "$SWOOLE_SRC"
+        git clone --depth 1 https://github.com/swoole/swoole-src.git "$SWOOLE_SRC" 2>/dev/null || \
+            git clone --depth 1 https://gh.jasonzeng.dev/https://github.com/swoole/swoole-src.git "$SWOOLE_SRC"
+        if [[ -d "$SWOOLE_SRC" ]]; then
+            cd "$SWOOLE_SRC"
+            phpize
+            ./configure --enable-brotli=no --enable-openssl=yes --enable-swoole-curl=yes
+            make -j"$(nproc)" && make install
+            cd "${PROJECT_DIR}"
+        else
+            error "Swoole 源码下载失败，请手动安装 Swoole 扩展"
+        fi
+    }
+
     # 写入 PHP 扩展配置目录（适配各发行版）
     mkdir -p "$PHP_CONF_DIR"
     echo "extension=swoole.so" > "${PHP_CONF_DIR}/50-swoole.ini"
