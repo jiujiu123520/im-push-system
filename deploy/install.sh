@@ -209,20 +209,61 @@ configure_domestic_mirrors() {
 # CentOS 7 EOL 兼容：基础源已下线，需切换到阿里云 vault 归档源
 # CentOS 7 于 2024-06-30 EOL，mirrorlist.centos.org 已不可达
 # EPEL 7 也已 EOL，需切换到 epel-archive
+# 阿里云 centos-vault 路径需要完整版本号（如 7.6.1810, 7.9.2009）
 # ============================================================
 if [[ "$OS_ID" == "centos" && "$OS_MAJOR_VER" == "7" ]]; then
     info "检测到 CentOS 7（已 EOL），修复 yum 基础源（阿里云 vault 归档）..."
-    # 修复 CentOS Base 源
-    for repo_file in /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Vault.repo /etc/yum.repos.d/CentOS-*.repo; do
-        if [[ -f "$repo_file" ]]; then
-            sed -i 's|^mirrorlist=|#mirrorlist=|g' "$repo_file"
-            sed -i 's|^#baseurl=http://mirror.centos.org|baseurl=https://mirrors.aliyun.com|g' "$repo_file"
-            # CentOS 7 在阿里云的路径是 centos-vault
-            sed -i 's|/centos/|/centos-vault/|g' "$repo_file" 2>/dev/null || true
+
+    # 获取完整版本号（如 7.6.1810, 7.9.2009）
+    CENTOS_FULL_VER=$(cat /etc/centos-release 2>/dev/null | awk '{print $4}' || echo "7.9.2009")
+    info "  CentOS 完整版本: ${CENTOS_FULL_VER}"
+
+    # 直接重写 CentOS-Base.repo（避免 sed 替换不完整导致路径错误）
+    # 阿里云 centos-vault 路径格式: /centos-vault/<full_version>/os/$basearch/
+    cat > /etc/yum.repos.d/CentOS-Base.repo <<REPOEOF
+[base]
+name=CentOS-${CENTOS_FULL_VER} - Base
+baseurl=https://mirrors.aliyun.com/centos-vault/${CENTOS_FULL_VER}/os/\$basearch/
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
+
+[updates]
+name=CentOS-${CENTOS_FULL_VER} - Updates
+baseurl=https://mirrors.aliyun.com/centos-vault/${CENTOS_FULL_VER}/updates/\$basearch/
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
+
+[extras]
+name=CentOS-${CENTOS_FULL_VER} - Extras
+baseurl=https://mirrors.aliyun.com/centos-vault/${CENTOS_FULL_VER}/extras/\$basearch/
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
+REPOEOF
+    info "  CentOS-Base.repo 已重写（阿里云 centos-vault 镜像）"
+
+    # 修复 EPEL 源（如已安装 epel-release）
+    if [[ -f /etc/yum.repos.d/epel.repo ]]; then
+        sed -i 's|^metalink=|#metalink=|g; s|^mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/epel.repo
+        sed -i 's|^#baseurl=https://download.fedoraproject.org/pub/epel|baseurl=https://mirrors.aliyun.com/epel-archive|g' /etc/yum.repos.d/epel.repo
+        sed -i 's|^baseurl=https://download.fedoraproject.org/pub/epel|baseurl=https://mirrors.aliyun.com/epel-archive|g' /etc/yum.repos.d/epel.repo
+        info "  EPEL 源已修复为阿里云 epel-archive 镜像"
+    fi
+
+    # 修复 Remi 源（如已安装 remi-release）
+    for remi_file in /etc/yum.repos.d/remi.repo /etc/yum.repos.d/remi-*.repo; do
+        if [[ -f "$remi_file" ]]; then
+            sed -i 's|http://rpms.remirepo.net|https://mirrors.aliyun.com/remi|g; s|mirrorlist=|#mirrorlist=|g' "$remi_file"
         fi
     done
-    # 更新 ca-certificates 防止旧证书导致 HTTPS 失败
-    yum update -y ca-certificates curl nss 2>/dev/null || true
+    info "  Remi 源已修复为阿里云镜像"
+
+    # 清除 yum 缓存
+    yum clean all 2>/dev/null || true
+    yum makecache fast 2>/dev/null || yum makecache 2>/dev/null || true
+
+    # 更新 ca-certificates 防止旧证书导致 HTTPS 失败（设置超时避免卡住）
+    info "  更新 ca-certificates（超时 60 秒）..."
+    timeout 60 yum update -y ca-certificates 2>/dev/null || warn "ca-certificates 更新超时或失败，继续..."
 fi
 
 # 执行国内镜像配置
