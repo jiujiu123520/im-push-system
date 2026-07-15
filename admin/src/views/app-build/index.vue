@@ -689,7 +689,7 @@ async function randomizeAll() {
     form.name = res.data.app_name
     form.packageName = res.data.package_name
     
-    const detected = detectServerUrls()
+    const detected = await detectServerUrls()
     form.serverAddress = detected.httpUrl
     form.websocketAddress = detected.wsUrl
     
