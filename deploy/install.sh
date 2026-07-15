@@ -1391,6 +1391,31 @@ if [[ ! -f "${PROJECT_DIR}/backend/.env" ]]; then
     info "已生成随机 JWT_SECRET 与 AES_KEY 并写入 .env"
 fi
 
+# 修复 .env 中含空格但未加引号的值（防止 dotenv 解析失败）
+# 例如 MAIL_SENDER_NAME=Push 推送服务 会导致 Parser 报错
+ENV_FILE="${PROJECT_DIR}/backend/.env"
+if [[ -f "${ENV_FILE}" ]]; then
+    # 找到所有"值=值 值"（值中有空格但未加引号）的行，自动加双引号
+    # 仅处理非注释、非空行
+    while IFS= read -r line; do
+        # 跳过注释和空行
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$line" ]] && continue
+        # 提取 KEY=VALUE
+        if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.+)$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            val="${BASH_REMATCH[2]}"
+            # 如果值含空格且未被引号包裹
+            if [[ "$val" == *" "* && "$val" != \"* && "$val" != \'* ]]; then
+                # 用双引号包裹（转义内部双引号）
+                new_val="\"${val//\"/\\\"}\""
+                sed -i "s|^${key}=.*|${key}=${new_val}|" "${ENV_FILE}"
+                warn "  修复 .env: ${key} 值含空格已加引号"
+            fi
+        fi
+    done < "${ENV_FILE}"
+fi
+
 # 执行数据库迁移脚本（幂等：已应用的自动跳过，与 update.sh 使用同一张 schema_migrations 表）
 MIGRATIONS_DIR="${PROJECT_DIR}/backend/database/migrations"
 MIGRATIONS_TABLE="schema_migrations"
@@ -1476,6 +1501,35 @@ EOF
     fi
 else
     warn "未找到迁移脚本目录: ${MIGRATIONS_DIR}"
+fi
+
+# ============================================================
+# 执行 seeders（初始数据：默认管理员账号等）
+# ============================================================
+SEEDERS_DIR="${PROJECT_DIR}/backend/database/seeders"
+if [[ -d "${SEEDERS_DIR}" ]]; then
+    info "执行 seeders（初始数据）..."
+    SEED_COUNT=0
+    shopt -s nullglob
+    seed_files=("${SEEDERS_DIR}"/*.sql)
+    shopt -u nullglob
+    if [[ ${#seed_files[@]} -gt 0 ]]; then
+        IFS=$'\n' sorted_seed_files=($(sort <<<"${seed_files[*]}"))
+        unset IFS
+        for seed_file in "${sorted_seed_files[@]}"; do
+            filename=$(basename "${seed_file}")
+            info "  执行: ${filename}"
+            if $MYSQL_ROOT_CMD "${DB_NAME}" < "${seed_file}" 2>&1; then
+                SEED_COUNT=$((SEED_COUNT + 1))
+            else
+                warn "  seeders 执行失败: ${filename}（可能已存在，跳过）"
+            fi
+        done
+        info "seeders 执行完成（共 ${SEED_COUNT} 个文件）。"
+        info "默认管理员账号: admin / admin123（请登录后立即修改密码）"
+    else
+        info "未找到 seeders 文件。"
+    fi
 fi
 
 # ============================================================
