@@ -1450,7 +1450,7 @@ else
 fi
 
 # ============================================================
-# 步骤 4: 安装后端依赖（composer install）
+# 步骤 4: 安装后端依赖（composer install，使用国内镜像加速）
 # ============================================================
 step "4/7" "安装后端依赖"
 
@@ -1459,11 +1459,22 @@ cd "${PROJECT_DIR}/backend"
 export COMPOSER_ALLOW_SUPERUSER=1
 # 关闭安全公告阻断（国内镜像可能返回安全公告）
 composer config --global --no-interaction policy.advisories.block false 2>/dev/null || true
+# 配置 Packagist 阿里云镜像（如果之前未配置）
+composer config --global repo.packagist composer https://mirrors.aliyun.com/composer/ 2>/dev/null || true
+# 同时为当前项目配置镜像
+composer config repo.packagist composer https://mirrors.aliyun.com/composer/ 2>/dev/null || true
 
 # 同步 composer.lock（当 composer.json 变更后 lock 文件可能过期）
 # --lock 仅更新 lock 文件的内容哈希，不会升级依赖版本
-composer update --lock --no-interaction --no-dev 2>/dev/null || true
-composer install --no-dev --optimize-autoloader --no-interaction
+# 添加超时保护（120秒），避免网络问题导致卡死
+timeout 120 composer update --lock --no-interaction --no-dev 2>/dev/null || warn "composer update --lock 超时或失败，继续 install..."
+# composer install 添加超时保护（600秒=10分钟）
+info "执行 composer install（超时 10 分钟）..."
+timeout 600 composer install --no-dev --optimize-autoloader --no-interaction || {
+    error "composer install 失败（超时或网络问题）"
+    error "请手动执行: cd ${PROJECT_DIR}/backend && composer install"
+    exit 1
+}
 info "后端依赖安装完成。"
 
 # ============================================================
@@ -1496,7 +1507,13 @@ if [[ "$NEED_REINSTALL" == "true" ]]; then
     rm -rf node_modules
 fi
 
-npm install
+# npm install 添加超时保护（10 分钟），防止网络问题导致卡死
+info "执行 npm install（超时 10 分钟）..."
+if ! timeout 600 npm install --no-audit --no-fund --loglevel=error 2>&1; then
+    error "npm install 失败（超时或网络问题）"
+    error "请手动执行: cd ${PROJECT_DIR}/admin && npm install"
+    exit 1
+fi
 
 # 安装后确保 .bin 中所有文件可执行（跟随符号链接修复目标文件权限）
 if [[ -d node_modules/.bin ]]; then
@@ -1508,7 +1525,13 @@ if [[ -d node_modules/.bin ]]; then
     find node_modules/.bin -type f -exec chmod +x {} \; 2>/dev/null || true
 fi
 
-npm run build
+# npm run build 添加超时保护（5 分钟），防止构建卡死
+info "执行 npm run build（超时 5 分钟）..."
+if ! timeout 300 npm run build 2>&1; then
+    error "npm run build 失败（超时或构建错误）"
+    error "请手动执行: cd ${PROJECT_DIR}/admin && npm run build"
+    exit 1
+fi
 info "管理后台构建完成。"
 
 # ============================================================
