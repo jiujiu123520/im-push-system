@@ -1323,8 +1323,37 @@ fi
 # 启动 Nginx
 if ! systemctl is-active --quiet nginx; then
     info "启动 Nginx 服务..."
-    systemctl start nginx
-    systemctl enable nginx
+
+    # 检测并停止占用 80 端口的服务（Ubuntu 22.04 可能预装 Apache2）
+    if systemctl is-active --quiet apache2 2>/dev/null; then
+        warn "检测到 Apache2 正在运行（占用 80 端口），停止并禁用..."
+        systemctl stop apache2 2>/dev/null || true
+        systemctl disable apache2 2>/dev/null || true
+    fi
+    if systemctl is-active --quiet httpd 2>/dev/null; then
+        warn "检测到 httpd 正在运行（占用 80 端口），停止并禁用..."
+        systemctl stop httpd 2>/dev/null || true
+        systemctl disable httpd 2>/dev/null || true
+    fi
+
+    # 确保日志目录存在
+    mkdir -p /var/log/nginx 2>/dev/null || true
+
+    # 启动前先检测配置语法（此时可能还没有 push.conf，但默认配置应能通过）
+    if ! nginx -t 2>&1; then
+        warn "Nginx 配置检测未通过（可能是残留配置问题），尝试启动..."
+    fi
+
+    # 启动 Nginx（失败不退出脚本，后续 step 6 会重新配置并启动）
+    if ! systemctl start nginx 2>&1; then
+        warn "Nginx 启动失败，将在步骤 6 配置完成后重新启动"
+        warn "可能原因: 1)端口80被占用 2)配置语法错误 3)日志目录不存在"
+        # 输出详细错误信息辅助排查
+        journalctl -u nginx --no-pager -n 10 2>/dev/null || true
+    else
+        systemctl enable nginx 2>/dev/null || true
+        info "Nginx 启动成功"
+    fi
 fi
 
 # ============================================================
@@ -1594,13 +1623,21 @@ if [[ -f "${NGINX_SRC}" ]]; then
         NGINX_INSTALLED_PATH="/etc/nginx/push.conf"
     fi
     info "Nginx 配置已安装到: ${NGINX_INSTALLED_PATH}"
-    # 校验并重新加载
-    if nginx -t; then
-        systemctl reload nginx
-        info "Nginx 已重新加载。"
+    # 校验并重新加载/启动
+    if nginx -t 2>&1; then
+        # 如果 Nginx 未运行则启动，已运行则 reload
+        if ! systemctl is-active --quiet nginx; then
+            systemctl start nginx && systemctl enable nginx 2>/dev/null || true
+            info "Nginx 已启动。"
+        else
+            systemctl reload nginx 2>/dev/null || systemctl restart nginx 2>/dev/null || true
+            info "Nginx 已重新加载。"
+        fi
     else
         error "Nginx 配置校验失败，请检查 ${NGINX_INSTALLED_PATH}"
         error "请根据实际域名修改 server_name 后重试。"
+        # 输出详细错误
+        nginx -t 2>&1 || true
     fi
 fi
 
