@@ -139,13 +139,48 @@ on_fail() {
 }
 trap 'on_fail "构建过程中断（退出码 $?）"' ERR
 
+# ---------------- 0. 构建环境预检查 ----------------
+info "检查构建环境..."
+
+# 检查 Java
+if ! command -v java >/dev/null 2>&1; then
+    on_fail "未找到 Java，请安装 JDK 17"
+    exit 1
+fi
+JAVA_VER=$(java -version 2>&1 | head -n 1 | grep -oP 'version "\K[0-9]+' || echo "0")
+info "Java 版本: $(java -version 2>&1 | head -n 1)"
+if [ "$JAVA_VER" -ne 17 ] && [ "$JAVA_VER" -lt 17 ]; then
+    warn "Java 版本不是 17+，可能导致构建失败"
+fi
+
+# 检查 Android SDK
+ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/opt/android-sdk}}"
+if [ ! -d "$ANDROID_SDK_ROOT" ]; then
+    on_fail "未找到 Android SDK：$ANDROID_SDK_ROOT，请先安装（执行 build/setup.sh）"
+    exit 1
+fi
+info "Android SDK: $ANDROID_SDK_ROOT"
+
+# 确保 local.properties 存在且指向正确的 SDK 路径
+LOCAL_PROPS="$PROJECT_DIR/local.properties"
+if [ ! -f "$LOCAL_PROPS" ] || ! grep -q "sdk.dir" "$LOCAL_PROPS" 2>/dev/null; then
+    info "生成 local.properties（sdk.dir=$ANDROID_SDK_ROOT）..."
+    echo "sdk.dir=$ANDROID_SDK_ROOT" > "$LOCAL_PROPS"
+fi
+
 # ---------------- 1. 清理上次构建残留 + 注入配置 ----------------
 # 恢复源码到原始状态（防止上次包名修改/配置注入残留导致编译失败）
 info "清理上次构建残留..."
+GIT_CHECKOUT_OK=false
 if [ -d "$PROJECT_DIR/.git" ]; then
-    git -C "$PROJECT_DIR" checkout -- app/ 2>/dev/null || true
+    if git -C "$PROJECT_DIR" checkout -- app/ 2>/dev/null; then
+        GIT_CHECKOUT_OK=true
+        info "git checkout app/ 成功"
+    else
+        warn "git checkout app/ 失败（可能是权限问题），将通过 sed 手动清理"
+    fi
 fi
-# 清理 build.gradle.kts 中之前注入的 apply 行（防止 git checkout 无效时残留）
+# 无论 git checkout 是否成功，都手动清理 build.gradle.kts 中的注入行（双保险）
 # 注意：不用 ^ 锚定，兼容行首空格/制表符；同时清理 Kotlin DSL 和 Groovy 两种语法
 if [ -f "$APP_DIR/build.gradle.kts" ]; then
     sed -i '/apply(from = "inject.gradle")/d' "$APP_DIR/build.gradle.kts" 2>/dev/null || true
@@ -192,9 +227,16 @@ else
     exit 1
 fi
 
-# 设置 Gradle 缓存目录到项目内（避免 www-data 用户无权写入 /var/www/.gradle）
+# 设置 Gradle 用户级缓存目录（优先使用环境变量，未设置时用项目内 .gradle）
+# 注意：systemd 服务中设置了 GRADLE_USER_HOME=/var/www/.gradle，不要覆盖
 export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$PROJECT_DIR/.gradle}"
 mkdir -p "$GRADLE_USER_HOME" 2>/dev/null || true
+# 确保缓存目录可写（www-data 用户需要写入权限）
+if [ ! -w "$GRADLE_USER_HOME" ]; then
+    warn "GRADLE_USER_HOME=$GRADLE_USER_HOME 不可写，尝试改回项目目录..."
+    export GRADLE_USER_HOME="$PROJECT_DIR/.gradle"
+    mkdir -p "$GRADLE_USER_HOME" 2>/dev/null || true
+fi
 
 # ---------------- 3. 签名配置 ----------------
 # 读取 keystore.properties（如有），生成 signing.gradle 并应用
@@ -291,8 +333,9 @@ if [ -f "$APP_DIR/build.gradle.kts" ]; then
     log "build.gradle.kts 末尾10行："
     tail -n 10 "$APP_DIR/build.gradle.kts" | tee -a "$LOG_FILE"
 fi
-# 关闭 ERR trap 仅在 gradle 调用期间判断退出码
+# 临时关闭 ERR trap（set +e 期间 trap ERR 仍会触发，导致提前退出）
 set +e
+trap - ERR
 # --no-daemon: 禁用 daemon，构建后释放内存
 # --max-workers=1: 限制单 worker，避免多 JVM 并发（2G 服务器优化）
 # -Dorg.gradle.parallel=false: 禁用并行构建
@@ -301,10 +344,34 @@ set +e
 # ionice -c 2 -n 7: 降低 IO 优先级，避免磁盘 IO 卡死其他服务
 nice -n 10 ionice -c 2 -n 7 "$GRADLEW" "$GRADLE_TASK" --no-daemon --max-workers=1 -Dorg.gradle.parallel=false --stacktrace 2>&1 | tee -a "$LOG_FILE"
 GRADLE_EXIT=${PIPESTATUS[0]}
+# 恢复 ERR trap 和 set -e
 set -e
+trap 'on_fail "构建过程中断（退出码 $?）"' ERR
 
 if [ "$GRADLE_EXIT" -ne 0 ]; then
-    on_fail "Gradle 构建失败（退出码 $GRADLE_EXIT）"
+    # 提取关键错误信息写入日志，便于快速定位
+    {
+        echo ""
+        echo "==================== 构建失败关键错误摘要 ===================="
+        echo "退出码: $GRADLE_EXIT"
+        echo ""
+        echo "--- FAILURE 段落 ---"
+        grep -A 20 "FAILURE:" "$LOG_FILE" 2>/dev/null || echo "(未找到 FAILURE 段落)"
+        echo ""
+        echo "--- What went wrong 段落 ---"
+        grep -A 10 "What went wrong:" "$LOG_FILE" 2>/dev/null || echo "(未找到)"
+        echo ""
+        echo "--- 错误行（含 error: / e: / Error:）---"
+        grep -i "error:\|^e: " "$LOG_FILE" 2>/dev/null | head -n 20 || echo "(未找到错误行)"
+        echo ""
+        echo "--- Could not resolve / 依赖下载失败 ---"
+        grep -i "could not resolve\|failed to resolve\|connection reset\|connect timed out\|SSL\|TLS" "$LOG_FILE" 2>/dev/null | head -n 10 || echo "(未找到)"
+        echo ""
+        echo "--- 最后 50 行 ---"
+        tail -n 50 "$LOG_FILE" 2>/dev/null || echo "(无法读取日志)"
+        echo "=============================================================="
+    } | tee -a "$LOG_FILE"
+    on_fail "Gradle 构建失败（退出码 $GRADLE_EXIT），详细错误见日志"
     exit 1
 fi
 
