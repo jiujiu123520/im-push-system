@@ -11,9 +11,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.isString
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -272,14 +273,14 @@ class PushWebSocket(
 
     /** 从 JsonElement 中提取字符串字段 */
     private fun extractStringFromData(element: kotlinx.serialization.json.JsonElement?, key: String): String? {
-        if (element == null || !element.isJsonObject) return null
+        if (element == null || element !is JsonObject) return null
         val obj = element.jsonObject
-        return obj[key]?.let { if (it.isString) it.jsonPrimitive.content else null }
+        return obj[key]?.let { if (it is JsonPrimitive) it.content else null }
     }
 
     /** 从 JsonElement 中提取 Long 字段 */
     private fun extractLongFromData(element: kotlinx.serialization.json.JsonElement?, key: String): Long? {
-        if (element == null || !element.isJsonObject) return null
+        if (element == null || element !is JsonObject) return null
         val obj = element.jsonObject
         return obj[key]?.let { runCatching { it.jsonPrimitive.content.toLong() }.getOrNull() }
     }
