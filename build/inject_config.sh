@@ -177,13 +177,21 @@ if [ -n "$PACKAGE_NAME" ]; then
                 OLD_NAMESPACE="com.push.app"
             else
                 # 扫描其他可能的包名目录（上次构建残留），找到含 .kt 文件的目录
-                while IFS= read -r -d '' dir; do
+                # 只找第 3 层深度的目录（顶层包名目录），避免误匹配子目录
+                FOUND_FILE=$(mktemp 2>/dev/null || echo "/tmp/inject_found_$$")
+                for dir in "$JAVA_SRC_ROOT"/*/*/*; do
+                    [ -d "$dir" ] || continue
                     if find "$dir" -maxdepth 1 -name "*.kt" -print -quit 2>/dev/null | grep -q .; then
-                        OLD_PATH="$dir"
-                        OLD_NAMESPACE=$(echo "$dir" | sed "s|$JAVA_SRC_ROOT/||; s|/|.|g")
+                        printf '%s' "$dir" > "$FOUND_FILE"
                         break
                     fi
-                done < <(find "$JAVA_SRC_ROOT" -mindepth 3 -maxdepth 4 -type d -print0 2>/dev/null)
+                done
+                if [ -s "$FOUND_FILE" ]; then
+                    found_dir=$(cat "$FOUND_FILE")
+                    OLD_PATH="$found_dir"
+                    OLD_NAMESPACE=$(echo "$found_dir" | sed "s|$JAVA_SRC_ROOT/||; s|/|.|g")
+                fi
+                rm -f "$FOUND_FILE" 2>/dev/null || true
             fi
         fi
 
