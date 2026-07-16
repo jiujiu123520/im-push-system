@@ -248,6 +248,23 @@ else
     exit 1
 fi
 
+# 设置 JAVA_HOME（确保 Gradle 能找到 jlink 等工具）
+# 优先使用环境变量，未设置时自动检测系统 JDK
+if [ -z "$JAVA_HOME" ]; then
+    if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
+        export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+    elif [ -d "/usr/lib/jvm/java-17-openjdk" ]; then
+        export JAVA_HOME="/usr/lib/jvm/java-17-openjdk"
+    elif [ -d "/usr/lib/jvm/java-11-openjdk-amd64" ]; then
+        export JAVA_HOME="/usr/lib/jvm/java-11-openjdk-amd64"
+    fi
+fi
+# 将 JAVA_HOME/bin 加入 PATH（确保 jlink 等工具可被 Gradle 找到）
+if [ -n "$JAVA_HOME" ] && [ -d "$JAVA_HOME/bin" ]; then
+    export PATH="$JAVA_HOME/bin:$PATH"
+    info "JAVA_HOME=$JAVA_HOME"
+fi
+
 # 设置 Gradle 用户级缓存目录（优先使用环境变量，未设置时用项目内 .gradle）
 # 注意：systemd 服务中设置了 GRADLE_USER_HOME=/var/www/.gradle，不要覆盖
 export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$PROJECT_DIR/.gradle}"
