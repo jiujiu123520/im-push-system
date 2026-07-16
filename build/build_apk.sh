@@ -197,6 +197,25 @@ fi
 rm -f "$APP_DIR/inject.gradle" "$APP_DIR/signing.gradle" 2>/dev/null || true
 # 清理上次构建产物（避免 find 误判旧 APK）
 rm -rf "$APP_DIR/build/outputs/apk" 2>/dev/null || true
+# 清理上次构建可能残留的非 git 跟踪的包名目录（如 com/test/app 等）
+# 只保留 git 跟踪的 com/push/app 目录，删除其他非标准目录
+find "$APP_DIR/src/main/java" -mindepth 1 -maxdepth 4 -type d -name "app" 2>/dev/null | while read -r dir; do
+    # 如果不是 com/push/app 目录，说明是上次构建残留，删除
+    parent=$(dirname "$dir")
+    if [ "$parent" != "$APP_DIR/src/main/java/com/push" ]; then
+        warn "清理上次构建残留目录：$dir"
+        rm -rf "$dir" 2>/dev/null || true
+        # 清理空的父目录
+        while [ "$(dirname "$dir")" != "$APP_DIR/src/main/java" ]; do
+            dir=$(dirname "$dir")
+            if [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
+                rmdir "$dir" 2>/dev/null || true
+            else
+                break
+            fi
+        done
+    fi
+done
 
 info "调用 inject_config.sh 注入配置 ..."
 # 使用数组安全存储参数（bash 版本支持）

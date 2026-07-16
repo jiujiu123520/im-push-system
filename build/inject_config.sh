@@ -170,6 +170,11 @@ if [ -n "$PACKAGE_NAME" ]; then
 
         if [ -d "$OLD_PATH" ] && [ "$OLD_PATH" != "$NEW_PATH" ]; then
             info "移动源码目录：$OLD_PATH -> $NEW_PATH"
+            # 如果目标目录已存在（上次构建残留），先删除避免 mv 将源码移入子目录
+            if [ -d "$NEW_PATH" ]; then
+                warn "目标目录 $NEW_PATH 已存在（上次构建残留），先删除..."
+                rm -rf "$NEW_PATH"
+            fi
             mkdir -p "$(dirname "$NEW_PATH")"
             mv "$OLD_PATH" "$NEW_PATH"
 
