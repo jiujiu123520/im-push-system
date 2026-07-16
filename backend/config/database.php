@@ -28,7 +28,12 @@ return [
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         // 关闭预处理模拟，使用真正的预处理
         PDO::ATTR_EMULATE_PREPARES   => false,
-        // 持久连接
+        // 持久连接（Swoole 常驻进程下由 Database::query 自动重连，关闭持久连接）
         PDO::ATTR_PERSISTENT         => false,
+        // 每 60 秒发送一次心跳，防止 MySQL wait_timeout 断开连接
+        // Swoole 常驻进程下 PDO 连接长时间空闲会被服务端主动断开
+        PDO::MYSQL_ATTR_INIT_COMMAND => "SET SESSION wait_timeout=28800, interactive_timeout=28800",
+        // 使用 MySQL 原生缓冲查询（默认）
+        PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => true,
     ],
 ];

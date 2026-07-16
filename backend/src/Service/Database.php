@@ -87,17 +87,54 @@ class Database
     }
 
     /**
+     * 判断异常是否为连接断开类型
+     *
+     * Swoole 常驻进程下，MySQL 连接长时间空闲会被服务端断开，
+     * 下次查询时 PDO 会抛出 "server has gone away" / "Broken pipe" 等错误。
+     *
+     * @param \Throwable $e
+     * @return bool
+     */
+    private static function isConnectionLost(\Throwable $e): bool
+    {
+        $msg = $e->getMessage();
+        foreach (['server has gone away', 'Broken pipe', 'Lost connection', 'Error while sending', 'deadlock'] as $needle) {
+            if (stripos($msg, $needle) !== false) {
+                return true;
+            }
+        }
+        // MySQL 2006 = CR_SERVER_GONE_ERROR
+        $code = (int)($e->getCode());
+        return $code === 2006 || $code === 2013;
+    }
+
+    /**
      * 执行查询并返回预处理语句
+     *
+     * 在 Swoole 常驻进程模式下，MySQL 连接可能因 wait_timeout 被服务端断开，
+     * 此方法会自动检测连接断开并重试一次。
      *
      * @param string $sql SQL 语句
      * @param array $params 绑定参数
      * @return \PDOStatement
+     * @throws PDOException
      */
     public static function query(string $sql, array $params = []): \PDOStatement
     {
-        $stmt = self::getInstance()->prepare($sql);
-        $stmt->execute($params);
-        return $stmt;
+        try {
+            $stmt = self::getInstance()->prepare($sql);
+            $stmt->execute($params);
+            return $stmt;
+        } catch (PDOException $e) {
+            // 连接断开：重连后重试一次
+            if (self::isConnectionLost($e)) {
+                self::reconnect();
+                $stmt = self::getInstance()->prepare($sql);
+                $stmt->execute($params);
+                return $stmt;
+            }
+            throw $e;
+        }
     }
 
     /**
