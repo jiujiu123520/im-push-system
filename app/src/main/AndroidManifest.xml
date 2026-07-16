@@ -35,6 +35,13 @@
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
 
+        <!-- 关键修复：移除自动合并的 WorkManager 初始化器 -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="remove" />
+
         <!-- 主活动，承载 Compose 导航 -->
         <activity
             android:name=".MainActivity"
