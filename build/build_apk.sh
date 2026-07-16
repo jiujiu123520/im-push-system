@@ -197,25 +197,34 @@ fi
 rm -f "$APP_DIR/inject.gradle" "$APP_DIR/signing.gradle" 2>/dev/null || true
 # 清理上次构建产物（避免 find 误判旧 APK）
 rm -rf "$APP_DIR/build/outputs/apk" 2>/dev/null || true
-# 清理上次构建可能残留的非 git 跟踪的包名目录（如 com/test/app 等）
-# 只保留 git 跟踪的 com/push/app 目录，删除其他非标准目录
-find "$APP_DIR/src/main/java" -mindepth 1 -maxdepth 4 -type d -name "app" 2>/dev/null | while read -r dir; do
-    # 如果不是 com/push/app 目录，说明是上次构建残留，删除
-    parent=$(dirname "$dir")
-    if [ "$parent" != "$APP_DIR/src/main/java/com/push" ]; then
-        warn "清理上次构建残留目录：$dir"
-        rm -rf "$dir" 2>/dev/null || true
-        # 清理空的父目录
-        while [ "$(dirname "$dir")" != "$APP_DIR/src/main/java" ]; do
-            dir=$(dirname "$dir")
-            if [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
-                rmdir "$dir" 2>/dev/null || true
-            else
-                break
-            fi
-        done
-    fi
-done
+# 清理上次构建可能残留的非 git 跟踪的包名目录
+# git checkout 只能恢复 git 跟踪的文件，构建时 mv 产生的新目录不会被清理
+# 策略：只保留 git 跟踪的 com/push/app 目录，删除其他所有包名目录
+JAVA_SRC_ROOT="$APP_DIR/src/main/java"
+if [ -d "$JAVA_SRC_ROOT" ]; then
+    # 找到所有 3-4 层深度的目录（包名目录），排除 git 跟踪的 com/push/app
+    while IFS= read -r -d '' dir; do
+        # 跳过 com/push/app（git 跟踪的原始目录）
+        if [ "$dir" = "$JAVA_SRC_ROOT/com/push/app" ]; then
+            continue
+        fi
+        # 检查是否包含 .kt 文件（源码目录）
+        if find "$dir" -maxdepth 1 -name "*.kt" -print -quit 2>/dev/null | grep -q .; then
+            warn "清理上次构建残留源码目录：$dir"
+            rm -rf "$dir" 2>/dev/null || true
+            # 从该目录往上清理空的父目录
+            parent=$(dirname "$dir")
+            while [ "$parent" != "$JAVA_SRC_ROOT" ] && [ -d "$parent" ]; do
+                if [ -z "$(ls -A "$parent" 2>/dev/null)" ]; then
+                    rmdir "$parent" 2>/dev/null || true
+                    parent=$(dirname "$parent")
+                else
+                    break
+                fi
+            done
+        fi
+    done < <(find "$JAVA_SRC_ROOT" -mindepth 3 -maxdepth 4 -type d -print0 2>/dev/null)
+fi
 
 info "调用 inject_config.sh 注入配置 ..."
 # 使用数组安全存储参数（bash 版本支持）

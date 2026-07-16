@@ -164,11 +164,31 @@ if [ -n "$PACKAGE_NAME" ]; then
         info "build.gradle.kts 包名已更新"
 
         # 修改 Kotlin 源码目录结构
-        OLD_NAMESPACE="com.push.app"
-        OLD_PATH="$APP_DIR/src/main/java/$(echo "$OLD_NAMESPACE" | tr '.' '/')"
-        NEW_PATH="$APP_DIR/src/main/java/$(echo "$PACKAGE_NAME" | tr '.' '/')"
+        # 自动检测当前实际的源码包路径（可能是 com/push/app 或上次构建残留的其他包名路径）
+        JAVA_SRC_ROOT="$APP_DIR/src/main/java"
+        NEW_PATH="$JAVA_SRC_ROOT/$(echo "$PACKAGE_NAME" | tr '.' '/')"
 
-        if [ -d "$OLD_PATH" ] && [ "$OLD_PATH" != "$NEW_PATH" ]; then
+        # 查找当前源码目录：优先找标准位置 com/push/app，否则扫描其他包名目录
+        OLD_PATH=""
+        OLD_NAMESPACE=""
+        if [ -d "$JAVA_SRC_ROOT" ]; then
+            if [ -d "$JAVA_SRC_ROOT/com/push/app" ]; then
+                OLD_PATH="$JAVA_SRC_ROOT/com/push/app"
+                OLD_NAMESPACE="com.push.app"
+            else
+                # 扫描其他可能的包名目录（上次构建残留），找到含 .kt 文件的目录
+                while IFS= read -r -d '' dir; do
+                    if find "$dir" -maxdepth 1 -name "*.kt" -print -quit 2>/dev/null | grep -q .; then
+                        OLD_PATH="$dir"
+                        OLD_NAMESPACE=$(echo "$dir" | sed "s|$JAVA_SRC_ROOT/||; s|/|.|g")
+                        break
+                    fi
+                done < <(find "$JAVA_SRC_ROOT" -mindepth 3 -maxdepth 4 -type d -print0 2>/dev/null)
+            fi
+        fi
+
+        if [ -n "$OLD_PATH" ] && [ "$OLD_PATH" != "$NEW_PATH" ]; then
+            info "检测到源码目录：$OLD_PATH（包名：$OLD_NAMESPACE）"
             info "移动源码目录：$OLD_PATH -> $NEW_PATH"
             # 如果目标目录已存在（上次构建残留），先删除避免 mv 将源码移入子目录
             if [ -d "$NEW_PATH" ]; then
@@ -180,7 +200,7 @@ if [ -n "$PACKAGE_NAME" ]; then
 
             # 清理空目录
             CURRENT_DIR="$(dirname "$OLD_PATH")"
-            while [ "$CURRENT_DIR" != "$APP_DIR/src/main/java" ] && [ -d "$CURRENT_DIR" ]; do
+            while [ "$CURRENT_DIR" != "$JAVA_SRC_ROOT" ] && [ -d "$CURRENT_DIR" ]; then
                 if [ -z "$(ls -A "$CURRENT_DIR" 2>/dev/null)" ]; then
                     rmdir "$CURRENT_DIR"
                     CURRENT_DIR="$(dirname "$CURRENT_DIR")"
@@ -192,7 +212,6 @@ if [ -n "$PACKAGE_NAME" ]; then
             # 更新源码中所有包名引用（package 声明、import、代码体内的全限定名）
             info "更新源码中所有包名引用：$OLD_NAMESPACE -> $PACKAGE_NAME"
             find "$NEW_PATH" -type f \( -name "*.kt" -o -name "*.java" \) -print0 | while IFS= read -r -d '' file; do
-                # 全局替换所有 com.push.app -> 新包名（覆盖 package 声明、import、全限定名引用）
                 sed -i "s|$OLD_NAMESPACE|$PACKAGE_NAME|g" "$file"
             done
             # 同时更新 AndroidManifest.xml 中的包名引用
@@ -202,6 +221,10 @@ if [ -n "$PACKAGE_NAME" ]; then
                 info "AndroidManifest.xml 包名已更新"
             fi
             info "源码包名引用已全部更新"
+        elif [ -n "$OLD_PATH" ] && [ "$OLD_PATH" = "$NEW_PATH" ]; then
+            info "源码目录已是目标路径，无需移动"
+        else
+            warn "未找到源码目录（$JAVA_SRC_ROOT 下无 .kt 文件），跳过包名目录移动"
         fi
     else
         warn "未找到 $BUILD_GRADLE，跳过包名修改"
