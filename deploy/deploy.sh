@@ -47,16 +47,40 @@
 
 # ------------------------------------------------------------
 # 自动 sudo 提权(如果非 root,自动用 sudo 重新执行)
-# 这样用户无需手动加 sudo,curl | bash 即可
+# 这样用户无需手动加 sudo,直接 bash deploy.sh 即可
 # ------------------------------------------------------------
 if [[ $EUID -ne 0 ]]; then
-    # 检查是否有 sudo 权限
-    if ! sudo -n true 2>/dev/null; then
+    # 检测是否在 curl | bash 管道模式($0 为 bash/sh,无脚本文件路径)
+    if [[ "$0" == "bash" || "$0" == "-bash" || "$0" == "sh" || "$0" == "-sh" || "$0" == "/bin/bash" || "$0" == "/bin/sh" ]]; then
+        # 管道模式,无法自动 sudo 提权(stdin 已被消费,$0 无文件路径)
+        # 输出友好的提示,引导用户使用正确的执行方式
+        cat <<'EOF'
+
+[ERROR] 此脚本需要 root 权限执行
+
+[INFO] 在 "curl | bash" 管道模式下无法自动 sudo 提权
+[INFO] 请使用以下任一方式执行:
+
+  方式1 (推荐,国内服务器):
+    curl -sSL https://gh.jasonzeng.dev/https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh -o /tmp/deploy.sh && sudo bash /tmp/deploy.sh
+
+  方式2 (直连 GitHub):
+    curl -sSL https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh -o /tmp/deploy.sh && sudo bash /tmp/deploy.sh
+
+  方式3 (本地已有代码):
+    sudo bash deploy/deploy.sh
+
+  方式4 (一行命令,自动 sudo):
+    sudo curl -sSL https://gh.jasonzeng.dev/https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh | sudo bash
+
+EOF
+        exit 1
+    else
+        # 文件模式,可以自动 sudo 提权
         echo "[INFO] 此脚本需要 root 权限,正在通过 sudo 提权..."
         echo "[INFO] 可能需要输入当前用户密码"
+        exec sudo -E bash "$0" "$@"
     fi
-    # 使用 sudo 重新执行,保留所有参数和环境变量
-    exec sudo -E bash "$0" "$@"
 fi
 
 set -e
