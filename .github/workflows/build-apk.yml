@@ -1,0 +1,177 @@
+# .github/workflows/build-apk.yml
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: '构建ID(后端生成,唯一)'
+        required: true
+        type: string
+      app_name:
+        description: '应用名称'
+        required: true
+        type: string
+      package_name:
+        description: '包名(如 com.example.app)'
+        required: false
+        default: ''
+        type: string
+      default_key:
+        description: '推送默认 Key'
+        required: true
+        type: string
+      server_url:
+        description: 'HTTP 服务器地址'
+        required: true
+        type: string
+      ws_url:
+        description: 'WebSocket 地址'
+        required: true
+        type: string
+      icon_base64:
+        description: '图标 base64(可选,不含 data: 前缀)'
+        required: false
+        default: ''
+        type: string
+
+env:
+  JAVA_VERSION: '17'
+  ANDROID_SDK_VERSION: '34'
+  GRADLE_VERSION: '8.7'
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: ${{ env.ANDROID_SDK_VERSION }}
+          build-tools-version: '34.0.0'
+          ndk-version: ''
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+
+      - name: Make build scripts executable
+        run: chmod +x build/build_apk.sh build/inject_config.sh
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.APK_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.APK_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "未配置 keystore Secret,将使用 debug 签名"
+            exit 0
+          fi
+          mkdir -p build/keystore
+          echo "$KEYSTORE_BASE64" | base64 -d > build/keystore/release.keystore
+          cat > build/keystore/keystore.properties <<EOF
+          STORE_FILE=$GITHUB_WORKSPACE/build/keystore/release.keystore
+          KEY_ALIAS=$KEY_ALIAS
+          STORE_PASSWORD=$KEYSTORE_PASSWORD
+          KEY_PASSWORD=$KEY_PASSWORD
+          EOF
+          chmod 600 build/keystore/keystore.properties build/keystore/release.keystore
+          echo "Keystore 已解码"
+
+      - name: Decode icon (if provided)
+        if: ${{ github.event.inputs.icon_base64 != '' }}
+        run: |
+          mkdir -p /tmp/build-icon
+          echo "${{ github.event.inputs.icon_base64 }}" | base64 -d > /tmp/build-icon/icon.png
+          echo "图标已解码: $(file /tmp/build-icon/icon.png)"
+
+      - name: Run build script
+        env:
+          BUILD_ID: ${{ github.event.inputs.build_id }}
+          APP_NAME: ${{ github.event.inputs.app_name }}
+          PACKAGE_NAME: ${{ github.event.inputs.package_name }}
+          DEFAULT_KEY: ${{ github.event.inputs.default_key }}
+          SERVER_URL: ${{ github.event.inputs.server_url }}
+          WS_URL: ${{ github.event.inputs.ws_url }}
+          ICON_PATH: ${{ github.event.inputs.icon_base64 != '' && '/tmp/build-icon/icon.png' || '' }}
+        run: |
+          bash build/build_apk.sh \
+            --build-id "$BUILD_ID" \
+            --app-name "$APP_NAME" \
+            --default-key "$DEFAULT_KEY" \
+            --server-url "$SERVER_URL" \
+            --ws-url "$WS_URL" \
+            --package-name "$PACKAGE_NAME" \
+            --icon-path "$ICON_PATH" \
+            --build-type release
+
+      - name: Read build result
+        id: result
+        if: always()
+        run: |
+          RESULT_FILE="build/output/${{ github.event.inputs.build_id }}/result.json"
+          if [ -f "$RESULT_FILE" ]; then
+            STATUS=$(jq -r '.status // "failed"' "$RESULT_FILE")
+            MESSAGE=$(jq -r '.message // "构建失败"' "$RESULT_FILE")
+            APK_PATH=$(jq -r '.apk_path // ""' "$RESULT_FILE")
+            echo "status=$STATUS" >> $GITHUB_OUTPUT
+            echo "message=$MESSAGE" >> $GITHUB_OUTPUT
+            echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "message=构建未产出 result.json" >> $GITHUB_OUTPUT
+            echo "apk_path=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload APK to server via SCP
+        if: success() && steps.result.outputs.status == 'success'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_SSH_HOST }}
+          port: ${{ secrets.SERVER_SSH_PORT }}
+          username: ${{ secrets.SERVER_SSH_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "build/output/${{ github.event.inputs.build_id }}/app-release.apk"
+          target: "/www/push-system/build/output/${{ github.event.inputs.build_id }}/"
+          strip_components: 3
+
+      - name: Upload build log to server via SCP
+        if: always()
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_SSH_HOST }}
+          port: ${{ secrets.SERVER_SSH_PORT }}
+          username: ${{ secrets.SERVER_SSH_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "build/logs/${{ github.event.inputs.build_id }}.log"
+          target: "/www/push-system/build/logs/"
+          strip_components: 2
+
+      - name: Update build status via SSH
+        if: always()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_SSH_HOST }}
+          port: ${{ secrets.SERVER_SSH_PORT }}
+          username: ${{ secrets.SERVER_SSH_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            php /www/push-system/backend/bin/update_build_status.php \
+              --build-id "${{ github.event.inputs.build_id }}" \
+              --status "${{ steps.result.outputs.status }}" \
+              --message "${{ steps.result.outputs.message }}" \
+              --apk-path "/www/push-system/build/output/${{ github.event.inputs.build_id }}/app-release.apk"

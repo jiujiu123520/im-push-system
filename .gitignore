@@ -39,6 +39,15 @@ app/keystore/
 build/*.apk
 build/*.aab
 build/outputs/
+build/output/
+build/logs/
+build/keystore/
+local.properties
+
+# ---- Android 工程临时注入文件(构建脚本动态生成) ----
+app/inject.gradle
+app/signing.gradle
+app/src/main/assets/build_config.json
 
 # ---- IDE ----
 .idea/

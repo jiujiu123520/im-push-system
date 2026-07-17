@@ -5,6 +5,9 @@ namespace App\Controller;
 
 use App\Middleware\AdminAuth;
 use App\Service\ApkDistributionService;
+use App\Service\Config;
+use App\Service\GitHubActionsService;
+use App\Service\Redis;
 use App\Service\Response;
 
 /**
@@ -30,7 +33,7 @@ class AppBuildController
     private static $available = null;
 
     /**
-     * 检查打包服务是否可用
+     * 检查打包服务是否可用(GitHub Actions 配置是否完整)
      *
      * @return bool
      */
@@ -39,14 +42,12 @@ class AppBuildController
         if (self::$available !== null) {
             return self::$available;
         }
-        $path = dirname(__DIR__, 3) . '/build/queue/BuildQueue.php';
-        if (!is_file($path)) {
-            self::$available = false;
-            return false;
-        }
         try {
-            require_once $path;
-            self::$available = true;
+            $config = Config::get('github', []);
+            $token = $config['token'] ?? '';
+            $owner = $config['owner'] ?? '';
+            $repo = $config['repo'] ?? '';
+            self::$available = !empty($token) && !empty($owner) && !empty($repo);
         } catch (\Throwable $e) {
             self::$available = false;
         }
@@ -77,7 +78,7 @@ class AppBuildController
 
     /**
      * POST /admin/app-build
-     * 提交打包任务
+     * 提交打包任务(通过 GitHub Actions 构建)
      *
      * @param array $context
      * @param array $params
@@ -93,7 +94,7 @@ class AppBuildController
         $response = $context['response'];
 
         if (!self::isAvailable()) {
-            Response::fail($response, '打包服务未配置：缺少 build/queue/BuildQueue.php', Response::CODE_ERROR, 503);
+            Response::fail($response, '打包服务未配置：缺少 GitHub Actions 配置(GITHUB_TOKEN/GITHUB_OWNER/GITHUB_REPO)', Response::CODE_ERROR, 503);
             return false;
         }
 
@@ -112,27 +113,94 @@ class AppBuildController
             return false;
         }
 
-        $config = [
-            'app_name'     => $appName,
-            'default_key'  => (string)($data['default_key'] ?? 'default_key'),
-            'server_url'   => (string)($data['server_url'] ?? ''),
-            'ws_url'       => (string)($data['ws_url'] ?? ''),
-            'icon_path'    => (string)($data['icon_path'] ?? ''),
-            'package_name' => $packageName,
-            'admin_id'     => (int)($payload['admin_id'] ?? 0),
+        $defaultKey = (string)($data['default_key'] ?? 'default_key');
+        $serverUrl = (string)($data['server_url'] ?? '');
+        $wsUrl = (string)($data['ws_url'] ?? '');
+        $iconBase64 = (string)($data['icon_path'] ?? '');  // 前端传的是 base64 字符串
+
+        // 生成 build_id
+        $buildId = 'b' . uniqid() . sprintf('%03d', mt_rand(0, 999));
+        $now = date('Y-m-d H:i:s');
+
+        // 1. 在 Redis 中创建任务记录(用于状态查询)
+        $task = [
+            'build_id'       => $buildId,
+            'app_name'       => $appName,
+            'default_key'    => $defaultKey,
+            'server_url'     => $serverUrl,
+            'ws_url'         => $wsUrl,
+            'icon_path'      => '',  // base64 不存 Redis,通过 inputs 传给 GitHub
+            'package_name'   => $packageName,
+            'admin_id'       => (string)($payload['admin_id'] ?? 0),
+            'status'         => 'pending',
+            'apk_path'       => '',
+            'result_message' => '已提交到 GitHub Actions 队列',
+            'created_at'     => $now,
+            'updated_at'     => $now,
+            'started_at'     => '',
+            'finished_at'    => '',
         ];
 
         try {
-            $buildId = \BuildServer\BuildQueue::submitBuild($config);
+            $redis = Redis::getInstance();
+            foreach ($task as $field => $value) {
+                $redis->hset('build:task:' . $buildId, (string)$field, (string)$value);
+            }
+            $redis->zadd('build:tasks', time(), $buildId);
         } catch (\Throwable $e) {
-            Response::fail($response, '提交打包任务失败：' . $e->getMessage(), Response::CODE_INTERNAL);
+            Response::fail($response, '创建构建任务失败：' . $e->getMessage(), Response::CODE_INTERNAL);
             return false;
+        }
+
+        // 2. 调用 GitHub Actions API 触发 workflow
+        try {
+            $inputs = [
+                'build_id'      => $buildId,
+                'app_name'      => $appName,
+                'package_name'  => $packageName,
+                'default_key'   => $defaultKey,
+                'server_url'    => $serverUrl,
+                'ws_url'        => $wsUrl,
+                'icon_base64'   => $iconBase64,
+            ];
+            $result = GitHubActionsService::triggerBuild($inputs);
+            if (!$result['dispatched']) {
+                // 触发失败,更新状态为 failed
+                $redis->hset('build:task:' . $buildId, 'status', 'failed');
+                $redis->hset('build:task:' . $buildId, 'result_message', $result['message']);
+                $redis->hset('build:task:' . $buildId, 'updated_at', date('Y-m-d H:i:s'));
+                $redis->hset('build:task:' . $buildId, 'finished_at', date('Y-m-d H:i:s'));
+                Response::fail($response, $result['message'], Response::CODE_INTERNAL);
+                return false;
+            }
+        } catch (\Throwable $e) {
+            // API 调用异常,更新状态为 failed
+            try {
+                $redis = Redis::getInstance();
+                $redis->hset('build:task:' . $buildId, 'status', 'failed');
+                $redis->hset('build:task:' . $buildId, 'result_message', '触发 GitHub Actions 失败：' . $e->getMessage());
+                $redis->hset('build:task:' . $buildId, 'updated_at', date('Y-m-d H:i:s'));
+                $redis->hset('build:task:' . $buildId, 'finished_at', date('Y-m-d H:i:s'));
+            } catch (\Throwable $ignore) {
+            }
+            Response::fail($response, '触发 GitHub Actions 失败：' . $e->getMessage(), Response::CODE_INTERNAL);
+            return false;
+        }
+
+        // 3. 更新状态为 processing(workflow 已触发)
+        try {
+            $redis = Redis::getInstance();
+            $redis->hset('build:task:' . $buildId, 'status', 'processing');
+            $redis->hset('build:task:' . $buildId, 'started_at', date('Y-m-d H:i:s'));
+            $redis->hset('build:task:' . $buildId, 'updated_at', date('Y-m-d H:i:s'));
+        } catch (\Throwable $e) {
+            // 状态更新失败不影响返回
         }
 
         return [
             'build_id'  => $buildId,
-            'status'    => 'pending',
-            'message'   => '打包任务已提交，请稍后查询构建状态',
+            'status'    => 'processing',
+            'message'   => '打包任务已提交到 GitHub Actions，请稍后查询构建状态',
             'query_url' => '/admin/app-build/status/' . $buildId,
         ];
     }

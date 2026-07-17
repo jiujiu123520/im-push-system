@@ -33,6 +33,12 @@ KEYSTORE_FILE="$KEYSTORE_DIR/release.keystore"
 
 # ---------------- 资源预检查（防止 2H2G 服务器构建时 OOM，但不限制太死）----------------
 check_resources() {
+    # GitHub Actions 环境跳过资源检查(Runner 7GB 内存,资源充足)
+    if [ -n "$GITHUB_ACTIONS" ] && [ "$GITHUB_ACTIONS" = "true" ]; then
+        echo "[BUILD] 检测到 GitHub Actions 环境,跳过资源预检"
+        return 0
+    fi
+
     # 检查可用内存（至少 80MB 即可启动，配合 swap 兜底）
     # 2G 服务器 MySQL+Redis+PHP 常驻后可用内存常低于 150MB，阈值过高会导致永远无法构建
     local available_mem
@@ -263,6 +269,12 @@ fi
 if [ -n "$JAVA_HOME" ] && [ -d "$JAVA_HOME/bin" ]; then
     export PATH="$JAVA_HOME/bin:$PATH"
     info "JAVA_HOME=$JAVA_HOME"
+fi
+
+# GitHub Actions 环境:将 JAVA_HOME 写入 GITHUB_ENV(供后续步骤使用)
+if [ -n "$GITHUB_ENV" ] && [ -n "$JAVA_HOME" ]; then
+    echo "JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+    echo "PATH=$PATH" >> "$GITHUB_ENV"
 fi
 
 # 设置 Gradle 用户级缓存目录（优先使用环境变量，未设置时用项目内 .gradle）
