@@ -263,6 +263,125 @@ class AppBuildController
     }
 
     /**
+     * POST /admin/app-build/manual-trigger
+     * 手动触发 GitHub Actions 构建(不经过 Redis 队列,直接调用 GitHub API)
+     *
+     * 与 submit() 的区别:
+     *   - submit(): 创建 Redis 任务记录,前端通过 list 接口查询状态
+     *   - manual-trigger(): 不创建 Redis 任务,直接返回 GitHub Actions 运行链接
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function manualTrigger(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+
+        if (!self::isAvailable()) {
+            Response::fail($response, '打包服务未配置：缺少 GitHub Actions 配置(GITHUB_TOKEN/GITHUB_OWNER/GITHUB_REPO)', Response::CODE_ERROR, 503);
+            return false;
+        }
+
+        $data = $this->parseBody($context);
+
+        // 参数校验
+        $appName = trim((string)($data['app_name'] ?? ''));
+        if ($appName === '') {
+            Response::fail($response, '应用名称(app_name)不能为空', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        $packageName = trim((string)($data['package_name'] ?? ''));
+        if ($packageName !== '' && !preg_match('/^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/', $packageName)) {
+            Response::fail($response, '包名格式不正确,需符合 Java 包名规范(如 com.example.app)', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        $defaultKey = (string)($data['default_key'] ?? 'default_key');
+        $serverUrl = (string)($data['server_url'] ?? '');
+        $wsUrl = (string)($data['ws_url'] ?? '');
+        $iconBase64 = (string)($data['icon_base64'] ?? '');
+
+        // 生成 build_id(手动触发也生成,便于关联)
+        $buildId = 'b' . uniqid() . sprintf('%03d', mt_rand(0, 999));
+
+        // 调用 GitHub Actions API 触发 workflow
+        try {
+            $inputs = [
+                'build_id'      => $buildId,
+                'app_name'      => $appName,
+                'package_name'  => $packageName,
+                'default_key'   => $defaultKey,
+                'server_url'    => $serverUrl,
+                'ws_url'        => $wsUrl,
+                'icon_base64'   => $iconBase64,
+            ];
+            $result = GitHubActionsService::triggerBuild($inputs);
+            if (!$result['dispatched']) {
+                Response::fail($response, $result['message'], Response::CODE_INTERNAL);
+                return false;
+            }
+
+            // 读取仓库信息用于返回 actions 页面链接
+            $config = Config::get('github', []);
+            $owner = $config['owner'] ?? '';
+            $repo = $config['repo'] ?? '';
+            $actionsUrl = !empty($owner) && !empty($repo) ? "https://github.com/{$owner}/{$repo}/actions" : '';
+
+            return [
+                'build_id'     => $buildId,
+                'dispatched'   => true,
+                'message'      => '已触发 GitHub Actions 构建,请点击 actions_url 查看运行进度',
+                'actions_url'  => $actionsUrl,
+                'query_url'    => '/admin/app-build/runs',
+            ];
+        } catch (\Throwable $e) {
+            Response::fail($response, '触发 GitHub Actions 失败：' . $e->getMessage(), Response::CODE_INTERNAL);
+            return false;
+        }
+    }
+
+    /**
+     * GET /admin/app-build/runs
+     * 获取 GitHub Actions workflow 最近运行列表
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function runs(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+
+        if (!self::isAvailable()) {
+            Response::fail($response, 'GitHub Actions 配置不完整', Response::CODE_ERROR, 503);
+            return false;
+        }
+
+        $perPage = (int)($_GET['per_page'] ?? 20);
+        $page = (int)($_GET['page'] ?? 1);
+
+        try {
+            $result = GitHubActionsService::queryRunsList($perPage, $page);
+            return $result;
+        } catch (\Throwable $e) {
+            Response::fail($response, '获取运行列表失败：' . $e->getMessage(), Response::CODE_INTERNAL);
+            return false;
+        }
+    }
+
+    /**
      * GET /admin/app-build/list
      * 构建历史列表（分页10条）
      *

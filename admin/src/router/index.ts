@@ -157,6 +157,12 @@ export const asyncRoutes: RouteRecordRaw[] = [
         name: 'AppBuild',
         component: () => import('@/views/app-build/index.vue'),
         meta: { title: 'APP生成', icon: 'Cellphone', cache: true, module: 'app-build' }
+      },
+      {
+        path: 'manual',
+        name: 'AppBuildManual',
+        component: () => import('@/views/app-build-manual/index.vue'),
+        meta: { title: 'GitHub Actions 手动构建', icon: 'Cpu', cache: true, module: 'app-build-manual', roles: ['admin', 'super_admin'] }
       }
     ]
   },

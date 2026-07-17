@@ -29,6 +29,46 @@ export function getAppBuildConfigStatusApi() {
   }>('/admin/app-build/config-status')
 }
 
+// 手动触发 GitHub Actions 构建(不经过 Redis 队列)
+export function manualTriggerBuildApi(data: {
+  app_name: string
+  package_name?: string
+  default_key?: string
+  server_url?: string
+  ws_url?: string
+  icon_base64?: string
+}) {
+  return post<{
+    build_id: string
+    dispatched: boolean
+    message: string
+    actions_url: string
+    query_url: string
+  }>('/admin/app-build/manual-trigger', data)
+}
+
+// 获取 GitHub Actions workflow 运行列表
+export function getWorkflowRunsApi(params: { per_page?: number; page?: number }) {
+  return get<{
+    total: number
+    runs: Array<{
+      id: number
+      name: string
+      build_id: string
+      status: string
+      conclusion: string
+      display_title: string
+      html_url: string
+      created_at: string
+      updated_at: string
+      run_started_at: string
+      actor: string
+      event: string
+      head_branch: string
+    }>
+  }>('/admin/app-build/runs', params)
+}
+
 // 打包详情
 export function getAppBuildDetailApi(id: string) {
   return get<AppBuildRecord>(`/admin/app-build/status/${id}`)

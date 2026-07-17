@@ -222,4 +222,63 @@ class GitHubActionsService
 
         return ['found' => false, 'status' => 'unknown', 'conclusion' => '', 'html_url' => ''];
     }
+
+    /**
+     * 列出最近的 workflow runs(用于手动构建页面展示运行历史)
+     *
+     * @param int $perPage 每页数量(最大 100)
+     * @param int $page 页码
+     * @return array{total: int, runs: array}
+     */
+    public static function queryRunsList(int $perPage = 20, int $page = 1): array
+    {
+        $config = self::config();
+        $owner = $config['owner'] ?? '';
+        $repo = $config['repo'] ?? '';
+        $workflowFile = $config['workflow_file'] ?? 'build-apk.yml';
+
+        if (empty($owner) || empty($repo)) {
+            return ['total' => 0, 'runs' => []];
+        }
+
+        // 限定单 workflow 文件,避免其他 workflow 干扰
+        $perPage = max(1, min(100, $perPage));
+        $page = max(1, $page);
+        $path = "/repos/{$owner}/{$repo}/actions/workflows/{$workflowFile}/runs?per_page={$perPage}&page={$page}";
+        $response = self::request('GET', $path);
+
+        if ($response['status'] !== 200 || !isset($response['json']['workflow_runs'])) {
+            return ['total' => 0, 'runs' => []];
+        }
+
+        $runs = [];
+        foreach ($response['json']['workflow_runs'] as $run) {
+            // 提取 inputs 中的 build_id(若存在)
+            $buildId = '';
+            if (isset($run['name']) && preg_match('/b[0-9a-f]{13}/', (string)$run['name'], $m)) {
+                $buildId = $m[0];
+            }
+
+            $runs[] = [
+                'id'           => (int)($run['id'] ?? 0),
+                'name'         => (string)($run['name'] ?? ''),
+                'build_id'     => $buildId,
+                'status'       => (string)($run['status'] ?? 'unknown'),        // queued, in_progress, completed
+                'conclusion'   => (string)($run['conclusion'] ?? ''),           // success, failure, cancelled
+                'display_title'=> (string)($run['display_title'] ?? ''),
+                'html_url'     => (string)($run['html_url'] ?? ''),
+                'created_at'   => (string)($run['created_at'] ?? ''),
+                'updated_at'   => (string)($run['updated_at'] ?? ''),
+                'run_started_at' => (string)($run['run_started_at'] ?? ''),
+                'actor'        => (string)($run['actor']['login'] ?? ''),
+                'event'        => (string)($run['event'] ?? ''),                 // workflow_dispatch, push, etc.
+                'head_branch'  => (string)($run['head_branch'] ?? ''),
+            ];
+        }
+
+        return [
+            'total' => (int)($response['json']['total_count'] ?? count($runs)),
+            'runs'  => $runs,
+        ];
+    }
 }
