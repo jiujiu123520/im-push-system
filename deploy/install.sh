@@ -3,7 +3,10 @@
 # 即时消息推送系统 - 一键安装脚本（支持所有主流 Linux 发行版）
 #
 # 用法:
-#   sudo bash deploy/install.sh
+#   sudo bash deploy/install.sh                       # 完整安装
+#   sudo bash deploy/install.sh --repair-mysql        # 仅修复 MySQL 安装(3 次重试+自动修复)
+#   sudo bash deploy/install.sh --repair-apt          # 仅修复 apt 缓存损坏
+#   sudo bash deploy/install.sh -h|--help             # 显示帮助
 #
 # 功能:
 #   1. 自动检测系统类型（Ubuntu/Debian/CentOS/RHEL/Rocky/AlmaLinux/
@@ -15,6 +18,13 @@
 #   6. 复制 systemd 服务文件（自动适配 Web 用户）
 #   7. 复制 Nginx 配置（自动适配配置目录）
 #   8. 启动服务
+#   9. MySQL 安装失败自动修复（apt 缓存损坏/残留冲突/OOM 保护,3 次重试）
+#
+# 修复模式说明（--repair-mysql / --repair-apt）:
+#   - 适用于首次安装失败、apt 缓存损坏、dpkg 中断、MySQL 残留冲突等场景
+#   - --repair-mysql  执行 MySQL 安全安装（清理 apt 缓存→清理残留→创建 swap→重装）
+#   - --repair-apt    仅修复 apt 缓存（不重装 MySQL）
+#   - 修复脚本可独立运行,无需执行完整安装流程
 #
 # 注意:
 #   - 脚本必须在 root 或具有 sudo 权限的用户下执行
@@ -24,6 +34,25 @@
 # ============================================================
 
 set -e
+
+# ------------------------------------------------------------
+# 参数解析
+#   --repair-mysql  仅修复 MySQL 安装(跳过其他步骤)
+#   --repair-apt    仅修复 apt 缓存(跳过其他步骤)
+#   -h, --help      显示帮助
+# ------------------------------------------------------------
+REPAIR_MYSQL_MODE="0"
+REPAIR_APT_MODE="0"
+for arg in "$@"; do
+    case "$arg" in
+        --repair-mysql) REPAIR_MYSQL_MODE="1" ;;
+        --repair-apt)   REPAIR_APT_MODE="1" ;;
+        -h|--help)
+            head -n 24 "$0"
+            exit 0
+            ;;
+    esac
+done
 
 # ------------------------------------------------------------
 # 禁用交互式提示（Ubuntu/Debian 安装时可能弹出 needrestart 菜单）
@@ -598,6 +627,169 @@ install_pkgs() {
     esac
 }
 
+# ============================================================
+# APT 缓存修复函数
+# 处理常见 apt 错误:
+#   - "Internal Error, No file name for xxx:amd64"
+#   - "dpkg was interrupted"
+#   - 损坏的 deb 包缓存
+# ============================================================
+repair_apt_cache() {
+    info "修复 apt 缓存..."
+
+    # 1. 清理损坏的 deb 包缓存
+    apt-get clean 2>/dev/null || true
+    rm -rf /var/cache/apt/archives/*.deb 2>/dev/null || true
+    rm -rf /var/lib/apt/lists/* 2>/dev/null || true
+
+    # 2. 清理 dpkg 锁文件和中断状态
+    rm -f /var/lib/dpkg/updates/* 2>/dev/null || true
+    rm -f /var/lib/dpkg/lock* /var/cache/apt/archives/lock 2>/dev/null || true
+    dpkg --configure -a 2>/dev/null || true
+
+    # 3. 修复损坏的依赖
+    DEBIAN_FRONTEND=noninteractive apt-get -f install -y 2>/dev/null || true
+
+    # 4. 切换为阿里云镜像(国内服务器加速,避免源不可用)
+    if grep -q 'archive.ubuntu.com\|security.ubuntu.com' /etc/apt/sources.list 2>/dev/null; then
+        info "切换 apt 源为阿里云镜像(国内加速)..."
+        sed -i 's|archive.ubuntu.com|mirrors.aliyun.com|g; s|security.ubuntu.com|mirrors.aliyun.com|g' /etc/apt/sources.list
+    fi
+
+    # 5. 重新更新索引
+    apt-get update -y 2>/dev/null || true
+
+    info "apt 缓存修复完成"
+}
+
+# ============================================================
+# MySQL 安全安装函数(带自动修复)
+# 处理常见 MySQL 安装失败:
+#   - "Internal Error, No file name for mysql-server:amd64"
+#   - 残留数据冲突
+#   - 内存不足导致初始化失败
+# ============================================================
+install_mysql_safe() {
+    info "安装 MySQL(安全模式,带自动修复)..."
+
+    # 第 1 次尝试:正常安装
+    if install_pkgs mysql-server 2>/tmp/mysql-install-err.log; then
+        info "MySQL 安装成功"
+        return 0
+    fi
+    warn "MySQL 第 1 次安装失败,开始自动修复..."
+
+    # 捕获错误原因
+    if grep -qi "Internal Error, No file name" /tmp/mysql-install-err.log 2>/dev/null; then
+        warn "检测到 apt 缓存损坏错误,执行修复..."
+        repair_apt_cache
+    elif grep -qi "dpkg was interrupted\|status database area\|lock" /tmp/mysql-install-err.log 2>/dev/null; then
+        warn "检测到 dpkg 中断,执行修复..."
+        repair_apt_cache
+    fi
+
+    # 第 2 次尝试:修复后重新安装
+    if install_pkgs mysql-server 2>/tmp/mysql-install-err.log; then
+        info "MySQL 修复后安装成功"
+        return 0
+    fi
+    warn "MySQL 第 2 次安装失败,执行彻底清理..."
+
+    # 第 3 次尝试:彻底清除残留后重装
+    info "彻底清理 MySQL 残留..."
+    systemctl stop mysql 2>/dev/null || true
+    systemctl stop mariadb 2>/dev/null || true
+    systemctl disable mysql 2>/dev/null || true
+    systemctl disable mariadb 2>/dev/null || true
+
+    DEBIAN_FRONTEND=noninteractive apt-get purge -y 'mysql-*' 'mariadb-*' 2>/dev/null || true
+    DEBIAN_FRONTEND=noninteractive apt-get autoremove -y --purge 2>/dev/null || true
+
+    # 删除残留数据和配置
+    rm -rf /var/lib/mysql /var/lib/mysql-files /var/lib/mysql-keyring
+    rm -rf /etc/mysql /var/log/mysql /var/log/mysql.* /var/run/mysqld
+    find /etc -name '*mysql*' -exec rm -f {} \; 2>/dev/null || true
+    find /var -name '*mysql*' -type d -exec rm -rf {} \; 2>/dev/null || true
+
+    # 清理用户和组
+    userdel mysql 2>/dev/null || true
+    groupdel mysql 2>/dev/null || true
+
+    # 再次修复 apt
+    repair_apt_cache
+
+    # 检查内存(2G 服务器常见 OOM 导致 MySQL 初始化失败)
+    AVAILABLE_MEM=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
+    if [[ "${AVAILABLE_MEM}" -lt 500 ]]; then
+        warn "可用内存较低(${AVAILABLE_MEM}MB),创建临时 swap 防止 MySQL 初始化 OOM..."
+        if ! swapon --show 2>/dev/null | grep -q .; then
+            fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048
+            chmod 600 /swapfile
+            mkswap /swapfile
+            swapon /swapfile
+            if ! grep -q '/swapfile' /etc/fstab; then
+                echo '/swapfile none swap sw 0 0' >> /etc/fstab
+            fi
+            info "临时 swap 已创建(2G)"
+        fi
+    fi
+
+    # 第 3 次尝试安装
+    if install_pkgs mysql-server 2>/tmp/mysql-install-err.log; then
+        info "MySQL 彻底清理后安装成功"
+        return 0
+    fi
+
+    # 3 次均失败,输出详细错误并退出
+    error "MySQL 安装失败(已尝试 3 次,含自动修复)"
+    error "最后一次错误信息:"
+    cat /tmp/mysql-install-err.log 2>/dev/null | tail -30
+    error ""
+    error "建议手动排查:"
+    error "  1. 查看完整日志: cat /tmp/mysql-install-err.log"
+    error "  2. 手动修复 apt: sudo apt-get update && sudo apt-get -f install -y"
+    error "  3. 手动安装: sudo apt-get install -y mysql-server"
+    error "  4. 检查内存: free -h"
+    error "  5. 查看系统日志: sudo journalctl -xe | tail -50"
+    return 1
+}
+
+# ============================================================
+# 独立修复模式入口:仅执行修复,跳过其他安装步骤
+# 用法: bash deploy/install.sh --repair-mysql 或 --repair-apt
+# ============================================================
+if [[ "$REPAIR_MYSQL_MODE" == "1" || "$REPAIR_APT_MODE" == "1" ]]; then
+    step "修复模式" "执行独立修复"
+
+    if [[ "$REPAIR_APT_MODE" == "1" || "$PKG_MANAGER" == "apt-get" ]]; then
+        repair_apt_cache
+    else
+        warn "当前系统($PKG_MANAGER)不需要 apt 缓存修复,跳过"
+    fi
+
+    if [[ "$REPAIR_MYSQL_MODE" == "1" ]]; then
+        case "$PKG_MANAGER" in
+            apt-get)
+                install_mysql_safe || {
+                    error "MySQL 修复失败,请查看上方错误信息"
+                    exit 1
+                }
+                ;;
+            *)
+                info "非 apt 系统,尝试直接安装 mysql-server/mariadb-server..."
+                install_pkgs mysql-server 2>/dev/null || install_pkgs mariadb-server 2>/dev/null || {
+                    error "MySQL/MariaDB 安装失败"
+                    exit 1
+                }
+                ;;
+        esac
+        info "MySQL 修复完成"
+    fi
+
+    info "修复模式执行完成"
+    exit 0
+fi
+
 # update_pkg_index  —— 更新包索引
 update_pkg_index() {
     case "$PKG_MANAGER" in
@@ -1015,7 +1207,8 @@ if [[ "$MYSQL_INSTALLED" != "true" ]]; then
     info "安装 MySQL/MariaDB..."
     case "$PKG_MANAGER" in
         apt-get)
-            install_pkgs mysql-server
+            # 使用安全安装函数(带自动修复 apt 缓存、清理残留、OOM 保护)
+            install_mysql_safe || exit 1
             ;;
         dnf|yum)
             # CentOS 7: base 源的 mariadb-server 是 5.5（过旧，不支持 CREATE USER IF NOT EXISTS）

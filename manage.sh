@@ -330,6 +330,89 @@ menu_clean() {
 }
 
 # ------------------------------------------------------------
+# 13. 修复 MySQL 安装
+# 解决错误:
+#   - "E: Internal Error, No file name for mysql-server:amd64"
+#   - "dpkg was interrupted"
+#   - MySQL 残留数据冲突
+#   - 内存不足导致初始化 OOM
+# ------------------------------------------------------------
+menu_repair_mysql() {
+    echo ""
+    echo -e "${COLOR_CYAN}============================================================${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}  MySQL 安装修复${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}============================================================${COLOR_RESET}"
+    echo ""
+    echo "  适用于以下场景:"
+    echo "    - 首次安装 MySQL 失败(${COLOR_YELLOW}E: Internal Error, No file name for mysql-server:amd64${COLOR_RESET})"
+    echo "    - dpkg 中断导致安装包损坏"
+    echo "    - MySQL 残留数据冲突导致无法重新安装"
+    echo "    - 内存不足(2G 服务器)导致 MySQL 初始化 OOM"
+    echo ""
+    echo "  修复策略(3 次重试,自动修复):"
+    echo "    1. 第 1 次: 正常安装尝试"
+    echo "    2. 第 2 次: 修复 apt 缓存后重装"
+    echo "       - 清理 /var/cache/apt/archives/*.deb"
+    echo "       - 清理 /var/lib/apt/lists/*"
+    echo "       - 清理 dpkg 锁文件 + dpkg --configure -a"
+    echo "       - apt-get -f install 修复损坏依赖"
+    echo "       - 切换阿里云镜像源"
+    echo "    3. 第 3 次: 彻底清理残留后重装"
+    echo "       - purge mysql-* / mariadb-*"
+    echo "       - 清理 /var/lib/mysql、/etc/mysql、/var/log/mysql"
+    echo "       - 删除 mysql 用户和组"
+    echo "       - 内存不足 500MB 时创建 2G swap"
+    echo ""
+    echo -e "  ${COLOR_YELLOW}注意:${COLOR_RESET} 此操作需要 root 权限"
+    echo ""
+    read -p "确认执行 MySQL 修复? [y/N] " reply < /dev/tty
+    case "$reply" in
+        [Yy]*)
+            # 检查 root
+            if [[ $EUID -ne 0 ]]; then
+                warn "需要 root 权限,使用 sudo 重新执行..."
+                exec sudo bash "$0" --repair-mysql
+            fi
+            # 调用 install.sh 的修复模式
+            if bash "${PROJECT_DIR}/deploy/install.sh" --repair-mysql; then
+                echo ""
+                info "MySQL 修复成功"
+                echo ""
+                # 验证 MySQL 服务状态
+                echo -e "${COLOR_CYAN}----- MySQL 服务状态 -----${COLOR_RESET}"
+                if systemctl is-active --quiet mysql 2>/dev/null \
+                    || systemctl is-active --quiet mysqld 2>/dev/null \
+                    || systemctl is-active --quiet mariadb 2>/dev/null; then
+                    info "MySQL 服务运行中"
+                else
+                    warn "MySQL 服务未运行,尝试启动..."
+                    systemctl start mysql 2>/dev/null \
+                        || systemctl start mysqld 2>/dev/null \
+                        || systemctl start mariadb 2>/dev/null || true
+                fi
+                # 显示 MySQL 版本
+                if command -v mysql >/dev/null 2>&1; then
+                    mysql --version 2>/dev/null | sed 's/^/  /'
+                fi
+            else
+                error "MySQL 修复失败,请查看上方错误信息"
+                echo ""
+                echo -e "${COLOR_YELLOW}建议手动排查:${COLOR_RESET}"
+                echo "  1. 查看错误日志: cat /tmp/mysql-install-err.log"
+                echo "  2. 手动修复 apt: sudo apt-get update && sudo apt-get -f install -y"
+                echo "  3. 手动安装: sudo apt-get install -y mysql-server"
+                echo "  4. 检查内存: free -h"
+                echo "  5. 查看系统日志: sudo journalctl -xe | tail -50"
+            fi
+            ;;
+        *)
+            info "已取消"
+            ;;
+    esac
+    pause
+}
+
+# ------------------------------------------------------------
 # 6. 修改环境配置
 # ------------------------------------------------------------
 menu_config() {
@@ -636,6 +719,7 @@ main_menu() {
         echo -e "    ${COLOR_GREEN}3.${COLOR_RESET} 重启服务"
         echo -e "    ${COLOR_GREEN}4.${COLOR_RESET} 查看服务状态 + 实时日志"
         echo -e "    ${COLOR_GREEN}5.${COLOR_RESET} 清理缓存(Gradle/NPM/Composer 等)"
+        echo -e "    ${COLOR_GREEN}13.${COLOR_RESET} ${COLOR_YELLOW}修复 MySQL 安装(apt 缓存损坏/残留冲突)${COLOR_RESET}"
         echo ""
         echo -e "  ${COLOR_YELLOW}配置管理${COLOR_RESET}"
         echo -e "    ${COLOR_GREEN}6.${COLOR_RESET} 修改环境配置(端口/数据库/邮件/GitHub)"
@@ -652,7 +736,7 @@ main_menu() {
         echo ""
         echo -e "    ${COLOR_GREEN}0.${COLOR_RESET} 退出"
         echo ""
-        read -p "请输入选项 [0-12]: " choice < /dev/tty
+        read -p "请输入选项 [0-13]: " choice < /dev/tty
 
         case "$choice" in
             1) menu_install ;;
@@ -667,6 +751,7 @@ main_menu() {
             10) menu_uninstall_env ;;
             11) menu_uninstall_source ;;
             12) menu_uninstall_all ;;
+            13) menu_repair_mysql ;;
             0|q|quit|exit)
                 echo ""
                 info "再见!"
@@ -684,6 +769,25 @@ main_menu() {
 # 入口
 # ============================================================
 main() {
+    # 命令行参数支持
+    for arg in "$@"; do
+        case "$arg" in
+            --repair-mysql)
+                # 直接调用修复函数(用于 sudo 重新执行场景)
+                menu_repair_mysql
+                exit $?
+                ;;
+            --menu)
+                main_menu
+                exit 0
+                ;;
+            -h|--help)
+                head -n 10 "$0"
+                exit 0
+                ;;
+        esac
+    done
+
     # 检查是否在项目目录中
     if [[ ! -f "${PROJECT_DIR}/deploy/install.sh" ]]; then
         warn "未检测到项目文件,请在项目根目录执行此脚本"
