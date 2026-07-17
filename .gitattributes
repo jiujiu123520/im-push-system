@@ -1,0 +1,53 @@
+# 自动换行符处理
+# Shell 脚本强制使用 LF（避免 Windows CRLF 导致 bash 解析失败）
+*.sh           text eol=lf
+*.bash         text eol=lf
+
+# PHP 文件使用 LF
+*.php          text eol=lf
+
+# Vue/JS/TS 使用 LF
+*.vue          text eol=lf
+*.js           text eol=lf
+*.ts           text eol=lf
+*.mjs          text eol=lf
+*.cjs          text eol=lf
+*.json         text eol=lf
+*.yml          text eol=lf
+*.yaml         text eol=lf
+
+# Gradle 配置使用 LF
+*.gradle       text eol=lf
+*.gradle.kts   text eol=lf
+*.properties   text eol=lf
+
+# Kotlin/Java 使用 LF
+*.kt           text eol=lf
+*.java         text eol=lf
+
+# HTML/CSS 使用 LF
+*.html         text eol=lf
+*.css          text eol=lf
+*.scss         text eol=lf
+
+# Markdown 使用 LF
+*.md           text eol=lf
+
+# 配置文件使用 LF
+.env*          text eol=lf
+.gitignore     text eol=lf
+.editorconfig  text eol=lf
+
+# 二进制文件（不做换行符转换）
+*.png          binary
+*.jpg          binary
+*.jpeg         binary
+*.gif          binary
+*.ico          binary
+*.svg          binary
+*.keystore     binary
+*.jks          binary
+*.apk          binary
+*.jar          binary
+*.zip          binary
+*.tar.gz       binary
