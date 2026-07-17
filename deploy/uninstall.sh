@@ -94,14 +94,15 @@ if [[ "$SKIP_CONFIRM" != "1" ]]; then
     case "$UNINSTALL_MODE" in
         env)
             warn "即将卸载运行环境(将停止并删除以下服务/软件):"
-            echo "  - systemd 服务: push-http, push-websocket, push-build-worker"
+            echo "  - systemd 服务: push-http, push-websocket"
+            echo "  - (如存在遗留)push-build-worker 服务"
             echo "  - PHP 8.x + Swoole 扩展"
             echo "  - MySQL/MariaDB(数据库数据将保留)"
             echo "  - Redis"
             echo "  - Nginx(配置文件将删除)"
             echo "  - Node.js + npm"
             echo "  - Composer"
-            echo "  - JDK + Android SDK + Gradle(如已安装)"
+            echo "  - (如已安装)JDK + Android SDK + Gradle(旧版本遗留)"
             echo "  - 系统配置: sudoers、cron、swap"
             echo "  源码目录 ${PROJECT_DIR} 将保留"
             ;;

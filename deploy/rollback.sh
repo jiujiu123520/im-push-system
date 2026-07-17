@@ -153,15 +153,20 @@ systemctl restart push-websocket
 sleep 1
 info "push-websocket 已重启。"
 
-systemctl restart push-build-worker
-info "push-build-worker 已重启。"
+# 注意:APP 打包已迁移到 GitHub Actions,不再需要 push-build-worker 服务
+# 如果存在遗留的 push-build-worker 服务,停止并禁用
+if systemctl list-unit-files 2>/dev/null | grep -q 'push-build-worker'; then
+    systemctl stop push-build-worker 2>/dev/null || true
+    systemctl disable push-build-worker 2>/dev/null || true
+    info "已停止并禁用遗留的 push-build-worker 服务"
+fi
 
 # ------------------------------------------------------------
 # 健康检查
 # ------------------------------------------------------------
 echo ""
 info "服务状态："
-for svc in push-http push-websocket push-build-worker; do
+for svc in push-http push-websocket; do
     if systemctl is-active --quiet "${svc}"; then
         echo -e "  ${COLOR_GREEN}●${COLOR_RESET} ${svc}    [运行中]"
     else

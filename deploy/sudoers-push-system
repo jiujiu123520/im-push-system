@@ -1,6 +1,5 @@
 # IM Push System - 允许 www-data 用户重启相关服务
+# 注意:APP 打包已迁移到 GitHub Actions,不再需要 push-build-worker 服务
 www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-http
 www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-websocket
-www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-build-worker
 www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-http push-websocket
-www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-http push-websocket push-build-worker

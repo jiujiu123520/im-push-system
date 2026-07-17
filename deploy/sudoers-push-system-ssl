@@ -7,17 +7,17 @@
 #   sudo visudo -c
 #
 # 包含：
-#   1. 端口变更后重启 push-http / push-websocket / push-build-worker 服务
+#   1. 端口变更后重启 push-http / push-websocket 服务
 #   2. SSL 证书申请（acme.sh）与 Nginx 配置部署
 #   3. ACME webroot 与 SSL 证书目录管理
+#
+# 注意:APP 打包已迁移到 GitHub Actions,不再需要 push-build-worker 服务
 # ============================================================
 
 # ---------- 端口变更自动重启服务 ----------
 www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-http
 www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-websocket
-www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-build-worker
 www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-http push-websocket
-www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart push-http push-websocket push-build-worker
 
 # ---------- acme.sh 证书申请与管理 ----------
 # 支持多路径 acme.sh 安装位置（root/ubuntu/全局）

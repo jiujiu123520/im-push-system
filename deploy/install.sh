@@ -48,8 +48,9 @@ REDIS_PORT="${REDIS_PORT:-6379}"
 HTTP_PORT="${HTTP_PORT:-9501}"
 WEBSOCKET_PORT="${WEBSOCKET_PORT:-9502}"
 
-# 安装选项（默认全部安装）
-INSTALL_ANDROID="${INSTALL_ANDROID:-1}"
+# 安装选项（默认安装 SSL 和 sudoers）
+# 注意:APP 打包已迁移到 GitHub Actions,不再需要本地安装 JDK/Android SDK/Gradle
+INSTALL_ANDROID="0"
 INSTALL_SSL="${INSTALL_SSL:-1}"
 INSTALL_SUDOERS="${INSTALL_SUDOERS:-1}"
 
@@ -468,38 +469,51 @@ echo -e "${COLOR_CYAN}==========================================================
 echo -e "${COLOR_CYAN}  即时消息推送系统 - 交互式安装${COLOR_RESET}"
 echo -e "${COLOR_CYAN}============================================================${COLOR_RESET}"
 echo ""
-echo "请选择安装组件（输入数字，多个用空格分隔，如: 2 3 4 或 all）："
+echo "请选择操作（输入数字）："
 echo ""
-echo -e "  ${COLOR_GREEN}1.${COLOR_RESET} 核心服务（PHP+Swoole+MySQL+Redis+Nginx+管理后台）  [必选]"
-echo -e "  ${COLOR_GREEN}2.${COLOR_RESET} Android APP 打包环境（JDK 17 + Android SDK + Gradle 8.7）"
-echo -e "  ${COLOR_GREEN}3.${COLOR_RESET} SSL 证书自动申请环境（acme.sh + 自动续费 cron）"
-echo -e "  ${COLOR_GREEN}4.${COLOR_RESET} sudoers 权限配置（允许 Web 用户重启服务/部署 Nginx）"
-echo -e "  ${COLOR_GREEN}all.${COLOR_RESET} 安装全部（1+2+3+4）"
+echo -e "  ${COLOR_GREEN}1.${COLOR_RESET} 安装核心服务（PHP+Swoole+MySQL+Redis+Nginx+管理后台）  [必选]"
+echo -e "  ${COLOR_GREEN}2.${COLOR_RESET} 安装 SSL 证书自动申请环境（acme.sh + 自动续费 cron）"
+echo -e "  ${COLOR_GREEN}3.${COLOR_RESET} 配置 sudoers 权限（允许 Web 用户重启服务/部署 Nginx）"
+echo -e "  ${COLOR_GREEN}all.${COLOR_RESET} 安装全部（1+2+3）"
 echo -e "  ${COLOR_GREEN}0.${COLOR_RESET} 仅核心服务（不安装可选组件）"
+echo ""
+echo -e "  ${COLOR_RED}uninstall.${COLOR_RESET} 卸载系统（环境/源码/完全卸载）"
+echo ""
+echo -e "  ${COLOR_YELLOW}提示:APP 打包已迁移到 GitHub Actions,无需在服务器安装 JDK/Android SDK/Gradle${COLOR_RESET}"
+echo -e "  ${COLOR_YELLOW}      如需本地打包,请在管理后台「APP 生成 - GitHub Actions 手动构建」配置${COLOR_RESET}"
 echo ""
 
 # 读取用户选择（使用 /dev/tty 确保管道模式下也能读取）
-read -p "请输入要安装的组件编号 [默认 all]: " USER_CHOICE < /dev/tty
+read -p "请输入选项 [默认 all]: " USER_CHOICE < /dev/tty
 [[ -z "$USER_CHOICE" ]] && USER_CHOICE="all"
+
+# 卸载选项:直接调用卸载脚本
+if [[ "$USER_CHOICE" == "uninstall" || "$USER_CHOICE" == "u" ]]; then
+    UNINSTALL_SCRIPT="${PROJECT_DIR}/deploy/uninstall.sh"
+    if [[ -f "$UNINSTALL_SCRIPT" ]]; then
+        info "启动卸载向导..."
+        bash "$UNINSTALL_SCRIPT"
+    else
+        error "卸载脚本不存在: $UNINSTALL_SCRIPT"
+    fi
+    exit 0
+fi
 
 # 解析用户输入
 SELECTED=""
 case "$(echo "$USER_CHOICE" | tr '[:upper:]' '[:lower:]')" in
     all|a)
-        INSTALL_ANDROID=1
         INSTALL_SSL=1
         INSTALL_SUDOERS=1
-        SELECTED="2 3 4"
+        SELECTED="2 3"
         ;;
     0|none|n)
-        INSTALL_ANDROID=0
         INSTALL_SSL=0
         INSTALL_SUDOERS=0
         SELECTED=""
         ;;
     *)
-        # 解析数字组合（如 "2 3" 或 "2,3" 或 "234"）
-        INSTALL_ANDROID=0
+        # 解析数字组合（如 "2 3" 或 "2,3" 或 "23"）
         INSTALL_SSL=0
         INSTALL_SUDOERS=0
         # 标准化输入：逗号转空格
@@ -507,23 +521,21 @@ case "$(echo "$USER_CHOICE" | tr '[:upper:]' '[:lower:]')" in
         for num in $CHOICE_NORMALIZED; do
             case "$num" in
                 1) ;; # 核心服务必选，无需处理
-                2) INSTALL_ANDROID=1; SELECTED="${SELECTED} 2";;
-                3) INSTALL_SSL=1;     SELECTED="${SELECTED} 3";;
-                4) INSTALL_SUDOERS=1; SELECTED="${SELECTED} 4";;
-                [2-4][2-4]|[2-4][2-4][2-4])
-                    # 支持 "234" 连续输入形式
+                2) INSTALL_SSL=1;     SELECTED="${SELECTED} 2";;
+                3) INSTALL_SUDOERS=1; SELECTED="${SELECTED} 3";;
+                [2-3][2-3])
+                    # 支持 "23" 连续输入形式
                     for ((i=0; i<${#num}; i++)); do
                         c="${num:$i:1}"
                         case "$c" in
-                            2) INSTALL_ANDROID=1;;
-                            3) INSTALL_SSL=1;;
-                            4) INSTALL_SUDOERS=1;;
+                            2) INSTALL_SSL=1;;
+                            3) INSTALL_SUDOERS=1;;
                         esac
                     done
                     SELECTED="${SELECTED} ${num}"
                     ;;
                 *)
-                    warn "忽略无效输入: ${num}（有效选项: 1-4 / all / 0）"
+                    warn "忽略无效输入: ${num}（有效选项: 1-3 / all / 0 / uninstall）"
                     ;;
             esac
         done
@@ -533,7 +545,6 @@ esac
 echo ""
 info "安装选项："
 echo "  核心服务:         安装 [必选]"
-echo "  Android 打包:    $([[ "$INSTALL_ANDROID" == "1" ]] && echo -e "${COLOR_GREEN}安装${COLOR_RESET}" || echo '跳过')"
 echo "  SSL 证书环境:    $([[ "$INSTALL_SSL" == "1" ]] && echo -e "${COLOR_GREEN}安装${COLOR_RESET}" || echo '跳过')"
 echo "  sudoers 配置:    $([[ "$INSTALL_SUDOERS" == "1" ]] && echo -e "${COLOR_GREEN}配置${COLOR_RESET}" || echo '跳过')"
 echo ""
@@ -1793,16 +1804,22 @@ if [[ "$PHP_FPM_STARTED" == "false" ]]; then
 fi
 
 # 启动推送服务
-systemctl enable push-http push-websocket push-build-worker
+# 注意:APP 打包已迁移到 GitHub Actions,不再需要 push-build-worker 服务
+systemctl enable push-http push-websocket 2>/dev/null || true
 systemctl restart push-http
 sleep 1
 systemctl restart push-websocket
-sleep 1
-systemctl restart push-build-worker
+
+# 如果存在遗留的 push-build-worker 服务,停止并禁用(已迁移到 GitHub Actions)
+if systemctl list-unit-files 2>/dev/null | grep -q 'push-build-worker'; then
+    systemctl stop push-build-worker 2>/dev/null || true
+    systemctl disable push-build-worker 2>/dev/null || true
+    info "已停止并禁用遗留的 push-build-worker 服务(APP 打包已迁移到 GitHub Actions)"
+fi
 
 # 查看服务状态
 info "核心服务状态："
-for svc in push-http push-websocket push-build-worker; do
+for svc in push-http push-websocket; do
     if systemctl is-active --quiet "${svc}"; then
         echo -e "  ${COLOR_GREEN}●${COLOR_RESET} ${svc}    [运行中]"
     else
@@ -1811,55 +1828,10 @@ for svc in push-http push-websocket push-build-worker; do
 done
 
 # ============================================================
-# 步骤 8: 安装 Android APP 打包环境（可选）
-# ============================================================
-if [[ "$INSTALL_ANDROID" == "1" ]]; then
-    step "8" "安装 Android APP 打包环境"
-
-    # 创建 swap 交换分区（2G 内存服务器构建 Android 时防止 OOM 卡死）
-    # 3G swap：JVM 堆 768m + 系统服务 ~1G，swap 兜底构建峰值内存
-    SWAP_SIZE_MB=3072
-    CURRENT_SWAP=$(swapon --show 2>/dev/null | tail -n +2 | wc -l)
-    TOTAL_SWAP_MB=$(awk '/SwapTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
-    if [[ "${CURRENT_SWAP}" -eq 0 ]] && [[ "${TOTAL_SWAP_MB}" -lt 2048 ]]; then
-        info "创建 ${SWAP_SIZE_MB}MB swap 交换分区（防止 Android 构建时 OOM）..."
-        if fallocate -l "${SWAP_SIZE_MB}M" /swapfile 2>/dev/null; then
-            chmod 600 /swapfile
-            mkswap /swapfile
-            swapon /swapfile
-            # 持久化到 fstab
-            if ! grep -q '/swapfile' /etc/fstab; then
-                echo '/swapfile none swap sw 0 0' >> /etc/fstab
-            fi
-            # swappiness=20：构建期间适度使用 swap，避免 OOM 但不过度拖慢
-            sysctl -w vm.swappiness=20 >/dev/null 2>&1 || true
-            # 持久化 swappiness
-            if ! grep -q 'vm.swappiness' /etc/sysctl.conf 2>/dev/null; then
-                echo 'vm.swappiness=20' >> /etc/sysctl.conf
-            fi
-            info "swap 创建完成（${SWAP_SIZE_MB}MB）"
-        else
-            warn "swap 创建失败（fallocate 不支持），建议手动创建 swap"
-        fi
-    else
-        info "swap 已存在（${TOTAL_SWAP_MB}MB），跳过创建"
-        # 确保 swappiness 设置合理
-        sysctl -w vm.swappiness=20 >/dev/null 2>&1 || true
-    fi
-
-    ANDROID_SETUP="${PROJECT_DIR}/build/setup.sh"
-    if [ -f "${ANDROID_SETUP}" ]; then
-        bash "${ANDROID_SETUP}" || warn "Android 环境安装部分失败，可稍后手动执行 build/setup.sh"
-    else
-        warn "Android 打包环境脚本不存在: ${ANDROID_SETUP}"
-    fi
-fi
-
-# ============================================================
-# 步骤 9: 安装 SSL 证书自动申请环境（可选）
+# 步骤 8: 安装 SSL 证书自动申请环境（可选）
 # ============================================================
 if [[ "$INSTALL_SSL" == "1" ]]; then
-    step "9" "安装 SSL 证书自动申请环境"
+    step "8" "安装 SSL 证书自动申请环境"
     ACME_SETUP="${PROJECT_DIR}/backend/deploy/ssl/setup-acme.sh"
     if [ -f "${ACME_SETUP}" ]; then
         bash "${ACME_SETUP}" || warn "acme.sh 安装部分失败，可稍后手动执行"
@@ -1878,10 +1850,10 @@ if [[ "$INSTALL_SSL" == "1" ]]; then
 fi
 
 # ============================================================
-# 步骤 10: 配置 sudoers 权限（可选）
+# 步骤 9: 配置 sudoers 权限（可选）
 # ============================================================
 if [[ "$INSTALL_SUDOERS" == "1" ]]; then
-    step "10" "配置 sudoers 权限"
+    step "9" "配置 sudoers 权限"
     SUDOERS_FILE="${PROJECT_DIR}/deploy/sudoers-push-system-ssl"
     if [ -f "${SUDOERS_FILE}" ]; then
         # 动态替换 www-data 为当前发行版的 Web 用户
@@ -1917,9 +1889,6 @@ echo "数据库:      ${DB_NAME}（用户: ${DB_USER}）"
 echo "HTTP API:    http://127.0.0.1:${HTTP_PORT}"
 echo "WebSocket:   ws://127.0.0.1:${WEBSOCKET_PORT}/ws"
 echo ""
-if [[ "$INSTALL_ANDROID" == "1" ]]; then
-echo "Android:    JDK 17 + Android SDK 34 + Gradle 8.7  [已安装]"
-fi
 if [[ "$INSTALL_SSL" == "1" ]]; then
 echo "SSL:        acme.sh + 自动续费 cron  [已安装]"
 fi
@@ -1933,14 +1902,16 @@ echo ""
 warn "请尽快修改默认管理员密码与数据库密码！"
 echo ""
 info "常用命令："
-echo "  查看服务状态: systemctl status push-http push-websocket push-build-worker"
+echo "  查看服务状态: systemctl status push-http push-websocket"
 echo "  查看服务日志: journalctl -u push-http -f"
 echo "  版本检查:     sudo bash ${PROJECT_DIR}/backend/deploy/check-version.sh"
 echo "  更新代码:     sudo bash ${PROJECT_DIR}/backend/deploy/update.sh"
 echo "  回滚代码:     sudo bash ${PROJECT_DIR}/deploy/rollback.sh"
+echo "  交互式管理:   sudo bash ${PROJECT_DIR}/manage.sh"
+echo "  卸载系统:     sudo bash ${PROJECT_DIR}/deploy/uninstall.sh"
 echo ""
 info "管理后台操作："
 echo "  域名与SSL:    添加域名 → 申请SSL → 部署Nginx"
 echo "  系统设置:     修改端口/地址/SSL开关（自动重启服务）"
-echo "  APP打包:      管理后台「APP生成」页面在线打包"
+echo "  APP打包:      管理后台「APP生成」页面（通过 GitHub Actions 在线打包）"
 echo ""
