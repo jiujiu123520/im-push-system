@@ -144,7 +144,7 @@ GITHUB_API_TIMEOUT=30</pre>
 cat ~/.ssh/github_actions_key.pub >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
 cat ~/.ssh/github_actions_key</pre>
-              <el-button size="small" :icon="DocumentCopyIcon" @click="copyCommand('ssh-keygen -t ed25519 -C "github-actions-build" -f ~/.ssh/github_actions_key -N ""')" class="copy-btn">复制命令</el-button>
+              <el-button size="small" :icon="DocumentCopyIcon" @click="copySshKeygenCommand" class="copy-btn">复制命令</el-button>
             </div>
             <p class="section-tip">
               <el-icon><InfoFilledIcon /></el-icon>
@@ -777,6 +777,11 @@ async function copyCommand(cmd: string) {
   } catch {
     ElMessage.warning('复制失败,请手动选择复制')
   }
+}
+
+// SSH 密钥生成命令(单独函数避免模板中引号嵌套)
+async function copySshKeygenCommand() {
+  await copyCommand('ssh-keygen -t ed25519 -C "github-actions-build" -f ~/.ssh/github_actions_key -N ""')
 }
 
 const iconGradientStyle = computed(() => ({
