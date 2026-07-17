@@ -683,7 +683,6 @@ import {
   getAppBuildListApi,
   createAppBuildApi,
   getBuildLogApi,
-  retryAppBuildApi,
   deleteAppBuildApi,
   getRandomConfigApi,
   generateIconApi,
