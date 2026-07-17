@@ -11,6 +11,24 @@ export function getAppBuildListApi(params: PageQuery) {
   return get<PageResult<AppBuildRecord>>('/admin/app-build/list', params)
 }
 
+// 获取 GitHub Actions 构建配置状态
+export function getAppBuildConfigStatusApi() {
+  return get<{
+    available: boolean
+    token_configured: boolean
+    owner: string
+    repo: string
+    workflow_file: string
+    api_proxy: string
+    repo_url: string
+    actions_url: string
+    secrets_url: string
+    token_create_url: string
+    required_secrets: Array<{ name: string; description: string; required: boolean }>
+    required_env: Array<{ name: string; description: string }>
+  }>('/admin/app-build/config-status')
+}
+
 // 打包详情
 export function getAppBuildDetailApi(id: string) {
   return get<AppBuildRecord>(`/admin/app-build/status/${id}`)

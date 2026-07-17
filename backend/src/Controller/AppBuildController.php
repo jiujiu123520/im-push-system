@@ -206,6 +206,63 @@ class AppBuildController
     }
 
     /**
+     * GET /admin/app-build/config-status
+     * 获取 GitHub Actions 构建配置状态(供前端展示配置提示)
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function configStatus(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        // 读取 GitHub 配置(屏蔽敏感信息)
+        $config = Config::get('github', []);
+        $token = $config['token'] ?? '';
+        $owner = $config['owner'] ?? '';
+        $repo = $config['repo'] ?? '';
+        $workflowFile = $config['workflow_file'] ?? 'build-apk.yml';
+        $apiProxy = $config['api_proxy'] ?? '';
+
+        // 构建配置状态(不返回 token 实际值,只返回是否已配置)
+        return [
+            'available'        => !empty($token) && !empty($owner) && !empty($repo),
+            'token_configured' => !empty($token),
+            'owner'            => $owner,
+            'repo'             => $repo,
+            'workflow_file'    => $workflowFile,
+            'api_proxy'        => $apiProxy,
+            'repo_url'         => !empty($owner) && !empty($repo) ? "https://github.com/{$owner}/{$repo}" : '',
+            'actions_url'      => !empty($owner) && !empty($repo) ? "https://github.com/{$owner}/{$repo}/actions" : '',
+            'secrets_url'      => !empty($owner) && !empty($repo) ? "https://github.com/{$owner}/{$repo}/settings/secrets/actions" : '',
+            'token_create_url' => 'https://github.com/settings/tokens',
+            // 需要在 GitHub 仓库配置的 Secrets 清单
+            'required_secrets' => [
+                ['name' => 'APK_KEYSTORE_BASE64', 'description' => 'keystore 文件 base64 编码', 'required' => true],
+                ['name' => 'APK_KEYSTORE_PASSWORD', 'description' => 'keystore 密码', 'required' => true],
+                ['name' => 'APK_KEY_ALIAS', 'description' => '密钥别名(通常 release)', 'required' => true],
+                ['name' => 'APK_KEY_PASSWORD', 'description' => '密钥密码', 'required' => true],
+                ['name' => 'SERVER_SSH_HOST', 'description' => '服务器 IP(如 124.220.64.209)', 'required' => true],
+                ['name' => 'SERVER_SSH_PORT', 'description' => 'SSH 端口(通常 22)', 'required' => true],
+                ['name' => 'SERVER_SSH_USER', 'description' => 'SSH 登录用户(如 ubuntu)', 'required' => true],
+                ['name' => 'SERVER_SSH_KEY', 'description' => 'SSH 私钥(完整内容,含 BEGIN/END 行)', 'required' => true],
+            ],
+            // 服务器端 .env 需要配置的环境变量
+            'required_env' => [
+                ['name' => 'GITHUB_TOKEN', 'description' => 'GitHub Personal Access Token(repo + workflow 权限)'],
+                ['name' => 'GITHUB_OWNER', 'description' => '仓库所有者(用户名或组织名)'],
+                ['name' => 'GITHUB_REPO', 'description' => '仓库名'],
+                ['name' => 'GITHUB_WORKFLOW_FILE', 'description' => 'Workflow 文件名(默认 build-apk.yml)'],
+                ['name' => 'GITHUB_API_PROXY', 'description' => 'GitHub API 代理(国内服务器用 https://gh.jasonzeng.dev/)'],
+            ],
+        ];
+    }
+
+    /**
      * GET /admin/app-build/list
      * 构建历史列表（分页10条）
      *

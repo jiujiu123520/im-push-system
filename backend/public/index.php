@@ -71,6 +71,7 @@ if ($runWs) {
         // ------------------------------------------------------------
         $router->post('/admin/app-build', [\App\Controller\AppBuildController::class, 'submit']);
         $router->get('/admin/app-build/list', [\App\Controller\AppBuildController::class, 'list']);
+        $router->get('/admin/app-build/config-status', [\App\Controller\AppBuildController::class, 'configStatus']);
         $router->get('/admin/app-build/status/{build_id}', [\App\Controller\AppBuildController::class, 'status']);
         $router->get('/admin/app-build/log/{build_id}', [\App\Controller\AppBuildController::class, 'log']);
         $router->get('/admin/app-build/log/{build_id}/download', [\App\Controller\AppBuildController::class, 'downloadLog']);

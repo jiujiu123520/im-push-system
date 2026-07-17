@@ -36,6 +36,165 @@
       </div>
     </div>
 
+    <!-- GitHub Actions 配置提示面板 -->
+    <el-collapse v-model="configCollapse" class="config-panel">
+      <el-collapse-item name="config" :title="configPanelTitle">
+        <div class="config-content">
+          <!-- 配置状态总览 -->
+          <el-alert
+            :title="configStatus.available ? '✅ GitHub Actions 构建已就绪' : '⚠️ GitHub Actions 构建未配置,无法提交构建任务'"
+            :type="configStatus.available ? 'success' : 'warning'"
+            :closable="false"
+            show-icon
+            class="config-alert"
+          />
+
+          <!-- 服务器端 .env 配置状态 -->
+          <div class="config-section">
+            <h4 class="section-title">
+              <el-icon><MonitorIcon /></el-icon>
+              服务器端 .env 配置
+              <el-tag v-if="configStatus.available" type="success" size="small" round>已配置</el-tag>
+              <el-tag v-else type="danger" size="small" round>未配置</el-tag>
+            </h4>
+            <p class="section-desc">
+              配置文件路径: <code class="code-text">/www/push-system/backend/.env</code>
+            </p>
+            <el-table :data="configStatus.required_env" size="small" border class="env-table">
+              <el-table-column prop="name" label="环境变量" width="220">
+                <template #default="{ row }">
+                  <code class="code-text">{{ row.name }}</code>
+                </template>
+              </el-table-column>
+              <el-table-column prop="description" label="说明" />
+            </el-table>
+            <div class="config-block">
+              <p class="block-title">配置示例(追加到 .env 末尾):</p>
+              <pre class="code-block">GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+GITHUB_OWNER=jiujiu123520
+GITHUB_REPO=im-push-system
+GITHUB_WORKFLOW_FILE=build-apk.yml
+GITHUB_API_PROXY=https://gh.jasonzeng.dev/
+GITHUB_API_TIMEOUT=30</pre>
+            </div>
+            <p class="section-tip">
+              <el-icon><InfoFilledIcon /></el-icon>
+              创建 Token: <el-link type="primary" :href="configStatus.token_create_url" target="_blank">{{ configStatus.token_create_url }}</el-link>
+              <span class="tip-sep">|</span>
+              <span class="tip-text">权限要求: <code class="code-text">repo</code> + <code class="code-text">workflow</code></span>
+            </p>
+          </div>
+
+          <!-- GitHub 仓库 Secrets 配置 -->
+          <div class="config-section">
+            <h4 class="section-title">
+              <el-icon><KeyIconComp /></el-icon>
+              GitHub 仓库 Secrets
+              <el-link
+                v-if="configStatus.secrets_url"
+                type="primary"
+                :href="configStatus.secrets_url"
+                target="_blank"
+                class="config-link"
+              >
+                前往配置 →
+              </el-link>
+            </h4>
+            <p class="section-desc">
+              在 GitHub 仓库 <el-link v-if="configStatus.repo_url" type="primary" :href="configStatus.repo_url" target="_blank">{{ configStatus.owner }}/{{ configStatus.repo }}</el-link> <span v-else>owner/repo</span> 的 Settings → Secrets and variables → Actions 中添加以下 Secrets:
+            </p>
+            <el-table :data="configStatus.required_secrets" size="small" border class="env-table">
+              <el-table-column prop="name" label="Secret 名称" width="220">
+                <template #default="{ row }">
+                  <code class="code-text">{{ row.name }}</code>
+                </template>
+              </el-table-column>
+              <el-table-column prop="description" label="说明" />
+            </el-table>
+          </div>
+
+          <!-- Keystore base64 获取命令 -->
+          <div class="config-section">
+            <h4 class="section-title">
+              <el-icon><BoxIcon /></el-icon>
+              Keystore base64 获取命令
+            </h4>
+            <p class="section-desc">
+              在服务器执行以下命令获取 <code class="code-text">APK_KEYSTORE_BASE64</code> 的值(用于配置 GitHub Secret):
+            </p>
+            <div class="config-block">
+              <pre class="code-block">base64 -w 0 /www/push-system/build/keystore/release.keystore</pre>
+              <el-button size="small" :icon="DocumentCopyIcon" @click="copyCommand('base64 -w 0 /www/push-system/build/keystore/release.keystore')" class="copy-btn">复制命令</el-button>
+            </div>
+            <p class="section-tip">
+              <el-icon><InfoFilledIcon /></el-icon>
+              如未生成 keystore,可执行 <code class="code-text">bash build/generate_keystore.sh</code> 生成(在服务器项目根目录下)
+            </p>
+          </div>
+
+          <!-- SSH 密钥配置 -->
+          <div class="config-section">
+            <h4 class="section-title">
+              <el-icon><ConnectionIcon /></el-icon>
+              SSH 密钥配置(供 GitHub Actions SCP 上传)
+            </h4>
+            <p class="section-desc">在服务器生成专用密钥对(如已有可跳过):</p>
+            <div class="config-block">
+              <pre class="code-block">ssh-keygen -t ed25519 -C "github-actions-build" -f ~/.ssh/github_actions_key -N ""
+cat ~/.ssh/github_actions_key.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+cat ~/.ssh/github_actions_key</pre>
+              <el-button size="small" :icon="DocumentCopyIcon" @click="copyCommand('ssh-keygen -t ed25519 -C "github-actions-build" -f ~/.ssh/github_actions_key -N ""')" class="copy-btn">复制命令</el-button>
+            </div>
+            <p class="section-tip">
+              <el-icon><InfoFilledIcon /></el-icon>
+              将 <code class="code-text">cat ~/.ssh/github_actions_key</code> 的完整输出(含 <code class="code-text">-----BEGIN/END OPENSSH PRIVATE KEY-----</code>)填入 GitHub Secret <code class="code-text">SERVER_SSH_KEY</code>
+            </p>
+          </div>
+
+          <!-- 构建流程说明 -->
+          <div class="config-section">
+            <h4 class="section-title">
+              <el-icon><CpuIcon /></el-icon>
+              构建流程说明
+            </h4>
+            <el-timeline class="flow-timeline">
+              <el-timeline-item type="primary" timestamp="1" placement="top">
+                <p>前端提交构建任务 → 后端 <code class="code-text">/admin/app-build</code></p>
+              </el-timeline-item>
+              <el-timeline-item type="primary" timestamp="2" placement="top">
+                <p>后端调用 GitHub API 触发 <code class="code-text">workflow_dispatch</code>(通过 gh.jasonzeng.dev 代理)</p>
+              </el-timeline-item>
+              <el-timeline-item type="primary" timestamp="3" placement="top">
+                <p>GitHub Actions Runner 启动 → checkout 代码 → setup JDK 17 + Android SDK + Gradle</p>
+              </el-timeline-item>
+              <el-timeline-item type="primary" timestamp="4" placement="top">
+                <p>解码 keystore Secret → 执行 <code class="code-text">build_apk.sh</code> 构建 APK</p>
+              </el-timeline-item>
+              <el-timeline-item type="success" timestamp="5" placement="top">
+                <p>SCP 上传 APK 到服务器 <code class="code-text">/www/push-system/build/output/{build_id}/</code></p>
+              </el-timeline-item>
+              <el-timeline-item type="success" timestamp="6" placement="top">
+                <p>SSH 调用 <code class="code-text">update_build_status.php</code> 更新 Redis 状态</p>
+              </el-timeline-item>
+              <el-timeline-item type="success" timestamp="7" placement="top">
+                <p>前端轮询 list 接口获取最新状态 → 可下载 APK</p>
+              </el-timeline-item>
+            </el-timeline>
+            <p class="section-tip">
+              <el-icon><InfoFilledIcon /></el-icon>
+              GitHub Actions 运行状态: <el-link v-if="configStatus.actions_url" type="primary" :href="configStatus.actions_url" target="_blank">{{ configStatus.actions_url }}</el-link>
+            </p>
+          </div>
+
+          <!-- 刷新按钮 -->
+          <div class="config-footer">
+            <el-button :icon="RefreshIcon" @click="fetchConfigStatus">重新检测配置</el-button>
+          </div>
+        </div>
+      </el-collapse-item>
+    </el-collapse>
+
     <!-- 主体：左侧表单 + 右侧构建历史 -->
     <div class="build-grid">
       <!-- 左侧：配置表单 -->
@@ -516,7 +675,9 @@ import {
   MagicStick as MagicStickIcon,
   Box as BoxIcon,
   Picture as PictureIcon,
-  Brush as BrushIcon
+  Brush as BrushIcon,
+  InfoFilled as InfoFilledIcon,
+  DocumentCopy as DocumentCopyIcon
 } from '@element-plus/icons-vue'
 import {
   getAppBuildListApi,
@@ -527,7 +688,8 @@ import {
   getRandomConfigApi,
   generateIconApi,
   downloadApkApi,
-  downloadBuildLogApi
+  downloadBuildLogApi,
+  getAppBuildConfigStatusApi
 } from '@/api/appBuild'
 import { getKeyListApi } from '@/api/key'
 import { getSettingsApi } from '@/api/settings'
@@ -554,6 +716,67 @@ const generatingIcon = ref(false)
 const iconMode = ref<'upload' | 'auto'>('auto')
 const iconChar = ref('推')
 const iconGradient = reactive({ start: '#667eea', end: '#764ba2' })
+
+// ---- GitHub Actions 配置状态 ----
+const configCollapse = ref<string[]>([])  // 默认折叠
+const configStatusLoaded = ref(false)
+const configStatus = reactive<{
+  available: boolean
+  token_configured: boolean
+  owner: string
+  repo: string
+  workflow_file: string
+  api_proxy: string
+  repo_url: string
+  actions_url: string
+  secrets_url: string
+  token_create_url: string
+  required_secrets: Array<{ name: string; description: string; required: boolean }>
+  required_env: Array<{ name: string; description: string }>
+}>({
+  available: false,
+  token_configured: false,
+  owner: '',
+  repo: '',
+  workflow_file: 'build-apk.yml',
+  api_proxy: '',
+  repo_url: '',
+  actions_url: '',
+  secrets_url: '',
+  token_create_url: 'https://github.com/settings/tokens',
+  required_secrets: [],
+  required_env: []
+})
+
+const configPanelTitle = computed(() => {
+  if (!configStatusLoaded.value) return 'GitHub Actions 构建配置说明(点击展开)'
+  return configStatus.available
+    ? '✅ GitHub Actions 构建已就绪(点击折叠)'
+    : '⚠️ GitHub Actions 构建未配置(点击展开查看配置说明)'
+})
+
+async function fetchConfigStatus() {
+  try {
+    const res = await getAppBuildConfigStatusApi()
+    Object.assign(configStatus, res)
+    configStatusLoaded.value = true
+    // 未配置时自动展开
+    if (!res.available && configCollapse.value.length === 0) {
+      configCollapse.value = ['config']
+    }
+  } catch (e) {
+    console.warn('获取 GitHub Actions 配置状态失败', e)
+  }
+}
+
+async function copyCommand(cmd: string) {
+  try {
+    await navigator.clipboard.writeText(cmd)
+    ElMessage.success('命令已复制到剪贴板')
+  } catch {
+    ElMessage.warning('复制失败,请手动选择复制')
+  }
+}
 
 const iconGradientStyle = computed(() => ({
   background: `linear-gradient(135deg, ${iconGradient.start}, ${iconGradient.end})`
@@ -1029,6 +1252,7 @@ async function openLog(item: AppBuildRecord) {
 onMounted(async () => {
   fetchKeyOptions()
   fetchHistory()
+  fetchConfigStatus()
 
   // 根据系统设置中保存的端口自动填入服务器地址（含端口号）
   const detected = await detectServerUrls()
@@ -1045,6 +1269,174 @@ onBeforeUnmount(() => {
 <style lang="scss" scoped>
 .app-build-page {
   animation: fade-up 0.5s ease;
+}
+
+// ===== GitHub Actions 配置提示面板 =====
+.config-panel {
+  margin-bottom: 20px;
+  border: 1px solid var(--border-light);
+  border-radius: $radius-lg;
+  background: var(--bg-card);
+  overflow: hidden;
+  box-shadow: $shadow-sm;
+
+  :deep(.el-collapse-item__header) {
+    padding: 0 20px;
+    height: 56px;
+    font-size: 15px;
+    font-weight: 600;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  :deep(.el-collapse-item__wrap) {
+    background: var(--bg-card);
+  }
+
+  :deep(.el-collapse-item__content) {
+    padding: 0;
+  }
+}
+
+.config-content {
+  padding: 20px;
+}
+
+.config-alert {
+  margin-bottom: 20px;
+}
+
+.config-section {
+  margin-bottom: 24px;
+  padding: 16px 20px;
+  background: var(--el-fill-color-lighter, #fafafa);
+  border-radius: $radius-md;
+  border-left: 3px solid var(--el-color-primary, #409eff);
+
+  &:last-of-type {
+    margin-bottom: 0;
+  }
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  margin: 0 0 10px 0;
+
+  .el-icon {
+    color: var(--el-color-primary, #409eff);
+    font-size: 16px;
+  }
+
+  .config-link {
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 400;
+  }
+}
+
+.section-desc {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  margin: 0 0 10px 0;
+  line-height: 1.6;
+
+  .el-link {
+    vertical-align: baseline;
+    font-size: 13px;
+  }
+}
+
+.section-tip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin: 10px 0 0 0;
+  line-height: 1.6;
+
+  .el-icon {
+    color: var(--el-color-warning, #e6a23c);
+    flex-shrink: 0;
+  }
+
+  .tip-sep {
+    color: var(--el-text-color-placeholder);
+    margin: 0 4px;
+  }
+
+  .tip-text {
+    color: var(--el-text-color-regular);
+  }
+}
+
+.code-text {
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+  font-size: 12px;
+  padding: 2px 6px;
+  background: var(--el-fill-color-dark, #f0f0f0);
+  border-radius: 3px;
+  color: var(--el-color-danger, #f56c6c);
+}
+
+.config-block {
+  margin-top: 12px;
+  position: relative;
+}
+
+.block-title {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin: 0 0 6px 0;
+}
+
+.code-block {
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 12px 14px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border-radius: $radius-sm;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0;
+}
+
+.copy-btn {
+  margin-top: 8px;
+}
+
+.env-table {
+  margin-top: 8px;
+
+  :deep(.el-table__cell) {
+    padding: 6px 0;
+  }
+}
+
+.flow-timeline {
+  margin-top: 12px;
+  padding-left: 8px;
+
+  p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--el-text-color-regular);
+    line-height: 1.6;
+  }
+}
+
+.config-footer {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
 }
 
 // ===== 顶部 Hero 区 =====
