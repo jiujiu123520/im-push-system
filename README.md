@@ -67,6 +67,7 @@
 | 反向代理 | Nginx | HTTP/WebSocket 反向代理 |
 | 管理后台 | Vue3 + Element Plus + Vite | 响应式管理界面 |
 | Android APP | Kotlin + Jetpack Compose | 原生 Android 应用 |
+| APP 打包 | GitHub Actions | 在 GitHub 云端打包，无需服务器资源 |
 | 邮件服务 | PHPMailer | SMTP 邮件发送（QQ 邮箱等） |
 
 ## 快速开始
@@ -86,9 +87,9 @@ bash manage.sh
 |------|------|------|
 | 1 | 安装环境 | 首次部署,自动检测已安装组件并跳过 |
 | 2 | 更新代码 | 拉取最新代码 + 依赖 + 数据库迁移 + 重启服务 |
-| 3 | 重启服务 | 单独重启 HTTP/WebSocket/构建服务/Nginx/MySQL/Redis |
+| 3 | 重启服务 | 单独重启 HTTP/WebSocket/Nginx/MySQL/Redis |
 | 4 | 查看服务状态 | 服务状态 + 磁盘/内存/Git 版本 + 实时日志 |
-| 5 | 清理缓存 | Gradle/NPM/Composer/系统缓存等 |
+| 5 | 清理缓存 | NPM/Composer/系统缓存等 |
 | 6 | 修改环境配置 | 端口/数据库/Redis/邮件/GitHub Actions 配置 |
 | 7 | 构建管理后台前端 | npm install + npm run build |
 | 8 | 生成 APP 签名 keystore | 生成 release.keystore 用于 APP 签名 |
@@ -103,10 +104,10 @@ bash manage.sh
 
 ```bash
 # 方式1: 使用 gh.jasonzeng.dev 代理（国内服务器推荐，解决 GitHub 访问慢）
-curl -sSL https://gh.jasonzeng.dev/https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh | sudo bash
+curl -sSL https://gh.jasonzeng.dev/https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh -o /tmp/deploy.sh && sudo bash /tmp/deploy.sh
 
 # 方式2: 直连 GitHub（需能访问 GitHub）
-curl -sSL https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh -o /tmp/deploy.sh && sudo bash /tmp/deploy.sh
 
 # 方式3: 先克隆再部署
 git clone https://github.com/jiujiu123520/im-push-system.git
@@ -114,31 +115,9 @@ cd im-push-system
 sudo bash deploy/deploy.sh
 ```
 
-#### 非 Root 用户安装
+> 注意：`curl | bash` 管道模式下无法自动 sudo 提权，请使用 `curl -o /tmp/deploy.sh && sudo bash /tmp/deploy.sh` 方式。
 
-非 root 用户需先通过 sudo 提权安装，安装完成后日常更新无需 root：
-
-```bash
-# 1. 首次安装（需要 sudo 权限）
-git clone https://github.com/jiujiu123520/im-push-system.git
-cd im-push-system
-sudo bash deploy/deploy.sh
-
-# 2. 后续更新（无需 root，使用更新脚本）
-bash backend/deploy/update.sh
-```
-
-#### 仅安装核心服务（跳过可选组件）
-
-```bash
-# root 用户
-sudo INSTALL_ANDROID=0 INSTALL_SSL=0 bash deploy/deploy.sh
-
-# 非 root 用户（通过 sudo 提权）
-sudo INSTALL_ANDROID=0 INSTALL_SSL=0 bash deploy/deploy.sh
-```
-
-### 交互式安装（推荐）
+### 交互式安装
 
 部署脚本会自动询问安装组件：
 
@@ -148,9 +127,11 @@ sudo bash deploy/deploy.sh
 
 安装过程中会询问：
 1. **核心服务**（必选）：PHP 8.2 + Swoole + MySQL + Redis + Nginx + 管理后台
-2. **Android APP 打包环境**：JDK 17 + Android SDK 34 + Gradle 8.7
-3. **SSL 证书自动申请环境**：acme.sh + Let's Encrypt + 自动续费 cron
-4. **sudoers 权限配置**：允许 www-data 重启服务 / 部署 Nginx / 申请证书
+2. **SSL 证书自动申请环境**：acme.sh + Let's Encrypt + 自动续费 cron
+3. **sudoers 权限配置**：允许 www-data 重启服务 / 部署 Nginx / 申请证书
+4. **uninstall**：卸载系统（环境/源码/完全卸载）
+
+> APP 打包已迁移到 GitHub Actions，无需在服务器安装 JDK/Android SDK/Gradle。
 
 ### 自定义部署参数
 
@@ -169,16 +150,13 @@ sudo bash deploy/deploy.sh \
 # 1. 核心服务安装（需要 root）
 sudo bash deploy/install.sh
 
-# 2. 单独安装 Android 打包环境（可选，需要 root）
-sudo bash build/setup.sh
-
-# 3. 单独安装 SSL 证书环境（可选，需要 root）
+# 2. 单独安装 SSL 证书环境（可选，需要 root）
 sudo bash backend/deploy/ssl/setup-acme.sh
 sudo cp deploy/sudoers-push-system-ssl /etc/sudoers.d/push-system
 sudo chmod 440 /etc/sudoers.d/push-system
 sudo visudo -c
 
-# 4. 安装 SSL 自动续费 cron
+# 3. 安装 SSL 自动续费 cron
 echo "0 3 * * * root /www/push-system/backend/deploy/ssl/auto-renew-cron.sh" | sudo tee /etc/cron.d/push-ssl-renew
 sudo chmod 644 /etc/cron.d/push-ssl-renew
 ```
@@ -193,22 +171,63 @@ bash backend/deploy/update.sh
 ```
 
 > 更新脚本会自动拉取代码、安装依赖、执行数据库迁移、构建前端、重启服务。
-> 如涉及端口变更或服务配置修改，需使用 `sudo systemctl restart push-http push-websocket push-build-worker`。
+> 如涉及端口变更或服务配置修改，需使用 `sudo systemctl restart push-http push-websocket`。
 
-### 安装流程（10 步）
+### 安装流程（9 步）
 
 | 步骤 | 内容 | 必选 |
 |------|------|------|
-| [1/10] | 安装系统依赖（PHP 8.2 + Swoole + MySQL + Redis + Nginx） | 是 |
-| [2/10] | 创建项目目录与数据库 | 是 |
-| [3/10] | 复制项目代码并执行迁移 | 是 |
-| [4/10] | 安装后端依赖（composer install） | 是 |
-| [5/10] | 构建管理后台（npm install && npm run build） | 是 |
-| [6/10] | 配置 systemd 服务与 Nginx | 是 |
-| [7/10] | 启动服务 | 是 |
-| [8/10] | 安装 Android APP 打包环境（JDK 17 + Android SDK + Gradle） | 可选 |
-| [9/10] | 安装 SSL 证书环境（acme.sh + 自动续费 cron） | 可选 |
-| [10/10] | 配置 sudoers 权限 | 可选 |
+| [1/9] | 安装系统依赖（PHP 8.2 + Swoole + MySQL + Redis + Nginx） | 是 |
+| [2/9] | 创建项目目录与数据库 | 是 |
+| [3/9] | 复制项目代码并执行迁移 | 是 |
+| [4/9] | 安装后端依赖（composer install） | 是 |
+| [5/9] | 构建管理后台（npm install && npm run build） | 是 |
+| [6/9] | 配置 systemd 服务与 Nginx | 是 |
+| [7/9] | 启动服务 | 是 |
+| [8/9] | 安装 SSL 证书环境（acme.sh + 自动续费 cron） | 可选 |
+| [9/9] | 配置 sudoers 权限 | 可选 |
+
+## APP 打包（GitHub Actions）
+
+APP 打包已完全迁移到 GitHub Actions，在 GitHub 云端构建，无需在服务器安装 JDK/Android SDK/Gradle，节省服务器资源。
+
+### 配置步骤
+
+详细配置请参考 [docs/github-actions-build.md](docs/github-actions-build.md)，或在管理后台「APP 生成」页面查看配置提示面板。
+
+1. **服务器端 .env 配置**
+
+   ```env
+   GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+   GITHUB_REPO=jiujiu123520/im-push-system
+   GITHUB_WORKFLOW_ID=build-apk.yml
+   SERVER_SSH_HOST=your_server_ip
+   SERVER_SSH_PORT=22
+   SERVER_SSH_USER=ubuntu
+   ```
+
+2. **GitHub 仓库 Secrets 配置**
+
+   在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加：
+   - `APK_KEYSTORE_BASE64` - keystore 文件的 base64 编码
+   - `APK_KEYSTORE_PASSWORD` - keystore 密码
+   - `APK_KEY_ALIAS` - 密钥别名
+   - `APK_KEY_PASSWORD` - 密钥密码
+   - `SERVER_SSH_HOST` / `SERVER_SSH_PORT` / `SERVER_SSH_USER` - 服务器 SSH 连接信息
+   - `SERVER_SSH_KEY` - SSH 私钥
+
+3. **在管理后台提交构建任务**
+
+   - 「APP 生成」页面：提交构建任务到队列，由后端调用 GitHub API 触发
+   - 「GitHub Actions 手动构建」页面：直接调用 GitHub API 触发，用于测试
+
+### 构建流程
+
+```
+用户提交构建 → 后端调用 GitHub API → GitHub Actions Runner 构建
+→ SCP 上传 APK 到服务器 → SSH 调用回调脚本更新 Redis 状态
+→ 前端轮询 list 接口获取最新状态 → 用户下载 APK
+```
 
 ## 服务器配置建议
 
@@ -256,7 +275,7 @@ im-push-system/
 │   │   ├── router/           # 路由配置
 │   │   └── stores/           # 状态管理
 │   └── vite.config.ts        # Vite 构建配置
-├── app/                      # Android APP
+├── app/                      # Android APP 源码
 │   └── src/main/java/com/push/app/
 │       ├── data/             # 数据层（WebSocket、存储）
 │       ├── keepalive/        # 后台保活
@@ -264,21 +283,23 @@ im-push-system/
 │       ├── ui/               # Compose UI
 │       └── util/             # 工具类
 ├── build/                    # APP 构建脚本
-│   ├── setup.sh              # Android 构建环境一键安装（JDK + SDK + Gradle）
-│   ├── build_apk.sh          # APK 打包脚本（被 BuildWorker 调用）
+│   ├── build_apk.sh          # APK 打包脚本（由 GitHub Actions 调用）
 │   ├── inject_config.sh      # 配置注入脚本（包名、服务器地址等）
-│   ├── queue/                # 构建队列
-│   │   ├── BuildQueue.php    # 队列管理（Redis List + Hash + Sorted Set）
-│   │   └── BuildWorker.php   # 工作进程（消费队列、执行打包）
-│   ├── logs/                 # 构建日志（worker.log + {build_id}.log）
+│   ├── queue/                # 构建队列管理
+│   │   └── BuildQueue.php    # 队列管理（Redis List + Hash + Sorted Set）
+│   ├── logs/                 # 构建日志
 │   └── output/               # APK 产物输出目录
+├── .github/workflows/        # GitHub Actions 工作流
+│   └── build-apk.yml         # APP 构建 workflow
 ├── deploy/                   # 部署脚本
 │   ├── deploy.sh             # 一键部署（国内服务器）
 │   ├── install.sh            # 安装脚本
-│   ├── update.sh             # 更新脚本（5 步：代码 + 依赖 + 迁移 + 构建环境 + 服务重启）
+│   ├── update.sh             # 更新脚本
 │   ├── rollback.sh           # 回滚脚本
+│   ├── uninstall.sh          # 卸载脚本
+│   ├── manage.sh             # 交互式管理菜单
 │   ├── nginx/                # Nginx 配置
-│   └── systemd/              # systemd 服务文件（push-http/push-websocket/push-build-worker）
+│   └── systemd/              # systemd 服务文件（push-http/push-websocket）
 └── .gitignore
 ```
 
@@ -414,17 +435,15 @@ https://your-domain.com/api/apk-distribution/download/{token}
 ## 常用运维命令
 
 ```bash
-# 查看服务状态（HTTP + WebSocket + BuildWorker）
-sudo systemctl status push-http push-websocket push-build-worker
+# 查看服务状态（HTTP + WebSocket）
+sudo systemctl status push-http push-websocket
 
 # 查看实时日志
 sudo journalctl -u push-websocket -f          # WebSocket 推送服务
 sudo journalctl -u push-http -f               # HTTP API 服务
-sudo journalctl -u push-build-worker -f       # APP 打包工作进程
 
 # 重启服务
-sudo systemctl restart push-http push-websocket          # 重启推送服务
-sudo systemctl restart push-build-worker                 # 重启打包服务
+sudo systemctl restart push-http push-websocket
 
 # 更新代码（一键更新：代码 + 依赖 + 迁移 + 权限 + 服务重启）
 cd /www/push-system && bash backend/deploy/update.sh --yes
@@ -432,14 +451,14 @@ cd /www/push-system && bash backend/deploy/update.sh --yes
 # 回滚代码
 cd /www/push-system && bash deploy/rollback.sh
 
-# 安装 APP 构建环境（首次部署或新服务器，只需执行一次）
-sudo bash /www/push-system/build/setup.sh
+# 交互式管理菜单
+cd /www/push-system && bash manage.sh
 
 # 查看 APP 构建日志（替换 <build_id>）
 cat /www/push-system/build/logs/<build_id>.log
 
-# 查看 BuildWorker 运行日志
-cat /www/push-system/build/logs/worker.log
+# 查看 GitHub Actions 构建历史
+# 访问 GitHub 仓库 → Actions 页面
 
 # 查看 SSL 证书自动续费日志
 cat /var/log/push-ssl-renew.log
@@ -483,64 +502,13 @@ sudo chmod 644 /etc/cron.d/push-ssl-renew
 
 ## 故障排查
 
-### APP 构建日志为空
+### APP 构建失败
 
-**原因**：BuildWorker 服务未运行，构建任务停留在队列中未被消费。
+APP 打包已迁移到 GitHub Actions，请查看：
 
-```bash
-# 检查 BuildWorker 状态
-sudo systemctl status push-build-worker
-
-# 如果未运行，启动服务
-sudo systemctl start push-build-worker
-
-# 如果服务不存在，安装构建环境
-sudo bash /www/push-system/build/setup.sh
-```
-
-### APP 构建失败：gradlew No such file or directory
-
-**原因**：项目缺少 gradlew 或 wrapper 配置。
-
-**解决**：已通过 `build/setup.sh` 删除 gradlew，`build_apk.sh` 会自动回退到全局 `/opt/gradle-8.7/bin/gradle`。如果仍报错，重新执行：
-
-```bash
-sudo bash /www/push-system/build/setup.sh
-```
-
-### APP 构建失败：Permission denied
-
-**原因**：BuildWorker 以 www-data 用户运行，但 build/app 目录无写入权限。
-
-```bash
-# 修复目录权限
-sudo chown -R www-data:www-data /www/push-system/build /www/push-system/app /www/push-system/.gradle
-sudo chmod -R u+rw /www/push-system/build /www/push-system/app
-sudo systemctl restart push-build-worker
-```
-
-### APP 构建超时
-
-**原因**：首次构建需要下载大量 Gradle 依赖，国内网络较慢。
-
-**解决**：已在 `BuildQueue.php` 中将超时时间从 30 分钟增加到 2 小时。如仍超时，检查网络或手动预热依赖缓存：
-
-```bash
-# 以 www-data 用户手动执行一次 Gradle 依赖下载
-sudo -u www-data bash -c "cd /www/push-system/app && /opt/gradle-8.7/bin/gradle --refresh-dependencies"
-```
-
-### git pull 失败：Permission denied
-
-**原因**：build/app 目录被设置为 www-data 所有，ubuntu 用户无法操作。
-
-```bash
-# 临时恢复权限给 ubuntu，pull 后再设置回 www-data
-sudo chown -R ubuntu:ubuntu /www/push-system/build /www/push-system/app
-git pull origin main
-sudo chown -R www-data:www-data /www/push-system/build /www/push-system/app
-sudo systemctl restart push-build-worker
-```
+1. **GitHub Actions 运行日志**：访问 GitHub 仓库 → Actions 页面，点击对应 workflow 查看详细日志
+2. **管理后台构建状态**：「APP 生成」页面查看构建任务状态
+3. **服务器端日志**：`cat /www/push-system/build/logs/<build_id>.log`
 
 ### 端口 9501/9502 被占用
 
@@ -551,6 +519,27 @@ sudo lsof -i :9502
 
 # 重启服务（systemd 会自动清理旧进程）
 sudo systemctl restart push-http push-websocket
+```
+
+### git pull 失败：Permission denied
+
+```bash
+# 恢复权限后 pull
+sudo chown -R ubuntu:ubuntu /www/push-system
+git pull origin main
+```
+
+### 管理后台无法登录（500 错误）
+
+```bash
+# 检查服务状态
+sudo systemctl status push-http
+
+# 查看日志
+sudo journalctl -u push-http -f --since "10 minutes ago"
+
+# 检查数据库连接
+cd /www/push-system/backend && php -r "new PDO('mysql:host=127.0.0.1', 'im_push', 'YourPass');"
 ```
 
 ## 默认账号
