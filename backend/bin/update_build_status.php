@@ -38,6 +38,12 @@ if (empty($buildId)) {
     exit(1);
 }
 
+// 校验 build_id 格式(以 b 开头,后跟 13 位十六进制 + 3 位数字)
+if (!preg_match('/^b[0-9a-f]{13}[0-9]{3}$/', $buildId)) {
+    fwrite(STDERR, "错误: --build-id 格式无效(期望格式: b + 13位hex + 3位数字,实际: {$buildId})\n");
+    exit(1);
+}
+
 // 状态映射(GitHub Actions → Redis task status)
 $statusMap = [
     'success' => 'success',

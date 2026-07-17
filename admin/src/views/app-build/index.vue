@@ -758,10 +758,11 @@ const configPanelTitle = computed(() => {
 async function fetchConfigStatus() {
   try {
     const res = await getAppBuildConfigStatusApi()
-    Object.assign(configStatus, res)
+    const data = res.data || res
+    Object.assign(configStatus, data)
     configStatusLoaded.value = true
     // 未配置时自动展开
-    if (!res.available && configCollapse.value.length === 0) {
+    if (!data.available && configCollapse.value.length === 0) {
       configCollapse.value = ['config']
     }
   } catch (e) {

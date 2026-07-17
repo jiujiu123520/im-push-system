@@ -1,6 +1,9 @@
 # .github/workflows/build-apk.yml
 name: Build Android APK
 
+# 自定义 run 名称,包含 build_id 便于在 GitHub Actions 列表中识别
+run-name: "Build ${{ inputs.build_id }} - ${{ inputs.app_name }}"
+
 on:
   workflow_dispatch:
     inputs:
@@ -94,9 +97,11 @@ jobs:
 
       - name: Decode icon (if provided)
         if: ${{ github.event.inputs.icon_base64 != '' }}
+        env:
+          ICON_BASE64: ${{ github.event.inputs.icon_base64 }}
         run: |
           mkdir -p /tmp/build-icon
-          echo "${{ github.event.inputs.icon_base64 }}" | base64 -d > /tmp/build-icon/icon.png
+          printf '%s' "$ICON_BASE64" | base64 -d > /tmp/build-icon/icon.png
           echo "图标已解码: $(file /tmp/build-icon/icon.png)"
 
       - name: Run build script
@@ -150,7 +155,7 @@ jobs:
           strip_components: 3
 
       - name: Upload build log to server via SCP
-        if: always()
+        if: always() && hashFiles('build/logs/${{ github.event.inputs.build_id }}.log') != ''
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_SSH_HOST }}

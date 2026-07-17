@@ -116,7 +116,10 @@ class AppBuildController
         $defaultKey = (string)($data['default_key'] ?? 'default_key');
         $serverUrl = (string)($data['server_url'] ?? '');
         $wsUrl = (string)($data['ws_url'] ?? '');
-        $iconBase64 = (string)($data['icon_path'] ?? '');  // 前端传的是 base64 字符串
+        $iconBase64 = (string)($data['icon_path'] ?? '');  // 前端传的是 base64 字符串(可能含 data: 前缀)
+        // 剥离 data URL 前缀(如 data:image/png;base64,),避免 base64 -d 解码失败
+        $iconBase64 = preg_replace('/^data:image\/[a-z]+;base64,/i', '', $iconBase64);
+        $versionName = (string)($data['version'] ?? '1.0.0');
 
         // 生成 build_id
         $buildId = 'b' . uniqid() . sprintf('%03d', mt_rand(0, 999));
@@ -131,6 +134,7 @@ class AppBuildController
             'ws_url'         => $wsUrl,
             'icon_path'      => '',  // base64 不存 Redis,通过 inputs 传给 GitHub
             'package_name'   => $packageName,
+            'version_name'   => $versionName,
             'admin_id'       => (string)($payload['admin_id'] ?? 0),
             'status'         => 'pending',
             'apk_path'       => '',
@@ -369,8 +373,8 @@ class AppBuildController
             return false;
         }
 
-        $perPage = (int)($_GET['per_page'] ?? 20);
-        $page = (int)($_GET['page'] ?? 1);
+        $perPage = (int)($context['get']['per_page'] ?? 20);
+        $page = (int)($context['get']['page'] ?? 1);
 
         try {
             $result = GitHubActionsService::queryRunsList($perPage, $page);
@@ -407,7 +411,7 @@ class AppBuildController
         $keyword = (string)($context['get']['keyword'] ?? '');
 
         try {
-            return \BuildServer\BuildQueue::getBuildList($page, $keyword);
+            return \App\Service\BuildQueue::getBuildList($page, $keyword);
         } catch (\Throwable $e) {
             Response::fail($response, '获取构建列表失败：' . $e->getMessage(), Response::CODE_INTERNAL);
             return false;
@@ -442,7 +446,7 @@ class AppBuildController
             return false;
         }
 
-        $task = \BuildServer\BuildQueue::getBuildStatus($buildId);
+        $task = \App\Service\BuildQueue::getBuildStatus($buildId);
         if (!$task) {
             Response::fail($response, '构建任务不存在', Response::CODE_NOT_FOUND, 404);
             return false;
@@ -499,7 +503,7 @@ class AppBuildController
             return false;
         }
 
-        $task = \BuildServer\BuildQueue::getBuildStatus($buildId);
+        $task = \App\Service\BuildQueue::getBuildStatus($buildId);
         if (!$task) {
             Response::fail($response, '构建任务不存在', Response::CODE_NOT_FOUND, 404);
             return false;
@@ -507,7 +511,7 @@ class AppBuildController
 
         return [
             'build_id' => $buildId,
-            'log'      => \BuildServer\BuildQueue::getBuildLog($buildId),
+            'log'      => \App\Service\BuildQueue::getBuildLog($buildId),
         ];
     }
 
@@ -539,13 +543,13 @@ class AppBuildController
             return false;
         }
 
-        $task = \BuildServer\BuildQueue::getBuildStatus($buildId);
+        $task = \App\Service\BuildQueue::getBuildStatus($buildId);
         if (!$task) {
             Response::fail($response, '构建任务不存在', Response::CODE_NOT_FOUND, 404);
             return false;
         }
 
-        $logContent = \BuildServer\BuildQueue::getBuildLog($buildId);
+        $logContent = \App\Service\BuildQueue::getBuildLog($buildId);
         if ($logContent === null || $logContent === '') {
             $logContent = '（日志为空）';
         }
@@ -608,7 +612,7 @@ class AppBuildController
             return false;
         }
 
-        $task = \BuildServer\BuildQueue::getBuildStatus($buildId);
+        $task = \App\Service\BuildQueue::getBuildStatus($buildId);
         if (!$task) {
             Response::fail($response, '构建任务不存在', Response::CODE_NOT_FOUND, 404);
             return false;
@@ -804,12 +808,18 @@ class AppBuildController
             return false;
         }
 
+        // 校验 build_id 格式,防止误删(如把 list/config-status 当成 build_id)
+        if (!preg_match('/^b[0-9a-f]{13}[0-9]{3}$/', $buildId)) {
+            Response::fail($response, 'build_id 格式无效', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
         if (!self::isAvailable()) {
             Response::fail($response, '打包服务未配置');
             return false;
         }
 
-        \BuildServer\BuildQueue::deleteBuild($buildId);
+        \App\Service\BuildQueue::deleteBuild($buildId);
 
         return ['message' => '删除成功'];
     }

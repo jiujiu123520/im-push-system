@@ -155,8 +155,8 @@ if ! command -v java >/dev/null 2>&1; then
 fi
 JAVA_VER=$(java -version 2>&1 | head -n 1 | grep -oP 'version "\K[0-9]+' || echo "0")
 info "Java 版本: $(java -version 2>&1 | head -n 1)"
-if [ "$JAVA_VER" -ne 17 ] && [ "$JAVA_VER" -lt 17 ]; then
-    warn "Java 版本不是 17+，可能导致构建失败"
+if [ "$JAVA_VER" -lt 17 ]; then
+    warn "Java 版本低于 17 (当前 $JAVA_VER)，可能导致构建失败"
 fi
 
 # 检查 Android SDK

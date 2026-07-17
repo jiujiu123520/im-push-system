@@ -269,7 +269,8 @@ const configAlertTitle = computed(() => {
 async function fetchConfigStatus() {
   try {
     const res = await getAppBuildConfigStatusApi()
-    Object.assign(configStatus, res)
+    const data = res.data || res
+    Object.assign(configStatus, data)
   } catch (e) {
     console.warn('获取配置状态失败', e)
   }
@@ -332,27 +333,29 @@ const triggerResult = ref<{
 
 async function handleTrigger() {
   if (!formRef.value) return
-  await formRef.value.validate(async (valid) => {
-    if (!valid) return
-    triggering.value = true
-    try {
-      const res = await manualTriggerBuildApi({
-        app_name: form.app_name,
-        package_name: form.package_name,
-        default_key: form.default_key,
-        server_url: form.server_url,
-        ws_url: form.ws_url
-      })
-      triggerResult.value = res
-      resultDialogVisible.value = true
-      // 触发后延迟刷新运行列表(给 GitHub API 一些时间创建 run)
-      setTimeout(() => fetchRuns(), 2000)
-    } catch (e: any) {
-      ElMessage.error(e.message || '触发失败')
-    } finally {
-      triggering.value = false
-    }
-  })
+  try {
+    await formRef.value.validate()
+  } catch {
+    return  // 校验失败,不继续
+  }
+  triggering.value = true
+  try {
+    const res = await manualTriggerBuildApi({
+      app_name: form.app_name,
+      package_name: form.package_name,
+      default_key: form.default_key,
+      server_url: form.server_url,
+      ws_url: form.ws_url
+    })
+    triggerResult.value = res.data || res
+    resultDialogVisible.value = true
+    // 触发后延迟刷新运行列表(给 GitHub API 一些时间创建 run)
+    setTimeout(() => fetchRuns(), 2000)
+  } catch (e: any) {
+    ElMessage.error(e.message || '触发失败')
+  } finally {
+    triggering.value = false
+  }
 }
 
 function handleViewRuns() {
@@ -370,8 +373,9 @@ async function fetchRuns() {
   loadingRuns.value = true
   try {
     const res = await getWorkflowRunsApi({ per_page: 20, page: 1 })
-    runs.value = res.runs || []
-    runsTotal.value = res.total || 0
+    const data = res.data || res
+    runs.value = data.runs || []
+    runsTotal.value = data.total || 0
   } catch (e: any) {
     ElMessage.error(e.message || '获取运行列表失败')
   } finally {

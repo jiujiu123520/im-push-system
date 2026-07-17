@@ -79,16 +79,6 @@ export function createAppBuildApi(data: AppBuildForm) {
   return post<{ build_id: string }>('/admin/app-build', data)
 }
 
-// 重新打包
-export function retryAppBuildApi(id: number) {
-  return post(`/admin/app-build/${id}/retry`)
-}
-
-// 取消打包
-export function cancelAppBuildApi(id: number) {
-  return post(`/admin/app-build/${id}/cancel`)
-}
-
 // 删除打包记录
 export function deleteAppBuildApi(buildId: string) {
   return del(`/admin/app-build/${buildId}`)
@@ -106,13 +96,6 @@ export function downloadBuildLogApi(buildId: string) {
     url: `/admin/app-build/log/${buildId}/download`,
     responseType: 'blob'
   })
-}
-
-// 获取打包配置模板
-export function getBuildTemplatesApi() {
-  return get<{ name: string; platform: string; config: Record<string, any> }[]>(
-    '/admin/app-build/templates'
-  )
 }
 
 // 生成随机配置（包名、APP名称）
