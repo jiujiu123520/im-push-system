@@ -121,3 +121,92 @@ export function downloadApkApi(buildId: string) {
     responseType: 'blob'
   })
 }
+
+// 获取 GitHub Actions 配置
+export function getGithubConfigApi() {
+  return get<{
+    token: string
+    owner: string
+    repo: string
+    workflow_file: string
+    ref: string
+    api_proxy: string
+    timeout: number
+  }>('/admin/app-build/config')
+}
+
+// 保存 GitHub Actions 配置
+export function saveGithubConfigApi(data: {
+  token: string
+  owner: string
+  repo: string
+  workflow_file?: string
+  ref?: string
+  api_proxy?: string
+  timeout?: number
+}) {
+  return post<{
+    message: string
+    env_updated: boolean
+  }>('/admin/app-build/config', data)
+}
+
+// 验证 GitHub Token 和仓库配置
+export function validateGithubConfigApi(data: {
+  token: string
+  owner: string
+  repo: string
+}) {
+  return post<{
+    valid: boolean
+    message: string
+    repo_exists: boolean
+    can_push: boolean
+    has_workflow_scope: boolean
+    has_repo_scope: boolean
+    scopes: string[]
+    user: string
+  }>('/admin/app-build/config/validate', data)
+}
+
+// 全面检测配置状态
+export function checkGithubConfigApi() {
+  return get<{
+    status: string
+    checks: Record<string, {
+      status: string
+      message: string
+      total?: number
+      existing?: string[]
+      missing?: string[]
+      required?: string[]
+    }>
+    summary: string
+  }>('/admin/app-build/config/check')
+}
+
+// 一键配置：生成 keystore + SSH 密钥 + 配置 GitHub Secrets
+export function autoSetupGithubApi(data?: {
+  ssh_port?: string
+  ssh_user?: string
+}) {
+  return post<{
+    success: boolean
+    steps: Array<{
+      step: string
+      status: string
+      message?: string
+      failed?: Record<string, string>
+    }>
+    message: string
+    ssh_pub_key?: string
+    setup_info?: {
+      keystore_path: string
+      ssh_pub_path: string
+      server_host: string
+      ssh_port: string
+      ssh_user: string
+    }
+    next_step?: string
+  }>('/admin/app-build/config/auto-setup', data || {})
+}

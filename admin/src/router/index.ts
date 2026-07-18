@@ -175,6 +175,12 @@ export const asyncRoutes: RouteRecordRaw[] = [
         name: 'AppBuildManual',
         component: () => import('@/views/app-build-manual/index.vue'),
         meta: { title: 'GitHub Actions 手动构建', icon: 'Cpu', cache: true, module: 'app-build-manual', roles: ['admin', 'super_admin'] }
+      },
+      {
+        path: 'config',
+        name: 'AppBuildConfig',
+        component: () => import('@/views/app-build-config/index.vue'),
+        meta: { title: 'GitHub Actions 配置', icon: 'Setting', cache: true, module: 'app-build-config', roles: ['admin', 'super_admin'] }
       }
     ]
   },

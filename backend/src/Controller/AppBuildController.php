@@ -815,4 +815,746 @@ class AppBuildController
 
         return ['message' => '删除成功'];
     }
+
+    /**
+     * POST /admin/app-build/config
+     * 保存 GitHub Actions 配置（到数据库 + 同步到 .env）
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function saveConfig(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $data = $this->parseBody($context);
+
+        $token       = trim((string)($data['token'] ?? ''));
+        $owner       = trim((string)($data['owner'] ?? ''));
+        $repo        = trim((string)($data['repo'] ?? ''));
+        $workflowFile = trim((string)($data['workflow_file'] ?? 'build-apk.yml'));
+        $ref         = trim((string)($data['ref'] ?? 'main'));
+        $apiProxy    = trim((string)($data['api_proxy'] ?? ''));
+        $timeout     = (int)($data['timeout'] ?? 30);
+
+        if ($token === '' || $owner === '' || $repo === '') {
+            Response::fail($response, 'Token、仓库所有者、仓库名不能为空', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        // 1. 保存到数据库
+        try {
+            $pdo = \App\Service\Database::pdo();
+            $configData = [
+                'token'         => $token,
+                'owner'         => $owner,
+                'repo'          => $repo,
+                'workflow_file' => $workflowFile,
+                'ref'           => $ref,
+                'api_proxy'     => $apiProxy,
+                'timeout'       => $timeout,
+            ];
+            $json = json_encode($configData, JSON_UNESCAPED_UNICODE);
+            $stmt = $pdo->prepare(
+                'INSERT INTO admin_settings (config_key, config_value, description)
+                 VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE config_value = ?'
+            );
+            $stmt->execute(['github_actions_config', $json, 'GitHub Actions 构建配置', $json]);
+        } catch (\Throwable $e) {
+            Response::fail($response, '保存配置到数据库失败: ' . $e->getMessage(), Response::CODE_INTERNAL);
+            return false;
+        }
+
+        // 2. 同步到 .env 文件
+        $envUpdated = self::syncConfigToEnv([
+            'GITHUB_TOKEN'          => $token,
+            'GITHUB_OWNER'          => $owner,
+            'GITHUB_REPO'           => $repo,
+            'GITHUB_WORKFLOW_FILE'  => $workflowFile,
+            'GITHUB_REF'            => $ref,
+            'GITHUB_API_PROXY'      => $apiProxy,
+            'GITHUB_API_TIMEOUT'    => $timeout,
+        ]);
+
+        // 3. 重置配置缓存
+        GitHubActionsService::resetConfig();
+
+        return [
+            'message'     => '配置已保存' . ($envUpdated ? '，已同步到 .env 文件' : ''),
+            'env_updated' => $envUpdated,
+        ];
+    }
+
+    /**
+     * GET /admin/app-build/config
+     * 获取 GitHub Actions 配置（从数据库读取，Token 脱敏）
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function getConfig(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        try {
+            $pdo = \App\Service\Database::pdo();
+            $stmt = $pdo->prepare('SELECT config_value FROM admin_settings WHERE config_key = ?');
+            $stmt->execute(['github_actions_config']);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$row) {
+                // 数据库没有，从 .env 读取作为初始值
+                $config = Config::get('github') ?? [];
+                return [
+                    'token'         => !empty($config['token']) ? '******' : '',
+                    'owner'         => $config['owner'] ?? '',
+                    'repo'          => $config['repo'] ?? '',
+                    'workflow_file' => $config['workflow_file'] ?? 'build-apk.yml',
+                    'ref'           => $config['ref'] ?? 'main',
+                    'api_proxy'     => $config['api_proxy'] ?? '',
+                    'timeout'       => $config['timeout'] ?? 30,
+                ];
+            }
+
+            $data = json_decode($row['config_value'], true);
+            if (!is_array($data)) {
+                $data = [];
+            }
+
+            // Token 脱敏
+            if (!empty($data['token'])) {
+                $data['token'] = '******';
+            }
+
+            return $data;
+        } catch (\Throwable $e) {
+            return [
+                'token'         => '',
+                'owner'         => '',
+                'repo'          => '',
+                'workflow_file' => 'build-apk.yml',
+                'ref'           => 'main',
+                'api_proxy'     => '',
+                'timeout'       => 30,
+            ];
+        }
+    }
+
+    /**
+     * POST /admin/app-build/config/validate
+     * 验证 GitHub Token 和仓库配置是否有效
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function validateConfig(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $data = $this->parseBody($context);
+
+        $token = trim((string)($data['token'] ?? ''));
+        $owner = trim((string)($data['owner'] ?? ''));
+        $repo  = trim((string)($data['repo'] ?? ''));
+
+        if ($token === '' || $owner === '' || $repo === '') {
+            Response::fail($response, 'Token、仓库所有者、仓库名不能为空', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        // 如果 token 是 ******，从数据库读取真实 token
+        if ($token === '******') {
+            try {
+                $pdo = \App\Service\Database::pdo();
+                $stmt = $pdo->prepare('SELECT config_value FROM admin_settings WHERE config_key = ?');
+                $stmt->execute(['github_actions_config']);
+                $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+                if ($row) {
+                    $dbConfig = json_decode($row['config_value'], true);
+                    if (is_array($dbConfig) && !empty($dbConfig['token'])) {
+                        $token = $dbConfig['token'];
+                    }
+                }
+            } catch (\Throwable $e) {
+                // 读取失败则继续使用传入值
+            }
+        }
+
+        if ($token === '' || $token === '******') {
+            Response::fail($response, '请先配置有效的 GitHub Token', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        $result = GitHubActionsService::validateToken($token, $owner, $repo);
+
+        return $result;
+    }
+
+    /**
+     * GET /admin/app-build/config/check
+     * 全面检测配置状态（Token、仓库、Workflow、Secrets 等）
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function checkConfig(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+
+        if (!self::isAvailable()) {
+            Response::fail($response, 'GitHub Actions 配置不完整，请先完成基础配置', Response::CODE_ERROR, 503);
+            return false;
+        }
+
+        $checks = [];
+
+        // 1. 检查仓库是否存在且有权限
+        try {
+            $repoInfo = GitHubActionsService::getRepoInfo();
+            $checks['repo'] = [
+                'status' => $repoInfo !== null ? 'ok' : 'error',
+                'message' => $repoInfo !== null ? '仓库访问正常' : '仓库不存在或无权限访问',
+            ];
+        } catch (\Throwable $e) {
+            $checks['repo'] = [
+                'status' => 'error',
+                'message' => '仓库检查失败: ' . $e->getMessage(),
+            ];
+        }
+
+        // 2. 检查 Workflow 文件是否存在
+        try {
+            $config = Config::get('github') ?? [];
+            $workflowFile = $config['workflow_file'] ?? 'build-apk.yml';
+            $exists = GitHubActionsService::workflowExists($workflowFile);
+            $checks['workflow'] = [
+                'status'  => $exists ? 'ok' : 'warning',
+                'message' => $exists ? "Workflow 文件 {$workflowFile} 存在" : "Workflow 文件 {$workflowFile} 不存在，需手动上传或使用一键配置",
+            ];
+        } catch (\Throwable $e) {
+            $checks['workflow'] = [
+                'status'  => 'error',
+                'message' => 'Workflow 检查失败: ' . $e->getMessage(),
+            ];
+        }
+
+        // 3. 检查 Secrets 配置情况
+        $requiredSecrets = [
+            'APK_KEYSTORE_BASE64',
+            'APK_KEYSTORE_PASSWORD',
+            'APK_KEY_ALIAS',
+            'APK_KEY_PASSWORD',
+            'SERVER_SSH_HOST',
+            'SERVER_SSH_PORT',
+            'SERVER_SSH_USER',
+            'SERVER_SSH_KEY',
+        ];
+
+        try {
+            $secretsResult = GitHubActionsService::listSecrets();
+            $existingSecrets = array_column($secretsResult['secrets'] ?? [], 'name');
+            $missingSecrets = array_diff($requiredSecrets, $existingSecrets);
+            $checks['secrets'] = [
+                'status'          => empty($missingSecrets) ? 'ok' : 'warning',
+                'message'         => empty($missingSecrets) ? '所有必需 Secrets 已配置' : '缺少 ' . count($missingSecrets) . ' 个 Secrets',
+                'total'           => $secretsResult['total'] ?? 0,
+                'existing'        => $existingSecrets,
+                'missing'         => array_values($missingSecrets),
+                'required'        => $requiredSecrets,
+            ];
+        } catch (\Throwable $e) {
+            $checks['secrets'] = [
+                'status'   => 'error',
+                'message'  => 'Secrets 检查失败: ' . $e->getMessage(),
+                'missing'  => $requiredSecrets,
+                'required' => $requiredSecrets,
+            ];
+        }
+
+        // 4. 检查 PHP sodium 扩展（加密 Secrets 需要）
+        $checks['sodium'] = [
+            'status'  => function_exists('sodium_crypto_box_seal') ? 'ok' : 'error',
+            'message' => function_exists('sodium_crypto_box_seal') ? 'PHP sodium 扩展已安装' : 'PHP sodium 扩展未安装，无法自动配置 Secrets',
+        ];
+
+        // 总体状态
+        $allOk = true;
+        foreach ($checks as $check) {
+            if (($check['status'] ?? '') === 'error') {
+                $allOk = false;
+                break;
+            }
+            if (($check['status'] ?? '') === 'warning') {
+                // warning 不影响可用性
+            }
+        }
+
+        return [
+            'status'  => $allOk ? 'ready' : 'incomplete',
+            'checks'  => $checks,
+            'summary' => $allOk ? '配置完整，可以开始构建' : '配置不完整，请检查各项',
+        ];
+    }
+
+    /**
+     * POST /admin/app-build/config/auto-setup
+     * 一键配置：生成 keystore + SSH 密钥 + 配置 GitHub Secrets
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function autoSetup(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $data = $this->parseBody($context);
+
+        if (!self::isAvailable()) {
+            Response::fail($response, '请先完成基础配置（Token、仓库所有者、仓库名）', Response::CODE_ERROR, 503);
+            return false;
+        }
+
+        if (!function_exists('sodium_crypto_box_seal')) {
+            Response::fail($response, 'PHP sodium 扩展未安装，无法自动配置 Secrets，请先安装 php-sodium 扩展', Response::CODE_ERROR, 500);
+            return false;
+        }
+
+        $projectRoot = dirname(__DIR__, 3);
+        $steps = [];
+
+        try {
+            // 步骤 1: 生成 keystore
+            $steps[] = ['step' => '生成 Keystore', 'status' => 'running'];
+            $keystoreResult = self::generateKeystore($projectRoot);
+            if (!$keystoreResult['success']) {
+                $steps[count($steps) - 1]['status'] = 'failed';
+                $steps[count($steps) - 1]['message'] = $keystoreResult['message'];
+                return ['steps' => $steps, 'success' => false, 'message' => '生成 Keystore 失败'];
+            }
+            $steps[count($steps) - 1]['status'] = 'success';
+            $steps[count($steps) - 1]['message'] = 'Keystore 生成成功';
+
+            // 步骤 2: 生成 SSH 密钥对
+            $steps[] = ['step' => '生成 SSH 密钥对', 'status' => 'running'];
+            $sshResult = self::generateSshKey($projectRoot);
+            if (!$sshResult['success']) {
+                $steps[count($steps) - 1]['status'] = 'failed';
+                $steps[count($steps) - 1]['message'] = $sshResult['message'];
+                return ['steps' => $steps, 'success' => false, 'message' => '生成 SSH 密钥失败'];
+            }
+            $steps[count($steps) - 1]['status'] = 'success';
+            $steps[count($steps) - 1]['message'] = 'SSH 密钥对生成成功';
+
+            // 步骤 3: 获取服务器信息
+            $steps[] = ['step' => '获取服务器信息', 'status' => 'running'];
+            $serverHost = $_SERVER['SERVER_ADDR'] ?? ($_SERVER['HTTP_HOST'] ?? '');
+            $serverHost = explode(':', $serverHost)[0]; // 去掉端口
+            $sshPort = (string)($data['ssh_port'] ?? '22');
+            $sshUser = (string)($data['ssh_user'] ?? get_current_user());
+            $steps[count($steps) - 1]['status'] = 'success';
+            $steps[count($steps) - 1]['message'] = "服务器: {$sshUser}@{$serverHost}:{$sshPort}";
+
+            // 步骤 4: 配置 GitHub Secrets
+            $steps[] = ['step' => '配置 GitHub Secrets', 'status' => 'running'];
+
+            $secrets = [
+                'APK_KEYSTORE_BASE64'   => $keystoreResult['keystore_base64'],
+                'APK_KEYSTORE_PASSWORD' => $keystoreResult['store_password'],
+                'APK_KEY_ALIAS'         => $keystoreResult['key_alias'],
+                'APK_KEY_PASSWORD'      => $keystoreResult['key_password'],
+                'SERVER_SSH_HOST'       => $serverHost,
+                'SERVER_SSH_PORT'       => $sshPort,
+                'SERVER_SSH_USER'       => $sshUser,
+                'SERVER_SSH_KEY'        => $sshResult['private_key'],
+            ];
+
+            $secretsResult = GitHubActionsService::setSecrets($secrets);
+            $failedCount = count($secretsResult['failed']);
+            $successCount = count($secretsResult['success']);
+
+            if ($failedCount > 0) {
+                $steps[count($steps) - 1]['status'] = 'warning';
+                $steps[count($steps) - 1]['message'] = "成功配置 {$successCount} 个，失败 {$failedCount} 个";
+                $steps[count($steps) - 1]['failed'] = $secretsResult['failed'];
+            } else {
+                $steps[count($steps) - 1]['status'] = 'success';
+                $steps[count($steps) - 1]['message'] = "成功配置 {$successCount} 个 Secrets";
+            }
+
+            // 保存 SSH 公钥路径到数据库，方便用户配置 authorized_keys
+            try {
+                $pdo = \App\Service\Database::pdo();
+                $setupData = [
+                    'keystore_path' => $keystoreResult['keystore_path'],
+                    'ssh_pub_key'   => $sshResult['public_key'],
+                    'ssh_pub_path'  => $sshResult['pub_path'],
+                    'server_host'   => $serverHost,
+                    'ssh_port'      => $sshPort,
+                    'ssh_user'      => $sshUser,
+                    'setup_at'      => date('Y-m-d H:i:s'),
+                ];
+                $json = json_encode($setupData, JSON_UNESCAPED_UNICODE);
+                $stmt = $pdo->prepare(
+                    'INSERT INTO admin_settings (config_key, config_value, description)
+                     VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE config_value = ?'
+                );
+                $stmt->execute(['github_setup_info', $json, 'GitHub Actions 一键配置信息', $json]);
+            } catch (\Throwable $e) {
+                // 保存信息失败不影响主流程
+            }
+
+            return [
+                'success'     => $failedCount === 0,
+                'steps'       => $steps,
+                'message'     => $failedCount === 0 ? '一键配置完成！' : "配置完成，但有 {$failedCount} 个 Secrets 失败",
+                'ssh_pub_key' => $sshResult['public_key'],
+                'setup_info'  => [
+                    'keystore_path' => $keystoreResult['keystore_path'],
+                    'ssh_pub_path'  => $sshResult['pub_path'],
+                    'server_host'   => $serverHost,
+                    'ssh_port'      => $sshPort,
+                    'ssh_user'      => $sshUser,
+                ],
+                'next_step' => '请将 SSH 公钥添加到服务器的 ~/.ssh/authorized_keys 中，确保 GitHub Actions 能 SCP 上传文件',
+            ];
+        } catch (\Throwable $e) {
+            $steps[] = [
+                'step'    => '出错',
+                'status'  => 'failed',
+                'message' => $e->getMessage(),
+            ];
+            Response::fail($response, '一键配置失败: ' . $e->getMessage(), Response::CODE_INTERNAL);
+            return false;
+        }
+    }
+
+    /**
+     * 生成 Android Keystore
+     *
+     * @param string $projectRoot
+     * @return array{success: bool, message: string, keystore_path?: string, keystore_base64?: string, store_password?: string, key_alias?: string, key_password?: string}
+     */
+    private static function generateKeystore(string $projectRoot): array
+    {
+        $keystoreDir = $projectRoot . '/build/keystore';
+        if (!is_dir($keystoreDir)) {
+            if (!@mkdir($keystoreDir, 0700, true)) {
+                return ['success' => false, 'message' => '无法创建 keystore 目录: ' . $keystoreDir];
+            }
+        }
+
+        $keystorePath = $keystoreDir . '/release.keystore';
+        $storePassword = substr(str_shuffle('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 16);
+        $keyAlias = 'release';
+        $keyPassword = $storePassword;
+
+        // 如果已存在，直接读取
+        if (is_file($keystorePath)) {
+            $keystoreContent = file_get_contents($keystorePath);
+            if ($keystoreContent !== false) {
+                return [
+                    'success'         => true,
+                    'message'         => '使用已存在的 keystore',
+                    'keystore_path'   => $keystorePath,
+                    'keystore_base64' => base64_encode($keystoreContent),
+                    'store_password'  => $storePassword,
+                    'key_alias'       => $keyAlias,
+                    'key_password'    => $keyPassword,
+                ];
+            }
+        }
+
+        // 尝试使用 keytool 生成
+        $keytool = trim((string)@shell_exec('which keytool 2>/dev/null') ?? '');
+        if ($keytool === '') {
+            // keytool 不存在，生成一个空的占位 keystore（后续由 GitHub Actions 生成）
+            // 实际上我们生成一个自签名证书作为临时 keystore
+            if (!function_exists('openssl_pkey_new')) {
+                return ['success' => false, 'message' => 'keytool 和 openssl 均不可用，无法生成 keystore'];
+            }
+
+            // 使用 PHP 生成一个简单的 PKCS12 再转换（复杂，跳过）
+            // 改为：创建空文件，提示用户手动生成
+            // 实际上，让我们用 openssl 生成自签名证书
+            $config = [
+                "digest_alg"       => "sha256",
+                "private_key_bits" => 2048,
+                "private_key_type" => OPENSSL_KEYTYPE_RSA,
+            ];
+
+            $privateKey = openssl_pkey_new($config);
+            if ($privateKey === false) {
+                return ['success' => false, 'message' => '生成密钥对失败: ' . openssl_error_string()];
+            }
+
+            $csr = openssl_csr_new([
+                'countryName'            => 'CN',
+                'stateOrProvinceName'    => 'Beijing',
+                'localityName'           => 'Beijing',
+                'organizationName'       => 'IM Push',
+                'organizationalUnitName' => 'Dev',
+                'commonName'             => 'im-push-app',
+                'emailAddress'           => 'dev@example.com',
+            ], $privateKey);
+
+            if ($csr === false) {
+                return ['success' => false, 'message' => '生成 CSR 失败'];
+            }
+
+            $x509 = openssl_csr_sign($csr, null, $privateKey, 3650); // 10 年有效期
+            if ($x509 === false) {
+                return ['success' => false, 'message' => '签署证书失败'];
+            }
+
+            // 导出为 PKCS12 格式
+            $pkcs12 = '';
+            if (!openssl_pkcs12_export($x509, $pkcs12, $privateKey, $storePassword)) {
+                return ['success' => false, 'message' => '导出 PKCS12 失败'];
+            }
+
+            file_put_contents($keystoreDir . '/release.p12', $pkcs12);
+            chmod($keystoreDir . '/release.p12', 0600);
+
+            // 尝试用 keytool 转换为 JKS
+            if ($keytool !== '') {
+                $cmd = sprintf(
+                    'keytool -importkeystore -srckeystore %s -srcstoretype PKCS12 -srcstorepass %s -destkeystore %s -deststoretype JKS -deststorepass %s -destkeypass %s -srcalias 1 -destalias %s -noprompt 2>&1',
+                    escapeshellarg($keystoreDir . '/release.p12'),
+                    escapeshellarg($storePassword),
+                    escapeshellarg($keystorePath),
+                    escapeshellarg($storePassword),
+                    escapeshellarg($keyPassword),
+                    escapeshellarg($keyAlias)
+                );
+                @shell_exec($cmd);
+            }
+
+            // 如果 JKS 生成失败，使用 PKCS12 作为 keystore（Android 也支持 PKCS12）
+            if (!is_file($keystorePath)) {
+                $keystorePath = $keystoreDir . '/release.p12';
+            }
+        } else {
+            // 使用 keytool 生成 JKS keystore
+            $cmd = sprintf(
+                'keytool -genkeypair -v -keystore %s -alias %s -keyalg RSA -keysize 2048 -validity 10000 -storepass %s -keypass %s -dname "CN=im-push-app, OU=Dev, O=IM Push, L=Beijing, ST=Beijing, C=CN" 2>&1',
+                escapeshellarg($keystorePath),
+                escapeshellarg($keyAlias),
+                escapeshellarg($storePassword),
+                escapeshellarg($keyPassword)
+            );
+            @shell_exec($cmd);
+        }
+
+        if (!is_file($keystorePath)) {
+            return ['success' => false, 'message' => 'Keystore 文件生成失败'];
+        }
+
+        $keystoreContent = file_get_contents($keystorePath);
+        if ($keystoreContent === false) {
+            return ['success' => false, 'message' => '读取 keystore 文件失败'];
+        }
+
+        chmod($keystorePath, 0600);
+
+        return [
+            'success'         => true,
+            'message'         => 'Keystore 生成成功',
+            'keystore_path'   => $keystorePath,
+            'keystore_base64' => base64_encode($keystoreContent),
+            'store_password'  => $storePassword,
+            'key_alias'       => $keyAlias,
+            'key_password'    => $keyPassword,
+        ];
+    }
+
+    /**
+     * 生成 SSH 密钥对
+     *
+     * @param string $projectRoot
+     * @return array{success: bool, message: string, private_key?: string, public_key?: string, pub_path?: string, priv_path?: string}
+     */
+    private static function generateSshKey(string $projectRoot): array
+    {
+        $sshDir = $projectRoot . '/build/ssh';
+        if (!is_dir($sshDir)) {
+            if (!@mkdir($sshDir, 0700, true)) {
+                return ['success' => false, 'message' => '无法创建 SSH 密钥目录: ' . $sshDir];
+            }
+        }
+
+        $privPath = $sshDir . '/github_actions_key';
+        $pubPath = $sshDir . '/github_actions_key.pub';
+
+        // 如果已存在，直接读取
+        if (is_file($privPath) && is_file($pubPath)) {
+            $privateKey = file_get_contents($privPath);
+            $publicKey = file_get_contents($pubPath);
+            if ($privateKey !== false && $publicKey !== false) {
+                return [
+                    'success'     => true,
+                    'message'     => '使用已存在的 SSH 密钥',
+                    'private_key' => $privateKey,
+                    'public_key'  => trim($publicKey),
+                    'pub_path'    => $pubPath,
+                    'priv_path'   => $privPath,
+                ];
+            }
+        }
+
+        // 尝试使用 ssh-keygen
+        $sshKeygen = trim((string)@shell_exec('which ssh-keygen 2>/dev/null') ?? '');
+        if ($sshKeygen !== '') {
+            $cmd = sprintf(
+                'ssh-keygen -t ed25519 -C "github-actions-build" -f %s -N "" -q 2>&1',
+                escapeshellarg($privPath)
+            );
+            @shell_exec($cmd);
+
+            if (is_file($privPath) && is_file($pubPath)) {
+                chmod($privPath, 0600);
+                chmod($pubPath, 0644);
+                $privateKey = file_get_contents($privPath);
+                $publicKey = file_get_contents($pubPath);
+                return [
+                    'success'     => true,
+                    'message'     => 'SSH 密钥生成成功',
+                    'private_key' => $privateKey,
+                    'public_key'  => trim($publicKey),
+                    'pub_path'    => $pubPath,
+                    'priv_path'   => $privPath,
+                ];
+            }
+        }
+
+        // 使用 phpseclib 或 openssl 生成（简化：用 openssl 生成 RSA 密钥再转换格式）
+        if (function_exists('openssl_pkey_new')) {
+            $config = [
+                "digest_alg"       => "sha256",
+                "private_key_bits" => 2048,
+                "private_key_type" => OPENSSL_KEYTYPE_RSA,
+            ];
+
+            $privateKeyResource = openssl_pkey_new($config);
+            if ($privateKeyResource === false) {
+                return ['success' => false, 'message' => '生成 RSA 密钥失败: ' . openssl_error_string()];
+            }
+
+            // 导出私钥
+            $privateKey = '';
+            openssl_pkey_export($privateKeyResource, $privateKey);
+
+            // 导出公钥
+            $keyDetails = openssl_pkey_get_details($privateKeyResource);
+            $publicKey = $keyDetails['key'] ?? '';
+
+            // 转换为公钥格式（SSH 格式需要 ssh-keygen，这里用 PEM 格式）
+            // 注意：GitHub Actions 的 appleboy/scp-action 支持 PEM 格式私钥
+            file_put_contents($privPath, $privateKey);
+            file_put_contents($pubPath, $publicKey);
+            chmod($privPath, 0600);
+            chmod($pubPath, 0644);
+
+            return [
+                'success'     => true,
+                'message'     => 'SSH RSA 密钥生成成功（PEM 格式）',
+                'private_key' => $privateKey,
+                'public_key'  => trim($publicKey),
+                'pub_path'    => $pubPath,
+                'priv_path'   => $privPath,
+            ];
+        }
+
+        return ['success' => false, 'message' => '无法生成 SSH 密钥：ssh-keygen 和 openssl 均不可用'];
+    }
+
+    /**
+     * 同步配置到 .env 文件
+     *
+     * @param array $vars [name => value]
+     * @return bool
+     */
+    private static function syncConfigToEnv(array $vars): bool
+    {
+        $envFile = dirname(__DIR__, 2) . '/.env';
+        if (!is_file($envFile)) {
+            // .env 文件不存在，创建它
+            $content = '';
+            foreach ($vars as $name => $value) {
+                // 值包含空格时用双引号
+                if (strpos((string)$value, ' ') !== false) {
+                    $content .= "{$name}=\"{$value}\"\n";
+                } else {
+                    $content .= "{$name}={$value}\n";
+                }
+            }
+            return @file_put_contents($envFile, $content) !== false;
+        }
+
+        if (!is_writable($envFile)) {
+            return false;
+        }
+
+        $content = (string)file_get_contents($envFile);
+        $lines = explode("\n", $content);
+        $updated = false;
+        $found = [];
+
+        foreach ($lines as $i => $line) {
+            foreach ($vars as $name => $value) {
+                if (preg_match('/^' . preg_quote($name, '/') . '\s*=\s*(.+)$/', $line, $m)) {
+                    // 值包含空格时用双引号
+                    if (strpos((string)$value, ' ') !== false) {
+                        $lines[$i] = "{$name}=\"{$value}\"";
+                    } else {
+                        $lines[$i] = "{$name}={$value}";
+                    }
+                    $found[$name] = true;
+                    $updated = true;
+                }
+            }
+        }
+
+        // 追加不存在的变量
+        foreach ($vars as $name => $value) {
+            if (!isset($found[$name])) {
+                if (strpos((string)$value, ' ') !== false) {
+                    $lines[] = "{$name}=\"{$value}\"";
+                } else {
+                    $lines[] = "{$name}={$value}";
+                }
+                $updated = true;
+            }
+        }
+
+        if ($updated) {
+            file_put_contents($envFile, implode("\n", $lines));
+        }
+
+        return $updated;
+    }
 }

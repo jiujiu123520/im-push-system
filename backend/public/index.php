@@ -83,6 +83,13 @@ if ($runWs) {
         $router->get('/admin/app-build/log/{build_id}', [\App\Controller\AppBuildController::class, 'log']);
         $router->delete('/admin/app-build/{build_id}', [\App\Controller\AppBuildController::class, 'delete']);
 
+        // GitHub Actions 配置管理（需管理员鉴权）
+        $router->get('/admin/app-build/config', [\App\Controller\AppBuildController::class, 'getConfig']);
+        $router->post('/admin/app-build/config', [\App\Controller\AppBuildController::class, 'saveConfig']);
+        $router->post('/admin/app-build/config/validate', [\App\Controller\AppBuildController::class, 'validateConfig']);
+        $router->get('/admin/app-build/config/check', [\App\Controller\AppBuildController::class, 'checkConfig']);
+        $router->post('/admin/app-build/config/auto-setup', [\App\Controller\AppBuildController::class, 'autoSetup']);
+
         // ------------------------------------------------------------
         // APK 分发管理（管理员鉴权）
         // ------------------------------------------------------------
