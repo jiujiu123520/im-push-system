@@ -20,6 +20,9 @@ return [
     // Workflow 文件名(不带路径)
     'workflow_file' => env('GITHUB_WORKFLOW_FILE', 'build-apk.yml'),
 
+    // 触发 workflow 的分支(默认 main,如使用 master 分支需修改)
+    'ref' => env('GITHUB_REF', 'main'),
+
     // GitHub API 代理(国内服务器使用 gh.jasonzeng.dev,留空则直连)
     'api_proxy' => env('GITHUB_API_PROXY', 'https://gh.jasonzeng.dev/'),
 

@@ -153,6 +153,7 @@ class GitHubActionsService
         $owner = $config['owner'] ?? '';
         $repo = $config['repo'] ?? '';
         $workflowFile = $config['workflow_file'] ?? 'build-apk.yml';
+        $ref = $config['ref'] ?? 'main';
 
         if (empty($owner) || empty($repo)) {
             throw new \RuntimeException('GitHub 仓库配置不完整(GITHUB_OWNER/GITHUB_REPO)');
@@ -161,7 +162,7 @@ class GitHubActionsService
         $path = "/repos/{$owner}/{$repo}/actions/workflows/{$workflowFile}/dispatches";
 
         $response = self::request('POST', $path, [
-            'ref' => 'main',
+            'ref' => $ref,
             'inputs' => $inputs,
         ]);
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env php
 <?php
+declare(strict_types=1);
 /**
  * 更新构建状态 CLI 脚本
  *
@@ -15,7 +16,7 @@
  * 状态值: success / failed
  */
 
-declare(strict_types=1);
+use App\Service\Redis;
 
 // 项目根目录
 $projectRoot = dirname(__DIR__, 2);
@@ -23,8 +24,6 @@ require $projectRoot . '/backend/vendor/autoload.php';
 
 // 加载 .env
 \App\Service\Config::loadEnv();
-
-use App\Service\Redis;
 
 // 解析命令行参数
 $options = getopt('', ['build-id:', 'status:', 'message:', 'apk-path::']);
