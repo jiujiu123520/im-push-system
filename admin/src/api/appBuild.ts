@@ -245,3 +245,37 @@ export function compareProxyApi(data: {
     recommendation: string
   }>('/admin/app-build/config/compare-proxy', data)
 }
+
+// 获取用户信息
+export function getUserApi(data: {
+  token: string
+  api_proxy?: string
+  proxy_enabled?: boolean
+}) {
+  return post<{
+    login: string
+    name: string
+    avatar_url: string
+    type: string
+    scopes: string[]
+  }>('/admin/app-build/config/get-user', data)
+}
+
+// 列出仓库
+export function listReposApi(data: {
+  token: string
+  api_proxy?: string
+  proxy_enabled?: boolean
+  page?: number
+  per_page?: number
+}) {
+  return post<{
+    repos: Array<{
+      name: string
+      full_name: string
+      private: boolean
+      description: string
+    }>
+    total: number
+  }>('/admin/app-build/config/list-repos', data)
+}

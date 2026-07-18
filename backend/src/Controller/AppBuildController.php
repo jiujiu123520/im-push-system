@@ -1133,6 +1133,130 @@ class AppBuildController
     }
 
     /**
+     * POST /admin/app-build/config/get-user
+     * 根据 Token 获取 GitHub 用户信息(自动填充 owner)
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function getUser(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $data = $this->parseBody($context);
+
+        $token = trim((string)($data['token'] ?? ''));
+        if ($token === '') {
+            Response::fail($response, 'Token 不能为空', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        if ($token === '******') {
+            try {
+                $pdo = \App\Service\Database::pdo();
+                $stmt = $pdo->prepare('SELECT config_value FROM admin_settings WHERE config_key = ?');
+                $stmt->execute(['github_actions_config']);
+                $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+                if ($row) {
+                    $stored = json_decode($row['config_value'], true);
+                    if (is_array($stored) && !empty($stored['token'])) {
+                        $token = $stored['token'];
+                    }
+                }
+            } catch (\Throwable $e) {
+            }
+        }
+
+        $apiProxy     = trim((string)($data['api_proxy'] ?? ''));
+        $proxyEnabled = isset($data['proxy_enabled'])
+            ? ($data['proxy_enabled'] !== false && $data['proxy_enabled'] !== 'false' && $data['proxy_enabled'] !== '0')
+            : true;
+
+        $options = [
+            'api_proxy'     => $apiProxy,
+            'proxy_enabled' => $proxyEnabled,
+        ];
+
+        try {
+            $user = GitHubActionsService::getCurrentUser($token, $options);
+            if ($user === null) {
+                Response::fail($response, '获取用户信息失败，请检查 Token 是否有效', Response::CODE_ERROR, 400);
+                return false;
+            }
+            return $user;
+        } catch (\Throwable $e) {
+            Response::fail($response, '获取用户信息失败: ' . $e->getMessage(), Response::CODE_ERROR, 500);
+            return false;
+        }
+    }
+
+    /**
+     * POST /admin/app-build/config/list-repos
+     * 列出当前用户的仓库(下拉选择用)
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function listRepos(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $data = $this->parseBody($context);
+
+        $token = trim((string)($data['token'] ?? ''));
+        if ($token === '') {
+            Response::fail($response, 'Token 不能为空', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        if ($token === '******') {
+            try {
+                $pdo = \App\Service\Database::pdo();
+                $stmt = $pdo->prepare('SELECT config_value FROM admin_settings WHERE config_key = ?');
+                $stmt->execute(['github_actions_config']);
+                $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+                if ($row) {
+                    $stored = json_decode($row['config_value'], true);
+                    if (is_array($stored) && !empty($stored['token'])) {
+                        $token = $stored['token'];
+                    }
+                }
+            } catch (\Throwable $e) {
+            }
+        }
+
+        $apiProxy     = trim((string)($data['api_proxy'] ?? ''));
+        $proxyEnabled = isset($data['proxy_enabled'])
+            ? ($data['proxy_enabled'] !== false && $data['proxy_enabled'] !== 'false' && $data['proxy_enabled'] !== '0')
+            : true;
+        $page    = (int)($data['page'] ?? 1);
+        $perPage = (int)($data['per_page'] ?? 100);
+
+        $options = [
+            'api_proxy'     => $apiProxy,
+            'proxy_enabled' => $proxyEnabled,
+        ];
+
+        try {
+            $repos = GitHubActionsService::listUserRepos($token, $page, $perPage, $options);
+            return ['repos' => $repos, 'total' => count($repos)];
+        } catch (\Throwable $e) {
+            Response::fail($response, '获取仓库列表失败: ' . $e->getMessage(), Response::CODE_ERROR, 500);
+            return false;
+        }
+    }
+
+    /**
      * POST /admin/app-build/config/auto-setup
      * 一键配置：生成 keystore + SSH 密钥 + 配置 GitHub Secrets
      *
@@ -1150,11 +1274,6 @@ class AppBuildController
         $response = $context['response'];
         $data = $this->parseBody($context);
 
-        if (!self::isAvailable()) {
-            Response::fail($response, '请先完成基础配置（Token、仓库所有者、仓库名）', Response::CODE_ERROR, 503);
-            return false;
-        }
-
         if (!function_exists('sodium_crypto_box_seal')) {
             Response::fail($response, 'PHP sodium 扩展未安装，无法自动配置 Secrets，请先安装 php-sodium 扩展', Response::CODE_ERROR, 500);
             return false;
@@ -1162,9 +1281,128 @@ class AppBuildController
 
         $projectRoot = dirname(__DIR__, 3);
         $steps = [];
+        $owner = '';
+        $repo = '';
 
         try {
-            // 步骤 1: 生成 keystore
+            $token = trim((string)($data['token'] ?? ''));
+            $apiProxy     = trim((string)($data['api_proxy'] ?? ''));
+            $proxyEnabled = isset($data['proxy_enabled'])
+                ? ($data['proxy_enabled'] !== false && $data['proxy_enabled'] !== 'false' && $data['proxy_enabled'] !== '0')
+                : true;
+            $timeout  = (int)($data['timeout'] ?? 30);
+            $repoName = trim((string)($data['repo'] ?? 'im-push-build'));
+            $ref      = trim((string)($data['ref'] ?? 'main'));
+            $workflowFile = trim((string)($data['workflow_file'] ?? 'build-apk.yml'));
+
+            // 如果传了 token，走全自动模式
+            if ($token !== '' && $token !== '******') {
+                // 步骤 1: 验证 Token 并获取用户信息
+                $steps[] = ['step' => '验证 Token 并获取用户信息', 'status' => 'running'];
+                $user = GitHubActionsService::getCurrentUser($token, [
+                    'api_proxy'     => $apiProxy,
+                    'proxy_enabled' => $proxyEnabled,
+                ]);
+                if ($user === null) {
+                    $steps[count($steps) - 1]['status'] = 'failed';
+                    $steps[count($steps) - 1]['message'] = 'Token 无效或无法获取用户信息';
+                    return ['steps' => $steps, 'success' => false, 'message' => 'Token 验证失败'];
+                }
+                $owner = $user['login'];
+                $steps[count($steps) - 1]['status'] = 'success';
+                $steps[count($steps) - 1]['message'] = "用户: {$owner}";
+
+                // 步骤 2: 检查并创建仓库
+                $steps[] = ['step' => '检查并准备仓库', 'status' => 'running'];
+                $repoExists = GitHubActionsService::repoExists($owner, $repoName, $token, [
+                    'api_proxy'     => $apiProxy,
+                    'proxy_enabled' => $proxyEnabled,
+                ]);
+                if (!$repoExists) {
+                    $createResult = GitHubActionsService::createRepo(
+                        $repoName,
+                        'IM Push System - APK Build Repository',
+                        true,
+                        $token,
+                        ['api_proxy' => $apiProxy, 'proxy_enabled' => $proxyEnabled]
+                    );
+                    if (!$createResult['success']) {
+                        $steps[count($steps) - 1]['status'] = 'failed';
+                        $steps[count($steps) - 1]['message'] = $createResult['message'];
+                        return ['steps' => $steps, 'success' => false, 'message' => '创建仓库失败'];
+                    }
+                    $steps[count($steps) - 1]['status'] = 'success';
+                    $steps[count($steps) - 1]['message'] = "已创建仓库: {$owner}/{$repoName}";
+                } else {
+                    $steps[count($steps) - 1]['status'] = 'success';
+                    $steps[count($steps) - 1]['message'] = "仓库已存在: {$owner}/{$repoName}";
+                }
+                $repo = $repoName;
+
+                // 步骤 3: 保存配置
+                $steps[] = ['step' => '保存配置', 'status' => 'running'];
+                try {
+                    $pdo = \App\Service\Database::pdo();
+                    $configData = [
+                        'token'         => $token,
+                        'owner'         => $owner,
+                        'repo'          => $repo,
+                        'workflow_file' => $workflowFile,
+                        'ref'           => $ref,
+                        'api_proxy'     => $apiProxy,
+                        'proxy_enabled' => $proxyEnabled,
+                        'timeout'       => $timeout,
+                    ];
+                    $json = json_encode($configData, JSON_UNESCAPED_UNICODE);
+                    $stmt = $pdo->prepare(
+                        'INSERT INTO admin_settings (config_key, config_value, description)
+                         VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE config_value = ?'
+                    );
+                    $stmt->execute(['github_actions_config', $json, 'GitHub Actions 构建配置', $json]);
+                    GitHubActionsService::resetConfig();
+                    $steps[count($steps) - 1]['status'] = 'success';
+                    $steps[count($steps) - 1]['message'] = '配置已保存';
+                } catch (\Throwable $e) {
+                    $steps[count($steps) - 1]['status'] = 'warning';
+                    $steps[count($steps) - 1]['message'] = '保存配置失败: ' . $e->getMessage();
+                }
+
+                // 步骤 4: 上传 workflow 文件
+                $steps[] = ['step' => '上传 Workflow 文件', 'status' => 'running'];
+                $workflowContent = GitHubActionsService::getLocalWorkflowContent($workflowFile);
+                if ($workflowContent === null) {
+                    $steps[count($steps) - 1]['status'] = 'warning';
+                    $steps[count($steps) - 1]['message'] = '本地 workflow 文件不存在，跳过上传';
+                } else {
+                    $uploadResult = GitHubActionsService::createOrUpdateFileWithToken(
+                        $owner,
+                        $repo,
+                        '.github/workflows/' . $workflowFile,
+                        $workflowContent,
+                        'feat: add APK build workflow',
+                        $ref,
+                        $token,
+                        ['api_proxy' => $apiProxy, 'proxy_enabled' => $proxyEnabled]
+                    );
+                    if ($uploadResult['success']) {
+                        $steps[count($steps) - 1]['status'] = 'success';
+                        $steps[count($steps) - 1]['message'] = $uploadResult['message'];
+                    } else {
+                        $steps[count($steps) - 1]['status'] = 'warning';
+                        $steps[count($steps) - 1]['message'] = $uploadResult['message'];
+                    }
+                }
+            } elseif (self::isAvailable()) {
+                // 已有配置，使用已保存的配置
+                $config = \App\Service\Config::get('github') ?? [];
+                $owner = $config['owner'] ?? '';
+                $repo  = $config['repo'] ?? '';
+            } else {
+                Response::fail($response, '请先完成基础配置（Token、仓库所有者、仓库名）', Response::CODE_ERROR, 503);
+                return false;
+            }
+
+            // 步骤 5: 生成 keystore
             $steps[] = ['step' => '生成 Keystore', 'status' => 'running'];
             $keystoreResult = self::generateKeystore($projectRoot);
             if (!$keystoreResult['success']) {
@@ -1175,7 +1413,7 @@ class AppBuildController
             $steps[count($steps) - 1]['status'] = 'success';
             $steps[count($steps) - 1]['message'] = 'Keystore 生成成功';
 
-            // 步骤 2: 生成 SSH 密钥对
+            // 步骤 6: 生成 SSH 密钥对
             $steps[] = ['step' => '生成 SSH 密钥对', 'status' => 'running'];
             $sshResult = self::generateSshKey($projectRoot);
             if (!$sshResult['success']) {
@@ -1186,16 +1424,16 @@ class AppBuildController
             $steps[count($steps) - 1]['status'] = 'success';
             $steps[count($steps) - 1]['message'] = 'SSH 密钥对生成成功';
 
-            // 步骤 3: 获取服务器信息
+            // 步骤 7: 获取服务器信息
             $steps[] = ['step' => '获取服务器信息', 'status' => 'running'];
             $serverHost = $_SERVER['SERVER_ADDR'] ?? ($_SERVER['HTTP_HOST'] ?? '');
-            $serverHost = explode(':', $serverHost)[0]; // 去掉端口
+            $serverHost = explode(':', $serverHost)[0];
             $sshPort = (string)($data['ssh_port'] ?? '22');
             $sshUser = (string)($data['ssh_user'] ?? get_current_user());
             $steps[count($steps) - 1]['status'] = 'success';
             $steps[count($steps) - 1]['message'] = "服务器: {$sshUser}@{$serverHost}:{$sshPort}";
 
-            // 步骤 4: 配置 GitHub Secrets
+            // 步骤 8: 配置 GitHub Secrets
             $steps[] = ['step' => '配置 GitHub Secrets', 'status' => 'running'];
 
             $secrets = [
@@ -1209,7 +1447,18 @@ class AppBuildController
                 'SERVER_SSH_KEY'        => $sshResult['private_key'],
             ];
 
-            $secretsResult = GitHubActionsService::setSecrets($secrets);
+            $isAutoMode = ($token !== '' && $token !== '******');
+            if ($isAutoMode) {
+                $secretsResult = GitHubActionsService::setSecretsWithToken(
+                    $owner,
+                    $repo,
+                    $secrets,
+                    $token,
+                    ['api_proxy' => $apiProxy, 'proxy_enabled' => $proxyEnabled]
+                );
+            } else {
+                $secretsResult = GitHubActionsService::setSecrets($secrets);
+            }
             $failedCount = count($secretsResult['failed']);
             $successCount = count($secretsResult['success']);
 

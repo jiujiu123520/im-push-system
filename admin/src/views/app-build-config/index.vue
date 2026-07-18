@@ -8,8 +8,8 @@
             GitHub Actions 全自动配置
           </h1>
           <p class="hero-desc">
-            配置 GitHub Token 和仓库信息，一键生成 Keystore、SSH 密钥并自动配置 Secrets，
-            无需手动操作 GitHub 后台即可完成 APP 构建环境部署。
+            只需输入 GitHub Token，自动创建仓库、生成 Keystore 和 SSH 密钥、配置所有 Secrets，
+            全程无需手动操作 GitHub 后台，一键完成 APP 构建环境部署。
           </p>
         </div>
         <div class="hero-actions">
@@ -47,12 +47,14 @@
                 type="password"
                 show-password
                 placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                @keyup.enter="handleFetchUser"
               >
                 <template #append>
                   <el-button
                     :icon="MagicStickIcon"
-                    @click="openTokenCreate"
-                  >创建 Token</el-button>
+                    :loading="fetchingUser"
+                    @click="handleFetchUser"
+                  >验证 Token</el-button>
                 </template>
               </el-input>
               <div class="form-tip">
@@ -61,7 +63,72 @@
               </div>
             </el-form-item>
 
-            <el-row :gutter="16">
+            <div v-if="githubUser" class="user-info-card">
+              <el-avatar :src="githubUser.avatar_url" :size="48" />
+              <div class="user-detail">
+                <div class="user-name">{{ githubUser.name }}</div>
+                <div class="user-login">@{{ githubUser.login }}</div>
+                <div class="user-scopes">
+                  <el-tag
+                    v-for="scope in githubUser.scopes"
+                    :key="scope"
+                    size="small"
+                    :type="scope === 'repo' || scope === 'workflow' ? 'success' : 'info'"
+                  >{{ scope }}</el-tag>
+                </div>
+              </div>
+              <el-tag type="success" size="small" class="user-status">已验证</el-tag>
+            </div>
+
+            <div v-if="githubUser" class="repo-config-section">
+              <el-divider content-position="left">仓库配置</el-divider>
+
+              <el-radio-group v-model="repoMode" class="repo-mode-switch">
+                <el-radio-button value="create">
+                  <el-icon><PlusIcon /></el-icon>
+                  创建新仓库
+                </el-radio-button>
+                <el-radio-button value="select" @click="handleLoadRepos">
+                  <el-icon><FolderIcon /></el-icon>
+                  选择已有仓库
+                </el-radio-button>
+              </el-radio-group>
+
+              <div v-if="repoMode === 'create'" class="create-repo-form">
+                <el-form-item label="仓库所有者 (Owner)">
+                  <el-input v-model="config.owner" disabled />
+                </el-form-item>
+                <el-form-item label="新仓库名称">
+                  <el-input v-model="newRepoName" placeholder="如: im-push-build" />
+                  <div class="form-tip">私有仓库，将自动创建用于 APK 构建</div>
+                </el-form-item>
+              </div>
+
+              <div v-else class="select-repo-form">
+                <el-form-item label="选择仓库">
+                  <el-select
+                    v-model="selectedRepo"
+                    placeholder="选择一个已有仓库"
+                    filterable
+                    :loading="loadingRepos"
+                    style="width: 100%"
+                  >
+                    <el-option
+                      v-for="repo in repoList"
+                      :key="repo.full_name"
+                      :label="repo.full_name"
+                      :value="repo.name"
+                    >
+                      <span>{{ repo.name }}</span>
+                      <el-tag v-if="repo.private" type="warning" size="small" style="margin-left: 8px">私有</el-tag>
+                    </el-option>
+                  </el-select>
+                  <div class="form-tip">选择一个已有仓库用于 APK 构建</div>
+                </el-form-item>
+              </div>
+            </div>
+
+            <el-row v-if="!githubUser" :gutter="16">
               <el-col :span="12">
                 <el-form-item label="仓库所有者 (Owner)" prop="owner">
                   <el-input v-model="config.owner" placeholder="如: jiujiu123520" />
@@ -192,6 +259,9 @@
             <template #default>
               <p>一键配置将自动完成以下步骤：</p>
               <ol class="step-list">
+                <li>验证 GitHub Token 并获取用户信息</li>
+                <li>创建或准备 APK 构建仓库</li>
+                <li>上传 Workflow 构建文件</li>
                 <li>生成 Android 签名 Keystore</li>
                 <li>生成 SSH 密钥对（用于 SCP 上传 APK）</li>
                 <li>自动加密并配置 8 个 GitHub Secrets</li>
@@ -270,16 +340,30 @@
               size="large"
               :icon="MagicStickIcon"
               :loading="autoSettingUp"
-              :disabled="!configValidated"
+              :disabled="!(githubUser || configValidated)"
               @click="handleAutoSetup"
               class="auto-setup-btn"
             >
-              {{ autoSettingUp ? '正在配置...' : '🚀 开始一键配置' }}
+              {{ autoSettingUp ? '正在配置...' : '🚀 一键全自动配置' }}
             </el-button>
-            <el-tooltip content="需要先验证配置有效性" placement="bottom">
+            <el-tooltip
+              v-if="!githubUser && !configValidated"
+              content="请先输入并验证 Token"
+              placement="bottom"
+            >
               <div class="tip-wrapper">
                 <el-icon><InfoFilledIcon /></el-icon>
-                <span>请先验证基础配置后再使用一键配置</span>
+                <span>请先输入 Token 并验证后使用一键配置</span>
+              </div>
+            </el-tooltip>
+            <el-tooltip
+              v-else-if="githubUser"
+              content="全自动模式：将自动创建/选择仓库、生成密钥、配置所有 Secrets"
+              placement="bottom"
+            >
+              <div class="tip-wrapper tip-success">
+                <el-icon><CircleCheckFilledIcon /></el-icon>
+                <span>全自动模式已就绪</span>
               </div>
             </el-tooltip>
           </div>
@@ -400,7 +484,9 @@ import {
   CircleCloseFilled as CircleCloseFilledIcon,
   Lock as LockIcon,
   Connection as ConnectionIcon,
-  DataAnalysis as DataAnalysisIcon
+  DataAnalysis as DataAnalysisIcon,
+  Plus as PlusIcon,
+  Folder as FolderIcon
 } from '@element-plus/icons-vue'
 import {
   getGithubConfigApi,
@@ -409,7 +495,9 @@ import {
   checkGithubConfigApi,
   autoSetupGithubApi,
   testProxyApi,
-  compareProxyApi
+  compareProxyApi,
+  getUserApi,
+  listReposApi
 } from '@/api/appBuild'
 
 const formRef = ref<FormInstance>()
@@ -418,6 +506,27 @@ const validating = ref(false)
 const checking = ref(false)
 const autoSettingUp = ref(false)
 const configValidated = ref(false)
+const fetchingUser = ref(false)
+const loadingRepos = ref(false)
+
+const githubUser = ref<{
+  login: string
+  name: string
+  avatar_url: string
+  type: string
+  scopes: string[]
+} | null>(null)
+
+const repoList = ref<Array<{
+  name: string
+  full_name: string
+  private: boolean
+  description: string
+}>>([])
+
+const repoMode = ref<'create' | 'select'>('create')
+const selectedRepo = ref('')
+const newRepoName = ref('im-push-build')
 
 const config = reactive({
   token: '',
@@ -690,10 +799,87 @@ async function handleCheck() {
   }
 }
 
+async function handleFetchUser() {
+  const token = config.token.trim()
+  if (token === '' || token === '******') {
+    ElMessage.warning('请输入 GitHub Token')
+    return
+  }
+
+  fetchingUser.value = true
+  githubUser.value = null
+  repoList.value = []
+  config.owner = ''
+
+  try {
+    const res = await getUserApi({
+      token,
+      api_proxy: config.api_proxy,
+      proxy_enabled: config.proxy_enabled
+    })
+    const data = (res as any).data || res
+    githubUser.value = data
+    config.owner = data.login
+    ElMessage.success(`用户验证成功: ${data.login}`)
+  } catch (err: any) {
+    ElMessage.error(err?.message || '获取用户信息失败，请检查 Token 是否正确')
+  } finally {
+    fetchingUser.value = false
+  }
+}
+
+async function handleLoadRepos() {
+  const token = config.token.trim()
+  if (token === '' || token === '******') {
+    ElMessage.warning('请先输入 Token 并验证用户')
+    return
+  }
+
+  loadingRepos.value = true
+  try {
+    const res = await listReposApi({
+      token,
+      api_proxy: config.api_proxy,
+      proxy_enabled: config.proxy_enabled,
+      per_page: 100
+    })
+    const data = (res as any).data || res
+    repoList.value = data.repos || []
+    if (repoList.value.length === 0) {
+      ElMessage.info('未找到仓库，将使用新建模式')
+      repoMode.value = 'create'
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.message || '获取仓库列表失败')
+  } finally {
+    loadingRepos.value = false
+  }
+}
+
 async function handleAutoSetup() {
-  if (!configValidated.value) {
+  const token = config.token.trim()
+  const isAutoMode = token !== '' && token !== '******' && githubUser.value !== null
+
+  if (!isAutoMode && !configValidated.value) {
     ElMessage.warning('请先验证配置有效性')
     return
+  }
+
+  if (isAutoMode) {
+    if (repoMode.value === 'create') {
+      if (newRepoName.value.trim() === '') {
+        ElMessage.warning('请输入新仓库名称')
+        return
+      }
+      config.repo = newRepoName.value.trim()
+    } else {
+      if (selectedRepo.value === '') {
+        ElMessage.warning('请选择一个仓库')
+        return
+      }
+      config.repo = selectedRepo.value
+    }
+    config.owner = githubUser.value.login
   }
 
   autoSettingUp.value = true
@@ -701,10 +887,23 @@ async function handleAutoSetup() {
   setupResult.value = null
 
   try {
-    const res = await autoSetupGithubApi({
+    const payload: Record<string, any> = {
       ssh_port: sshConfig.port,
       ssh_user: sshConfig.user
-    })
+    }
+
+    if (isAutoMode) {
+      payload.token = token
+      payload.repo = config.repo
+      payload.owner = config.owner
+      payload.api_proxy = config.api_proxy
+      payload.proxy_enabled = config.proxy_enabled
+      payload.workflow_file = config.workflow_file
+      payload.ref = config.ref
+      payload.timeout = config.timeout
+    }
+
+    const res = await autoSetupGithubApi(payload)
     const data = (res as any).data || res
     autoSetupSteps.value = data.steps || []
     setupResult.value = {
@@ -717,6 +916,8 @@ async function handleAutoSetup() {
 
     if (data.success) {
       ElMessage.success('一键配置完成！')
+      configValidated.value = true
+      fetchConfig()
     } else {
       ElMessage.warning(data.message || '部分配置失败')
     }
@@ -1136,6 +1337,75 @@ onMounted(() => {
 .proxy-test-result {
   margin-top: 8px;
   margin-bottom: 16px;
+}
+
+.user-info-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-radius: 12px;
+  border: 1px solid #bae6fd;
+  margin-bottom: 16px;
+
+  .user-detail {
+    flex: 1;
+
+    .user-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: #0c4a6e;
+      margin-bottom: 2px;
+    }
+
+    .user-login {
+      font-size: 13px;
+      color: #0284c7;
+      margin-bottom: 6px;
+    }
+
+    .user-scopes {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+  }
+
+  .user-status {
+    align-self: flex-start;
+  }
+}
+
+.repo-config-section {
+  margin-bottom: 8px;
+
+  :deep(.el-divider__text) {
+    font-weight: 600;
+    color: #606266;
+  }
+}
+
+.repo-mode-switch {
+  margin-bottom: 16px;
+
+  :deep(.el-radio-button__inner) {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+}
+
+.create-repo-form,
+.select-repo-form {
+  background: #fafafa;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #ebeef5;
+}
+
+.tip-success {
+  color: #67c23a;
 }
 
 .compare-detail {

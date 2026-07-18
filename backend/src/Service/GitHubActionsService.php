@@ -783,4 +783,366 @@ class GitHubActionsService
             'recommendation' => $recommendation,
         ];
     }
+
+    /**
+     * 获取当前 Token 对应的用户信息
+     *
+     * @param string|null $token 不传则用已配置的 token
+     * @return array{login: string, name: string, avatar_url: string, type: string, scopes: array}|null
+     */
+    public static function getCurrentUser(?string $token = null): ?array
+    {
+        try {
+            if ($token !== null) {
+                $response = self::requestWithToken($token, 'GET', '/user');
+            } else {
+                $response = self::request('GET', '/user');
+            }
+
+            if ($response['status'] !== 200 || !isset($response['json']['login'])) {
+                return null;
+            }
+
+            $scopes = [];
+            $headers = $response['headers'] ?? [];
+            foreach ($headers as $key => $value) {
+                if (strtolower($key) === 'x-oauth-scopes') {
+                    $scopes = array_map('trim', explode(',', $value));
+                    break;
+                }
+            }
+
+            return [
+                'login'      => $response['json']['login'],
+                'name'       => $response['json']['name'] ?? $response['json']['login'],
+                'avatar_url' => $response['json']['avatar_url'] ?? '',
+                'type'       => $response['json']['type'] ?? 'User',
+                'scopes'     => $scopes,
+            ];
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * 列出当前用户的仓库(用于下拉选择)
+     *
+     * @param int    $page
+     * @param int    $perPage
+     * @param string|null $token
+     * @return array<int, array{name: string, full_name: string, private: bool, description: string}>
+     */
+    public static function listUserRepos(int $page = 1, int $perPage = 100, ?string $token = null): array
+    {
+        try {
+            $path = '/user/repos?page=' . $page . '&per_page=' . $perPage . '&sort=updated';
+            if ($token !== null) {
+                $response = self::requestWithToken($token, 'GET', $path);
+            } else {
+                $response = self::request('GET', $path);
+            }
+
+            if ($response['status'] !== 200 || !is_array($response['json'])) {
+                return [];
+            }
+
+            $repos = [];
+            foreach ($response['json'] as $repo) {
+                $repos[] = [
+                    'name'        => $repo['name'] ?? '',
+                    'full_name'   => $repo['full_name'] ?? '',
+                    'private'     => !empty($repo['private']),
+                    'description' => $repo['description'] ?? '',
+                ];
+            }
+            return $repos;
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * 检查仓库是否存在
+     *
+     * @param string $owner
+     * @param string $repo
+     * @param string|null $token
+     * @return bool
+     */
+    public static function repoExists(string $owner, string $repo, ?string $token = null): bool
+    {
+        try {
+            if ($token !== null) {
+                $response = self::requestWithToken($token, 'GET', "/repos/{$owner}/{$repo}");
+            } else {
+                $response = self::request('GET', "/repos/{$owner}/{$repo}");
+            }
+            return $response['status'] === 200;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * 创建新仓库(私有)
+     *
+     * @param string $name 仓库名
+     * @param string $description 描述
+     * @param bool   $private 是否私有
+     * @param string|null $token
+     * @return array{success: bool, message: string, full_name?: string}
+     */
+    public static function createRepo(string $name, string $description = '', bool $private = true, ?string $token = null): array
+    {
+        try {
+            $data = [
+                'name'        => $name,
+                'description' => $description,
+                'private'     => $private,
+                'auto_init'   => false,
+            ];
+
+            if ($token !== null) {
+                $response = self::requestWithToken($token, 'POST', '/user/repos', $data);
+            } else {
+                $response = self::request('POST', '/user/repos', $data);
+            }
+
+            if ($response['status'] === 201 && isset($response['json']['full_name'])) {
+                return [
+                    'success'   => true,
+                    'message'   => '仓库创建成功',
+                    'full_name' => $response['json']['full_name'],
+                    'html_url'  => $response['json']['html_url'] ?? '',
+                ];
+            }
+
+            $msg = $response['json']['message'] ?? ('HTTP ' . $response['status']);
+            return ['success' => false, 'message' => '仓库创建失败: ' . $msg];
+        } catch (\Throwable $e) {
+            return ['success' => false, 'message' => '仓库创建失败: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * 上传文件到仓库(通过 Contents API)
+     *
+     * @param string $path 文件在仓库中的路径(如 .github/workflows/build-apk.yml)
+     * @param string $content 文件内容(base64编码前的原文)
+     * @param string $message commit message
+     * @param string $branch 分支
+     * @return array{success: bool, message: string}
+     */
+    public static function createOrUpdateFile(string $path, string $content, string $message = 'init', string $branch = 'main'): array
+    {
+        try {
+            $config = self::config();
+            $owner = $config['owner'] ?? '';
+            $repo = $config['repo'] ?? '';
+
+            if (empty($owner) || empty($repo)) {
+                return ['success' => false, 'message' => '未配置仓库所有者和仓库名'];
+            }
+
+            // 先获取文件 sha(如果已存在则更新)
+            $getResponse = self::request('GET', "/repos/{$owner}/{$repo}/contents/{$path}?ref={$branch}");
+            $sha = null;
+            if ($getResponse['status'] === 200 && isset($getResponse['json']['sha'])) {
+                $sha = $getResponse['json']['sha'];
+            }
+
+            $data = [
+                'message' => $message,
+                'content' => base64_encode($content),
+                'branch'  => $branch,
+            ];
+            if ($sha !== null) {
+                $data['sha'] = $sha;
+            }
+
+            $response = self::request('PUT', "/repos/{$owner}/{$repo}/contents/{$path}", $data);
+
+            if (in_array($response['status'], [200, 201], true)) {
+                return ['success' => true, 'message' => $sha !== null ? '文件已更新' : '文件已创建'];
+            }
+
+            $msg = $response['json']['message'] ?? ('HTTP ' . $response['status']);
+            return ['success' => false, 'message' => '文件上传失败: ' . $msg];
+        } catch (\Throwable $e) {
+            return ['success' => false, 'message' => '文件上传失败: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * 获取 workflow 文件内容(从本地项目 .github/workflows 目录读取)
+     *
+     * @param string $workflowFile
+     * @return string|null
+     */
+    public static function getLocalWorkflowContent(string $workflowFile = 'build-apk.yml'): ?string
+    {
+        $projectRoot = dirname(__DIR__, 3);
+        $filePath = $projectRoot . '/.github/workflows/' . $workflowFile;
+        if (!file_exists($filePath)) {
+            return null;
+        }
+        return (string)file_get_contents($filePath);
+    }
+
+    /**
+     * 上传 workflow 文件到目标仓库
+     *
+     * @param string $workflowFile
+     * @param string $branch
+     * @return array{success: bool, message: string}
+     */
+    public static function uploadWorkflow(string $workflowFile = 'build-apk.yml', string $branch = 'main'): array
+    {
+        $content = self::getLocalWorkflowContent($workflowFile);
+        if ($content === null) {
+            return ['success' => false, 'message' => '本地 workflow 文件不存在: ' . $workflowFile];
+        }
+
+        return self::createOrUpdateFile(
+            '.github/workflows/' . $workflowFile,
+            $content,
+            'feat: add APK build workflow',
+            $branch
+        );
+    }
+
+    /**
+     * 使用指定 token 上传文件到仓库(通过 Contents API)
+     *
+     * @param string $owner
+     * @param string $repo
+     * @param string $path 文件在仓库中的路径(如 .github/workflows/build-apk.yml)
+     * @param string $content 文件内容(base64编码前的原文)
+     * @param string $message commit message
+     * @param string $branch 分支
+     * @param string|null $token
+     * @param array $options
+     * @return array{success: bool, message: string}
+     */
+    public static function createOrUpdateFileWithToken(
+        string $owner,
+        string $repo,
+        string $path,
+        string $content,
+        string $message = 'init',
+        string $branch = 'main',
+        ?string $token = null,
+        array $options = []
+    ): array {
+        try {
+            if (empty($owner) || empty($repo)) {
+                return ['success' => false, 'message' => '未配置仓库所有者和仓库名'];
+            }
+
+            $requestToken = $token;
+            $requestOptions = $options;
+
+            $getResponse = self::requestWithToken(
+                $requestToken ?? '',
+                'GET',
+                "/repos/{$owner}/{$repo}/contents/{$path}?ref={$branch}",
+                null,
+                $requestOptions
+            );
+            $sha = null;
+            if ($getResponse['status'] === 200 && isset($getResponse['json']['sha'])) {
+                $sha = $getResponse['json']['sha'];
+            }
+
+            $data = [
+                'message' => $message,
+                'content' => base64_encode($content),
+                'branch'  => $branch,
+            ];
+            if ($sha !== null) {
+                $data['sha'] = $sha;
+            }
+
+            $response = self::requestWithToken(
+                $requestToken ?? '',
+                'PUT',
+                "/repos/{$owner}/{$repo}/contents/{$path}",
+                $data,
+                $requestOptions
+            );
+
+            if (in_array($response['status'], [200, 201], true)) {
+                return ['success' => true, 'message' => $sha !== null ? '文件已更新' : '文件已创建'];
+            }
+
+            $msg = $response['json']['message'] ?? ('HTTP ' . $response['status']);
+            return ['success' => false, 'message' => '文件上传失败: ' . $msg];
+        } catch (\Throwable $e) {
+            return ['success' => false, 'message' => '文件上传失败: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * 使用指定 token 批量设置 Secrets
+     *
+     * @param string $owner
+     * @param string $repo
+     * @param array $secrets [name => value]
+     * @param string|null $token
+     * @param array $options
+     * @return array{success: array, failed: array}
+     */
+    public static function setSecretsWithToken(string $owner, string $repo, array $secrets, ?string $token = null, array $options = []): array
+    {
+        $success = [];
+        $failed = [];
+
+        if ($token === null || $token === '') {
+            return ['success' => [], 'failed' => ['error' => 'Token 不能为空']];
+        }
+
+        try {
+            $pubKeyResponse = self::requestWithToken(
+                $token,
+                'GET',
+                "/repos/{$owner}/{$repo}/actions/secrets/public-key",
+                null,
+                $options
+            );
+            if ($pubKeyResponse['status'] !== 200 || !isset($pubKeyResponse['json']['key'], $pubKeyResponse['json']['key_id'])) {
+                $msg = $pubKeyResponse['json']['message'] ?? ('HTTP ' . $pubKeyResponse['status']);
+                return ['success' => [], 'failed' => ['public_key' => '获取公钥失败: ' . $msg]];
+            }
+            $publicKey = $pubKeyResponse['json']['key'];
+            $keyId = $pubKeyResponse['json']['key_id'];
+
+            foreach ($secrets as $name => $value) {
+                try {
+                    $encryptedValue = self::encryptSecret($publicKey, $value);
+                    $response = self::requestWithToken(
+                        $token,
+                        'PUT',
+                        "/repos/{$owner}/{$repo}/actions/secrets/" . $name,
+                        [
+                            'encrypted_value' => $encryptedValue,
+                            'key_id'          => $keyId,
+                        ],
+                        $options
+                    );
+                    if (in_array($response['status'], [201, 204], true)) {
+                        $success[] = $name;
+                    } else {
+                        $msg = $response['json']['message'] ?? ('HTTP ' . $response['status']);
+                        $failed[$name] = $msg;
+                    }
+                } catch (\Throwable $e) {
+                    $failed[$name] = $e->getMessage();
+                }
+            }
+        } catch (\Throwable $e) {
+            $failed['error'] = $e->getMessage();
+        }
+
+        return ['success' => $success, 'failed' => $failed];
+    }
 }
