@@ -309,7 +309,7 @@
 
             <div v-else class="check-items">
               <div
-                v-for="(check, key) in checkResult?.checks || []"
+                v-for="(check, key) in checkItems"
                 :key="key"
                 class="check-item"
                 :class="`status-${check.status}`"
@@ -476,6 +476,10 @@ const checkResult = ref<{
   }>
   summary: string
 } | null>(null)
+
+const checkItems = computed(() => {
+  return checkResult.value?.checks || {}
+})
 
 const autoSetupSteps = ref<Array<{
   step: string
