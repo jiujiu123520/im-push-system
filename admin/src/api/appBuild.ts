@@ -122,6 +122,24 @@ export function downloadApkApi(buildId: string) {
   })
 }
 
+// 生成 HBuilderX 项目包
+export function generateHBuilderXProjectApi(data: {
+  app_name: string
+  package_name?: string
+  default_key?: string
+  server_url?: string
+  ws_url?: string
+  icon_base64?: string
+  version?: string
+}) {
+  return request<Blob>({
+    method: 'post',
+    url: '/admin/app-build/hbuilderx/generate',
+    data,
+    responseType: 'blob'
+  })
+}
+
 // 获取 GitHub Actions 配置
 export function getGithubConfigApi() {
   return get<{

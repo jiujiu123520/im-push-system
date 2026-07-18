@@ -411,6 +411,18 @@ cat ~/.ssh/github_actions_key</pre>
                 </el-radio-button>
               </el-radio-group>
             </el-form-item>
+            <el-form-item label="打包方式" prop="buildMethod">
+              <el-radio-group v-model="form.buildMethod" class="platform-radio">
+                <el-radio-button value="github">
+                  <el-icon><CpuIcon /></el-icon>
+                  GitHub Actions
+                </el-radio-button>
+                <el-radio-button value="hbuilderx">
+                  <el-icon><MagicStickIcon /></el-icon>
+                  HBuilderX
+                </el-radio-button>
+              </el-radio-group>
+            </el-form-item>
           </div>
 
           <!-- 打包类型 -->
@@ -688,7 +700,8 @@ import {
   generateIconApi,
   downloadApkApi,
   downloadBuildLogApi,
-  getAppBuildConfigStatusApi
+  getAppBuildConfigStatusApi,
+  generateHBuilderXProjectApi
 } from '@/api/appBuild'
 import { getKeyListApi } from '@/api/key'
 import { getSettingsApi } from '@/api/settings'
@@ -705,6 +718,7 @@ interface BuildForm {
   version: string
   platform: 'android' | 'ios'
   buildType: 'release' | 'debug'
+  buildMethod: 'github' | 'hbuilderx'
 }
 
 const formRef = ref<FormInstance>()
@@ -796,7 +810,8 @@ const form = reactive<BuildForm>({
   appIcon: '',
   version: '1.0.0',
   platform: 'android',
-  buildType: 'release'
+  buildType: 'release',
+  buildMethod: 'github'
 })
 
 const rules: FormRules = {
@@ -1095,20 +1110,44 @@ async function handleGenerate() {
 
   submitting.value = true
   try {
-    await createAppBuildApi({
-      app_name: form.name,
-      default_key: form.defaultKey,
-      server_url: form.serverAddress,
-      ws_url: form.websocketAddress,
-      package_name: form.packageName,
-      icon_path: form.appIcon,
-      version: form.version,
-      platform: form.platform,
-      build_type: form.buildType
-    })
-    ElMessage.success('构建任务已提交，正在打包...')
-    await fetchHistory()
-    startPolling()
+    if (form.buildMethod === 'hbuilderx') {
+      // HBuilderX 打包方式：生成项目压缩包
+      const res: any = await generateHBuilderXProjectApi({
+        app_name: form.name,
+        default_key: form.defaultKey,
+        server_url: form.serverAddress,
+        ws_url: form.websocketAddress,
+        package_name: form.packageName,
+        icon_base64: form.appIcon,
+        version: form.version
+      })
+      const blob = new Blob([res.data], { type: 'application/zip' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${form.name || 'app'}-hbuilderx.zip`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      ElMessage.success('HBuilderX 项目包已生成，正在下载...')
+    } else {
+      // GitHub Actions 打包方式
+      await createAppBuildApi({
+        app_name: form.name,
+        default_key: form.defaultKey,
+        server_url: form.serverAddress,
+        ws_url: form.websocketAddress,
+        package_name: form.packageName,
+        icon_path: form.appIcon,
+        version: form.version,
+        platform: form.platform,
+        build_type: form.buildType
+      })
+      ElMessage.success('构建任务已提交，正在打包...')
+      await fetchHistory()
+      startPolling()
+    }
   } catch (err: any) {
     ElMessage.error(err?.message || '提交构建失败')
   } finally {

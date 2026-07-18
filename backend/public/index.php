@@ -76,6 +76,7 @@ if ($runWs) {
         $router->get('/admin/app-build/runs', [\App\Controller\AppBuildController::class, 'runs']);
         $router->get('/admin/app-build/random-config', [\App\Controller\AppBuildController::class, 'randomConfig']);
         $router->get('/admin/app-build/generate-icon', [\App\Controller\AppBuildController::class, 'generateIcon']);
+        $router->post('/admin/app-build/hbuilderx/generate', [\App\Controller\AppBuildController::class, 'generateHBuilderX']);
         $router->get('/admin/app-build/status/{build_id}', [\App\Controller\AppBuildController::class, 'status']);
         $router->get('/admin/app-build/download/{build_id}', [\App\Controller\AppBuildController::class, 'download']);
         // 重要: log/{build_id}/download 必须在 log/{build_id} 之前注册,否则会被 {build_id} 捕获
