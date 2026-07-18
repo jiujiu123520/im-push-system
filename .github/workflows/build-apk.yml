@@ -86,12 +86,13 @@ jobs:
           fi
           mkdir -p build/keystore
           echo "$KEYSTORE_BASE64" | base64 -d > build/keystore/release.keystore
+          # 注意: heredoc 必须顶格,不能有前导空格,否则 properties 文件会包含空格导致变量名错误
           cat > build/keystore/keystore.properties <<EOF
-          STORE_FILE=$GITHUB_WORKSPACE/build/keystore/release.keystore
-          KEY_ALIAS=$KEY_ALIAS
-          STORE_PASSWORD=$KEYSTORE_PASSWORD
-          KEY_PASSWORD=$KEY_PASSWORD
-          EOF
+STORE_FILE=$GITHUB_WORKSPACE/build/keystore/release.keystore
+KEY_ALIAS=$KEY_ALIAS
+STORE_PASSWORD=$KEYSTORE_PASSWORD
+KEY_PASSWORD=$KEY_PASSWORD
+EOF
           chmod 600 build/keystore/keystore.properties build/keystore/release.keystore
           echo "Keystore 已解码"
 
