@@ -236,7 +236,8 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import {
   getAppBuildConfigStatusApi,
   manualTriggerBuildApi,
-  getWorkflowRunsApi
+  getWorkflowRunsApi,
+  getRandomConfigApi
 } from '@/api/appBuild'
 
 // ---- 配置状态 ----
@@ -443,9 +444,11 @@ function openActions() {
 }
 
 // ---- 生命周期 ----
-onMounted(() => {
+onMounted(async () => {
   fetchConfigStatus()
   fetchRuns()
+  // 自动填充所有参数
+  await autoFillAllParams()
   // 每 15 秒自动刷新运行列表(监控进行中的任务)
   refreshTimer = setInterval(() => {
     // 只在有进行中/排队中的任务时自动刷新
@@ -453,6 +456,43 @@ onMounted(() => {
     if (hasActive) fetchRuns()
   }, 15000)
 })
+
+// 自动填充所有参数
+async function autoFillAllParams() {
+  try {
+    // 1. 获取随机配置（应用名称 + 包名）
+    const randomRes = await getRandomConfigApi()
+    form.app_name = randomRes.data.app_name
+    form.package_name = randomRes.data.package_name
+
+    // 2. 自动检测并填充服务器地址
+    const detected = detectServerUrls()
+    form.server_url = detected.httpUrl
+    form.ws_url = detected.wsUrl
+
+    // 3. 生成默认 Key
+    generateKey()
+  } catch (e) {
+    console.warn('自动填充参数失败，部分参数可能需要手动填写', e)
+  }
+}
+
+// 自动检测服务器地址
+function detectServerUrls() {
+  const browserProtocol = window.location.protocol
+  const browserHost = window.location.hostname
+  const httpProtocol = browserProtocol === 'https:' ? 'https:' : 'http:'
+  const wsProtocol = browserProtocol === 'https:' ? 'wss:' : 'ws:'
+
+  // 默认端口
+  const defaultHttpPort = '9501'
+  const defaultWsPort = '9502'
+
+  return {
+    httpUrl: `${httpProtocol}//${browserHost}:${defaultHttpPort}`,
+    wsUrl: `${wsProtocol}//${browserHost}:${defaultWsPort}`
+  }
+}
 
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)

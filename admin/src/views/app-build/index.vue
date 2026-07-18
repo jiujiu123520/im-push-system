@@ -928,21 +928,7 @@ async function randomizePackageName() {
 async function randomizeAll() {
   randomizing.value = true
   try {
-    const res = await getRandomConfigApi()
-    form.name = res.data.app_name
-    form.packageName = res.data.package_name
-    
-    const detected = await detectServerUrls()
-    form.serverAddress = detected.httpUrl
-    form.websocketAddress = detected.wsUrl
-    
-    if (!form.defaultKey && keyOptions.value.length > 0) {
-      form.defaultKey = keyOptions.value[0].value
-    }
-    
-    if (iconMode.value === 'auto') {
-      await generateIconWithText(res.data.app_name)
-    }
+    await autoFillAllParams()
     ElMessage.success('已随机生成所有参数，服务器地址已自动填充')
   } catch {
     ElMessage.warning('获取随机配置失败，请手动输入')
@@ -1294,16 +1280,44 @@ async function openLog(item: AppBuildRecord) {
 }
 
 onMounted(async () => {
-  fetchKeyOptions()
-  fetchHistory()
-  fetchConfigStatus()
+  // 并行加载基础数据
+  await Promise.all([
+    fetchKeyOptions(),
+    fetchConfigStatus()
+  ])
 
-  // 根据系统设置中保存的端口自动填入服务器地址（含端口号）
-  const detected = await detectServerUrls()
-  // 仅在用户尚未手动填写时自动填充
-  if (!form.serverAddress) form.serverAddress = detected.httpUrl
-  if (!form.websocketAddress) form.websocketAddress = detected.wsUrl
+  fetchHistory()
+
+  // 自动填充所有参数
+  await autoFillAllParams()
 })
+
+// 自动填充所有参数
+async function autoFillAllParams() {
+  try {
+    // 1. 获取随机配置（应用名称 + 包名）
+    const randomRes = await getRandomConfigApi()
+    form.name = randomRes.data.app_name
+    form.packageName = randomRes.data.package_name
+
+    // 2. 自动检测并填充服务器地址
+    const detected = await detectServerUrls()
+    form.serverAddress = detected.httpUrl
+    form.websocketAddress = detected.wsUrl
+
+    // 3. 自动填充第一个 Key（如果还没有）
+    if (!form.defaultKey && keyOptions.value.length > 0) {
+      form.defaultKey = keyOptions.value[0].value
+    }
+
+    // 4. 自动生成图标
+    if (iconMode.value === 'auto') {
+      await generateIconWithText(randomRes.data.app_name)
+    }
+  } catch (e) {
+    console.warn('自动填充参数失败，部分参数可能需要手动填写', e)
+  }
+}
 
 onBeforeUnmount(() => {
   stopPolling()
