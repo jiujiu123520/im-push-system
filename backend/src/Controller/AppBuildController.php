@@ -1974,15 +1974,15 @@ class AppBuildController
             }
 
             // 更新 config.js
-            $configFile = $tempDir . '/js/config.js';
+            $configFile = $tempDir . '/config.js';
             if (is_file($configFile)) {
                 $configJs = "// 应用配置（由构建脚本动态注入）\n";
-                $configJs .= "window.APP_CONFIG = {\n";
+                $configJs .= "export const APP_CONFIG = {\n";
                 $configJs .= "    default_key: '" . addslashes($defaultKey) . "',\n";
                 $configJs .= "    server_url: '" . addslashes($serverUrl) . "',\n";
                 $configJs .= "    ws_url: '" . addslashes($wsUrl) . "',\n";
                 $configJs .= "    version_name: '" . addslashes($version) . "'\n";
-                $configJs .= "};\n";
+                $configJs .= "}\n";
                 file_put_contents($configFile, $configJs);
             }
 
@@ -1990,7 +1990,7 @@ class AppBuildController
             if (!empty($iconBase64)) {
                 $iconData = base64_decode($iconBase64);
                 if ($iconData !== false) {
-                    $iconDir = $tempDir . '/img';
+                    $iconDir = $tempDir . '/static';
                     if (!is_dir($iconDir)) {
                         mkdir($iconDir, 0755, true);
                     }
@@ -2000,15 +2000,16 @@ class AppBuildController
 
             // 创建打包说明
             $readme = "============================================\n";
-            $readme .= "HBuilderX 云打包说明\n";
+            $readme .= "HBuilderX uni-app 云打包说明\n";
             $readme .= "============================================\n\n";
+            $readme .= "项目类型: uni-app (Vue 3)\n";
             $readme .= "项目名称: {$appName}\n";
             $readme .= "包名: {$packageName}\n";
             $readme .= "版本: {$version}\n\n";
             $readme .= "打包步骤:\n";
-            $readme .= "1. 打开 HBuilderX\n";
+            $readme .= "1. 打开 HBuilderX (建议最新版)\n";
             $readme .= "2. 文件 -> 导入 -> 从本地目录导入\n";
-            $readme .= "3. 选择本目录\n";
+            $readme .= "3. 选择本目录（确保识别为 uni-app 项目）\n";
             $readme .= "4. 点击菜单: 发行 -> 原生App-云打包\n";
             $readme .= "5. 在弹出的对话框中:\n";
             $readme .= "   - Android: 勾选\n";
@@ -2021,7 +2022,17 @@ class AppBuildController
             $readme .= "- 首次云打包需要在 DCloud 开发者中心实名认证\n";
             $readme .= "- 使用自有证书请确保证书文件和密码正确\n";
             $readme .= "- 包名一旦确定，后续更新请保持一致\n";
-            $readme .= "- 服务器地址已内置到应用中，无需额外配置\n\n";
+            $readme .= "- 服务器地址已内置到应用中，无需额外配置\n";
+            $readme .= "- 本项目基于 uni-app Vue 3 开发，支持 Android/iOS\n";
+            $readme .= "- 如果导入后不识别为 uni-app 项目，请检查 HBuilderX 版本\n\n";
+            $readme .= "项目结构:\n";
+            $readme .= "- App.vue         // 应用入口\n";
+            $readme .= "- main.js         // 主入口文件\n";
+            $readme .= "- manifest.json   // 应用配置\n";
+            $readme .= "- pages.json      // 页面路由配置\n";
+            $readme .= "- config.js       // 服务器配置\n";
+            $readme .= "- pages/          // 页面目录\n";
+            $readme .= "- static/         // 静态资源\n\n";
             $readme .= "============================================\n";
             file_put_contents($tempDir . '/README.txt', $readme);
 

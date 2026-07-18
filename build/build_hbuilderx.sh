@@ -101,16 +101,16 @@ if [ -f "$MANIFEST_FILE" ]; then
 fi
 
 # 更新 config.js
-CONFIG_FILE="$BUILD_OUTPUT/js/config.js"
+CONFIG_FILE="$BUILD_OUTPUT/config.js"
 if [ -f "$CONFIG_FILE" ]; then
     cat > "$CONFIG_FILE" <<EOF
 // 应用配置（由构建脚本动态注入）
-window.APP_CONFIG = {
+export const APP_CONFIG = {
     default_key: "$ESC_DEFAULT_KEY",
     server_url: "$ESC_SERVER_URL",
     ws_url: "$ESC_WS_URL",
     version_name: "$VERSION_NAME"
-};
+}
 EOF
     info "已更新 config.js"
 fi
@@ -118,7 +118,7 @@ fi
 # ---------------- 处理图标 ----------------
 if [ -n "$ICON_PATH" ] && [ -f "$ICON_PATH" ]; then
     info "处理应用图标..."
-    ICON_DIR="$BUILD_OUTPUT/img"
+    ICON_DIR="$BUILD_OUTPUT/static"
     mkdir -p "$ICON_DIR"
     cp "$ICON_PATH" "$ICON_DIR/logo.png"
     info "已复制应用图标"

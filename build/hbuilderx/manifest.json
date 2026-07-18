@@ -1,6 +1,6 @@
 {
     "name" : "PushApp",
-    "appid" : "",
+    "appid" : "__UNI__PUSHAPP",
     "description" : "即时消息推送客户端",
     "versionName" : "1.0.0",
     "versionCode" : "100",
@@ -30,13 +30,26 @@
                     "<uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\"/>",
                     "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>",
                     "<uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\"/>",
-                    "<uses-permission android:name=\"android.permission.VIBRATE\"/>"
+                    "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
+                    "<uses-permission android:name=\"android.permission.CHANGE_NETWORK_STATE\"/>",
+                    "<uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\"/>",
+                    "<uses-permission android:name=\"android.permission.CAMERA\"/>",
+                    "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>",
+                    "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>"
                 ],
                 "minSdkVersion" : 21,
                 "targetSdkVersion" : 33,
                 "abiFilters" : [ "armeabi-v7a", "arm64-v8a" ]
             },
-            "ios" : {},
+            "ios" : {
+                "dSYMs" : false,
+                "idfa" : false,
+                "privacyDescription" : {
+                    "NSPhotoLibraryAddUsageDescription" : "需要访问您的相册以保存图片",
+                    "NSPhotoLibraryUsageDescription" : "需要访问您的相册以选择图片",
+                    "NSCameraUsageDescription" : "需要访问您的相机以拍摄照片"
+                }
+            },
             "sdkConfigs" : {}
         }
     },
