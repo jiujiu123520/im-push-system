@@ -37,6 +37,16 @@ on:
         required: false
         default: ''
         type: string
+      version_name:
+        description: '版本号(如 1.0.0)'
+        required: false
+        default: '1.0.0'
+        type: string
+      version_code:
+        description: '版本码(整数,如 1)'
+        required: false
+        default: '1'
+        type: string
 
 env:
   JAVA_VERSION: '17'
@@ -114,6 +124,8 @@ EOF
           SERVER_URL: ${{ github.event.inputs.server_url }}
           WS_URL: ${{ github.event.inputs.ws_url }}
           ICON_PATH: ${{ github.event.inputs.icon_base64 != '' && '/tmp/build-icon/icon.png' || '' }}
+          VERSION_NAME: ${{ github.event.inputs.version_name }}
+          VERSION_CODE: ${{ github.event.inputs.version_code }}
         run: |
           bash build/build_apk.sh \
             --build-id "$BUILD_ID" \
@@ -123,6 +135,8 @@ EOF
             --ws-url "$WS_URL" \
             --package-name "$PACKAGE_NAME" \
             --icon-path "$ICON_PATH" \
+            --version-name "$VERSION_NAME" \
+            --version-code "$VERSION_CODE" \
             --build-type release
 
       - name: Read build result

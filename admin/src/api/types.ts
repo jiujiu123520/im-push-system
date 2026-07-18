@@ -261,6 +261,11 @@ export interface AppBuildRecord {
   ws_url: string
   icon_path: string
   package_name?: string
+  version_name?: string
+  version?: string
+  platform?: string
+  build_type?: string
+  build_method?: string
   status: 'pending' | 'processing' | 'success' | 'failed'
   apk_path?: string
   result_message?: string
@@ -268,6 +273,7 @@ export interface AppBuildRecord {
   updated_at?: string
   started_at?: string
   finished_at?: string
+  admin_id?: string
 }
 
 export interface AppBuildForm {
@@ -280,6 +286,7 @@ export interface AppBuildForm {
   version?: string
   platform?: 'android' | 'ios'
   build_type?: 'release' | 'debug'
+  build_method?: 'github' | 'hbuilderx'
 }
 
 // ---- 开放 API ----

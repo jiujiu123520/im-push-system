@@ -82,6 +82,8 @@ SERVER_URL="http://127.0.0.1:9501"
 SERVER_WS_URL="ws://127.0.0.1:9502"
 ICON_PATH=""
 PACKAGE_NAME=""
+VERSION_NAME="1.0.0"
+VERSION_CODE="1"
 BUILD_TYPE="release"
 
 # ---------------- 解析参数 ----------------
@@ -94,6 +96,8 @@ while [ $# -gt 0 ]; do
         --ws-url)       SERVER_WS_URL="$2"; shift 2 ;;
         --icon-path)    ICON_PATH="$2"; shift 2 ;;
         --package-name) PACKAGE_NAME="$2"; shift 2 ;;
+        --version-name) VERSION_NAME="$2"; shift 2 ;;
+        --version-code) VERSION_CODE="$2"; shift 2 ;;
         --build-type)   BUILD_TYPE="$2"; shift 2 ;;
         *) error "未知参数：$1"; exit 1 ;;
     esac
@@ -234,6 +238,8 @@ inject_cmd+=(--server-url "$SERVER_URL")
 inject_cmd+=(--ws-url "$SERVER_WS_URL")
 [ -n "$ICON_PATH" ] && inject_cmd+=(--icon-path "$ICON_PATH")
 [ -n "$PACKAGE_NAME" ] && inject_cmd+=(--package-name "$PACKAGE_NAME")
+inject_cmd+=(--version-name "$VERSION_NAME")
+inject_cmd+=(--version-code "$VERSION_CODE")
 inject_cmd+=(--build-id "$BUILD_ID")
 
 "${inject_cmd[@]}" 2>&1 | tee -a "$LOG_FILE"

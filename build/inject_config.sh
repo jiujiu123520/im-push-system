@@ -32,6 +32,8 @@ SERVER_URL="http://127.0.0.1:9501"
 SERVER_WS_URL="ws://127.0.0.1:9502"
 ICON_PATH=""
 PACKAGE_NAME=""
+VERSION_NAME="1.0.0"
+VERSION_CODE="1"
 OUTPUT_APK_NAME="app-release.apk"
 BUILD_ID="local-$(date +%s)"
 
@@ -50,6 +52,8 @@ while [ $# -gt 0 ]; do
         --ws-url)         SERVER_WS_URL="$2"; shift 2 ;;
         --icon-path)      ICON_PATH="$2"; shift 2 ;;
         --package-name)   PACKAGE_NAME="$2"; shift 2 ;;
+        --version-name)   VERSION_NAME="$2"; shift 2 ;;
+        --version-code)   VERSION_CODE="$2"; shift 2 ;;
         --output-apk-name) OUTPUT_APK_NAME="$2"; shift 2 ;;
         --build-id)       BUILD_ID="$2"; shift 2 ;;
         *) error "未知参数：$1"; exit 1 ;;
@@ -106,6 +110,8 @@ cat > "$INJECT_GRADLE" <<EOF
 // ===== 自动生成：打包配置注入（由 build/inject_config.sh 维护，勿手动编辑）=====
 android {
     defaultConfig {
+        versionName "$VERSION_NAME"
+        versionCode $VERSION_CODE
         resValue "string", "app_name", "$ESC_APP_NAME"
         resValue "string", "build_id", "$BUILD_ID"
     }

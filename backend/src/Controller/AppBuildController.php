@@ -166,6 +166,8 @@ class AppBuildController
                 'server_url'    => $serverUrl,
                 'ws_url'        => $wsUrl,
                 'icon_base64'   => $iconBase64,
+                'version_name'  => $versionName,
+                'version_code'  => (string)crc32($buildId),
             ];
             $result = GitHubActionsService::triggerBuild($inputs);
             if (!$result['dispatched']) {
@@ -311,6 +313,7 @@ class AppBuildController
         $serverUrl = (string)($data['server_url'] ?? '');
         $wsUrl = (string)($data['ws_url'] ?? '');
         $iconBase64 = (string)($data['icon_base64'] ?? '');
+        $versionName = (string)($data['version'] ?? '1.0.0');
         // 剥离 data URL 前缀(如 data:image/png;base64,),避免 base64 -d 解码失败
         $iconBase64 = preg_replace('/^data:image\/[a-z]+;base64,/i', '', $iconBase64);
 
@@ -327,6 +330,8 @@ class AppBuildController
                 'server_url'    => $serverUrl,
                 'ws_url'        => $wsUrl,
                 'icon_base64'   => $iconBase64,
+                'version_name'  => $versionName,
+                'version_code'  => (string)crc32($buildId),
             ];
             $result = GitHubActionsService::triggerBuild($inputs);
             if (!$result['dispatched']) {
@@ -1876,5 +1881,231 @@ class AppBuildController
         }
 
         return $updated;
+    }
+
+    /**
+     * POST /admin/app-build/hbuilderx/generate
+     * 生成 HBuilderX 项目压缩包
+     *
+     * @param array $context
+     * @param array $params
+     * @return false
+     */
+    public function generateHBuilderX(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $data = $this->parseBody($context);
+
+        $appName = trim((string)($data['app_name'] ?? 'PushApp'));
+        $packageName = trim((string)($data['package_name'] ?? 'com.example.pushapp'));
+        $defaultKey = trim((string)($data['default_key'] ?? 'default_key'));
+        $serverUrl = trim((string)($data['server_url'] ?? ''));
+        $wsUrl = trim((string)($data['ws_url'] ?? ''));
+        $iconBase64 = (string)($data['icon_base64'] ?? '');
+        $version = trim((string)($data['version'] ?? '1.0.0'));
+
+        if ($appName === '') {
+            Response::fail($response, '应用名称不能为空', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        // 剥离 data URL 前缀
+        $iconBase64 = preg_replace('/^data:image\/[a-z]+;base64,/i', '', $iconBase64);
+
+        // 项目根目录
+        $projectRoot = dirname(__DIR__, 3);
+        $templateDir = $projectRoot . '/build/hbuilderx';
+
+        if (!is_dir($templateDir)) {
+            Response::fail($response, 'HBuilderX 模板目录不存在', Response::CODE_INTERNAL);
+            return false;
+        }
+
+        // 创建临时目录
+        $tempDir = sys_get_temp_dir() . '/hbuilderx_' . uniqid();
+        if (!mkdir($tempDir, 0755, true)) {
+            Response::fail($response, '创建临时目录失败', Response::CODE_INTERNAL);
+            return false;
+        }
+
+        try {
+            // 复制模板文件
+            self::copyDir($templateDir, $tempDir);
+
+            // 更新 manifest.json
+            $manifestFile = $tempDir . '/manifest.json';
+            if (is_file($manifestFile)) {
+                $manifest = json_decode(file_get_contents($manifestFile), true);
+                if (is_array($manifest)) {
+                    $manifest['name'] = $appName;
+                    $manifest['versionName'] = $version;
+                    $manifest['versionCode'] = (string)(intval(str_replace('.', '', $version)) * 10);
+                    if (!empty($packageName)) {
+                        $manifest['appid'] = ''; // HBuilderX appid 留空，导入后自动生成
+                    }
+                    file_put_contents($manifestFile, json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+                }
+            }
+
+            // 更新 config.js
+            $configFile = $tempDir . '/js/config.js';
+            if (is_file($configFile)) {
+                $configJs = "// 应用配置（由构建脚本动态注入）\n";
+                $configJs .= "window.APP_CONFIG = {\n";
+                $configJs .= "    default_key: '" . addslashes($defaultKey) . "',\n";
+                $configJs .= "    server_url: '" . addslashes($serverUrl) . "',\n";
+                $configJs .= "    ws_url: '" . addslashes($wsUrl) . "',\n";
+                $configJs .= "    version_name: '" . addslashes($version) . "'\n";
+                $configJs .= "};\n";
+                file_put_contents($configFile, $configJs);
+            }
+
+            // 处理图标
+            if (!empty($iconBase64)) {
+                $iconData = base64_decode($iconBase64);
+                if ($iconData !== false) {
+                    $iconDir = $tempDir . '/img';
+                    if (!is_dir($iconDir)) {
+                        mkdir($iconDir, 0755, true);
+                    }
+                    file_put_contents($iconDir . '/logo.png', $iconData);
+                }
+            }
+
+            // 创建打包说明
+            $readme = "============================================\n";
+            $readme .= "HBuilderX 云打包说明\n";
+            $readme .= "============================================\n\n";
+            $readme .= "项目名称: {$appName}\n";
+            $readme .= "包名: {$packageName}\n";
+            $readme .= "版本: {$version}\n\n";
+            $readme .= "打包步骤:\n";
+            $readme .= "1. 打开 HBuilderX\n";
+            $readme .= "2. 文件 -> 导入 -> 从本地目录导入\n";
+            $readme .= "3. 选择本目录\n";
+            $readme .= "4. 点击菜单: 发行 -> 原生App-云打包\n";
+            $readme .= "5. 在弹出的对话框中:\n";
+            $readme .= "   - Android: 勾选\n";
+            $readme .= "   - iOS: 按需勾选\n";
+            $readme .= "   - 包名: {$packageName}\n";
+            $readme .= "   - 证书: 选择自有证书或使用DCloud公用证书\n";
+            $readme .= "   - 点击\"打包\"\n";
+            $readme .= "6. 等待打包完成，下载 APK/IPA 文件\n\n";
+            $readme .= "注意事项:\n";
+            $readme .= "- 首次云打包需要在 DCloud 开发者中心实名认证\n";
+            $readme .= "- 使用自有证书请确保证书文件和密码正确\n";
+            $readme .= "- 包名一旦确定，后续更新请保持一致\n";
+            $readme .= "- 服务器地址已内置到应用中，无需额外配置\n\n";
+            $readme .= "============================================\n";
+            file_put_contents($tempDir . '/README.txt', $readme);
+
+            // 生成 ZIP 文件
+            $zipFile = sys_get_temp_dir() . '/' . $appName . '-hbuilderx.zip';
+            if (is_file($zipFile)) {
+                unlink($zipFile);
+            }
+
+            $zip = new \ZipArchive();
+            if ($zip->open($zipFile, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+                Response::fail($response, '创建 ZIP 文件失败', Response::CODE_INTERNAL);
+                return false;
+            }
+
+            // 添加文件到 ZIP
+            $files = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($tempDir, \RecursiveDirectoryIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::LEAVES_ONLY
+            );
+
+            foreach ($files as $file) {
+                if (!$file->isDir()) {
+                    $filePath = $file->getRealPath();
+                    $relativePath = substr($filePath, strlen($tempDir) + 1);
+                    $zip->addFile($filePath, $relativePath);
+                }
+            }
+
+            $zip->close();
+
+            // 输出 ZIP 文件
+            $filename = $appName . '-hbuilderx.zip';
+            $response->status(200);
+            $response->header('Content-Type', 'application/zip');
+            $response->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
+            $response->header('Content-Length', (string)filesize($zipFile));
+            $response->sendfile($zipFile);
+
+            // 清理临时文件
+            register_shutdown_function(function () use ($tempDir, $zipFile) {
+                self::removeDir($tempDir);
+                if (is_file($zipFile)) {
+                    unlink($zipFile);
+                }
+            });
+
+            return false;
+        } catch (\Throwable $e) {
+            // 清理
+            if (is_dir($tempDir)) {
+                self::removeDir($tempDir);
+            }
+            Response::fail($response, '生成 HBuilderX 项目失败: ' . $e->getMessage(), Response::CODE_INTERNAL);
+            return false;
+        }
+    }
+
+    /**
+     * 复制目录
+     *
+     * @param string $src
+     * @param string $dst
+     * @return void
+     */
+    private static function copyDir(string $src, string $dst): void
+    {
+        $dir = opendir($src);
+        if (!is_dir($dst)) {
+            mkdir($dst, 0755, true);
+        }
+        while (false !== ($file = readdir($dir))) {
+            if ($file !== '.' && $file !== '..') {
+                $srcPath = $src . '/' . $file;
+                $dstPath = $dst . '/' . $file;
+                if (is_dir($srcPath)) {
+                    self::copyDir($srcPath, $dstPath);
+                } else {
+                    copy($srcPath, $dstPath);
+                }
+            }
+        }
+        closedir($dir);
+    }
+
+    /**
+     * 删除目录
+     *
+     * @param string $dir
+     * @return void
+     */
+    private static function removeDir(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+        $files = array_diff(scandir($dir), ['.', '..']);
+        foreach ($files as $file) {
+            $path = $dir . '/' . $file;
+            if (is_dir($path)) {
+                self::removeDir($path);
+            } else {
+                unlink($path);
+            }
+        }
+        rmdir($dir);
     }
 }
