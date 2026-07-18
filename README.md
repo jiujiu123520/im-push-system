@@ -36,12 +36,15 @@
 - **通知间隔控制** - 避免频繁通知，可自定义间隔时间
 
 ### 安全功能
+- **用户注册** - 用户可通过注册页自助注册账号（手机号/邮箱验证码）
+- **忘记密码** - 通过 8 位数字安全码重置密码
 - **验证码加密** - 注册/登录验证码 AES 加密传输
 - **设备指纹** - 记录设备 IP、UA、指纹，支持拉黑
 - **黑名单管理** - 按用户/设备/IP 维度拉黑，实时断连
 - **管理员鉴权** - JWT Token 鉴权，支持多角色权限
 - **安全码** - 注册时自动生成 8 位数字安全码，用于忘记密码时重置
 - **登录失败限制** - 管理员登录失败次数限制（Redis 计数，默认 5 次锁定 30 分钟）
+- **验证码防暴力枚举** - 登录时先消费图形验证码再校验密码，防止暴力枚举密码
 
 ### 管理功能
 - **管理后台** - Vue3 + Element Plus，美观易用
@@ -321,6 +324,18 @@ curl -X POST http://localhost:9501/api/push \
   }'
 ```
 
+### 用户认证 API（APP 与前端共用，双路由）
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/auth/register` 和 `/api/auth/register` | POST | 用户注册（返回 token + security_code） |
+| `/auth/send-code` 和 `/api/auth/send-code` | POST | 发送短信/邮箱验证码 |
+| `/auth/login` 和 `/api/auth/login` | POST | 用户登录 |
+| `/auth/reset-password` 和 `/api/auth/reset-password` | POST | 通过安全码重置密码 |
+| `/captcha/image` 和 `/api/captcha/image` | GET | 获取图形验证码（返回 token + image） |
+
+> 说明：APP 端调用 `/auth/*` 路径，前端管理后台因 axios `baseURL=/api` 调用 `/api/auth/*` 路径。
+
 ### 管理后台 API
 
 | 接口 | 方法 | 说明 |
@@ -462,6 +477,95 @@ cat /www/push-system/build/logs/<build_id>.log
 
 # 查看 SSL 证书自动续费日志
 cat /var/log/push-ssl-renew.log
+```
+
+### 累积修复部署命令
+
+以下命令用于部署近期所有修复（并发支持、用户注册/忘记密码、深度检测修复），按需执行：
+
+#### 1. 完整部署（一次性应用所有修复）
+
+```bash
+#!/bin/bash
+set -e
+PROJECT_DIR="/www/push-system"
+cd "$PROJECT_DIR"
+
+echo "===== [1/9] 拉取最新代码 ====="
+git fetch origin main
+git merge --no-edit FETCH_HEAD
+
+echo "===== [2/9] 修复 CRLF 行结尾 (Windows->Linux) ====="
+find backend/src -name "*.php" -exec sed -i 's/\r$//' {} \;
+find backend/bin -name "*.php" -exec sed -i 's/\r$//' {} \;
+find admin/src -name "*.ts" -o -name "*.vue" | xargs -r sed -i 's/\r$//'
+
+echo "===== [3/9] 验证后端 PHP 语法 ====="
+php -l backend/public/index.php
+php -l backend/src/Service/AdminService.php
+php -l backend/src/Controller/PushKeyController.php
+php -l backend/src/HttpServer.php
+php -l backend/src/WebSocketServer.php
+php -l backend/src/Service/Database.php
+php -l backend/src/Service/Redis.php
+php -l backend/src/Service/PushDispatcher.php
+
+echo "===== [4/9] 确认 runtime/logs 目录存在 ====="
+mkdir -p backend/runtime/logs
+chown -R www-data:www-data backend/runtime
+
+echo "===== [5/9] 构建前端 ====="
+cd admin
+npm install --prefer-offline --no-audit --no-fund 2>/dev/null || npm install
+npm run build
+cd ..
+
+echo "===== [6/9] 修复权限 ====="
+chown -R www-data:www-data admin/dist
+chown -R www-data:www-data backend/runtime
+
+echo "===== [7/9] 重启服务 ====="
+systemctl daemon-reload
+systemctl reset-failed push-http push-websocket 2>/dev/null || true
+systemctl restart push-websocket
+sleep 2
+systemctl restart push-http
+
+echo "===== [8/9] 验证服务状态 ====="
+systemctl status push-http --no-pager -l | head -n 12
+echo "---"
+systemctl status push-websocket --no-pager -l | head -n 12
+
+echo "===== [9/9] 完成 ====="
+echo "新增页面:"
+echo "  注册页:     https://your-domain/#/register"
+echo "  忘记密码页: https://your-domain/#/forgot-password"
+echo ""
+echo "新增后端路由 (双路由 APP/前端共用):"
+echo "  POST /auth/register 和 POST /api/auth/register"
+echo "  POST /auth/send-code  和 POST /api/auth/send-code"
+echo "  POST /auth/login       和 POST /api/auth/login"
+echo "  POST /auth/reset-password 和 POST /api/auth/reset-password"
+```
+
+#### 2. 仅更新代码（快速模式，跳过前端构建）
+
+```bash
+cd /www/push-system
+git fetch origin main && git merge --no-edit FETCH_HEAD
+find backend/src -name "*.php" -exec sed -i 's/\r$//' {} \;
+sudo systemctl restart push-http push-websocket
+sudo systemctl status push-http push-websocket --no-pager | head -n 20
+```
+
+#### 3. 仅重建前端
+
+```bash
+cd /www/push-system/admin
+npm install --prefer-offline --no-audit --no-fund
+npm run build
+sudo chown -R www-data:www-data dist
+# 无需重启服务，Nginx 直接读取新 dist 目录
 ```
 
 ## 域名与 SSL 管理
