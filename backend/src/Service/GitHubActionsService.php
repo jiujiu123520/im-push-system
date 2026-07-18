@@ -37,7 +37,7 @@ class GitHubActionsService
         if (self::$config !== null) {
             return self::$config;
         }
-        self::$config = Config::get('github', []);
+        self::$config = Config::get('github') ?? [];
         return self::$config;
     }
 

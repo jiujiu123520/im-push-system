@@ -74,12 +74,13 @@ if ($runWs) {
         $router->get('/admin/app-build/config-status', [\App\Controller\AppBuildController::class, 'configStatus']);
         $router->post('/admin/app-build/manual-trigger', [\App\Controller\AppBuildController::class, 'manualTrigger']);
         $router->get('/admin/app-build/runs', [\App\Controller\AppBuildController::class, 'runs']);
-        $router->get('/admin/app-build/status/{build_id}', [\App\Controller\AppBuildController::class, 'status']);
-        $router->get('/admin/app-build/log/{build_id}', [\App\Controller\AppBuildController::class, 'log']);
-        $router->get('/admin/app-build/log/{build_id}/download', [\App\Controller\AppBuildController::class, 'downloadLog']);
-        $router->get('/admin/app-build/download/{build_id}', [\App\Controller\AppBuildController::class, 'download']);
         $router->get('/admin/app-build/random-config', [\App\Controller\AppBuildController::class, 'randomConfig']);
         $router->get('/admin/app-build/generate-icon', [\App\Controller\AppBuildController::class, 'generateIcon']);
+        $router->get('/admin/app-build/status/{build_id}', [\App\Controller\AppBuildController::class, 'status']);
+        $router->get('/admin/app-build/download/{build_id}', [\App\Controller\AppBuildController::class, 'download']);
+        // 重要: log/{build_id}/download 必须在 log/{build_id} 之前注册,否则会被 {build_id} 捕获
+        $router->get('/admin/app-build/log/{build_id}/download', [\App\Controller\AppBuildController::class, 'downloadLog']);
+        $router->get('/admin/app-build/log/{build_id}', [\App\Controller\AppBuildController::class, 'log']);
         $router->delete('/admin/app-build/{build_id}', [\App\Controller\AppBuildController::class, 'delete']);
 
         // ------------------------------------------------------------

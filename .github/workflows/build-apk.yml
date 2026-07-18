@@ -175,8 +175,16 @@ jobs:
           username: ${{ secrets.SERVER_SSH_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
+            # 状态默认值: 当 result step 未执行(如 workflow 被 cancel)时使用 failed
+            STATUS="${{ steps.result.outputs.status }}"
+            MESSAGE="${{ steps.result.outputs.message }}"
+            APK_PATH="/www/push-system/build/output/${{ github.event.inputs.build_id }}/app-release.apk"
+            if [ -z "$STATUS" ]; then
+              STATUS="failed"
+              MESSAGE="workflow 异常终止(可能被取消或 runner 失败)"
+            fi
             php /www/push-system/backend/bin/update_build_status.php \
               --build-id "${{ github.event.inputs.build_id }}" \
-              --status "${{ steps.result.outputs.status }}" \
-              --message "${{ steps.result.outputs.message }}" \
-              --apk-path "/www/push-system/build/output/${{ github.event.inputs.build_id }}/app-release.apk"
+              --status "$STATUS" \
+              --message "$MESSAGE" \
+              --apk-path "$APK_PATH"

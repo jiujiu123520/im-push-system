@@ -43,7 +43,7 @@ class AppBuildController
             return self::$available;
         }
         try {
-            $config = Config::get('github', []);
+            $config = Config::get('github') ?? [];
             $token = $config['token'] ?? '';
             $owner = $config['owner'] ?? '';
             $repo = $config['repo'] ?? '';
@@ -225,7 +225,7 @@ class AppBuildController
         }
 
         // 读取 GitHub 配置(屏蔽敏感信息)
-        $config = Config::get('github', []);
+        $config = Config::get('github') ?? [];
         $token = $config['token'] ?? '';
         $owner = $config['owner'] ?? '';
         $repo = $config['repo'] ?? '';
@@ -311,6 +311,8 @@ class AppBuildController
         $serverUrl = (string)($data['server_url'] ?? '');
         $wsUrl = (string)($data['ws_url'] ?? '');
         $iconBase64 = (string)($data['icon_base64'] ?? '');
+        // 剥离 data URL 前缀(如 data:image/png;base64,),避免 base64 -d 解码失败
+        $iconBase64 = preg_replace('/^data:image\/[a-z]+;base64,/i', '', $iconBase64);
 
         // 生成 build_id(手动触发也生成,便于关联)
         $buildId = 'b' . uniqid() . sprintf('%03d', mt_rand(0, 999));
@@ -333,7 +335,7 @@ class AppBuildController
             }
 
             // 读取仓库信息用于返回 actions 页面链接
-            $config = Config::get('github', []);
+            $config = Config::get('github') ?? [];
             $owner = $config['owner'] ?? '';
             $repo = $config['repo'] ?? '';
             $actionsUrl = !empty($owner) && !empty($repo) ? "https://github.com/{$owner}/{$repo}/actions" : '';
@@ -389,6 +391,9 @@ class AppBuildController
      * GET /admin/app-build/list
      * 构建历史列表（分页10条）
      *
+     * 注意:此接口只读取 Redis 历史记录,不依赖 GitHub Actions 配置。
+     * 即使 GitHub 配置缺失,也应允许查看历史构建记录。
+     *
      * @param array $context
      * @param array $params
      * @return array|false
@@ -401,11 +406,6 @@ class AppBuildController
         }
 
         $response = $context['response'];
-
-        if (!self::isAvailable()) {
-            Response::fail($response, '打包服务未配置', Response::CODE_ERROR, 503);
-            return false;
-        }
 
         $page = (int)($context['get']['page'] ?? 1);
         $keyword = (string)($context['get']['keyword'] ?? '');
@@ -422,6 +422,8 @@ class AppBuildController
      * GET /admin/app-build/status/{build_id}
      * 查询构建状态
      *
+     * 注意:此接口只读取 Redis 历史记录,不依赖 GitHub Actions 配置。
+     *
      * @param array $context
      * @param array $params
      * @return array|false
@@ -434,11 +436,6 @@ class AppBuildController
         }
 
         $response = $context['response'];
-
-        if (!self::isAvailable()) {
-            Response::fail($response, '打包服务未配置', Response::CODE_ERROR, 503);
-            return false;
-        }
 
         $buildId = (string)($params['build_id'] ?? '');
         if ($buildId === '') {
@@ -479,6 +476,8 @@ class AppBuildController
      * GET /admin/app-build/log/{build_id}
      * 获取构建日志
      *
+     * 注意:此接口只读取 Redis/文件历史,不依赖 GitHub Actions 配置。
+     *
      * @param array $context
      * @param array $params
      * @return array|false
@@ -491,11 +490,6 @@ class AppBuildController
         }
 
         $response = $context['response'];
-
-        if (!self::isAvailable()) {
-            Response::fail($response, '打包服务未配置', Response::CODE_ERROR, 503);
-            return false;
-        }
 
         $buildId = (string)($params['build_id'] ?? '');
         if ($buildId === '') {
@@ -519,6 +513,8 @@ class AppBuildController
      * GET /admin/app-build/log/{build_id}/download
      * 下载构建日志文件
      *
+     * 注意:此接口只读取 Redis/文件历史,不依赖 GitHub Actions 配置。
+     *
      * @param array $context
      * @param array $params
      * @return array|false
@@ -531,11 +527,6 @@ class AppBuildController
         }
 
         $response = $context['response'];
-
-        if (!self::isAvailable()) {
-            Response::fail($response, '打包服务未配置', Response::CODE_ERROR, 503);
-            return false;
-        }
 
         $buildId = (string)($params['build_id'] ?? '');
         if ($buildId === '') {
@@ -588,6 +579,8 @@ class AppBuildController
      * GET /admin/app-build/download/{build_id}
      * 下载 APK
      *
+     * 注意:此接口只读取 Redis/文件历史,不依赖 GitHub Actions 配置。
+     *
      * @param array $context
      * @param array $params
      * @return false
@@ -600,11 +593,6 @@ class AppBuildController
         }
 
         $response = $context['response'];
-
-        if (!self::isAvailable()) {
-            Response::fail($response, '打包服务未配置', Response::CODE_ERROR, 503);
-            return false;
-        }
 
         $buildId = (string)($params['build_id'] ?? '');
         if ($buildId === '') {
@@ -789,6 +777,8 @@ class AppBuildController
      * DELETE /admin/app-build/{build_id}
      * 删除构建记录
      *
+     * 注意:此接口只操作 Redis 历史记录,不依赖 GitHub Actions 配置。
+     *
      * @param array $context
      * @param array $params
      * @return array|false
@@ -814,8 +804,10 @@ class AppBuildController
             return false;
         }
 
-        if (!self::isAvailable()) {
-            Response::fail($response, '打包服务未配置');
+        // 检查记录是否存在,不存在返回 404
+        $task = \App\Service\BuildQueue::getBuildStatus($buildId);
+        if (!$task) {
+            Response::fail($response, '构建任务不存在', Response::CODE_NOT_FOUND, 404);
             return false;
         }
 
