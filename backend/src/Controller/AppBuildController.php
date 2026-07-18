@@ -891,8 +891,12 @@ class AppBuildController
             'GITHUB_API_TIMEOUT'    => $timeout,
         ]);
 
-        // 3. 重置配置缓存
+        // 3. 重置配置缓存并重新加载 .env（适配常驻内存环境）
+        if ($envUpdated) {
+            Config::reloadEnv();
+        }
         GitHubActionsService::resetConfig();
+        self::$available = null;
 
         return [
             'message'     => '配置已保存' . ($envUpdated ? '，已同步到 .env 文件' : ''),
@@ -1364,9 +1368,26 @@ class AppBuildController
                          VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE config_value = ?'
                     );
                     $stmt->execute(['github_actions_config', $json, 'GitHub Actions 构建配置', $json]);
+
+                    // 同步到 .env 文件并重新加载（适配常驻内存环境）
+                    $envUpdated = self::syncConfigToEnv([
+                        'GITHUB_TOKEN'          => $token,
+                        'GITHUB_OWNER'          => $owner,
+                        'GITHUB_REPO'           => $repo,
+                        'GITHUB_WORKFLOW_FILE'  => $workflowFile,
+                        'GITHUB_REF'            => $ref,
+                        'GITHUB_API_PROXY'      => $apiProxy,
+                        'GITHUB_PROXY_ENABLED'  => $proxyEnabled ? 'true' : 'false',
+                        'GITHUB_API_TIMEOUT'    => $timeout,
+                    ]);
+                    if ($envUpdated) {
+                        Config::reloadEnv();
+                    }
                     GitHubActionsService::resetConfig();
+                    self::$available = null;
+
                     $steps[count($steps) - 1]['status'] = 'success';
-                    $steps[count($steps) - 1]['message'] = '配置已保存';
+                    $steps[count($steps) - 1]['message'] = $envUpdated ? '配置已保存并同步到 .env' : '配置已保存';
                 } catch (\Throwable $e) {
                     $steps[count($steps) - 1]['status'] = 'warning';
                     $steps[count($steps) - 1]['message'] = '保存配置失败: ' . $e->getMessage();

@@ -22,6 +22,19 @@ class Config
     private static bool $envLoaded = false;
 
     /**
+     * 重置配置缓存并重新加载 .env（修改 .env 后调用，适配常驻内存环境）
+     *
+     * @param string|null $envFile
+     * @return void
+     */
+    public static function reloadEnv(?string $envFile = null): void
+    {
+        self::$envLoaded = false;
+        self::$configCache = [];
+        self::loadEnv($envFile);
+    }
+
+    /**
      * 加载 .env 文件到环境变量
      *
      * @param string|null $envFile .env 文件绝对路径，默认 backend 根目录
