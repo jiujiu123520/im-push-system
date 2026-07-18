@@ -5,9 +5,6 @@ import type {
   PageResult,
   PushLog,
   PushParams,
-  DashboardStats,
-  TrendItem,
-  PlatformDist,
   TestPushResult
 } from './types'
 
@@ -64,31 +61,6 @@ export function retryPushApi(id: number) {
 // 取消推送
 export function cancelPushApi(id: number) {
   return post(`/admin/push/logs/${id}/cancel`)
-}
-
-// ---- 仪表盘统计 ----
-export function getDashboardStatsApi() {
-  return get<DashboardStats>('/admin/dashboard/overview')
-}
-
-// 在线设备趋势（近 7 天）
-export function getOnlineTrendApi() {
-  return get<TrendItem[]>('/admin/dashboard/online-trend')
-}
-
-// 今日推送量趋势（按小时）
-export function getTodayPushTrendApi() {
-  return get<TrendItem[]>('/admin/dashboard/today-push')
-}
-
-// 设备平台分布
-export function getPlatformDistApi() {
-  return get<PlatformDist[]>('/admin/dashboard/device-platform')
-}
-
-// 近 7 天推送量趋势
-export function getPushTrendApi() {
-  return get<TrendItem[]>('/admin/dashboard/push-trend')
 }
 
 // ---- 测试调试推送 ----

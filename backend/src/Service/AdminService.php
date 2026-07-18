@@ -17,14 +17,14 @@ class AdminService
     /**
      * 管理员登录（独立接口，签发带 role 的 JWT）
      *
-     * 校验顺序（避免验证码被无谓消费、避免账号状态信息泄露）：
+     * 校验顺序（避免验证码被绕过、避免账号状态信息泄露）：
      *   1. IP 黑名单检查
      *   2. 登录失败次数限制（Redis 计数）
      *   3. 用户名/密码非空
-     *   4. 查询管理员（用户名不存在与密码错误返回相同提示，防止枚举）
-     *   5. 账号状态检查
-     *   6. 密码校验
-     *   7. 图形验证码校验（最后消费，密码错误时不浪费验证码）
+     *   4. 图形验证码校验（先消费验证码，防止暴力枚举密码）
+     *   5. 查询管理员（用户名不存在与密码错误返回相同提示，防止枚举）
+     *   6. 账号状态检查
+     *   7. 密码校验
      *   8. 清除失败计数并签发 JWT
      *
      * @param string $username      管理员用户名
@@ -85,7 +85,13 @@ class AdminService
             return $empty;
         }
 
-        // 4. 查询管理员
+        // 4. 图形验证码校验（先消费验证码，防止暴力枚举密码）
+        if (self::isCaptchaEnabled() && !CaptchaService::verifyImageCaptcha($captchaToken, $captchaInput)) {
+            $empty['message'] = '图形验证码错误或已过期';
+            return $empty;
+        }
+
+        // 5. 查询管理员
         $admin = self::findByUsername($username);
         if ($admin === null) {
             self::recordLoginFailure($failKey);
@@ -93,23 +99,17 @@ class AdminService
             return $empty;
         }
 
-        // 5. 账号状态检查
+        // 6. 账号状态检查
         if ((int)$admin['status'] !== 1) {
             // 不区分"账号不存在"与"账号禁用"过于严格，这里保留禁用提示以便用户联系管理员
             $empty['message'] = '账号已被禁用，请联系超级管理员';
             return $empty;
         }
 
-        // 6. 密码校验
+        // 7. 密码校验
         if (!password_verify($password, $admin['password_hash'])) {
             self::recordLoginFailure($failKey);
             $empty['message'] = '用户名或密码错误';
-            return $empty;
-        }
-
-        // 7. 图形验证码校验（最后消费，密码错误时验证码仍可用）
-        if (self::isCaptchaEnabled() && !CaptchaService::verifyImageCaptcha($captchaToken, $captchaInput)) {
-            $empty['message'] = '图形验证码错误或已过期';
             return $empty;
         }
 

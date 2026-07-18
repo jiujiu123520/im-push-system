@@ -104,8 +104,8 @@ class PushKeyController
 
         $keyValue = $this->generateKeyValue();
 
-        // 兼容 camelCase 和 snake_case 字段名
-        $maxDevices = (int)($body['max_devices'] ?? $body['daily_limit'] ?? $body['dailyLimit'] ?? $body['maxDevices'] ?? 0);
+        // 兼容 camelCase 和 snake_case 字段名；未提供时默认 10（与表 DEFAULT 一致）
+        $maxDevices = (int)($body['max_devices'] ?? $body['daily_limit'] ?? $body['dailyLimit'] ?? $body['maxDevices'] ?? 10);
         $notifyEmail = (string)($body['notify_email'] ?? $body['notifyEmail'] ?? '');
         $notifyEnabled = (int)($body['notify_enabled'] ?? $body['notifyEnabled'] ?? 0);
         $notifyInterval = (int)($body['notify_interval'] ?? $body['notifyInterval'] ?? 300);

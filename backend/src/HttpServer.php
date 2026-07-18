@@ -228,8 +228,20 @@ class HttpServer
         // ['类名', '方法']
         if (is_array($handler) && count($handler) === 2) {
             [$class, $method] = $handler;
-            $instance = new $class();
-            return $instance->{$method}($context, $params);
+            // 通过反射判断是否为静态方法，避免在 PHP 8.0+ 触发 Deprecated 警告
+            // 静态方法用 call_user_func 调用，实例方法用对象调用
+            try {
+                $reflection = new \ReflectionMethod($class, $method);
+                if ($reflection->isStatic()) {
+                    return call_user_func([$class, $method], $context, $params);
+                }
+                $instance = new $class();
+                return $instance->{$method}($context, $params);
+            } catch (\ReflectionException $e) {
+                // 反射失败时降级为实例调用
+                $instance = new $class();
+                return $instance->{$method}($context, $params);
+            }
         }
 
         // 闭包/函数

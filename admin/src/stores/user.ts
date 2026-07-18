@@ -50,8 +50,9 @@ export const useUserStore = defineStore('user', {
       this.userInfo = info
       // 后端返回 role 字符串（super_admin/admin），转换为 roles 数组
       this.roles = info.role ? [info.role] : ['admin']
-      // super_admin 拥有全部权限，普通 admin 需细化权限时可由后端补充
-      this.permissions = info.role === 'super_admin' ? ['*:*:*'] : ['*:*:*']
+      // 当前后端未提供细化权限，所有 admin 角色都拥有全部功能权限
+      // TODO: 后端实现细化权限后，由 /admin/info 返回 permissions 数组
+      this.permissions = ['*:*:*']
       return info
     },
 
