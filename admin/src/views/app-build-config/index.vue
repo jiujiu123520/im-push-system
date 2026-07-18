@@ -309,7 +309,7 @@
 
             <div v-else class="check-items">
               <div
-                v-for="(check, key) in checkResult.checks"
+                v-for="(check, key) in checkResult?.checks || []"
                 :key="key"
                 class="check-item"
                 :class="`status-${check.status}`"
@@ -625,11 +625,12 @@ async function handleTestProxy() {
       proxy_enabled: config.proxy_enabled,
       timeout: Math.min(config.timeout, 15)
     })
-    proxyTestResult.value = (res as any).data || res
-    if (proxyTestResult.value.success) {
-      ElMessage.success(proxyTestResult.value.message)
+    const result = (res as any).data || res
+    proxyTestResult.value = result
+    if (result.success) {
+      ElMessage.success(result.message)
     } else {
-      ElMessage.error(proxyTestResult.value.message)
+      ElMessage.error(result.message)
     }
   } catch (err: any) {
     proxyTestResult.value = {
@@ -651,11 +652,12 @@ async function handleCompareProxy() {
       api_proxy: config.api_proxy,
       timeout: Math.min(config.timeout, 15)
     })
-    proxyCompareResult.value = (res as any).data || res
+    const result = (res as any).data || res
+    proxyCompareResult.value = result
     // 同时设置一个总结果用于显示
-    const rec = proxyCompareResult.value.recommendation
+    const rec = result.recommendation
     proxyTestResult.value = {
-      success: proxyCompareResult.value.proxy.success || proxyCompareResult.value.direct.success,
+      success: result.proxy.success || result.direct.success,
       message: rec,
       latency_ms: 0
     }
