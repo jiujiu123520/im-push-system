@@ -645,18 +645,24 @@ repair_apt_cache() {
     # 2. 清理 dpkg 锁文件和中断状态
     rm -f /var/lib/dpkg/updates/* 2>/dev/null || true
     rm -f /var/lib/dpkg/lock* /var/cache/apt/archives/lock 2>/dev/null || true
+
+    # 3. 强制配置所有未完成的包(处理 "is not configured yet" 错误)
+    info "尝试配置所有未完成的 dpkg 包..."
     dpkg --configure -a 2>/dev/null || true
 
-    # 3. 修复损坏的依赖
+    # 4. 修复损坏的依赖
     DEBIAN_FRONTEND=noninteractive apt-get -f install -y 2>/dev/null || true
 
-    # 4. 切换为阿里云镜像(国内服务器加速,避免源不可用)
+    # 5. 再次尝试配置(依赖修复后可能有新的包需要配置)
+    dpkg --configure -a 2>/dev/null || true
+
+    # 6. 切换为阿里云镜像(国内服务器加速,避免源不可用)
     if grep -q 'archive.ubuntu.com\|security.ubuntu.com' /etc/apt/sources.list 2>/dev/null; then
         info "切换 apt 源为阿里云镜像(国内加速)..."
         sed -i 's|archive.ubuntu.com|mirrors.aliyun.com|g; s|security.ubuntu.com|mirrors.aliyun.com|g' /etc/apt/sources.list
     fi
 
-    # 5. 重新更新索引
+    # 7. 重新更新索引
     apt-get update -y 2>/dev/null || true
 
     info "apt 缓存修复完成"
@@ -685,6 +691,16 @@ install_mysql_safe() {
         repair_apt_cache
     elif grep -qi "dpkg was interrupted\|status database area\|lock" /tmp/mysql-install-err.log 2>/dev/null; then
         warn "检测到 dpkg 中断,执行修复..."
+        repair_apt_cache
+    elif grep -qi "is not configured yet\|dependency problems - leaving unconfigured\|returned an error code" /tmp/mysql-install-err.log 2>/dev/null; then
+        warn "检测到 MySQL 配置阶段失败(dpkg 配置未完成),执行强制修复..."
+        # 强制配置所有未完成的包
+        dpkg --configure -a 2>/dev/null || true
+        # 修复损坏的依赖
+        DEBIAN_FRONTEND=noninteractive apt-get -f install -y 2>/dev/null || true
+        # 再次尝试配置
+        dpkg --configure -a 2>/dev/null || true
+        # 清理 apt 缓存
         repair_apt_cache
     fi
 
