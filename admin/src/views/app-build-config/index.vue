@@ -879,7 +879,9 @@ async function handleAutoSetup() {
       }
       config.repo = selectedRepo.value
     }
-    config.owner = githubUser.value.login
+    if (githubUser.value) {
+      config.owner = githubUser.value.login
+    }
   }
 
   autoSettingUp.value = true
