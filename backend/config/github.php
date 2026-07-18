@@ -26,6 +26,9 @@ return [
     // GitHub API 代理(国内服务器使用 gh.jasonzeng.dev,留空则直连)
     'api_proxy' => \App\Service\Config::env('GITHUB_API_PROXY', 'https://gh.jasonzeng.dev/'),
 
+    // 是否启用 API 代理(关闭时即使配置了 api_proxy 也直连)
+    'proxy_enabled' => (bool)\App\Service\Config::env('GITHUB_PROXY_ENABLED', true),
+
     // API 请求超时(秒)
     'timeout' => (int)\App\Service\Config::env('GITHUB_API_TIMEOUT', 30),
 ];

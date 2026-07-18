@@ -90,16 +90,66 @@
             <el-row :gutter="16">
               <el-col :span="18">
                 <el-form-item label="API 代理 (国内服务器推荐)">
-                  <el-input v-model="config.api_proxy" placeholder="https://gh.jasonzeng.dev/" />
+                  <el-input v-model="config.api_proxy" placeholder="https://gh.jasonzeng.dev/" :disabled="!config.proxy_enabled" />
                   <div class="form-tip">国内服务器建议配置代理以加速 GitHub API 访问</div>
                 </el-form-item>
               </el-col>
               <el-col :span="6">
+                <el-form-item label="启用代理">
+                  <el-switch v-model="config.proxy_enabled" active-text="开" inactive-text="关" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+
+            <el-row :gutter="16">
+              <el-col :span="12">
                 <el-form-item label="超时时间(秒)">
                   <el-input-number v-model="config.timeout" :min="5" :max="120" />
                 </el-form-item>
               </el-col>
+              <el-col :span="12">
+                <el-form-item label="连接测试">
+                  <div class="proxy-test-buttons">
+                    <el-button :icon="ConnectionIcon" :loading="testingProxy" @click="handleTestProxy" size="default">
+                      {{ testingProxy ? '测试中...' : '测试当前模式' }}
+                    </el-button>
+                    <el-button :icon="DataAnalysisIcon" :loading="comparingProxy" @click="handleCompareProxy" size="default">
+                      {{ comparingProxy ? '对比中...' : '对比测试' }}
+                    </el-button>
+                  </div>
+                </el-form-item>
+              </el-col>
             </el-row>
+
+            <div v-if="proxyTestResult" class="proxy-test-result">
+              <el-alert
+                :title="proxyTestResult.message"
+                :type="proxyTestResult.success ? 'success' : 'error'"
+                :closable="false"
+                show-icon
+              >
+                <template #default v-if="proxyCompareResult">
+                  <div class="compare-detail">
+                    <div class="compare-item">
+                      <span class="compare-label">直连:</span>
+                      <span :class="proxyCompareResult.direct.success ? 'text-success' : 'text-error'">
+                        {{ proxyCompareResult.direct.latency_ms }}ms
+                      </span>
+                    </div>
+                    <div class="compare-item">
+                      <span class="compare-label">代理:</span>
+                      <span :class="proxyCompareResult.proxy.success ? 'text-success' : 'text-error'">
+                        {{ proxyCompareResult.proxy.latency_ms }}ms
+                      </span>
+                    </div>
+                    <div class="compare-item compare-recommendation">
+                      <span class="compare-label">建议:</span>
+                      <span>{{ proxyCompareResult.recommendation }}</span>
+                    </div>
+                  </div>
+                </template>
+              </el-alert>
+            </div>
 
             <div class="form-actions">
               <el-button
@@ -348,14 +398,18 @@ import {
   CircleCheckFilled as CircleCheckFilledIcon,
   WarningFilled as WarningFilledIcon,
   CircleCloseFilled as CircleCloseFilledIcon,
-  Lock as LockIcon
+  Lock as LockIcon,
+  Connection as ConnectionIcon,
+  DataAnalysis as DataAnalysisIcon
 } from '@element-plus/icons-vue'
 import {
   getGithubConfigApi,
   saveGithubConfigApi,
   validateGithubConfigApi,
   checkGithubConfigApi,
-  autoSetupGithubApi
+  autoSetupGithubApi,
+  testProxyApi,
+  compareProxyApi
 } from '@/api/appBuild'
 
 const formRef = ref<FormInstance>()
@@ -372,8 +426,30 @@ const config = reactive({
   workflow_file: 'build-apk.yml',
   ref: 'main',
   api_proxy: '',
+  proxy_enabled: true,
   timeout: 30
 })
+
+const testingProxy = ref(false)
+const comparingProxy = ref(false)
+const proxyTestResult = ref<{
+  success: boolean
+  message: string
+  latency_ms: number
+} | null>(null)
+const proxyCompareResult = ref<{
+  direct: {
+    success: boolean
+    message: string
+    latency_ms: number
+  }
+  proxy: {
+    success: boolean
+    message: string
+    latency_ms: number
+  }
+  recommendation: string
+} | null>(null)
 
 const sshConfig = reactive({
   port: '22',
@@ -527,6 +603,7 @@ async function handleSave() {
       workflow_file: config.workflow_file,
       ref: config.ref,
       api_proxy: config.api_proxy,
+      proxy_enabled: config.proxy_enabled,
       timeout: config.timeout
     })
     const data = (res as any).data || res
@@ -536,6 +613,62 @@ async function handleSave() {
     ElMessage.error(err?.message || '保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+async function handleTestProxy() {
+  testingProxy.value = true
+  proxyCompareResult.value = null
+  try {
+    const res = await testProxyApi({
+      api_proxy: config.api_proxy,
+      proxy_enabled: config.proxy_enabled,
+      timeout: Math.min(config.timeout, 15)
+    })
+    proxyTestResult.value = (res as any).data || res
+    if (proxyTestResult.value.success) {
+      ElMessage.success(proxyTestResult.value.message)
+    } else {
+      ElMessage.error(proxyTestResult.value.message)
+    }
+  } catch (err: any) {
+    proxyTestResult.value = {
+      success: false,
+      message: err?.message || '测试失败',
+      latency_ms: 0
+    }
+    ElMessage.error(err?.message || '测试失败')
+  } finally {
+    testingProxy.value = false
+  }
+}
+
+async function handleCompareProxy() {
+  comparingProxy.value = true
+  proxyTestResult.value = null
+  try {
+    const res = await compareProxyApi({
+      api_proxy: config.api_proxy,
+      timeout: Math.min(config.timeout, 15)
+    })
+    proxyCompareResult.value = (res as any).data || res
+    // 同时设置一个总结果用于显示
+    const rec = proxyCompareResult.value.recommendation
+    proxyTestResult.value = {
+      success: proxyCompareResult.value.proxy.success || proxyCompareResult.value.direct.success,
+      message: rec,
+      latency_ms: 0
+    }
+    ElMessage.info(rec)
+  } catch (err: any) {
+    proxyTestResult.value = {
+      success: false,
+      message: err?.message || '对比测试失败',
+      latency_ms: 0
+    }
+    ElMessage.error(err?.message || '对比测试失败')
+  } finally {
+    comparingProxy.value = false
   }
 }
 
@@ -986,6 +1119,51 @@ onMounted(() => {
 
   .status-missing {
     color: #c0c4cc;
+  }
+}
+
+.proxy-test-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.proxy-test-result {
+  margin-top: 8px;
+  margin-bottom: 16px;
+}
+
+.compare-detail {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+
+  .compare-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .compare-label {
+    font-weight: 600;
+    min-width: 50px;
+  }
+
+  .text-success {
+    color: #67c23a;
+    font-weight: 600;
+  }
+
+  .text-error {
+    color: #f56c6c;
+    font-weight: 600;
+  }
+
+  .compare-recommendation {
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px dashed rgba(0, 0, 0, 0.1);
   }
 }
 </style>

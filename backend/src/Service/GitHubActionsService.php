@@ -55,8 +55,9 @@ class GitHubActionsService
             return self::$apiBase;
         }
         $config = self::config();
+        $proxyEnabled = !empty($config['proxy_enabled']) && $config['proxy_enabled'] !== false && $config['proxy_enabled'] !== 'false' && $config['proxy_enabled'] !== '0';
         $proxy = $config['api_proxy'] ?? '';
-        if (!empty($proxy)) {
+        if ($proxyEnabled && !empty($proxy)) {
             // 代理 URL 末尾确保有 /
             if (substr($proxy, -1) !== '/') {
                 $proxy .= '/';
@@ -66,6 +67,15 @@ class GitHubActionsService
             self::$apiBase = 'https://api.github.com';
         }
         return self::$apiBase;
+    }
+
+    /**
+     * 重置配置缓存(修改配置后调用)
+     */
+    public static function resetConfig(): void
+    {
+        self::$config = null;
+        self::$apiBase = null;
     }
 
     /**
@@ -352,15 +362,31 @@ class GitHubActionsService
     }
 
     /**
-     * 使用临时配置发送请求（用于验证新 token）
+     * 使用临时配置发送请求（用于验证新 token / 测试代理连接）
+     *
+     * @param string $token
+     * @param string $method
+     * @param string $path
+     * @param array|null $data
+     * @param array $options {
+     *     @type string|null $api_proxy  自定义代理地址(覆盖配置)
+     *     @type bool|null   $proxy_enabled 是否启用代理(覆盖配置)
+     *     @type int|null    $timeout  超时时间(秒)
+     * }
+     * @return array{status: int, body: string, json: ?array, headers: array}
      */
-    private static function requestWithToken(string $token, string $method, string $path, ?array $data = null): array
+    private static function requestWithToken(string $token, string $method, string $path, ?array $data = null, array $options = []): array
     {
         $config = self::config();
-        $proxy = $config['api_proxy'] ?? '';
-        $timeout = $config['timeout'] ?? 30;
 
-        if (!empty($proxy)) {
+        // 应用选项覆盖
+        $proxy = isset($options['api_proxy']) ? (string)$options['api_proxy'] : ($config['api_proxy'] ?? '');
+        $proxyEnabled = isset($options['proxy_enabled'])
+            ? ($options['proxy_enabled'] !== false && $options['proxy_enabled'] !== 'false' && $options['proxy_enabled'] !== '0')
+            : (!empty($config['proxy_enabled']) && $config['proxy_enabled'] !== false && $config['proxy_enabled'] !== 'false' && $config['proxy_enabled'] !== '0');
+        $timeout = isset($options['timeout']) ? (int)$options['timeout'] : ($config['timeout'] ?? 30);
+
+        if ($proxyEnabled && !empty($proxy)) {
             if (substr($proxy, -1) !== '/') {
                 $proxy .= '/';
             }
@@ -630,11 +656,131 @@ class GitHubActionsService
     }
 
     /**
-     * 重置配置缓存（保存新配置后调用）
+     * 测试代理连接(使用指定代理配置测试 GitHub API 连通性)
+     *
+     * @param string $apiProxy     代理地址
+     * @param bool   $proxyEnabled 是否启用代理
+     * @param int    $timeout      超时时间(秒)
+     * @return array{
+     *     success: bool,
+     *     message: string,
+     *     latency_ms: int,
+     *     direct_success?: bool,
+     *     direct_latency_ms?: int,
+     *     proxy_success?: bool,
+     *     proxy_latency_ms?: int
+     * }
      */
-    public static function resetConfig(): void
+    public static function testProxyConnection(string $apiProxy = '', bool $proxyEnabled = true, int $timeout = 10): array
     {
-        self::$config = null;
-        self::$apiBase = null;
+        $result = [
+            'success'      => false,
+            'message'      => '',
+            'latency_ms'   => 0,
+        ];
+
+        // 使用一个公开的 GitHub API 端点测试(不需要 Token)
+        $testPath = '/rate_limit';
+
+        try {
+            $startTime = microtime(true);
+
+            // 测试当前选择的模式(代理/直连)
+            $ch = curl_init();
+            if ($proxyEnabled && !empty($apiProxy)) {
+                if (substr($apiProxy, -1) !== '/') {
+                    $apiProxy .= '/';
+                }
+                $url = $apiProxy . 'https://api.github.com' . $testPath;
+            } else {
+                $url = 'https://api.github.com' . $testPath;
+            }
+
+            curl_setopt_array($ch, [
+                CURLOPT_URL            => $url,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => $timeout,
+                CURLOPT_CONNECTTIMEOUT => $timeout,
+                CURLOPT_HTTPHEADER     => [
+                    'Accept: application/vnd.github+json',
+                    'X-GitHub-Api-Version: 2022-11-28',
+                    'User-Agent: im-push-system/1.0',
+                ],
+            ]);
+
+            $body = curl_exec($ch);
+            $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $errno  = curl_errno($ch);
+            $errmsg = curl_error($ch);
+            curl_close($ch);
+
+            $endTime  = microtime(true);
+            $latencyMs = (int)(($endTime - $startTime) * 1000);
+
+            $result['latency_ms'] = $latencyMs;
+
+            if ($errno) {
+                $mode = $proxyEnabled ? '代理' : '直连';
+                $result['success'] = false;
+                $result['message'] = "{$mode}连接失败(cURL error $errno): $errmsg";
+                return $result;
+            }
+
+            if ($status >= 200 && $status < 500) {
+                $mode = $proxyEnabled ? '代理' : '直连';
+                $result['success'] = true;
+                $result['message'] = "{$mode}连接正常(HTTP {$status}, 延迟 {$latencyMs}ms)";
+                return $result;
+            }
+
+            $mode = $proxyEnabled ? '代理' : '直连';
+            $result['success'] = false;
+            $result['message'] = "{$mode}连接异常(HTTP {$status})";
+            return $result;
+        } catch (\Throwable $e) {
+            $result['success'] = false;
+            $result['message'] = '测试异常: ' . $e->getMessage();
+            return $result;
+        }
+    }
+
+    /**
+     * 对比测试:同时测试直连和代理,返回对比结果
+     *
+     * @param string $apiProxy 代理地址
+     * @param int    $timeout  超时时间(秒)
+     * @return array{
+     *     direct: array{success: bool, message: string, latency_ms: int},
+     *     proxy: array{success: bool, message: string, latency_ms: int},
+     *     recommendation: string
+     * }
+     */
+    public static function compareConnection(string $apiProxy = '', int $timeout = 10): array
+    {
+        // 测试直连
+        $direct = self::testProxyConnection($apiProxy, false, $timeout);
+
+        // 测试代理
+        $proxy = self::testProxyConnection($apiProxy, true, $timeout);
+
+        // 给出建议
+        $recommendation = '';
+        if (!$direct['success'] && !$proxy['success']) {
+            $recommendation = '直连和代理均无法连接 GitHub API，请检查网络或代理地址';
+        } elseif (!$direct['success']) {
+            $recommendation = '直连失败，建议使用代理';
+        } elseif (!$proxy['success']) {
+            $recommendation = '代理失败，建议使用直连';
+        } elseif ($proxy['latency_ms'] < $direct['latency_ms'] * 0.8) {
+            $recommendation = '代理延迟更低，建议使用代理';
+        } else {
+            $recommendation = '直连延迟更低或相近，建议使用直连';
+        }
+
+        return [
+            'direct'         => $direct,
+            'proxy'          => $proxy,
+            'recommendation' => $recommendation,
+        ];
     }
 }

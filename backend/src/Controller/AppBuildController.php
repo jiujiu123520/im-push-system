@@ -840,6 +840,9 @@ class AppBuildController
         $workflowFile = trim((string)($data['workflow_file'] ?? 'build-apk.yml'));
         $ref         = trim((string)($data['ref'] ?? 'main'));
         $apiProxy    = trim((string)($data['api_proxy'] ?? ''));
+        $proxyEnabled = isset($data['proxy_enabled'])
+            ? ($data['proxy_enabled'] !== false && $data['proxy_enabled'] !== 'false' && $data['proxy_enabled'] !== '0')
+            : true;
         $timeout     = (int)($data['timeout'] ?? 30);
 
         if ($token === '' || $owner === '' || $repo === '') {
@@ -857,6 +860,7 @@ class AppBuildController
                 'workflow_file' => $workflowFile,
                 'ref'           => $ref,
                 'api_proxy'     => $apiProxy,
+                'proxy_enabled' => $proxyEnabled,
                 'timeout'       => $timeout,
             ];
             $json = json_encode($configData, JSON_UNESCAPED_UNICODE);
@@ -878,6 +882,7 @@ class AppBuildController
             'GITHUB_WORKFLOW_FILE'  => $workflowFile,
             'GITHUB_REF'            => $ref,
             'GITHUB_API_PROXY'      => $apiProxy,
+            'GITHUB_PROXY_ENABLED'  => $proxyEnabled ? 'true' : 'false',
             'GITHUB_API_TIMEOUT'    => $timeout,
         ]);
 
@@ -914,6 +919,8 @@ class AppBuildController
             if (!$row) {
                 // 数据库没有，从 .env 读取作为初始值
                 $config = Config::get('github') ?? [];
+                $proxyEnabled = $config['proxy_enabled'] ?? true;
+                $proxyEnabled = $proxyEnabled !== false && $proxyEnabled !== 'false' && $proxyEnabled !== '0';
                 return [
                     'token'         => !empty($config['token']) ? '******' : '',
                     'owner'         => $config['owner'] ?? '',
@@ -921,6 +928,7 @@ class AppBuildController
                     'workflow_file' => $config['workflow_file'] ?? 'build-apk.yml',
                     'ref'           => $config['ref'] ?? 'main',
                     'api_proxy'     => $config['api_proxy'] ?? '',
+                    'proxy_enabled' => $proxyEnabled,
                     'timeout'       => $config['timeout'] ?? 30,
                 ];
             }
@@ -935,6 +943,13 @@ class AppBuildController
                 $data['token'] = '******';
             }
 
+            // 确保 proxy_enabled 是布尔值
+            if (isset($data['proxy_enabled'])) {
+                $data['proxy_enabled'] = $data['proxy_enabled'] !== false && $data['proxy_enabled'] !== 'false' && $data['proxy_enabled'] !== '0';
+            } else {
+                $data['proxy_enabled'] = true;
+            }
+
             return $data;
         } catch (\Throwable $e) {
             return [
@@ -944,6 +959,7 @@ class AppBuildController
                 'workflow_file' => 'build-apk.yml',
                 'ref'           => 'main',
                 'api_proxy'     => '',
+                'proxy_enabled' => true,
                 'timeout'       => 30,
             ];
         }
@@ -1251,6 +1267,61 @@ class AppBuildController
             Response::fail($response, '一键配置失败: ' . $e->getMessage(), Response::CODE_INTERNAL);
             return false;
         }
+    }
+
+    /**
+     * POST /admin/app-build/config/test-proxy
+     * 测试代理连接(直连或代理模式)
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function testProxy(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $data = $this->parseBody($context);
+
+        $apiProxy     = trim((string)($data['api_proxy'] ?? ''));
+        $proxyEnabled = isset($data['proxy_enabled'])
+            ? ($data['proxy_enabled'] !== false && $data['proxy_enabled'] !== 'false' && $data['proxy_enabled'] !== '0')
+            : true;
+        $timeout      = (int)($data['timeout'] ?? 10);
+
+        $result = GitHubActionsService::testProxyConnection($apiProxy, $proxyEnabled, $timeout);
+
+        return $result;
+    }
+
+    /**
+     * POST /admin/app-build/config/compare-proxy
+     * 对比测试直连和代理的连接质量
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function compareProxy(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $data = $this->parseBody($context);
+
+        $apiProxy = trim((string)($data['api_proxy'] ?? ''));
+        $timeout  = (int)($data['timeout'] ?? 10);
+
+        $result = GitHubActionsService::compareConnection($apiProxy, $timeout);
+
+        return $result;
     }
 
     /**

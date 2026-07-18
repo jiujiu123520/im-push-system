@@ -131,6 +131,7 @@ export function getGithubConfigApi() {
     workflow_file: string
     ref: string
     api_proxy: string
+    proxy_enabled: boolean
     timeout: number
   }>('/admin/app-build/config')
 }
@@ -143,6 +144,7 @@ export function saveGithubConfigApi(data: {
   workflow_file?: string
   ref?: string
   api_proxy?: string
+  proxy_enabled?: boolean
   timeout?: number
 }) {
   return post<{
@@ -209,4 +211,37 @@ export function autoSetupGithubApi(data?: {
     }
     next_step?: string
   }>('/admin/app-build/config/auto-setup', data || {})
+}
+
+// 测试代理连接
+export function testProxyApi(data: {
+  api_proxy?: string
+  proxy_enabled?: boolean
+  timeout?: number
+}) {
+  return post<{
+    success: boolean
+    message: string
+    latency_ms: number
+  }>('/admin/app-build/config/test-proxy', data)
+}
+
+// 对比测试直连和代理
+export function compareProxyApi(data: {
+  api_proxy?: string
+  timeout?: number
+}) {
+  return post<{
+    direct: {
+      success: boolean
+      message: string
+      latency_ms: number
+    }
+    proxy: {
+      success: boolean
+      message: string
+      latency_ms: number
+    }
+    recommendation: string
+  }>('/admin/app-build/config/compare-proxy', data)
 }

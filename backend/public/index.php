@@ -89,6 +89,8 @@ if ($runWs) {
         $router->post('/admin/app-build/config/validate', [\App\Controller\AppBuildController::class, 'validateConfig']);
         $router->get('/admin/app-build/config/check', [\App\Controller\AppBuildController::class, 'checkConfig']);
         $router->post('/admin/app-build/config/auto-setup', [\App\Controller\AppBuildController::class, 'autoSetup']);
+        $router->post('/admin/app-build/config/test-proxy', [\App\Controller\AppBuildController::class, 'testProxy']);
+        $router->post('/admin/app-build/config/compare-proxy', [\App\Controller\AppBuildController::class, 'compareProxy']);
 
         // ------------------------------------------------------------
         // APK 分发管理（管理员鉴权）

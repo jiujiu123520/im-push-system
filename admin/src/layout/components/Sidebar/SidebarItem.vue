@@ -73,10 +73,14 @@ const iconComponent = computed(() => {
 // 解析路径
 function resolvePath(routePath: string): string {
   if (/^https?:\/\//.test(routePath)) return routePath
+  // 如果已经是绝对路径（以 / 开头），直接返回规范化后的路径
+  if (routePath.startsWith('/')) {
+    return routePath.replace(/\/+/g, '/')
+  }
   const base = props.basePath.endsWith('/')
     ? props.basePath.slice(0, -1)
     : props.basePath
-  const path = routePath.startsWith('/') ? routePath : `/${routePath}`
+  const path = routePath === '' ? '/' : `/${routePath}`
   // 处理根路径子项为空字符串的情况
   if (path === '/' && base) return base
   return (base + path).replace(/\/+/g, '/')
