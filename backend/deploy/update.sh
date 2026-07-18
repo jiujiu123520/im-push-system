@@ -256,6 +256,16 @@ else
     CURRENT_STEP="[1/5] 拉取最新代码"
     step "[1/5] 拉取最新代码..."
 
+    # 修复 .git 目录权限（避免 root 操作后权限不足）
+    if [[ -d "${PROJECT_DIR}/.git" ]]; then
+        local_owner="$(stat -c '%U' "${PROJECT_DIR}/.git" 2>/dev/null || echo '')"
+        current_user="$(whoami)"
+        if [[ -n "${local_owner}" && "${local_owner}" != "${current_user}" ]]; then
+            warn "修复 .git 目录权限 (${local_owner} -> ${current_user})..."
+            sudo chown -R "${current_user}:${current_user}" "${PROJECT_DIR}/.git" 2>/dev/null || true
+        fi
+    fi
+
     # 配置代理
     setup_git_proxy
 
@@ -269,6 +279,10 @@ else
 
     # 恢复代理设置
     restore_git_proxy
+
+    # 拉取完成后修复整个项目的权限（vendor、node_modules 等可能是 root 的）
+    info "修复项目目录权限..."
+    sudo chown -R "$(whoami):$(whoami)" "${PROJECT_DIR}" 2>/dev/null || true
 
     info "代码拉取完成。"
     mark_done "step1_pull_code"
