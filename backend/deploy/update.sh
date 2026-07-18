@@ -256,13 +256,26 @@ else
     CURRENT_STEP="[1/5] 拉取最新代码"
     step "[1/5] 拉取最新代码..."
 
+    # 修复项目目录权限（git pull 之前修复，避免文件权限导致 pull 失败）
+    info "修复项目目录权限..."
+    if [[ "$(id -u)" == "0" ]]; then
+        current_user="$(whoami)"
+        chown -R "${current_user}:${current_user}" "${PROJECT_DIR}" 2>/dev/null || true
+    else
+        sudo chown -R "$(whoami):$(whoami)" "${PROJECT_DIR}" 2>/dev/null || true
+    fi
+
     # 修复 .git 目录权限（避免 root 操作后权限不足）
     if [[ -d "${PROJECT_DIR}/.git" ]]; then
         local_owner="$(stat -c '%U' "${PROJECT_DIR}/.git" 2>/dev/null || echo '')"
         current_user="$(whoami)"
         if [[ -n "${local_owner}" && "${local_owner}" != "${current_user}" ]]; then
             warn "修复 .git 目录权限 (${local_owner} -> ${current_user})..."
-            sudo chown -R "${current_user}:${current_user}" "${PROJECT_DIR}/.git" 2>/dev/null || true
+            if [[ "$(id -u)" == "0" ]]; then
+                chown -R "${current_user}:${current_user}" "${PROJECT_DIR}/.git" 2>/dev/null || true
+            else
+                sudo chown -R "${current_user}:${current_user}" "${PROJECT_DIR}/.git" 2>/dev/null || true
+            fi
         fi
     fi
 
@@ -280,9 +293,14 @@ else
     # 恢复代理设置
     restore_git_proxy
 
-    # 拉取完成后修复整个项目的权限（vendor、node_modules 等可能是 root 的）
-    info "修复项目目录权限..."
-    sudo chown -R "$(whoami):$(whoami)" "${PROJECT_DIR}" 2>/dev/null || true
+    # 拉取完成后再次修复权限（确保新文件权限正确）
+    info "修复新文件权限..."
+    if [[ "$(id -u)" == "0" ]]; then
+        current_user="$(whoami)"
+        chown -R "${current_user}:${current_user}" "${PROJECT_DIR}" 2>/dev/null || true
+    else
+        sudo chown -R "$(whoami):$(whoami)" "${PROJECT_DIR}" 2>/dev/null || true
+    fi
 
     info "代码拉取完成。"
     mark_done "step1_pull_code"
