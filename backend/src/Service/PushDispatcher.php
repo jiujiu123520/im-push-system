@@ -250,6 +250,12 @@ class PushDispatcher
     /**
      * 获取并清除离线消息
      *
+     * 并发安全:
+     *   - 旧实现先 lLen 再循环 rPop,在并发场景下会有竞态(两请求都拿到 count=N,
+     *     一个先消费完,另一个循环 N 次都 rPop 到 null)
+     *   - 新实现直接循环 rPop 到 null 为止,无论并发多少个请求,消息不会丢失也不会重复
+     *   - 设置最大循环次数 1000 防止异常情况下死循环
+     *
      * @param string $deviceId
      * @return array
      */
@@ -258,9 +264,9 @@ class PushDispatcher
         $redis = Redis::getInstance();
         $key = "offline:{$deviceId}";
 
-        $count = $redis->lLen($key);
         $messages = [];
-        for ($i = 0; $i < $count; $i++) {
+        $maxIterations = 1000;  // 防止异常死循环
+        for ($i = 0; $i < $maxIterations; $i++) {
             $raw = $redis->rPop($key);
             if ($raw === null) {
                 break;

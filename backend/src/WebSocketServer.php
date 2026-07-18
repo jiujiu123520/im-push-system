@@ -11,6 +11,7 @@ use App\Service\DeviceService;
 use App\Service\HeartbeatManager;
 use App\Service\PushDispatcher;
 use App\Service\Redis;
+use Swoole\Table;
 use Swoole\Timer;
 use Swoole\WebSocket\Frame;
 use Swoole\WebSocket\Server;
@@ -78,6 +79,15 @@ class WebSocketServer
     private DeviceOfflineNotifier $offlineNotifier;
 
     /**
+     * @var Table 待鉴权连接表（跨 worker 共享）
+     *
+     * 用于解决多 worker 进程下 $pendingAuth 数组不共享的问题。
+     * 当客户端在新协议下连接后,需在 30 秒内发送 auth 消息,
+     * 否则任意 worker 中的鉴权超时定时器都能从该表查询并清理。
+     */
+    private Table $pendingAuthTable;
+
+    /**
      * 构造方法
      */
     public function __construct()
@@ -96,12 +106,28 @@ class WebSocketServer
         $this->deviceService     = new DeviceService();
         $this->offlineNotifier   = new DeviceOfflineNotifier();
 
+        // 创建待鉴权连接表（跨 worker 共享,替代原 $pendingAuth 数组）
+        $this->pendingAuthTable = new Table(65536);
+        $this->pendingAuthTable->column('ip', Table::TYPE_STRING, 45);
+        $this->pendingAuthTable->column('ua', Table::TYPE_STRING, 256);
+        $this->pendingAuthTable->column('time', Table::TYPE_INT, 8);
+        $this->pendingAuthTable->create();
+
         $this->configure();
         $this->bindEvents();
     }
 
     /**
      * 配置 Swoole WebSocket Server 运行参数
+     *
+     * 并发相关:
+     *   - worker_num: 默认 CPU 核心数,WebSocket 连接按 fd hash 分配到固定 worker,保证同一连接事件串行
+     *   - task_worker_num: 异步任务 worker,处理耗时推送/通知
+     *   - max_conn: 单 worker 最大连接数,防止 fd 耗尽
+     *   - max_request: 每个 worker 处理 N 次请求后重启(WebSocket 推荐设为 0 不重启,避免长连接断开)
+     *   - max_wait_time: reload 时等待连接关闭的最大时间
+     *   - send_yield: 当发送队列满时让出协程,避免阻塞 worker
+     *   - send_buffer_size: 单连接发送缓冲区大小(字节)
      *
      * @return void
      */
@@ -114,6 +140,15 @@ class WebSocketServer
             'log_file'               => BASE_PATH . '/runtime/logs/websocket_server.log',
             'pid_file'               => BASE_PATH . '/runtime/websocket_server.pid',
             'open_websocket_close_frame' => true,
+            // 并发与稳定性
+            'max_conn'               => 10000,     // 单 worker 最大并发连接数
+            'max_request'            => 0,         // WebSocket 长连接不重启 worker,避免连接断开
+            'max_wait_time'          => 60,       // reload 时等待连接关闭的最大秒数
+            'reloadable'             => true,      // worker 可被 reload 重启
+            'send_yield'             => true,      // 发送队列满时让出协程,避免阻塞
+            'send_buffer_size'       => 1048576,  // 1MB 单连接发送缓冲区
+            // 鉴权超时定时器依赖,允许毫秒级 Timer
+            'enable_coroutine'       => true,
         ]);
     }
 
@@ -238,12 +273,18 @@ class WebSocketServer
             $this->authenticateDevice($server, $fd, $keyValue, $deviceId, $deviceName, $model, $osVersion, $fingerprint, $heartbeatInterval, $ip, $ua);
         } else {
             // 新协议：等待客户端发送 auth 消息
-            // 存储客户端 IP 和 UA 供后续鉴权使用
-            $this->pendingAuth[$fd] = ['ip' => $ip, 'ua' => $ua, 'time' => time()];
+            // 存储客户端 IP 和 UA 供后续鉴权使用(使用 Swoole Table 跨 worker 共享)
+            $this->pendingAuthTable->set((string)$fd, [
+                'ip'   => $ip,
+                'ua'   => $ua,
+                'time' => time(),
+            ]);
             // 设置鉴权超时定时器（30秒内未鉴权则断开）
+            // 注意: Swoole Timer 在哪个 worker 创建就在哪个 worker 触发
+            // 由于 fd 的所有事件由同一 worker 处理,因此定时器与 onMessage/auth 在同 worker
             Timer::after(30000, function () use ($server, $fd) {
-                if (isset($this->pendingAuth[$fd])) {
-                    unset($this->pendingAuth[$fd]);
+                if ($this->pendingAuthTable->exists((string)$fd)) {
+                    $this->pendingAuthTable->del((string)$fd);
                     if ($server->isEstablished($fd)) {
                         $server->push($fd, $this->pack(-1, '鉴权超时', null, 'auth_result'));
                         $server->disconnect($fd, 4001, 'auth timeout');
@@ -254,7 +295,8 @@ class WebSocketServer
     }
 
     /**
-     * 待鉴权连接列表
+     * 待鉴权连接列表(已弃用,改用 Swoole Table 跨 worker 共享)
+     * @deprecated
      */
     private array $pendingAuth = [];
 
@@ -287,8 +329,8 @@ class WebSocketServer
         string $ip,
         string $ua
     ): void {
-        // 清除待鉴权标记
-        unset($this->pendingAuth[$fd]);
+        // 清除待鉴权标记(从 Swoole Table 删除)
+        $this->pendingAuthTable->del((string)$fd);
 
         if ($keyValue === '' || $deviceId === '') {
             $this->sendAndClose($server, $fd, $this->pack(-1, '缺少 key 或 device_id 参数', null, 'auth_result'));
@@ -397,7 +439,10 @@ class WebSocketServer
         switch ($type) {
             case 'auth':
                 // 新协议：客户端发送 auth 消息进行鉴权
-                $pending = $this->pendingAuth[$fd] ?? ['ip' => '', 'ua' => ''];
+                // 从 Swoole Table 读取 pendingAuth 信息（跨 worker 共享）
+                $row = $this->pendingAuthTable->get((string)$fd);
+                $pendingIp = is_array($row) ? (string)($row['ip'] ?? '') : '';
+                $pendingUa = is_array($row) ? (string)($row['ua'] ?? '') : '';
                 $this->authenticateDevice(
                     $server,
                     $fd,
@@ -408,8 +453,8 @@ class WebSocketServer
                     (string)($data['os_version'] ?? ''),
                     (string)($data['fingerprint'] ?? ''),
                     (int)($data['heartbeat_interval'] ?? $this->heartbeatInterval),
-                    $pending['ip'] ?? '',
-                    $pending['ua'] ?? ''
+                    $pendingIp,
+                    $pendingUa
                 );
                 break;
 
@@ -450,8 +495,8 @@ class WebSocketServer
     public function onClose(Server $server, int $fd): void
     {
         try {
-            // 清除待鉴权标记
-            unset($this->pendingAuth[$fd]);
+            // 清除待鉴权标记（从 Swoole Table 删除）
+            $this->pendingAuthTable->del((string)$fd);
 
             // 停止心跳
             $this->heartbeatManager->stopHeartbeat($fd);

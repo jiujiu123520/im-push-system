@@ -67,12 +67,36 @@ class Redis
     /**
      * 重新建立连接
      *
+     * 并发安全:
+     *   - 先显式断开旧连接,避免连接泄漏
+     *   - Swoole 多 worker 模式下每个 worker 是独立进程,静态属性不共享,无竞态
+     *
      * @return Client
      */
     public static function reconnect(): Client
     {
+        // 显式断开旧连接(避免连接泄漏)
+        self::disconnect();
         self::$instance = self::createClient();
         return self::$instance;
+    }
+
+    /**
+     * 断开当前连接(显式释放资源)
+     *
+     * @return void
+     */
+    public static function disconnect(): void
+    {
+        if (self::$instance !== null) {
+            try {
+                // Predis Client 支持断开连接
+                self::$instance->disconnect();
+            } catch (\Throwable $e) {
+                // 忽略断开连接时的异常(可能已断开)
+            }
+            self::$instance = null;
+        }
     }
 
     /**

@@ -67,13 +67,34 @@ class Database
     /**
      * 重新建立连接（用于子进程或长连接断开时）
      *
+     * 并发安全:
+     *   - 先显式断开旧连接,避免连接泄漏（worker 重启时旧连接会被 GC,但显式断开更安全）
+     *   - Swoole 多 worker 模式下每个 worker 是独立进程,静态属性不共享,无竞态
+     *   - 单 worker 内协程并发查询时,PDO prepare/execute 是独立 statement,无状态冲突
+     *
      * @return PDO
      * @throws PDOException
      */
     public static function reconnect(): PDO
     {
+        // 显式断开旧连接(避免连接泄漏)
+        self::disconnect();
         self::$instance = self::createConnection();
         return self::$instance;
+    }
+
+    /**
+     * 断开当前连接(显式释放资源)
+     *
+     * @return void
+     */
+    public static function disconnect(): void
+    {
+        if (self::$instance !== null) {
+            // PDO 没有显式 close 方法,置 null 让 GC 回收
+            // MySQL 服务端连接会被服务端在 wait_timeout 后回收
+            self::$instance = null;
+        }
     }
 
     /**

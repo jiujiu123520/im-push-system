@@ -55,6 +55,13 @@ class HttpServer
     /**
      * 配置 Swoole HTTP Server 运行参数
      *
+     * 并发相关:
+     *   - worker_num: 默认等于 CPU 核心数,每个 worker 是独立进程,可并行处理请求
+     *   - max_conn: 单 worker 最大连接数,防止 fd 耗尽
+     *   - max_request: 每个 worker 处理 N 次请求后重启,释放内存避免泄漏
+     *   - max_wait_time: reload 时 worker 等待请求结束的最大时间
+     *   - reloadable: worker 可被 reload 重启
+     *
      * @return void
      */
     private function configure(): void
@@ -68,6 +75,11 @@ class HttpServer
             'document_root'   => BASE_PATH . '/public',
             'enable_static_handler' => true,
             'static_handler_locations' => ['/static'],
+            // 并发与稳定性
+            'max_conn'        => 10000,    // 单 worker 最大并发连接数
+            'max_request'     => 10000,    // 每个 worker 处理 10000 次请求后重启,防止内存泄漏
+            'max_wait_time'   => 60,       // reload 时等待请求结束的最大秒数
+            'reloadable'      => true,     // worker 可被 reload 重启
         ]);
     }
 
