@@ -474,17 +474,28 @@ else
         rm -rf "${PROJECT_DIR}/gradle"
     fi
 
-    # 3. 安装并启动 BuildWorker systemd 服务（如果 service 文件存在）
+    # 3. BuildWorker 服务处理
     BUILD_WORKER_SERVICE="${PROJECT_DIR}/deploy/systemd/push-build-worker.service"
     if [ -f "$BUILD_WORKER_SERVICE" ]; then
         info "安装 push-build-worker systemd 服务..."
+        sudo mkdir -p "${PROJECT_DIR}/build/logs"
         sudo cp "$BUILD_WORKER_SERVICE" /etc/systemd/system/
         sudo systemctl daemon-reload
         sudo systemctl enable push-build-worker 2>/dev/null || true
         sudo systemctl restart push-build-worker
         info "push-build-worker 已重启。"
     else
-        warn "未找到 push-build-worker.service，跳过 BuildWorker 安装"
+        # 旧版本残留的 BuildWorker 服务（已切换到 GitHub Actions 模式）
+        if systemctl list-unit-files | grep -q 'push-build-worker'; then
+            info "检测到旧版 BuildWorker 服务，已切换到 GitHub Actions 模式，停止旧服务..."
+            sudo systemctl stop push-build-worker 2>/dev/null || true
+            sudo systemctl disable push-build-worker 2>/dev/null || true
+            sudo rm -f /etc/systemd/system/push-build-worker.service 2>/dev/null || true
+            sudo systemctl daemon-reload 2>/dev/null || true
+            info "旧版 BuildWorker 服务已停止。"
+        else
+            info "BuildWorker 服务未配置（当前使用 GitHub Actions 模式），跳过。"
+        fi
     fi
 
     mark_done "step4_build_env"
@@ -516,9 +527,9 @@ else
 
         sleep 2
 
-        # 服务健康检查（包含 BuildWorker）
+        # 服务健康检查（仅检查核心服务）
         echo ""
-        for svc in push-http push-websocket push-build-worker; do
+        for svc in push-http push-websocket; do
             status_output="$(sudo systemctl is-active ${svc} 2>/dev/null || echo '')"
             if [[ "${status_output}" == "active" ]]; then
                 echo -e "  ${COLOR_GREEN}●${COLOR_RESET} ${svc}    [运行中]"
