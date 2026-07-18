@@ -19,6 +19,18 @@ export const constantRoutes: RouteRecordRaw[] = [
     meta: { title: '登录', hidden: true }
   },
   {
+    path: '/register',
+    name: 'Register',
+    component: () => import('@/views/register/index.vue'),
+    meta: { title: '用户注册', hidden: true }
+  },
+  {
+    path: '/forgot-password',
+    name: 'ForgotPassword',
+    component: () => import('@/views/forgot-password/index.vue'),
+    meta: { title: '忘记密码', hidden: true }
+  },
+  {
     path: '/redirect',
     component: Layout,
     meta: { hidden: true },
@@ -233,7 +245,7 @@ const router = createRouter({
 })
 
 // 白名单
-const whiteList = ['/login', '/404']
+const whiteList = ['/login', '/register', '/forgot-password', '/404']
 
 // 是否已生成路由
 let routesGenerated = false

@@ -116,9 +116,9 @@
           </el-form-item>
 
           <div class="form-options">
-            <el-checkbox v-model="form.remember">记住我</el-checkbox>
-            <a class="forgot-link" @click="handleForgot">忘记密码？</a>
-          </div>
+          <el-checkbox v-model="form.remember">记住我</el-checkbox>
+          <a class="forgot-link" @click="handleForgot">忘记密码？</a>
+        </div>
 
           <el-button
             type="primary"
@@ -133,7 +133,7 @@
 
         <div class="card-footer">
           <span>还没有账号？</span>
-          <a @click="handleRegister">联系超级管理员开通</a>
+          <a @click="handleRegister">立即注册</a>
         </div>
       </div>
     </div>
@@ -237,11 +237,11 @@ async function handleLogin() {
 }
 
 function handleForgot() {
-  ElMessage.info('请联系超级管理员重置密码')
+  router.push('/forgot-password')
 }
 
 function handleRegister() {
-  ElMessage.info('请联系超级管理员开通账号')
+  router.push('/register')
 }
 
 onMounted(() => {

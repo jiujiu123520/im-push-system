@@ -110,17 +110,21 @@ if ($runWs) {
         $router->get('/captcha/image', [\App\Controller\AuthController::class, 'captchaImage']);
         $router->get('/api/captcha/image', [\App\Controller\AuthController::class, 'captchaImage']);
 
-        // 发送短信/邮箱验证码
+        // 发送短信/邮箱验证码（双路由：APP 用 /auth，前端管理后台用 /api/auth）
         $router->post('/auth/send-code', [\App\Controller\AuthController::class, 'sendCode']);
+        $router->post('/api/auth/send-code', [\App\Controller\AuthController::class, 'sendCode']);
 
         // 用户注册（返回 token + security_code）
         $router->post('/auth/register', [\App\Controller\AuthController::class, 'register']);
+        $router->post('/api/auth/register', [\App\Controller\AuthController::class, 'register']);
 
         // 用户登录
         $router->post('/auth/login', [\App\Controller\AuthController::class, 'login']);
+        $router->post('/api/auth/login', [\App\Controller\AuthController::class, 'login']);
 
         // 通过安全码重置密码
         $router->post('/auth/reset-password', [\App\Controller\AuthController::class, 'resetPassword']);
+        $router->post('/api/auth/reset-password', [\App\Controller\AuthController::class, 'resetPassword']);
 
         // ------------------------------------------------------------
         // 任务4：管理员账号管理

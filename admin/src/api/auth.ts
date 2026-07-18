@@ -1,5 +1,13 @@
 import { post, get, put } from '@/utils/request'
-import type { LoginParams, LoginResult, UserInfo } from './types'
+import type {
+  LoginParams,
+  LoginResult,
+  UserInfo,
+  RegisterParams,
+  RegisterResult,
+  SendCodeParams,
+  ResetPasswordParams
+} from './types'
 
 // 登录（后端路由：POST /admin/login）
 export function loginApi(data: LoginParams) {
@@ -32,4 +40,19 @@ export function changePasswordApi(data: { oldPassword: string; newPassword: stri
 // 刷新 token（后端暂未实现，保留接口）
 export function refreshTokenApi() {
   return post<{ token: string }>('/admin/refresh')
+}
+
+// 用户注册（后端路由：POST /auth/register）
+export function registerApi(data: RegisterParams) {
+  return post<RegisterResult>('/auth/register', data)
+}
+
+// 发送验证码（后端路由：POST /auth/send-code）
+export function sendCodeApi(data: SendCodeParams) {
+  return post<{ sent: boolean; message: string }>('/auth/send-code', data)
+}
+
+// 通过安全码重置密码（后端路由：POST /auth/reset-password）
+export function resetPasswordApi(data: ResetPasswordParams) {
+  return post<{ message: string }>('/auth/reset-password', data)
 }

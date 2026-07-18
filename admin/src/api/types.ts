@@ -58,6 +58,44 @@ export interface UserInfo {
   updated_at?: string
 }
 
+// 用户注册（前台用户）
+export interface RegisterParams {
+  username: string
+  phone: string
+  email: string
+  password: string
+  code_type: 'sms' | 'email'
+  code_target: string
+  code_input: string
+}
+
+export interface RegisterResult {
+  user_id: number
+  token: string
+  user: {
+    id: number
+    username: string
+    phone: string
+    email: string
+    status: number
+    created_at: string
+  }
+  security_code: string
+}
+
+// 发送验证码
+export interface SendCodeParams {
+  type: 'sms' | 'email'
+  target: string
+}
+
+// 重置密码
+export interface ResetPasswordParams {
+  account: string
+  security_code: string
+  new_password: string
+}
+
 // ---- 用户管理 ----
 export interface UserRecord {
   id: number
