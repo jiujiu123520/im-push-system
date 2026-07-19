@@ -295,7 +295,7 @@ export default {
                         this.socketTask.send({
                             data: JSON.stringify({ type: 'pong' })
                         })
-                    } else if (data.type === 'message') {
+                    } else if (data.type === 'message' || data.type === 'push') {
                         this.addMessage(data.title || '消息推送', data.content || '')
                     }
                 } catch (e) {
