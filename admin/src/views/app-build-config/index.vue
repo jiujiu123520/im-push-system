@@ -348,7 +348,7 @@
             </el-button>
             <el-tooltip
               v-if="!githubUser && !configValidated"
-              content="请先输入并验证 Token"
+              content="请先输入 Token 并点击「验证 Token」，或保存配置后使用"
               placement="bottom"
             >
               <div class="tip-wrapper">
@@ -364,6 +364,16 @@
               <div class="tip-wrapper tip-success">
                 <el-icon><CircleCheckFilledIcon /></el-icon>
                 <span>全自动模式已就绪</span>
+              </div>
+            </el-tooltip>
+            <el-tooltip
+              v-else-if="configValidated && !githubUser"
+              content="使用已保存的配置执行一键配置（生成 Keystore、SSH 密钥、配置 Secrets）"
+              placement="bottom"
+            >
+              <div class="tip-wrapper tip-success">
+                <el-icon><CircleCheckFilledIcon /></el-icon>
+                <span>已保存配置模式已就绪</span>
               </div>
             </el-tooltip>
           </div>
@@ -651,6 +661,13 @@ async function fetchConfig() {
     const res = await getGithubConfigApi()
     const data = (res as any).data || res
     Object.assign(config, data)
+    const hasSavedConfig =
+      data.token === '******' &&
+      data.owner && data.owner.trim() !== '' &&
+      data.repo && data.repo.trim() !== ''
+    if (hasSavedConfig) {
+      configValidated.value = true
+    }
   } catch (e) {
     console.warn('获取配置失败', e)
   }
@@ -861,8 +878,19 @@ async function handleAutoSetup() {
   const isAutoMode = token !== '' && token !== '******' && githubUser.value !== null
 
   if (!isAutoMode && !configValidated.value) {
-    ElMessage.warning('请先验证配置有效性')
+    ElMessage.warning('请先验证配置：输入 Token 后点击「验证 Token」，或填写完整配置后点击「验证配置」')
     return
+  }
+
+  if (!isAutoMode) {
+    if (!config.owner || config.owner.trim() === '') {
+      ElMessage.warning('请先配置仓库所有者 (Owner)')
+      return
+    }
+    if (!config.repo || config.repo.trim() === '') {
+      ElMessage.warning('请先配置仓库名 (Repo)')
+      return
+    }
   }
 
   if (isAutoMode) {
@@ -924,7 +952,8 @@ async function handleAutoSetup() {
       ElMessage.warning(data.message || '部分配置失败')
     }
   } catch (err: any) {
-    ElMessage.error(err?.message || '一键配置失败')
+    console.error('一键配置失败:', err)
+    ElMessage.error(err?.message || '一键配置失败，请检查网络或服务器日志')
   } finally {
     autoSettingUp.value = false
   }
