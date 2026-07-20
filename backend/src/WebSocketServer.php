@@ -337,11 +337,27 @@ class WebSocketServer
             return;
         }
 
-        // 校验 Key 有效性
-        $pushKey = Database::fetch(
-            'SELECT * FROM push_keys WHERE key_value = ? AND status = 1 LIMIT 1',
-            [$keyValue]
-        );
+        // 校验 Key 有效性（带异常保护，防止数据库连接问题导致静默断开）
+        try {
+            $pushKey = Database::fetch(
+                'SELECT * FROM push_keys WHERE key_value = ? AND status = 1 LIMIT 1',
+                [$keyValue]
+            );
+        } catch (\Throwable $e) {
+            echo "[WS] 鉴权查询异常 fd={$fd} key={$keyValue} error={$e->getMessage()}\n";
+            // 尝试重连后重试一次
+            try {
+                Database::reconnect();
+                $pushKey = Database::fetch(
+                    'SELECT * FROM push_keys WHERE key_value = ? AND status = 1 LIMIT 1',
+                    [$keyValue]
+                );
+            } catch (\Throwable $e2) {
+                echo "[WS] 鉴权重试仍失败 fd={$fd} error={$e2->getMessage()}\n";
+                $this->sendAndClose($server, $fd, $this->pack(-1, '服务器内部错误，请稍后重试', null, 'auth_result'));
+                return;
+            }
+        }
         if ($pushKey === false) {
             $this->sendAndClose($server, $fd, $this->pack(-1, '推送 Key 无效或已禁用', null, 'auth_result'));
             return;

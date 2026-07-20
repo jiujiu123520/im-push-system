@@ -119,7 +119,7 @@ class Database
     private static function isConnectionLost(\Throwable $e): bool
     {
         $msg = $e->getMessage();
-        foreach (['server has gone away', 'Broken pipe', 'Lost connection', 'Error while sending', 'deadlock'] as $needle) {
+        foreach (['server has gone away', 'Broken pipe', 'Lost connection', 'Error while sending', 'deadlock', 'Packets out of order'] as $needle) {
             if (stripos($msg, $needle) !== false) {
                 return true;
             }
