@@ -45,7 +45,14 @@ export function exportMessagesApi(params: { format: 'csv' | 'json'; keyword?: st
 
 // 发起推送
 export function sendPushApi(data: PushParams) {
-  return post<{ messageId: string }>('/admin/push/send', data)
+  return post<{
+    messageId: string
+    success: boolean
+    message: string
+    success_count: number
+    fail_count: number
+    elapsed_ms: number
+  }>('/admin/push/send', data)
 }
 
 // 批量删除推送记录

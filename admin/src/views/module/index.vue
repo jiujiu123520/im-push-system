@@ -231,7 +231,7 @@ import {
   CopyDocument as CopyDocumentIcon,
   Key as KeyIcon
 } from '@element-plus/icons-vue'
-import { exportPushLogsApi, getPushLogListApi } from '@/api/push'
+import { exportPushLogsApi, getPushLogListApi, sendPushApi } from '@/api/push'
 import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi } from '@/api/key'
 import {
   getBlacklistApi,
@@ -787,6 +787,26 @@ async function handleSubmit() {
       } else {
         await createAdminApi(dialogForm as unknown as AdminForm)
         ElMessage.success('新增成功')
+      }
+    } else if (mod === 'push-logs') {
+      // 推送记录不支持编辑，仅支持新增（即发起一次推送）
+      if (isEdit.value) {
+        ElMessage.info('推送记录为历史记录，不支持编辑')
+        return
+      }
+      // 后端 /admin/push/send 兼容 target_type/target_value 字段名
+      const payload = {
+        title: dialogForm.title,
+        content: dialogForm.content,
+        target_type: dialogForm.target_type,   // 'device' | 'key'
+        target_value: dialogForm.target_value,  // device_id 或 key_value（可逗号分隔多个）
+        pushType: 'notification',
+      }
+      const res = await sendPushApi(payload as any)
+      if (res.success) {
+        ElMessage.success(res.message || `推送成功（成功 ${res.success_count}，失败 ${res.fail_count}）`)
+      } else {
+        ElMessage.warning(res.message || '推送失败，可能没有在线设备')
       }
     } else {
       await new Promise((r) => setTimeout(r, 400))

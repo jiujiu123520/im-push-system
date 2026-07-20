@@ -252,6 +252,7 @@ if ($runWs) {
         // ============================================================
         // 测试调试推送（管理员鉴权）
         // ============================================================
+        $router->post('/admin/push/send',         [\App\Controller\TestPushController::class, 'sendPush']);
         $router->post('/admin/test-push',         [\App\Controller\TestPushController::class, 'send']);
         $router->get('/admin/test-push/check',    [\App\Controller\TestPushController::class, 'check']);
 

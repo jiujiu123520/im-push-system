@@ -372,4 +372,151 @@ class TestPushController
             'elapsed_ms' => $elapsedMs,
         ];
     }
+
+    /**
+     * 管理后台发送推送
+     * 路由：POST /admin/push/send
+     *
+     * 请求体（PushParams）：
+     *   {
+     *     "title":       "标题",
+     *     "content":     "内容",
+     *     "platform":    "android|ios|all",
+     *     "targetType":  "all|tag|alias|deviceId",
+     *     "target":      "目标值（targetType=all 时为空）",
+     *     "pushType":    "notification|message|silent",
+     *     "extras":      {}
+     *   }
+     *
+     * 返回：
+     *   { "messageId": "xxx", "success": true, "message": "推送成功" }
+     */
+    public function sendPush(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $body = $this->parseBody($context);
+
+        $title      = (string)($body['title'] ?? '');
+        $content    = (string)($body['content'] ?? '');
+        // 兼容前端字段名 target_type/target_value 与 PushParams.targetType/target
+        $targetType = (string)($body['targetType'] ?? $body['target_type'] ?? 'all');
+        $target     = (string)($body['target'] ?? $body['target_value'] ?? '');
+        $pushType   = (string)($body['pushType'] ?? $body['push_type'] ?? 'notification');
+
+        if ($title === '') {
+            Response::fail($context['response'], '标题不能为空', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        $startTime = microtime(true);
+
+        // 构建消息体
+        $message = [
+            'message_id' => uniqid('push_', true),
+            'title'      => $title,
+            'content'    => $content,
+            'payload'    => [
+                'push_type' => $pushType,
+                'admin_id'  => $admin['admin_id'] ?? 0,
+                'sent_at'   => date('Y-m-d H:i:s'),
+            ],
+            'priority'   => $pushType === 'silent' ? 'low' : 'high',
+            'timestamp'  => time(),
+        ];
+
+        $dispatcher = new PushDispatcher();
+
+        // 归一化 targetType：device/deviceId 视为按设备推送；key 视为按 Key 推送；其余视为全量
+        if (in_array($targetType, ['device', 'deviceId'], true) && $target !== '') {
+            // 支持多个设备 ID（英文逗号分隔）
+            $deviceIds = array_values(array_filter(array_map('trim', explode(',', $target))));
+            $result = $dispatcher->pushToDevices($deviceIds, $message);
+        } elseif ($targetType === 'key' && $target !== '') {
+            // 支持多个 Key（英文逗号分隔）
+            $keyValues = array_values(array_filter(array_map('trim', explode(',', $target))));
+            $totalSuccess = 0;
+            $totalFail = 0;
+            $details = [];
+            foreach ($keyValues as $kv) {
+                $r = $dispatcher->pushByKey($kv, $message);
+                $totalSuccess += $r['success_count'];
+                $totalFail += $r['fail_count'];
+                $details[] = [
+                    'key' => $kv,
+                    'success' => $r['success_count'],
+                    'fail' => $r['fail_count'],
+                ];
+            }
+            $result = [
+                'success_count' => $totalSuccess,
+                'fail_count'    => $totalFail,
+                'detail'        => $details,
+            ];
+        } else {
+            // 全量推送：遍历所有启用状态的 push_keys
+            $keys = Database::fetchAll(
+                'SELECT key_value FROM push_keys WHERE status = 1',
+                []
+            );
+
+            $totalSuccess = 0;
+            $totalFail = 0;
+            $details = [];
+
+            foreach ($keys as $keyRow) {
+                $keyValue = (string)$keyRow['key_value'];
+                $r = $dispatcher->pushByKey($keyValue, $message);
+                $totalSuccess += $r['success_count'];
+                $totalFail += $r['fail_count'];
+                $details[] = [
+                    'key' => $keyValue,
+                    'success' => $r['success_count'],
+                    'fail' => $r['fail_count'],
+                ];
+            }
+
+            $result = [
+                'success_count' => $totalSuccess,
+                'fail_count'    => $totalFail,
+                'detail'        => $details,
+            ];
+        }
+
+        $elapsedMs = (int)((microtime(true) - $startTime) * 1000);
+
+        // 记录推送日志
+        try {
+            Database::insert(
+                'INSERT INTO push_logs (api_key_id, target_type, target_value, title, content, success_count, fail_count, detail)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    0,
+                    $targetType,
+                    $target,
+                    $title,
+                    $content,
+                    $result['success_count'],
+                    $result['fail_count'],
+                    json_encode($result['detail'], JSON_UNESCAPED_UNICODE),
+                ]
+            );
+        } catch (\Throwable $e) {
+            // 日志写入失败不影响结果
+        }
+
+        return [
+            'messageId'     => $message['message_id'],
+            'success'        => $result['success_count'] > 0,
+            'message'        => $result['success_count'] > 0
+                ? "推送成功（成功 {$result['success_count']}，失败 {$result['fail_count']}）"
+                : '推送失败，可能没有在线设备',
+            'success_count' => $result['success_count'],
+            'fail_count'    => $result['fail_count'],
+            'elapsed_ms'    => $elapsedMs,
+        ];
+    }
 }
