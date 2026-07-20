@@ -146,6 +146,25 @@ export default {
         this.loadMessages()
         this.checkAutoLogin()
     },
+    onShow() {
+        // APP 从后台切回前台 / 页面重新显示时，主动检测并重连断开的 WebSocket
+        // 移动系统在后台会冻结网络连接，需要主动恢复
+        if (this.isLoggedIn && !this.connected && !this.connecting) {
+            console.log('页面 onShow 检测到连接已断开，主动重连')
+            // 清理可能残留的失效 socketTask
+            if (this.socketTask) {
+                try { this.socketTask.close() } catch (e) {}
+                this.socketTask = null
+            }
+            // 清理挂起的重连定时器，立即触发
+            if (this.reconnectTimer) {
+                clearTimeout(this.reconnectTimer)
+                this.reconnectTimer = null
+            }
+            this.reconnectDelay = 3000
+            this.connectWebSocket()
+        }
+    },
     onUnload() {
         this.closeSocket()
         if (this.heartbeatTimer) {
@@ -265,6 +284,11 @@ export default {
             })
         },
         connectWebSocket() {
+            // 如果 socketTask 还在但已断开（connected=false），先清理
+            if (this.socketTask && !this.connected) {
+                try { this.socketTask.close() } catch (e) {}
+                this.socketTask = null
+            }
             if (this.socketTask) {
                 return
             }
