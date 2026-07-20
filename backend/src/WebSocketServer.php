@@ -262,6 +262,11 @@ class WebSocketServer
         $keyValue    = (string)($request->get['key'] ?? '');
         $deviceId    = (string)($request->get['device_id'] ?? '');
 
+        // 调试日志：记录所有连接
+        $logMsg = sprintf("[WS] onOpen fd=%d ip=%s key=%s device_id=%s uri=%s", $fd, $ip, $keyValue, $deviceId, $request->server['request_uri'] ?? '');
+        echo $logMsg . "\n";
+        error_log($logMsg);
+
         if ($keyValue !== '' && $deviceId !== '') {
             // query 参数鉴权方式
             $deviceName  = (string)($request->get['device_name'] ?? '');
@@ -343,8 +348,12 @@ class WebSocketServer
                 'SELECT * FROM push_keys WHERE key_value = ? AND status = 1 LIMIT 1',
                 [$keyValue]
             );
+            $logMsg2 = sprintf("[WS] 鉴权查询完成 fd=%d key=%s result=%s", $fd, $keyValue, $pushKey === false ? 'NOT_FOUND' : 'FOUND');
+            echo $logMsg2 . "\n";
+            error_log($logMsg2);
         } catch (\Throwable $e) {
             echo "[WS] 鉴权查询异常 fd={$fd} key={$keyValue} error={$e->getMessage()}\n";
+            error_log("[WS] 鉴权查询异常 fd={$fd} key={$keyValue} error={$e->getMessage()}");
             // 尝试重连后重试一次
             try {
                 Database::reconnect();
@@ -352,16 +361,21 @@ class WebSocketServer
                     'SELECT * FROM push_keys WHERE key_value = ? AND status = 1 LIMIT 1',
                     [$keyValue]
                 );
+                echo "[WS] 鉴权重试成功 fd={$fd} result=" . ($pushKey === false ? 'NOT_FOUND' : 'FOUND') . "\n";
             } catch (\Throwable $e2) {
                 echo "[WS] 鉴权重试仍失败 fd={$fd} error={$e2->getMessage()}\n";
+                error_log("[WS] 鉴权重试仍失败 fd={$fd} error={$e2->getMessage()}");
                 $this->sendAndClose($server, $fd, $this->pack(-1, '服务器内部错误，请稍后重试', null, 'auth_result'));
                 return;
             }
         }
         if ($pushKey === false) {
+            echo "[WS] Key 无效或已禁用 fd={$fd} key={$keyValue}\n";
             $this->sendAndClose($server, $fd, $this->pack(-1, '推送 Key 无效或已禁用', null, 'auth_result'));
             return;
         }
+
+        echo "[WS] 鉴权成功 fd={$fd} key={$keyValue} push_key_id={$pushKey['id']}\n";
 
         $pushKeyId = (int)$pushKey['id'];
         $userId    = (int)$pushKey['user_id'];
