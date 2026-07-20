@@ -266,6 +266,7 @@ class WebSocketServer
         $logMsg = sprintf("[WS] onOpen fd=%d ip=%s key=%s device_id=%s uri=%s", $fd, $ip, $keyValue, $deviceId, $request->server['request_uri'] ?? '');
         echo $logMsg . "\n";
         error_log($logMsg);
+        $this->logToFile($logMsg);
 
         if ($keyValue !== '' && $deviceId !== '') {
             // query 参数鉴权方式
@@ -342,6 +343,8 @@ class WebSocketServer
             return;
         }
 
+        $this->logToFile("[WS] 开始鉴权 fd={$fd} key={$keyValue} device_id={$deviceId}");
+
         // 校验 Key 有效性（带异常保护，防止数据库连接问题导致静默断开）
         try {
             $pushKey = Database::fetch(
@@ -351,9 +354,11 @@ class WebSocketServer
             $logMsg2 = sprintf("[WS] 鉴权查询完成 fd=%d key=%s result=%s", $fd, $keyValue, $pushKey === false ? 'NOT_FOUND' : 'FOUND');
             echo $logMsg2 . "\n";
             error_log($logMsg2);
+            $this->logToFile($logMsg2);
         } catch (\Throwable $e) {
             echo "[WS] 鉴权查询异常 fd={$fd} key={$keyValue} error={$e->getMessage()}\n";
             error_log("[WS] 鉴权查询异常 fd={$fd} key={$keyValue} error={$e->getMessage()}");
+            $this->logToFile("[WS] 鉴权查询异常 fd={$fd} error={$e->getMessage()}");
             // 尝试重连后重试一次
             try {
                 Database::reconnect();
@@ -362,20 +367,24 @@ class WebSocketServer
                     [$keyValue]
                 );
                 echo "[WS] 鉴权重试成功 fd={$fd} result=" . ($pushKey === false ? 'NOT_FOUND' : 'FOUND') . "\n";
+                $this->logToFile("[WS] 鉴权重试成功 fd={$fd} result=" . ($pushKey === false ? 'NOT_FOUND' : 'FOUND'));
             } catch (\Throwable $e2) {
                 echo "[WS] 鉴权重试仍失败 fd={$fd} error={$e2->getMessage()}\n";
                 error_log("[WS] 鉴权重试仍失败 fd={$fd} error={$e2->getMessage()}");
+                $this->logToFile("[WS] 鉴权重试仍失败 fd={$fd} error={$e2->getMessage()}");
                 $this->sendAndClose($server, $fd, $this->pack(-1, '服务器内部错误，请稍后重试', null, 'auth_result'));
                 return;
             }
         }
         if ($pushKey === false) {
             echo "[WS] Key 无效或已禁用 fd={$fd} key={$keyValue}\n";
+            $this->logToFile("[WS] Key 无效或已禁用 fd={$fd} key={$keyValue}");
             $this->sendAndClose($server, $fd, $this->pack(-1, '推送 Key 无效或已禁用', null, 'auth_result'));
             return;
         }
 
         echo "[WS] 鉴权成功 fd={$fd} key={$keyValue} push_key_id={$pushKey['id']}\n";
+        $this->logToFile("[WS] 鉴权成功 fd={$fd} key={$keyValue} push_key_id={$pushKey['id']}");
 
         $pushKeyId = (int)$pushKey['id'];
         $userId    = (int)$pushKey['user_id'];
@@ -411,13 +420,21 @@ class WebSocketServer
         }
 
         // 注册设备到 ConnectionManager
-        $this->connectionManager->registerDevice($fd, $deviceId, $keyValue, $pushKeyId, [
-            'ip'          => $ip,
-            'fingerprint' => $fingerprint,
-        ]);
+        try {
+            $this->connectionManager->registerDevice($fd, $deviceId, $keyValue, $pushKeyId, [
+                'ip'          => $ip,
+                'fingerprint' => $fingerprint,
+            ]);
+            $this->logToFile("[WS] ConnectionManager 注册成功 fd={$fd} device_id={$deviceId}");
+        } catch (\Throwable $e) {
+            $this->logToFile("[WS] ConnectionManager 注册失败 fd={$fd} error={$e->getMessage()}");
+            $this->sendAndClose($server, $fd, $this->pack(-1, '服务器内部错误：' . $e->getMessage(), null, 'auth_result'));
+            return;
+        }
 
         // 采集设备信息存 devices 表
-        $this->deviceService->registerDevice([
+        try {
+            $this->deviceService->registerDevice([
             'device_id'    => $deviceId,
             'push_key_id'  => $pushKeyId,
             'user_id'      => $userId,
@@ -427,7 +444,11 @@ class WebSocketServer
             'ip'           => $ip,
             'ua'           => $ua,
             'fingerprint'  => $fingerprint,
-        ]);
+            ]);
+            $this->logToFile("[WS] 设备信息保存成功 fd={$fd} device_id={$deviceId}");
+        } catch (\Throwable $e) {
+            $this->logToFile("[WS] 设备信息保存失败 fd={$fd} error={$e->getMessage()}");
+        }
 
         // 启动心跳
         $this->heartbeatManager->startHeartbeat($fd, $heartbeatInterval);
@@ -437,12 +458,13 @@ class WebSocketServer
         $this->replayOfflineMessages($server, $fd, $deviceId);
 
         // 发送鉴权成功消息（带 type 字段，与 APP 协议一致）
-        $server->push($fd, $this->pack(0, '连接成功', [
+        $authResult = $server->push($fd, $this->pack(0, '连接成功', [
             'heartbeat_interval' => $effectiveInterval,
             'server_time'        => time(),
             'device_id'          => $deviceId,
             'push_key'           => $keyValue,
         ], 'auth_result'));
+        $this->logToFile("[WS] 鉴权完成，已发送成功消息 fd={$fd} device_id={$deviceId} push_result=" . ($authResult ? 'true' : 'false'));
     }
 
     /**
@@ -816,5 +838,22 @@ class WebSocketServer
     public function getHeartbeatManager(): HeartbeatManager
     {
         return $this->heartbeatManager;
+    }
+
+    /**
+     * 写入调试日志到文件
+     *
+     * @param string $message
+     * @return void
+     */
+    private function logToFile(string $message): void
+    {
+        $logFile = BASE_PATH . '/runtime/logs/ws_debug.log';
+        $dir = dirname($logFile);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        $time = date('Y-m-d H:i:s');
+        @file_put_contents($logFile, "[{$time}] {$message}\n", FILE_APPEND);
     }
 }
