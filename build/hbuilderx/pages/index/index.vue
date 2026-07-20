@@ -129,7 +129,10 @@ export default {
             versionName: APP_CONFIG.version_name,
             socketTask: null,
             heartbeatTimer: null,
-            reconnectTimer: null
+            heartbeatTimeoutTimer: null,
+            reconnectTimer: null,
+            reconnectDelay: 3000,
+            maxReconnectDelay: 60000
         }
     },
     computed: {
@@ -267,6 +270,8 @@ export default {
             }
 
             this.connecting = true
+            this.reconnectDelay = 3000
+
             const url = this.wsUrl + '/ws/client?key=' + encodeURIComponent(this.form.key) + '&device_id=' + encodeURIComponent(this.deviceId)
 
             this.socketTask = uni.connectSocket({
@@ -285,6 +290,7 @@ export default {
                 console.log('WebSocket 已连接')
                 this.connecting = false
                 this.connected = true
+                this.reconnectDelay = 3000
                 this.startHeartbeat()
             })
 
@@ -295,6 +301,8 @@ export default {
                         this.socketTask.send({
                             data: JSON.stringify({ type: 'pong' })
                         })
+                    } else if (data.type === 'pong') {
+                        this.resetHeartbeatTimeout()
                     } else if (data.type === 'message' || data.type === 'push') {
                         this.addMessage(data.title || '消息推送', data.content || '')
                     }
@@ -303,17 +311,23 @@ export default {
                 }
             })
 
-            this.socketTask.onClose(() => {
-                console.log('WebSocket 已断开')
+            this.socketTask.onClose((res) => {
+                console.log('WebSocket 已断开, code:', res.code, 'reason:', res.reason)
                 this.connecting = false
                 this.connected = false
                 this.stopHeartbeat()
+                this.socketTask = null
                 this.scheduleReconnect()
             })
 
             this.socketTask.onError((err) => {
                 console.error('WebSocket 错误', err)
                 this.connected = false
+                if (this.socketTask) {
+                    this.socketTask.close()
+                    this.socketTask = null
+                }
+                this.scheduleReconnect()
             })
         },
         closeSocket() {
@@ -327,6 +341,7 @@ export default {
                 clearTimeout(this.reconnectTimer)
                 this.reconnectTimer = null
             }
+            this.reconnectDelay = 3000
         },
         startHeartbeat() {
             this.stopHeartbeat()
@@ -335,6 +350,7 @@ export default {
                     this.socketTask.send({
                         data: JSON.stringify({ type: 'ping' })
                     })
+                    this.startHeartbeatTimeout()
                 }
             }, 30000)
         },
@@ -343,18 +359,46 @@ export default {
                 clearInterval(this.heartbeatTimer)
                 this.heartbeatTimer = null
             }
+            if (this.heartbeatTimeoutTimer) {
+                clearTimeout(this.heartbeatTimeoutTimer)
+                this.heartbeatTimeoutTimer = null
+            }
+        },
+        startHeartbeatTimeout() {
+            if (this.heartbeatTimeoutTimer) {
+                clearTimeout(this.heartbeatTimeoutTimer)
+            }
+            this.heartbeatTimeoutTimer = setTimeout(() => {
+                console.warn('心跳超时，主动断开重连')
+                if (this.socketTask) {
+                    this.socketTask.close()
+                    this.socketTask = null
+                }
+                this.connected = false
+                this.scheduleReconnect()
+            }, 15000)
+        },
+        resetHeartbeatTimeout() {
+            if (this.heartbeatTimeoutTimer) {
+                clearTimeout(this.heartbeatTimeoutTimer)
+                this.heartbeatTimeoutTimer = null
+            }
         },
         scheduleReconnect() {
+            if (!this.isLoggedIn) {
+                return
+            }
             if (this.reconnectTimer) {
                 return
             }
-            console.log('3秒后重连...')
+            console.log(this.reconnectDelay / 1000 + '秒后重连...')
             this.reconnectTimer = setTimeout(() => {
                 this.reconnectTimer = null
                 if (this.isLoggedIn) {
                     this.connectWebSocket()
                 }
-            }, 3000)
+            }, this.reconnectDelay)
+            this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay)
         },
         addMessage(title, content) {
             this.messages.unshift({
