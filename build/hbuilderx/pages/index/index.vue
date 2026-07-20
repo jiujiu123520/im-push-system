@@ -303,8 +303,9 @@ export default {
                         })
                     } else if (data.type === 'pong') {
                         this.resetHeartbeatTimeout()
-                    } else if (data.type === 'message' || data.type === 'push') {
-                        this.addMessage(data.title || '消息推送', data.content || '')
+                    } else if (data.type === 'message' || data.type === 'push' || data.type === 'offline_message') {
+                        const msg = data.data || data
+                        this.addMessage(msg.title || '消息推送', msg.content || '')
                     }
                 } catch (e) {
                     console.error('消息解析失败', e)
