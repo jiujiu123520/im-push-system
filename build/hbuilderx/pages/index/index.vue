@@ -604,11 +604,41 @@ export default {
         startHeartbeat() {
             this.stopHeartbeat()
             this.heartbeatTimer = setInterval(() => {
-                if (this.socketTask && this.connected) {
+                if (!this.socketTask || !this.connected) {
+                    // 连接已断开，停止心跳
+                    this.stopHeartbeat()
+                    return
+                }
+                try {
                     this.socketTask.send({
-                        data: JSON.stringify({ type: 'ping' })
+                        data: JSON.stringify({ type: 'ping' }),
+                        success: () => {
+                            // 发送成功，启动心跳超时检测
+                            this.startHeartbeatTimeout()
+                        },
+                        fail: (err) => {
+                            console.error('心跳 ping 发送失败，触发重连', err)
+                            // 发送失败，说明连接已损坏，主动断开重连
+                            this.connected = false
+                            if (this.socketTask) {
+                                try { this.socketTask.close() } catch (e) {}
+                            }
+                            this.stopHeartbeat()
+                            if (!this.reconnectTimer) {
+                                this.scheduleReconnect()
+                            }
+                        }
                     })
-                    this.startHeartbeatTimeout()
+                } catch (e) {
+                    console.error('心跳 ping 异常，触发重连', e)
+                    this.connected = false
+                    if (this.socketTask) {
+                        try { this.socketTask.close() } catch (e2) {}
+                    }
+                    this.stopHeartbeat()
+                    if (!this.reconnectTimer) {
+                        this.scheduleReconnect()
+                    }
                 }
             }, 30000)
         },
@@ -625,15 +655,16 @@ export default {
         startHeartbeatTimeout() {
             if (this.heartbeatTimeoutTimer) {
                 clearTimeout(this.heartbeatTimeoutTimer)
+                this.heartbeatTimeoutTimer = null
             }
             this.heartbeatTimeoutTimer = setTimeout(() => {
-                console.warn('心跳超时，主动断开重连')
+                console.warn('心跳超时（45秒未收到响应），主动断开重连')
                 this.connected = false
+                this.stopHeartbeat()
                 if (this.socketTask) {
                     try { this.socketTask.close() } catch (e) {}
-                    // 不立即置 null，让 onClose 处理；但兜底强制重连
                 }
-                // 兜底：如果 2 秒后还没触发 onClose，强制清理并重连
+                // 兜底：3 秒后如果还没触发 onClose 重连，强制重连
                 setTimeout(() => {
                     if (!this.connected && this.socketTask) {
                         console.warn('心跳超时后 onClose 未触发，强制清理重连')
@@ -643,11 +674,11 @@ export default {
                             this.scheduleReconnect()
                         }
                     }
-                }, 2000)
+                }, 3000)
                 if (!this.reconnectTimer) {
                     this.scheduleReconnect()
                 }
-            }, 15000)
+            }, 45000)  // 45 秒，允许 1 次心跳丢失（30秒间隔 + 15秒容错）
         },
         resetHeartbeatTimeout() {
             if (this.heartbeatTimeoutTimer) {

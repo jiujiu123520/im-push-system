@@ -149,9 +149,9 @@ class WebSocketServer
             'send_buffer_size'       => 1048576,  // 1MB 单连接发送缓冲区
             // 鉴权超时定时器依赖,允许毫秒级 Timer
             'enable_coroutine'       => true,
-            // 心跳检测：服务端主动检测死连接
-            // 一个连接超过 90 秒没向服务端发任何数据（包括 ping/pong），Swoole 会自动关闭该 fd
-            // APP 端 30 秒发一次心跳，90 秒阈值允许连续 2 次心跳丢失才判定掉线
+            // Swoole 内置心跳检测：90 秒无数据则关闭连接
+            // 这是兜底机制，主要靠 HeartbeatManager 的 ping/pong 检测
+            // APP 端 30 秒发一次 ping，90 秒阈值允许连续 2 次心跳丢失
             'heartbeat_idle_time'      => 90,
             'heartbeat_check_interval' => 30,
         ]);
