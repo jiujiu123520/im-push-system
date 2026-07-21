@@ -19,6 +19,10 @@
                         <text class="form-label">服务器地址</text>
                         <input class="form-input" v-model="form.serverUrl" placeholder="http://example.com:9501" />
                     </view>
+                    <view class="form-group">
+                        <text class="form-label">WebSocket 地址</text>
+                        <input class="form-input" v-model="form.wsUrl" placeholder="留空则自动从服务器地址推导" />
+                    </view>
                     <button class="btn-primary" @click="handleLogin" :loading="connecting">
                         {{ connecting ? '连接中...' : '连接' }}
                     </button>
@@ -92,9 +96,10 @@
                         <text class="setting-label">服务器地址</text>
                         <text class="setting-value">{{ form.serverUrl }}</text>
                     </view>
-                    <view class="setting-item">
+                    <view class="setting-item setting-item-column">
                         <text class="setting-label">WebSocket 地址</text>
-                        <text class="setting-value">{{ wsUrl }}</text>
+                        <input class="setting-input" v-model="wsUrl" placeholder="ws://example.com:9502" />
+                        <button class="btn-sm" @click="handleChangeWsUrl">应用并重连</button>
                     </view>
                     <view class="setting-item">
                         <text class="setting-label">应用版本</text>
@@ -119,7 +124,8 @@ export default {
             showSettings: false,
             form: {
                 key: '',
-                serverUrl: ''
+                serverUrl: '',
+                wsUrl: ''
             },
             wsUrl: '',
             messages: [],
@@ -202,8 +208,10 @@ export default {
 
             if (savedWs) {
                 this.wsUrl = savedWs
+                this.form.wsUrl = savedWs
             } else {
                 this.wsUrl = APP_CONFIG.ws_url
+                this.form.wsUrl = ''
             }
         },
         loadMessages() {
@@ -231,7 +239,9 @@ export default {
             if (savedKey && savedServer) {
                 this.form.key = savedKey
                 this.form.serverUrl = savedServer
-                this.wsUrl = uni.getStorageSync('push_ws') || this.deriveWsUrl(savedServer)
+                const savedWs = uni.getStorageSync('push_ws')
+                this.wsUrl = savedWs || this.deriveWsUrl(savedServer)
+                this.form.wsUrl = savedWs || ''
                 this.isLoggedIn = true
                 this.connectWebSocket()
             }
@@ -257,13 +267,15 @@ export default {
 
             const key = this.form.key.trim()
             const serverUrl = this.form.serverUrl.trim()
-            const wsUrl = this.deriveWsUrl(serverUrl)
+            const inputWs = (this.form.wsUrl || '').trim()
+            const wsUrl = inputWs || this.deriveWsUrl(serverUrl)
 
             uni.setStorageSync('push_key', key)
             uni.setStorageSync('push_server', serverUrl)
             uni.setStorageSync('push_ws', wsUrl)
 
             this.wsUrl = wsUrl
+            this.form.wsUrl = inputWs
             this.isLoggedIn = true
             this.connectWebSocket()
         },
@@ -282,6 +294,26 @@ export default {
                     }
                 }
             })
+        },
+        handleChangeWsUrl() {
+            const inputWs = (this.wsUrl || '').trim()
+            if (!inputWs) {
+                uni.showToast({ title: 'WebSocket 地址不能为空', icon: 'none' })
+                return
+            }
+            if (!/^wss?:\/\/.+/.test(inputWs)) {
+                uni.showToast({ title: '地址需以 ws:// 或 wss:// 开头', icon: 'none' })
+                return
+            }
+            uni.setStorageSync('push_ws', inputWs)
+            this.wsUrl = inputWs
+            this.form.wsUrl = inputWs
+            this.showSettings = false
+            uni.showToast({ title: '已应用，正在重连...', icon: 'none' })
+            // 关闭旧连接并重连
+            this.closeSocket()
+            this.reconnectDelay = 3000
+            this.connectWebSocket()
         },
         connectWebSocket() {
             // 如果 socketTask 还在但已断开（connected=false），先清理
@@ -843,6 +875,36 @@ export default {
     font-weight: 500;
     display: block;
     word-break: break-all;
+}
+
+.setting-item-column {
+    display: flex;
+    flex-direction: column;
+}
+
+.setting-input {
+    width: 100%;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #333;
+    background: white;
+    box-sizing: border-box;
+    margin-bottom: 8px;
+}
+
+.btn-sm {
+    align-self: flex-start;
+    height: 32px;
+    padding: 0 16px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 32px;
 }
 
 .btn-danger {
