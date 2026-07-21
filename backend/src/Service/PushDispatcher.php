@@ -164,6 +164,7 @@ class PushDispatcher
             // 无在线设备，查询所有订阅该 Key 的设备 ID 并存离线
             $deviceIds = Redis::getInstance()->sMembers("key:subscribe:{$keyValue}");
             if (empty($deviceIds)) {
+                $this->logPush("[pushByKey] 无订阅设备 key={$keyValue} msg_id={$message['message_id']}");
                 return [
                     'success_count' => 0,
                     'fail_count'    => 0,
@@ -179,6 +180,7 @@ class PushDispatcher
             foreach ($deviceIds as $deviceId) {
                 $this->storeOfflineMessage($deviceId, $message);
             }
+            $this->logPush("[pushByKey] 所有设备离线，已存离线 key={$keyValue} devices=" . count($deviceIds) . " msg_id={$message['message_id']}");
             return [
                 'success_count' => 0,
                 'fail_count'    => count($deviceIds),
@@ -193,7 +195,13 @@ class PushDispatcher
             ];
         }
 
-        return $this->pushToFds($fds, $message, null, $keyValue);
+        // 修复：收集所有 deviceId 用于 push 失败时存离线消息
+        $deviceIds = Redis::getInstance()->sMembers("key:subscribe:{$keyValue}");
+        $deviceIdStr = empty($deviceIds) ? null : implode(',', $deviceIds);
+
+        $this->logPush("[pushByKey] 在线设备 fds=" . json_encode($fds) . " key={$keyValue} msg_id={$message['message_id']}");
+
+        return $this->pushToFds($fds, $message, $deviceIdStr, $keyValue);
     }
 
     /**
@@ -294,23 +302,41 @@ class PushDispatcher
         $detail  = [];
 
         $payload = $this->packMessage($message);
+        $msgId = $message['message_id'] ?? '';
 
         if ($this->server !== null) {
             // WebSocket 上下文：直接推送
             foreach ($fds as $fd) {
                 $fd = (int)$fd;
-                if ($this->server->isEstablished($fd) && $this->server->push($fd, $payload)) {
-                    $success++;
-                    $detail[] = ['fd' => $fd, 'status' => 'success'];
+                $established = $this->server->isEstablished($fd);
+                if ($established) {
+                    $pushResult = $this->server->push($fd, $payload);
+                    if ($pushResult) {
+                        $success++;
+                        $detail[] = ['fd' => $fd, 'status' => 'success'];
+                        $this->logPush("[pushToFds·WS] push 成功 fd={$fd} msg_id={$msgId}");
+                    } else {
+                        $fail++;
+                        $detail[] = ['fd' => $fd, 'status' => 'failed', 'message' => 'push 返回 false'];
+                        $this->logPush("[pushToFds·WS] push 返回 false fd={$fd} msg_id={$msgId}");
+                    }
                 } else {
                     $fail++;
-                    $detail[] = ['fd' => $fd, 'status' => 'failed', 'message' => '推送失败'];
+                    $detail[] = ['fd' => $fd, 'status' => 'failed', 'message' => 'fd 未建立 WebSocket 连接'];
+                    $this->logPush("[pushToFds·WS] fd 未建立连接 fd={$fd} msg_id={$msgId}");
                 }
             }
 
             // 全部失败且有 device_id，存离线
             if ($success === 0 && $deviceId !== null) {
-                $this->storeOfflineMessage($deviceId, $message);
+                // deviceId 可能是逗号分隔的多个 ID（pushByKey 场景）
+                foreach (explode(',', $deviceId) as $did) {
+                    $did = trim($did);
+                    if ($did !== '') {
+                        $this->storeOfflineMessage($did, $message);
+                    }
+                }
+                $this->logPush("[pushToFds·WS] 全部失败，已存离线 device_id={$deviceId} msg_id={$msgId}");
             }
         } else {
             // HTTP 上下文：写入 Redis 队列，由 WS 进程消费
@@ -321,6 +347,7 @@ class PushDispatcher
                 'count'   => count($fds),
                 'message' => '已加入推送队列',
             ];
+            $this->logPush("[pushToFds·HTTP] 已入队 fds=" . json_encode($fds) . " msg_id={$msgId} key=" . ($keyValue ?? 'null'));
         }
 
         return [
@@ -376,6 +403,7 @@ class PushDispatcher
 
             $command = json_decode($raw, true);
             if (!is_array($command)) {
+                $this->logPush("[processQueue] 队列消息解析失败 raw=" . substr($raw, 0, 200));
                 continue;
             }
 
@@ -383,9 +411,16 @@ class PushDispatcher
             $message = $command['message'] ?? [];
             $deviceId = $command['device_id'] ?? null;
             $keyValue = $command['key_value'] ?? null;
+            $msgId = $message['message_id'] ?? '';
+
+            $this->logPush("[processQueue] 出队 msg_id={$msgId} fds=" . json_encode($fds) . " key=" . ($keyValue ?? 'null'));
 
             $this->pushToFds($fds, $message, $deviceId, $keyValue);
             $processed++;
+        }
+
+        if ($processed > 0) {
+            $this->logPush("[processQueue] 本轮处理 {$processed} 条");
         }
 
         return $processed;
@@ -476,5 +511,22 @@ class PushDispatcher
             'data'      => $message,
             'time'      => time(),
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    /**
+     * 推送链路日志（写入 ws_debug.log 便于排查）
+     *
+     * @param string $message
+     * @return void
+     */
+    private function logPush(string $message): void
+    {
+        $logFile = BASE_PATH . '/runtime/logs/ws_debug.log';
+        $dir = dirname($logFile);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        $time = date('Y-m-d H:i:s');
+        @file_put_contents($logFile, "[{$time}] {$message}\n", FILE_APPEND);
     }
 }
