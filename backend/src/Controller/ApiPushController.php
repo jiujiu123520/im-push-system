@@ -89,14 +89,28 @@ class ApiPushController
             'timestamp'  => time(),
         ];
 
-        // 查询 push_key_id（key 推送时记录关联的 Key 主键）
+        // key 推送时校验每个 key_value 是否真实存在且启用，并收集 push_key_id
+        $validKeyIds = [];
         if ($targetType === 'key' && !empty($targets)) {
-            $pushKeyRow = Database::fetch(
-                'SELECT id FROM push_keys WHERE key_value = ? LIMIT 1',
-                [$targets[0]]
-            );
-            if ($pushKeyRow) {
-                $message['push_key_id'] = (int)$pushKeyRow['id'];
+            foreach ($targets as $kv) {
+                $pushKeyRow = Database::fetch(
+                    'SELECT id, status FROM push_keys WHERE key_value = ? LIMIT 1',
+                    [$kv]
+                );
+                if ($pushKeyRow === false) {
+                    // key_value 不存在：明确告知用户，避免误以为"没设备在线"
+                    Response::fail($response, "推送 Key [{$kv}] 不存在，请检查 target_value 是否填的是 push_key 的 key_value（而非 api_key）", Response::CODE_BAD_REQUEST, 400);
+                    return false;
+                }
+                if ((int)$pushKeyRow['status'] !== 1) {
+                    Response::fail($response, "推送 Key [{$kv}] 已被禁用", Response::CODE_FORBIDDEN, 403);
+                    return false;
+                }
+                $validKeyIds[] = (int)$pushKeyRow['id'];
+            }
+            // 多 key 推送时，push_key_id 记录第一个（仅用于消息持久化关联）
+            if (!empty($validKeyIds)) {
+                $message['push_key_id'] = $validKeyIds[0];
             }
         }
 

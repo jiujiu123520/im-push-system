@@ -178,6 +178,7 @@ class PushDispatcher
                 ];
             }
             foreach ($deviceIds as $deviceId) {
+                $this->storeMessage($deviceId, $message);
                 $this->storeOfflineMessage($deviceId, $message);
             }
             $this->logPush("[pushByKey] 所有设备离线，已存离线 key={$keyValue} devices=" . count($deviceIds) . " msg_id={$message['message_id']}");
@@ -195,9 +196,14 @@ class PushDispatcher
             ];
         }
 
-        // 修复：收集所有 deviceId 用于 push 失败时存离线消息
+        // 修复：收集所有 deviceId 用于 push 失败时存离线消息，并持久化消息
         $deviceIds = Redis::getInstance()->sMembers("key:subscribe:{$keyValue}");
         $deviceIdStr = empty($deviceIds) ? null : implode(',', $deviceIds);
+
+        // 持久化消息到 messages 表（按 key 推送时也需要记录）
+        foreach ($deviceIds as $did) {
+            $this->storeMessage($did, $message);
+        }
 
         $this->logPush("[pushByKey] 在线设备 fds=" . json_encode($fds) . " key={$keyValue} msg_id={$message['message_id']}");
 
