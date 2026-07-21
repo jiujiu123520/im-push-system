@@ -448,6 +448,8 @@ export default {
             })
 
             this.socketTask.onMessage((res) => {
+                // 收到任何消息都重置心跳超时（证明连接存活）
+                this.resetHeartbeatTimeout()
                 try {
                     const data = JSON.parse(res.data)
                     if (data.type === 'ping') {
@@ -455,7 +457,7 @@ export default {
                             data: JSON.stringify({ type: 'pong' })
                         })
                     } else if (data.type === 'pong') {
-                        this.resetHeartbeatTimeout()
+                        // pong 已经在上面重置过超时
                     } else if (data.type === 'message' || data.type === 'push' || data.type === 'offline_message') {
                         const msg = data.data || data
                         this.addMessage(msg.title || '消息推送', msg.content || '')
