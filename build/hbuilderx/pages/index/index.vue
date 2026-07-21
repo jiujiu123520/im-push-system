@@ -105,6 +105,14 @@
                         <text class="setting-label">应用版本</text>
                         <text class="setting-value">{{ versionName }}</text>
                     </view>
+                    <view class="setting-item setting-item-column">
+                        <text class="setting-label">应用权限</text>
+                        <text class="setting-tip">点击下方按钮跳转系统设置，开启对应权限以保证后台推送正常接收</text>
+                        <button class="btn-sm" @click="openPermission('app')">应用详情（权限总开关）</button>
+                        <button class="btn-sm" @click="openPermission('notification')">通知权限</button>
+                        <button class="btn-sm" @click="openPermission('battery')">电池优化白名单</button>
+                        <button class="btn-sm" @click="openPermission('autostart')">自启动管理（部分机型）</button>
+                    </view>
                     <button class="btn-danger" @click="handleLogout">退出登录</button>
                 </scroll-view>
             </view>
@@ -314,6 +322,95 @@ export default {
             this.closeSocket()
             this.reconnectDelay = 3000
             this.connectWebSocket()
+        },
+        openPermission(type) {
+            // #ifdef APP-PLUS
+            try {
+                const Intent = plus.android.importClass('android.content.Intent')
+                const Settings = plus.android.importClass('android.provider.Settings')
+                const Uri = plus.android.importClass('android.net.Uri')
+                const intent = new Intent()
+                let action = null
+                let data = null
+                switch (type) {
+                    case 'app':
+                        action = Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+                        data = Uri.fromParts('package', plus.runtime.appid, null)
+                        break
+                    case 'notification':
+                        action = Settings.ACTION_APP_NOTIFICATION_SETTINGS
+                        intent.putExtra('android.provider.extra.APP_PACKAGE', plus.runtime.appid)
+                        break
+                    case 'battery':
+                        action = Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS
+                        break
+                    case 'autostart':
+                        // 自启动没有统一标准，尝试常见厂商 Intent
+                        const brand = this.getDeviceBrand()
+                        const autostartActions = {
+                            'xiaomi': ['miui.intent.action.APP_AUTO_START'],
+                            'huawei': ['huawei.intent.action.HSM_BOOTAPP_MANAGER'],
+                            'honor': ['huawei.intent.action.HSM_BOOTAPP_MANAGER'],
+                            'oppo': ['com.coloros.safecenter.permission.permission.PermissionAllAppsActivity'],
+                            'vivo': ['com.iqoo.secure.MainActivity'],
+                            'meizu': ['com.meizu.safe.security.SHOW_APPSEC'],
+                            'samsung': ['samsung.intent.action.AUTOSTART_APP'],
+                            'oneplus': ['com.android.settings.action.IGNORE_BATTERY_OPTIMIZATION_SETTINGS']
+                        }
+                        const actions = autostartActions[brand] || []
+                        const main = plus.android.runtimeMainActivity()
+                        let launched = false
+                        for (const act of actions) {
+                            try {
+                                const testIntent = new Intent()
+                                testIntent.setAction(act)
+                                testIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                main.startActivity(testIntent)
+                                launched = true
+                                break
+                            } catch (e) {
+                                // 继续尝试下一个
+                            }
+                        }
+                        if (!launched) {
+                            // 回退到应用详情页
+                            uni.showToast({ title: '未找到自启动设置页，已跳转应用详情', icon: 'none' })
+                            const fallback = new Intent()
+                            fallback.setAction(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                            fallback.setData(Uri.fromParts('package', plus.runtime.appid, null))
+                            fallback.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            main.startActivity(fallback)
+                        }
+                        return
+                }
+                if (action) {
+                    intent.setAction(action)
+                    if (data) {
+                        intent.setData(data)
+                    }
+                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    const main = plus.android.runtimeMainActivity()
+                    main.startActivity(intent)
+                }
+            } catch (e) {
+                console.error('打开权限设置失败', e)
+                uni.showToast({ title: '打开设置失败：' + e.message, icon: 'none' })
+            }
+            // #endif
+            // #ifndef APP-PLUS
+            uni.showToast({ title: '此功能仅在 APP 端可用', icon: 'none' })
+            // #endif
+        },
+        getDeviceBrand() {
+            // #ifdef APP-PLUS
+            try {
+                const Build = plus.android.importClass('android.os.Build')
+                return (Build.BRAND || '').toLowerCase()
+            } catch (e) {
+                return ''
+            }
+            // #endif
+            return ''
         },
         connectWebSocket() {
             // 如果 socketTask 还在但已断开（connected=false），先清理
@@ -905,6 +1002,14 @@ export default {
     border-radius: 6px;
     font-size: 13px;
     line-height: 32px;
+    margin-bottom: 6px;
+}
+
+.setting-tip {
+    font-size: 12px;
+    color: #999;
+    line-height: 1.4;
+    margin-bottom: 10px;
 }
 
 .btn-danger {
