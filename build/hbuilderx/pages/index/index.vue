@@ -145,6 +145,7 @@ export default {
             heartbeatTimer: null,
             heartbeatTimeoutTimer: null,
             reconnectTimer: null,
+            connectTimeoutTimer: null,
             reconnectDelay: 3000,
             maxReconnectDelay: 60000
         }
@@ -159,6 +160,7 @@ export default {
         this.loadConfig()
         this.loadMessages()
         this.checkAutoLogin()
+        this.registerNetworkListener()
     },
     onShow() {
         // APP 从后台切回前台 / 页面重新显示时，主动检测并重连断开的 WebSocket
@@ -187,6 +189,15 @@ export default {
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer)
         }
+        if (this.connectTimeoutTimer) {
+            clearTimeout(this.connectTimeoutTimer)
+        }
+        // 移除网络监听
+        // #ifdef APP-PLUS
+        try {
+            uni.offNetworkStatusChange(this.networkStatusChange)
+        } catch (e) {}
+        // #endif
     },
     methods: {
         initDeviceId() {
@@ -412,6 +423,36 @@ export default {
             // #endif
             return ''
         },
+        registerNetworkListener() {
+            // #ifdef APP-PLUS
+            this.networkStatusChange = (res) => {
+                console.log('网络状态变化:', res)
+                if (res.isConnected) {
+                    // 网络恢复，主动重连
+                    console.log('网络已恢复，尝试重连 WebSocket')
+                    if (this.isLoggedIn && !this.connected) {
+                        // 清理可能残留的连接和定时器
+                        if (this.socketTask) {
+                            try { this.socketTask.close() } catch (e) {}
+                            this.socketTask = null
+                        }
+                        if (this.reconnectTimer) {
+                            clearTimeout(this.reconnectTimer)
+                            this.reconnectTimer = null
+                        }
+                        this.reconnectDelay = 3000
+                        this.connectWebSocket()
+                    }
+                } else {
+                    // 网络断开，标记连接状态
+                    console.warn('网络已断开')
+                    this.connected = false
+                    this.stopHeartbeat()
+                }
+            }
+            uni.onNetworkStatusChange(this.networkStatusChange)
+            // #endif
+        },
         connectWebSocket() {
             // 如果 socketTask 还在但已断开（connected=false），先清理
             if (this.socketTask && !this.connected) {
@@ -423,9 +464,26 @@ export default {
             }
 
             this.connecting = true
-            this.reconnectDelay = 3000
+            // 注意：不要在这里重置 reconnectDelay，保留指数退避的延迟
 
             const url = this.wsUrl + '/ws/client?key=' + encodeURIComponent(this.form.key) + '&device_id=' + encodeURIComponent(this.deviceId)
+
+            // BUG修复：添加连接超时定时器，防止 connecting 状态卡死
+            // 弱网下 TCP 握手可能无响应，onOpen 和 onError 都不触发
+            if (this.connectTimeoutTimer) {
+                clearTimeout(this.connectTimeoutTimer)
+            }
+            this.connectTimeoutTimer = setTimeout(() => {
+                if (this.connecting && !this.connected) {
+                    console.warn('WebSocket 连接超时（10秒无响应），主动触发重连')
+                    this.connecting = false
+                    if (this.socketTask) {
+                        try { this.socketTask.close() } catch (e) {}
+                        this.socketTask = null
+                    }
+                    this.scheduleReconnect()
+                }
+            }, 10000)
 
             this.socketTask = uni.connectSocket({
                 url: url,
@@ -435,6 +493,10 @@ export default {
                 fail: (err) => {
                     console.error('WebSocket 连接失败', err)
                     this.connecting = false
+                    if (this.connectTimeoutTimer) {
+                        clearTimeout(this.connectTimeoutTimer)
+                        this.connectTimeoutTimer = null
+                    }
                     this.scheduleReconnect()
                 }
             })
@@ -443,7 +505,11 @@ export default {
                 console.log('WebSocket 已连接')
                 this.connecting = false
                 this.connected = true
-                this.reconnectDelay = 3000
+                this.reconnectDelay = 3000  // 连接成功后重置退避延迟
+                if (this.connectTimeoutTimer) {
+                    clearTimeout(this.connectTimeoutTimer)
+                    this.connectTimeoutTimer = null
+                }
                 this.startHeartbeat()
             })
 
@@ -487,17 +553,34 @@ export default {
                 this.connected = false
                 this.stopHeartbeat()
                 this.socketTask = null
+                if (this.connectTimeoutTimer) {
+                    clearTimeout(this.connectTimeoutTimer)
+                    this.connectTimeoutTimer = null
+                }
                 this.scheduleReconnect()
             })
 
             this.socketTask.onError((err) => {
                 console.error('WebSocket 错误', err)
+                this.connecting = false
                 this.connected = false
+                // BUG 修复：onError 触发 close()，由 onClose 统一处理 scheduleReconnect
+                // 不要在这里调用 scheduleReconnect，避免重复触发
                 if (this.socketTask) {
-                    this.socketTask.close()
-                    this.socketTask = null
+                    try { this.socketTask.close() } catch (e) {}
+                    // socketTask 置空由 onClose 负责；若 onClose 不触发，下面的兜底定时器会处理
                 }
-                this.scheduleReconnect()
+                // 兜底：如果 2 秒后 socketTask 还在或还没触发重连，强制清理重连
+                setTimeout(() => {
+                    if (!this.connected && this.socketTask) {
+                        console.warn('onError 后 onClose 未触发，强制清理重连')
+                        try { this.socketTask.close() } catch (e) {}
+                        this.socketTask = null
+                        if (!this.reconnectTimer) {
+                            this.scheduleReconnect()
+                        }
+                    }
+                }, 2000)
             })
         },
         closeSocket() {
@@ -506,10 +589,15 @@ export default {
                 this.socketTask = null
             }
             this.connected = false
+            this.connecting = false
             this.stopHeartbeat()
             if (this.reconnectTimer) {
                 clearTimeout(this.reconnectTimer)
                 this.reconnectTimer = null
+            }
+            if (this.connectTimeoutTimer) {
+                clearTimeout(this.connectTimeoutTimer)
+                this.connectTimeoutTimer = null
             }
             this.reconnectDelay = 3000
         },
@@ -540,12 +628,25 @@ export default {
             }
             this.heartbeatTimeoutTimer = setTimeout(() => {
                 console.warn('心跳超时，主动断开重连')
-                if (this.socketTask) {
-                    this.socketTask.close()
-                    this.socketTask = null
-                }
                 this.connected = false
-                this.scheduleReconnect()
+                if (this.socketTask) {
+                    try { this.socketTask.close() } catch (e) {}
+                    // 不立即置 null，让 onClose 处理；但兜底强制重连
+                }
+                // 兜底：如果 2 秒后还没触发 onClose，强制清理并重连
+                setTimeout(() => {
+                    if (!this.connected && this.socketTask) {
+                        console.warn('心跳超时后 onClose 未触发，强制清理重连')
+                        try { this.socketTask.close() } catch (e) {}
+                        this.socketTask = null
+                        if (!this.reconnectTimer) {
+                            this.scheduleReconnect()
+                        }
+                    }
+                }, 2000)
+                if (!this.reconnectTimer) {
+                    this.scheduleReconnect()
+                }
             }, 15000)
         },
         resetHeartbeatTimeout() {
