@@ -83,23 +83,31 @@ class PushDispatcher
     /**
      * 单设备推送
      *
+     * 链路：HTTP 入口 -> storeMessage -> getFdsByDevice -> pushToFds(入队/直推)
+     *
      * @param string $deviceId 设备唯一标识
      * @param array  $message  消息体
      * @return array
      */
     public function pushToDevice(string $deviceId, array $message): array
     {
-        // 补充消息 ID
+        // 补充消息 ID（用于串联整条推送链路日志）
         $message['message_id'] = $message['message_id'] ?? uniqid('msg_', true);
+        $msgId = $message['message_id'];
+        $ctx = $this->server !== null ? 'WS' : 'HTTP';
+
+        $this->logPush("[pushToDevice·{$ctx}] 入口 device_id={$deviceId} msg_id={$msgId} title=" . ($message['title'] ?? ''));
 
         // 持久化消息到 messages 表（便于 ACK 与历史查询）
         $this->storeMessage($deviceId, $message);
 
         $fds = $this->connectionManager->getFdsByDevice($deviceId);
+        $this->logPush("[pushToDevice·{$ctx}] 查询在线 fd device_id={$deviceId} msg_id={$msgId} fds=" . json_encode($fds));
 
         if (empty($fds)) {
             // 设备离线，存离线消息
             $this->storeOfflineMessage($deviceId, $message);
+            $this->logPush("[pushToDevice·{$ctx}] 设备离线，已存离线 device_id={$deviceId} msg_id={$msgId}");
             return [
                 'success_count' => 0,
                 'fail_count'    => 1,
@@ -150,6 +158,9 @@ class PushDispatcher
     /**
      * Key 维度推送（查询所有订阅该 Key 的在线设备）
      *
+     * 链路：HTTP 入口 -> getDevicesByKey(在线 fd) -> storeMessage -> pushToFds(入队/直推)
+     *       无在线设备时 -> sMembers(订阅设备) -> storeMessage + storeOfflineMessage
+     *
      * @param string $keyValue 推送 Key 值
      * @param array  $message  消息体
      * @return array
@@ -157,8 +168,13 @@ class PushDispatcher
     public function pushByKey(string $keyValue, array $message): array
     {
         $message['message_id'] = $message['message_id'] ?? uniqid('msg_', true);
+        $msgId = $message['message_id'];
+        $ctx = $this->server !== null ? 'WS' : 'HTTP';
+
+        $this->logPush("[pushByKey·{$ctx}] 入口 key={$keyValue} msg_id={$msgId} title=" . ($message['title'] ?? ''));
 
         $fds = $this->connectionManager->getDevicesByKey($keyValue);
+        $this->logPush("[pushByKey·{$ctx}] 查询在线设备 key={$keyValue} msg_id={$msgId} fds=" . json_encode($fds));
 
         if (empty($fds)) {
             // 无在线设备，查询所有订阅该 Key 的设备 ID 并存离线
@@ -257,7 +273,9 @@ class PushDispatcher
                 [$messageId, $pushKeyId, $deviceId, $title, $content, $payload]
             );
         } catch (\Throwable $e) {
-            // 消息持久化失败不影响推送流程
+            // 消息持久化失败不影响推送流程，但记录日志便于排查
+            // 常见原因：数据库连接断开、Packets out of order、表不存在、字段超长
+            $this->logPush("[storeMessage] 持久化失败 device_id={$deviceId} msg_id=" . ($message['message_id'] ?? '') . " err=" . $e->getMessage());
         }
     }
 
@@ -295,6 +313,23 @@ class PushDispatcher
     /**
      * 向一组 fd 推送消息
      *
+     * 失败原因诊断（写入 ws_debug.log）：
+     *   1. push 返回 false 的常见原因：
+     *      - 发送缓冲区已满（send_buffer_size 配置过小，或客户端接收过慢）
+     *      - 连接已被对端关闭但 isEstablished 仍为 true（时序竞态）
+     *      - fd 不属于当前 worker 进程（多 worker 模型下，fd 由固定 worker 处理）
+     *      - Swoole 底层 send 系统调用失败（EMSGSIZE 包过大、EPIPE 连接断开、EAGAIN 非阻塞）
+     *   2. isEstablished 返回 false 的原因：
+     *      - 客户端已主动断开但 ConnectionManager 尚未清理
+     *      - 心跳超时被 Swoole 内置机制关闭
+     *      - 黑名单触发 disconnect
+     *   3. swoole_last_error 错误码含义：
+     *      - 1001: 连接不存在 / 已关闭
+     *      - 1002: 发送数据超过 max_packet_size（默认 2MB）
+     *      - 1003: 发送缓冲区已满且 send_yield=false
+     *      - 1202: 连接不存在
+     *   可通过 swoole_strerror($code) 获取错误描述
+     *
      * @param array       $fds
      * @param array       $message
      * @param string|null $deviceId 用于离线兜底
@@ -308,28 +343,73 @@ class PushDispatcher
         $detail  = [];
 
         $payload = $this->packMessage($message);
-        $msgId = $message['message_id'] ?? '';
+        $msgId   = $message['message_id'] ?? '';
+        $payloadSize = strlen($payload);
 
         if ($this->server !== null) {
             // WebSocket 上下文：直接推送
             foreach ($fds as $fd) {
                 $fd = (int)$fd;
-                $established = $this->server->isEstablished($fd);
-                if ($established) {
-                    $pushResult = $this->server->push($fd, $payload);
-                    if ($pushResult) {
-                        $success++;
-                        $detail[] = ['fd' => $fd, 'status' => 'success'];
-                        $this->logPush("[pushToFds·WS] push 成功 fd={$fd} msg_id={$msgId}");
-                    } else {
-                        $fail++;
-                        $detail[] = ['fd' => $fd, 'status' => 'failed', 'message' => 'push 返回 false'];
-                        $this->logPush("[pushToFds·WS] push 返回 false fd={$fd} msg_id={$msgId}");
-                    }
+
+                // 重置 swoole 错误码，便于准确归因本次 push 的失败原因
+                if (function_exists('swoole_last_error')) {
+                    // swoole_last_error 是读取操作，无法直接重置；但记录 push 前后的值可帮助诊断
+                    $errBefore = swoole_last_error();
                 } else {
+                    $errBefore = 0;
+                }
+
+                $established = $this->server->isEstablished($fd);
+                if (!$established) {
+                    // 原因 1：fd 未建立 WebSocket 连接
+                    // 常见诱因：客户端已断开但 ConnectionManager 的 fd↔device 映射未及时清理；
+                    //          或 Swoole 内置心跳已关闭该连接但 onClose 还没触发
                     $fail++;
                     $detail[] = ['fd' => $fd, 'status' => 'failed', 'message' => 'fd 未建立 WebSocket 连接'];
-                    $this->logPush("[pushToFds·WS] fd 未建立连接 fd={$fd} msg_id={$msgId}");
+                    $this->logPush("[pushToFds·WS] fd 未建立连接 fd={$fd} msg_id={$msgId} 原因=isEstablished=false（连接已关闭或 onClose 未触发）");
+                    continue;
+                }
+
+                // 采集 fd 详细状态（用于失败时定位）
+                $clientInfo = $this->server->getClientInfo($fd);
+                $connInfo = [
+                    'established'     => $clientInfo['websocket_status'] ?? '?',
+                    'sending'         => $clientInfo['sending'] ?? '?',      // 1=正在发送，缓冲区可能堆积
+                    'connect_time'    => $clientInfo['connect_time'] ?? '?',
+                    'last_time'       => $clientInfo['last_time'] ?? '?',
+                    'remote_ip'       => $clientInfo['remote_ip'] ?? '?',
+                    'remote_port'     => $clientInfo['remote_port'] ?? '?',
+                ];
+
+                $pushResult = $this->server->push($fd, $payload);
+
+                $errAfter = function_exists('swoole_last_error') ? swoole_last_error() : 0;
+                $errStr   = function_exists('swoole_strerror') && $errAfter > 0 ? swoole_strerror($errAfter) : '';
+
+                if ($pushResult) {
+                    $success++;
+                    $detail[] = ['fd' => $fd, 'status' => 'success'];
+                    $this->logPush("[pushToFds·WS] push 成功 fd={$fd} msg_id={$msgId} size={$payloadSize}");
+                } else {
+                    // 原因 2：push 返回 false，表示 Swoole 底层投递失败
+                    // 详细诊断：错误码 + fd 状态 + 消息大小，便于判断是缓冲区满、连接断开还是包过大
+                    $fail++;
+                    $detail[] = [
+                        'fd'        => $fd,
+                        'status'    => 'failed',
+                        'message'   => 'push 返回 false',
+                        'err_code'  => $errAfter,
+                        'err_str'   => $errStr,
+                        'size'      => $payloadSize,
+                        'sending'   => $connInfo['sending'],
+                    ];
+                    $this->logPush(
+                        "[pushToFds·WS] push 返回 false fd={$fd} msg_id={$msgId}" .
+                        " err_code={$errAfter} err_str={$errStr}" .
+                        " size={$payloadSize} sending={$connInfo['sending']}" .
+                        " remote={$connInfo['remote_ip']}:{$connInfo['remote_port']}" .
+                        " 原因=" . $this->explainPushFailure($errAfter, $connInfo['sending'], $payloadSize)
+                    );
                 }
             }
 
@@ -346,14 +426,26 @@ class PushDispatcher
             }
         } else {
             // HTTP 上下文：写入 Redis 队列，由 WS 进程消费
-            $this->enqueuePush($fds, $message, $deviceId, $keyValue);
-            $success = count($fds);
-            $detail[] = [
-                'status'  => 'queued',
-                'count'   => count($fds),
-                'message' => '已加入推送队列',
-            ];
-            $this->logPush("[pushToFds·HTTP] 已入队 fds=" . json_encode($fds) . " msg_id={$msgId} key=" . ($keyValue ?? 'null'));
+            // 注意：这里返回的 success_count 表示"已成功入队"，并非"已成功推送到 APP"
+            // 真正的推送结果由 WS 进程的 processQueue 处理后写入 ws_debug.log
+            $enqueued = $this->enqueuePush($fds, $message, $deviceId, $keyValue);
+            if ($enqueued) {
+                $success = count($fds);
+                $detail[] = [
+                    'status'  => 'queued',
+                    'count'   => count($fds),
+                    'message' => '已加入推送队列，等待 WS 进程投递',
+                ];
+                $this->logPush("[pushToFds·HTTP] 已入队 fds=" . json_encode($fds) . " msg_id={$msgId} key=" . ($keyValue ?? 'null') . " size={$payloadSize}");
+            } else {
+                $fail = count($fds);
+                $detail[] = [
+                    'status'  => 'enqueue_failed',
+                    'count'   => count($fds),
+                    'message' => '入队失败：Redis 写入异常，推送指令丢失',
+                ];
+                $this->logPush("[pushToFds·HTTP] 入队失败 msg_id={$msgId} fds=" . json_encode($fds) . " 原因=Redis lPush 返回 false");
+            }
         }
 
         return [
@@ -364,15 +456,52 @@ class PushDispatcher
     }
 
     /**
+     * 解释 push 返回 false 的原因（基于错误码与状态）
+     *
+     * @param int        $errCode     swoole_last_error 错误码
+     * @param int|string $sending     fd 是否正在发送
+     * @param int        $payloadSize 消息大小
+     * @return string 人类可读的失败原因
+     */
+    private function explainPushFailure(int $errCode, $sending, int $payloadSize): string
+    {
+        // Swoole 错误码定义见 swoole_strerror，常见值：
+        // 1001=连接不存在/已关闭，1002=数据包超过 max_packet_size，1003=发送缓冲区满
+        switch ($errCode) {
+            case 0:
+                // 无错误码但仍失败，通常是 fd 已在 push 时被关闭（时序竞态）
+                return '无错误码，疑似 push 时连接刚被关闭（时序竞态）';
+            case 1001:
+            case 1202:
+                return '连接不存在或已关闭';
+            case 1002:
+                return "数据包过大 size={$payloadSize}，超过 max_packet_size（默认 2MB）";
+            case 1003:
+                return '发送缓冲区已满，send_yield 未生效或客户端接收过慢';
+            default:
+                if ((int)$sending === 1) {
+                    return 'fd 正在发送（缓冲区可能堆积），客户端接收速度过慢';
+                }
+                return "未知错误 err_code={$errCode}";
+        }
+    }
+
+    /**
      * 将推送指令写入 Redis 队列（供 WS 进程消费）
+     *
+     * 失败场景：
+     *   - Redis 连接断开（网络抖动、Redis 重启）
+     *   - Redis 内存满（OOM，需检查 maxmemory 配置）
+     *   - lPush 返回 false（队列操作失败）
+     * 失败后果：推送指令丢失，APP 无法收到推送，调用方需感知失败
      *
      * @param array       $fds
      * @param array       $message
      * @param string|null $deviceId
      * @param string|null $keyValue
-     * @return void
+     * @return bool true=入队成功，false=入队失败
      */
-    private function enqueuePush(array $fds, array $message, ?string $deviceId, ?string $keyValue): void
+    private function enqueuePush(array $fds, array $message, ?string $deviceId, ?string $keyValue): bool
     {
         $command = [
             'fds'       => array_map('intval', $fds),
@@ -381,13 +510,38 @@ class PushDispatcher
             'key_value' => $keyValue,
             'created_at'=> time(),
         ];
-        Redis::getInstance()->lPush(self::PUSH_QUEUE_KEY, json_encode($command, JSON_UNESCAPED_UNICODE));
+        $payload = json_encode($command, JSON_UNESCAPED_UNICODE);
+        if ($payload === false) {
+            $this->logPush("[enqueuePush] JSON 编码失败 msg_id=" . ($message['message_id'] ?? '') . " json_err=" . json_last_error_msg());
+            return false;
+        }
+
+        try {
+            $redis = Redis::getInstance();
+            $result = $redis->lPush(self::PUSH_QUEUE_KEY, $payload);
+            // lPush 返回队列长度（>=1 表示成功），false 表示失败
+            if ($result === false) {
+                $this->logPush("[enqueuePush] lPush 返回 false msg_id=" . ($message['message_id'] ?? '') . " 原因=Redis 操作失败（连接异常或权限问题）");
+                return false;
+            }
+            return true;
+        } catch (\Throwable $e) {
+            $this->logPush("[enqueuePush] 异常 msg_id=" . ($message['message_id'] ?? '') . " err=" . $e->getMessage());
+            return false;
+        }
     }
 
     /**
      * 处理 Redis 推送队列（仅 WS 上下文调用）
      *
      * 由 WebSocket 进程的定时器周期性调用，消费队列中的推送指令。
+     *
+     * 失败场景：
+     *   - rPop 返回 null：队列为空（正常）
+     *   - json_decode 失败：入队时数据已损坏（罕见）
+     *   - fds 为空：入队时设备已离线，但指令未清理（应被 pushToFds 存离线兜底）
+     *   - pushToFds 全部失败：fd 失效（已断开但未清理），已存离线
+     *   - Redis 异常：连接断开，本轮处理中止（下轮定时器会重连重试）
      *
      * @param int $limit 单次处理上限
      * @return int 实际处理数量
@@ -398,30 +552,63 @@ class PushDispatcher
             return 0;
         }
 
-        $redis = Redis::getInstance();
+        try {
+            $redis = Redis::getInstance();
+        } catch (\Throwable $e) {
+            $this->logPush("[processQueue] Redis 连接失败，本轮中止 err=" . $e->getMessage());
+            return 0;
+        }
+
         $processed = 0;
 
         for ($i = 0; $i < $limit; $i++) {
-            $raw = $redis->rPop(self::PUSH_QUEUE_KEY);
+            try {
+                $raw = $redis->rPop(self::PUSH_QUEUE_KEY);
+            } catch (\Throwable $e) {
+                $this->logPush("[processQueue] rPop 异常，本轮中止 err=" . $e->getMessage());
+                break;
+            }
+
             if ($raw === null) {
                 break;
             }
 
             $command = json_decode($raw, true);
             if (!is_array($command)) {
-                $this->logPush("[processQueue] 队列消息解析失败 raw=" . substr($raw, 0, 200));
+                $this->logPush("[processQueue] 队列消息解析失败 raw=" . substr($raw, 0, 200) . " 原因=JSON 格式错误，消息丢弃");
                 continue;
             }
 
-            $fds     = $command['fds'] ?? [];
-            $message = $command['message'] ?? [];
+            $fds      = $command['fds'] ?? [];
+            $message  = $command['message'] ?? [];
             $deviceId = $command['device_id'] ?? null;
             $keyValue = $command['key_value'] ?? null;
-            $msgId = $message['message_id'] ?? '';
+            $msgId    = $message['message_id'] ?? '';
+            $queuedAt = $command['created_at'] ?? 0;
+            // 计算入队到出队的延迟，便于排查 WS 进程消费过慢的问题
+            $waitSec = $queuedAt > 0 ? (time() - $queuedAt) : -1;
 
-            $this->logPush("[processQueue] 出队 msg_id={$msgId} fds=" . json_encode($fds) . " key=" . ($keyValue ?? 'null'));
+            $this->logPush("[processQueue] 出队 msg_id={$msgId} fds=" . json_encode($fds) . " key=" . ($keyValue ?? 'null') . " wait={$waitSec}s");
 
-            $this->pushToFds($fds, $message, $deviceId, $keyValue);
+            if (empty($fds)) {
+                $this->logPush("[processQueue] fds 为空，跳过 msg_id={$msgId} 原因=入队时设备已离线");
+                $processed++;
+                continue;
+            }
+
+            $result = $this->pushToFds($fds, $message, $deviceId, $keyValue);
+
+            // 汇总本轮投递结果，便于追踪链路
+            $sc = $result['success_count'] ?? 0;
+            $fc = $result['fail_count'] ?? 0;
+            if ($sc === 0 && $fc > 0) {
+                // 全部失败：pushToFds 内部已存离线兜底，这里只记录汇总
+                $this->logPush("[processQueue] 投递全部失败 msg_id={$msgId} fail={$fc} 已存离线");
+            } elseif ($fc > 0) {
+                // 部分失败：部分 fd 投递成功，部分失败，失败的 fd 已在 pushToFds 记录详细原因
+                $this->logPush("[processQueue] 投递部分失败 msg_id={$msgId} success={$sc} fail={$fc}");
+            }
+
             $processed++;
         }
 
