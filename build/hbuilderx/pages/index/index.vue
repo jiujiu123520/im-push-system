@@ -458,9 +458,23 @@ export default {
                         })
                     } else if (data.type === 'pong') {
                         // pong 已经在上面重置过超时
-                    } else if (data.type === 'message' || data.type === 'push' || data.type === 'offline_message') {
+                    } else if (data.type === 'push' || data.type === 'message' || data.type === 'offline_message') {
+                        // 新格式（PushDispatcher.packMessage）：title/content 在顶层
+                        // 旧格式（WebSocketServer.pack）：title/content 在 data 内
                         const msg = data.data || data
+                        const title = data.title || msg.title || '消息推送'
+                        const content = data.content || msg.content || ''
+                        this.addMessage(title, content)
+                    } else if (data.code !== undefined && data.data && (data.message === 'message' || data.message === 'offline_message')) {
+                        // 兼容旧格式：WebSocketServer.pack() 未传 type 时，用 message 字段区分
+                        const msg = data.data || {}
                         this.addMessage(msg.title || '消息推送', msg.content || '')
+                    } else if (data.code !== undefined && data.data && typeof data.data === 'object') {
+                        // 其他带 data 的消息（可能是推送），尝试解析
+                        const msg = data.data
+                        if (msg.title || msg.content) {
+                            this.addMessage(msg.title || '消息推送', msg.content || '')
+                        }
                     }
                 } catch (e) {
                     console.error('消息解析失败', e)

@@ -791,6 +791,10 @@ class WebSocketServer
         if ($type !== '') {
             $payload['type'] = $type;
             $payload['success'] = ($code === 0);
+        } else {
+            // 未指定 type 时，用 message 字段作为 type 标识（兼容旧协议）
+            // 这样客户端可以用 data.type 判断消息类型
+            $payload['type'] = $message;
         }
         return json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
