@@ -557,6 +557,20 @@ export default {
                     clearTimeout(this.connectTimeoutTimer)
                     this.connectTimeoutTimer = null
                 }
+                const code = res.code
+                const reason = res.reason || ''
+                if (code === 4001 || reason === 'auth failed' || reason === 'auth timeout') {
+                    console.warn('鉴权失败，停止重连，请检查推送 Key')
+                    uni.showToast({ title: '鉴权失败：' + (reason || code), icon: 'none' })
+                    this.isLoggedIn = false
+                    return
+                }
+                if (code === 4003 || reason === 'blacklisted') {
+                    console.warn('设备已被拉黑，停止重连')
+                    uni.showToast({ title: '设备已被拉黑', icon: 'none' })
+                    this.isLoggedIn = false
+                    return
+                }
                 this.scheduleReconnect()
             })
 
@@ -603,9 +617,9 @@ export default {
         },
         startHeartbeat() {
             this.stopHeartbeat()
+            this.resetHeartbeatTimeout()
             this.heartbeatTimer = setInterval(() => {
                 if (!this.socketTask || !this.connected) {
-                    // 连接已断开，停止心跳
                     this.stopHeartbeat()
                     return
                 }
@@ -613,12 +627,9 @@ export default {
                     this.socketTask.send({
                         data: JSON.stringify({ type: 'ping' }),
                         success: () => {
-                            // 发送成功，启动心跳超时检测
-                            this.startHeartbeatTimeout()
                         },
                         fail: (err) => {
                             console.error('心跳 ping 发送失败，触发重连', err)
-                            // 发送失败，说明连接已损坏，主动断开重连
                             this.connected = false
                             if (this.socketTask) {
                                 try { this.socketTask.close() } catch (e) {}
@@ -652,19 +663,20 @@ export default {
                 this.heartbeatTimeoutTimer = null
             }
         },
-        startHeartbeatTimeout() {
+        resetHeartbeatTimeout() {
+            if (!this.connected) {
+                return
+            }
             if (this.heartbeatTimeoutTimer) {
                 clearTimeout(this.heartbeatTimeoutTimer)
-                this.heartbeatTimeoutTimer = null
             }
             this.heartbeatTimeoutTimer = setTimeout(() => {
-                console.warn('心跳超时（45秒未收到响应），主动断开重连')
+                console.warn('心跳超时（45秒未收到任何消息），主动断开重连')
                 this.connected = false
                 this.stopHeartbeat()
                 if (this.socketTask) {
                     try { this.socketTask.close() } catch (e) {}
                 }
-                // 兜底：3 秒后如果还没触发 onClose 重连，强制重连
                 setTimeout(() => {
                     if (!this.connected && this.socketTask) {
                         console.warn('心跳超时后 onClose 未触发，强制清理重连')
@@ -678,13 +690,7 @@ export default {
                 if (!this.reconnectTimer) {
                     this.scheduleReconnect()
                 }
-            }, 45000)  // 45 秒，允许 1 次心跳丢失（30秒间隔 + 15秒容错）
-        },
-        resetHeartbeatTimeout() {
-            if (this.heartbeatTimeoutTimer) {
-                clearTimeout(this.heartbeatTimeoutTimer)
-                this.heartbeatTimeoutTimer = null
-            }
+            }, 45000)
         },
         scheduleReconnect() {
             if (!this.isLoggedIn) {
