@@ -5,7 +5,7 @@ import axios, {
 } from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import NProgress from 'nprogress'
-import { getToken } from './auth'
+import { getToken, removeToken } from './auth'
 
 NProgress.configure({ showSpinner: false, trickleSpeed: 100 })
 
@@ -108,20 +108,14 @@ function handleRelogin() {
     type: 'warning'
   })
     .then(() => {
-      // 动态导入避免循环依赖
-      import('@/stores/user').then(({ useUserStore }) => {
-        const userStore = useUserStore()
-        userStore.resetState()
-        location.href = '/#/login'
-      })
+      // 直接清除 token 并跳转，避免动态导入 user store 的循环依赖警告
+      removeToken()
+      location.href = '/#/login'
     })
     .catch(() => {
       // 用户点"取消"也清除 Token 并跳转登录页，避免死循环
-      import('@/stores/user').then(({ useUserStore }) => {
-        const userStore = useUserStore()
-        userStore.resetState()
-        location.href = '/#/login'
-      })
+      removeToken()
+      location.href = '/#/login'
     })
     .finally(() => {
       isReloginShown = false
