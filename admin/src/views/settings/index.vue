@@ -1228,8 +1228,9 @@ function onSslToggle(val: string | number | boolean) {
 }
 
 // 验证码开关切换提示
-function onCaptchaToggle(val: number) {
-  if (val === 1) {
+function onCaptchaToggle(val: string | number | boolean) {
+  const enabled = val === 1 || val === true || val === '1'
+  if (enabled) {
     ElMessage.success('验证码已启用，注册和登录将需要验证码验证')
   } else {
     ElMessage.warning('验证码已关闭，注册和登录无需验证码（请确认已保存生效）')
