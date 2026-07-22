@@ -106,15 +106,30 @@
                         <text class="setting-value">{{ versionName }}</text>
                     </view>
                     <view class="setting-item setting-item-column">
-                        <text class="setting-label">应用权限</text>
+                        <text class="setting-label">通用权限</text>
                         <text class="setting-tip">点击下方按钮跳转系统设置，开启对应权限以保证后台推送正常接收</text>
                         <button class="btn-sm" @click="openPermission('app')">应用详情（权限总开关）</button>
                         <button class="btn-sm" @click="openPermission('notification')">通知权限</button>
                         <button class="btn-sm" @click="openPermission('battery')">电池优化白名单</button>
-                        <button class="btn-sm" @click="openPermission('autostart')">自启动管理（部分机型）</button>
+                        <button class="btn-sm" @click="openPermission('autostart')">自启动管理</button>
                     </view>
-                    <button class="btn-danger" @click="handleLogout">退出登录</button>
+                    <!-- 小米手机专属权限（MIUI / HyperOS） -->
+                    <view v-if="isXiaomiDevice" class="setting-item setting-item-column">
+                        <text class="setting-label">小米手机专属权限</text>
+                        <text class="setting-tip">小米 / Redmi / POCO 手机（MIUI / HyperOS）需额外开启以下权限以保证后台推送稳定</text>
+                        <button class="btn-sm btn-xiaomi" @click="openXiaomiPermission('autostart')">自启动（设为允许）</button>
+                        <button class="btn-sm btn-xiaomi" @click="openXiaomiPermission('battery_saver')">省电策略（设为无限制）</button>
+                        <button class="btn-sm btn-xiaomi" @click="openXiaomiPermission('background_popup')">后台弹出界面（允许）</button>
+                        <button class="btn-sm btn-xiaomi" @click="openXiaomiPermission('lockscreen_show')">锁屏显示（允许）</button>
+                        <button class="btn-sm btn-xiaomi" @click="openXiaomiPermission('floating_window')">悬浮窗（允许）</button>
+                        <button class="btn-sm btn-xiaomi" @click="openXiaomiPermission('notification_service')">通知使用权</button>
+                        <button class="btn-sm btn-xiaomi" @click="openXiaomiPermission('developer_keep_alive')">开发者选项-后台进程限制</button>
+                        <text class="setting-tip setting-tip-warn">⚠️ 以上权限全部开启后，小米手机后台推送稳定性可大幅提升</text>
+                    </view>
                 </scroll-view>
+                <view class="settings-footer">
+                    <button class="btn-danger" @click="handleLogout">退出登录</button>
+                </view>
             </view>
         </view>
     </view>
@@ -147,7 +162,8 @@ export default {
             reconnectTimer: null,
             connectTimeoutTimer: null,
             reconnectDelay: 3000,
-            maxReconnectDelay: 60000
+            maxReconnectDelay: 60000,
+            isXiaomiDevice: false
         }
     },
     computed: {
@@ -157,6 +173,7 @@ export default {
     },
     onLoad() {
         this.initDeviceId()
+        this.checkXiaomiDevice()
         this.loadConfig()
         this.loadMessages()
         this.checkAutoLogin()
@@ -422,6 +439,166 @@ export default {
             }
             // #endif
             return ''
+        },
+        checkXiaomiDevice() {
+            const brand = this.getDeviceBrand()
+            // 小米 / Redmi / POCO 都属于小米系
+            this.isXiaomiDevice = brand === 'xiaomi' || brand === 'redmi' || brand === 'poco'
+        },
+        openXiaomiPermission(type) {
+            // #ifdef APP-PLUS
+            try {
+                const Intent = plus.android.importClass('android.content.Intent')
+                const Uri = plus.android.importClass('android.net.Uri')
+                const main = plus.android.runtimeMainActivity()
+                const packageName = plus.runtime.appid
+
+                // 小米 MIUI / HyperOS 各权限页面对应的 Intent 配置
+                // 注意：不同 MIUI 版本页面路径可能不同，按优先级尝试
+                const configs = {
+                    autostart: {
+                        title: '自启动',
+                        actions: [
+                            'miui.intent.action.APP_AUTO_START',
+                            'com.miui.securitycenter.action.AUTO_START_MANAGER'
+                        ],
+                        // 部分版本需要直接跳转到应用详情自启动页
+                        fallbackComponent: 'com.miui.securitycenter/com.miui.permcenter.autostart.AutoStartManagementActivity'
+                    },
+                    battery_saver: {
+                        title: '省电策略',
+                        actions: [
+                            'miui.intent.action.POWER_HIDE_MODE_APP_LIST'
+                        ],
+                        fallbackComponent: 'com.miui.powerkeeper/com.miui.powerkeeper.ui.HiddenAppsConfigActivity'
+                    },
+                    background_popup: {
+                        title: '后台弹出界面',
+                        // 通过应用详情-权限管理-后台弹出界面
+                        actions: [
+                            'miui.intent.action.APP_PERM_EDITOR'
+                        ],
+                        extras: {
+                            'extra_pkgname': packageName,
+                            'extra_power_mode': 'background_popup'
+                        }
+                    },
+                    lockscreen_show: {
+                        title: '锁屏显示',
+                        actions: [
+                            'miui.intent.action.APP_PERM_EDITOR'
+                        ],
+                        extras: {
+                            'extra_pkgname': packageName,
+                            'extra_permission_type': 'lockscreen_show'
+                        }
+                    },
+                    floating_window: {
+                        title: '悬浮窗',
+                        actions: [
+                            'miui.intent.action.APP_PERM_EDITOR'
+                        ],
+                        extras: {
+                            'extra_pkgname': packageName,
+                            'extra_permission_type': 'floating_window'
+                        }
+                    },
+                    notification_service: {
+                        title: '通知使用权',
+                        actions: [
+                            'android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS',
+                            'android.settings.NOTIFICATION_LISTENER_SETTINGS'
+                        ]
+                    },
+                    developer_keep_alive: {
+                        title: '开发者选项',
+                        actions: [
+                            'android.settings.APPLICATION_DEVELOPMENT_SETTINGS',
+                            'com.android.settings.DevelopmentSettings'
+                        ],
+                        tip: '请找到「后台进程限制」并设为「标准限制」，或开启「不保留活动」时注意白名单'
+                    }
+                }
+
+                const cfg = configs[type]
+                if (!cfg) {
+                    uni.showToast({ title: '未知权限类型：' + type, icon: 'none' })
+                    return
+                }
+
+                let launched = false
+
+                // 1. 优先尝试 Action 方式
+                const actions = cfg.actions || []
+                for (const action of actions) {
+                    try {
+                        const intent = new Intent()
+                        intent.setAction(action)
+                        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        // 添加 extra 参数
+                        if (cfg.extras) {
+                            for (const key in cfg.extras) {
+                                intent.putExtra(key, cfg.extras[key])
+                            }
+                        }
+                        // 部分页面需要指定包名
+                        if (action.indexOf('miui.intent.action') === 0) {
+                            intent.putExtra('extra_pkgname', packageName)
+                        }
+                        main.startActivity(intent)
+                        launched = true
+                        break
+                    } catch (e) {
+                        // 继续尝试下一个
+                    }
+                }
+
+                // 2. 尝试 ComponentName 方式
+                if (!launched && cfg.fallbackComponent) {
+                    try {
+                        const ComponentName = plus.android.importClass('android.content.ComponentName')
+                        const intent = new Intent()
+                        const parts = cfg.fallbackComponent.split('/')
+                        intent.setComponent(new ComponentName(parts[0], parts[1]))
+                        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        intent.putExtra('package_name', packageName)
+                        main.startActivity(intent)
+                        launched = true
+                    } catch (e) {
+                        // 继续回退
+                    }
+                }
+
+                // 3. 最终回退到应用详情页
+                if (!launched) {
+                    const Settings = plus.android.importClass('android.provider.Settings')
+                    uni.showToast({ title: '未找到' + cfg.title + '设置页，已跳转应用详情', icon: 'none' })
+                    const fallback = new Intent()
+                    fallback.setAction(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    fallback.setData(Uri.fromParts('package', packageName, null))
+                    fallback.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    main.startActivity(fallback)
+                }
+
+                // 如果有额外提示
+                if (cfg.tip) {
+                    setTimeout(() => {
+                        uni.showModal({
+                            title: cfg.title + '提示',
+                            content: cfg.tip,
+                            showCancel: false,
+                            confirmText: '我知道了'
+                        })
+                    }, 500)
+                }
+            } catch (e) {
+                console.error('打开小米权限设置失败', e)
+                uni.showToast({ title: '打开设置失败：' + e.message, icon: 'none' })
+            }
+            // #endif
+            // #ifndef APP-PLUS
+            uni.showToast({ title: '此功能仅在 APP 端可用', icon: 'none' })
+            // #endif
         },
         registerNetworkListener() {
             // #ifdef APP-PLUS
@@ -1175,6 +1352,24 @@ export default {
     border-radius: 8px;
     font-size: 16px;
     font-weight: 500;
-    margin-top: 24px;
+    margin-top: 0;
+}
+
+.settings-footer {
+    padding: 12px 20px 20px;
+    border-top: 1px solid #f0f0f0;
+    background: white;
+    flex-shrink: 0;
+}
+
+.btn-xiaomi {
+    background: linear-gradient(135deg, #ff6900, #ff8a00) !important;
+    color: white !important;
+    border: none !important;
+}
+
+.setting-tip-warn {
+    color: #e6a23c !important;
+    font-weight: 500;
 }
 </style>

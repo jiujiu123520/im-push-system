@@ -33,10 +33,10 @@
         "allow-plugins": {
             "kylekatarnls/update-helper": true
         },
-        "policy": {
-            "advisories": {
-                "block": false
-            }
+        "audit": {
+            "ignore": [
+                "PKSA-y2cr-5h3j-g3ys"
+            ]
         }
     },
     "scripts": {

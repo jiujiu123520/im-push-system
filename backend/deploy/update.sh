@@ -326,9 +326,9 @@ else
     export COMPOSER_ALLOW_SUPERUSER=1
     composer config --global --no-interaction policy.advisories.block false 2>/dev/null || true
     # 同步 composer.lock（当 composer.json 变更后 lock 文件可能过期）
-    # --no-audit 跳过安全审计（避免已知 advisory 阻塞安装）
-    composer update --lock --no-interaction --no-dev --no-audit 2>/dev/null || true
-    composer install --no-dev --optimize-autoloader --no-interaction --no-audit
+    # 注意：firebase/php-jwt 的已知安全 advisory 已在 composer.json 的 audit.ignore 中豁免
+    composer update --lock --no-interaction --no-dev 2>/dev/null || true
+    composer install --no-dev --optimize-autoloader --no-interaction
     cd "${PROJECT_DIR}"
 
     # 前端构建（可选跳过）
