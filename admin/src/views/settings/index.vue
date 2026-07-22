@@ -246,32 +246,81 @@
         </el-form>
       </div>
 
-      <!-- c) 验证码配置 -->
+      <!-- c) 验证码开关（独立卡片） -->
+      <div class="setting-card captcha-toggle-card" v-loading="loading">
+        <div class="card-head">
+          <div class="head-icon icon-captcha">
+            <el-icon><KeyIcon /></el-icon>
+          </div>
+          <div class="head-text">
+            <h3 class="card-title">验证码开关</h3>
+            <p class="card-sub">控制注册与登录是否需要验证码验证</p>
+          </div>
+        </div>
+
+        <div class="captcha-toggle-row">
+          <div class="captcha-toggle-main">
+            <el-switch
+              v-model="captchaForm.enabled"
+              :active-value="1"
+              :inactive-value="0"
+              size="large"
+              @change="onCaptchaToggle"
+            />
+            <span class="captcha-toggle-text">
+              {{ captchaForm.enabled === 1 ? '验证码已启用' : '验证码已关闭' }}
+            </span>
+          </div>
+          <el-tag v-if="captchaForm.enabled === 1" type="success" effect="light" size="large">
+            <el-icon><CircleCheckFilledIcon /></el-icon>
+            注册 + 登录均需验证
+          </el-tag>
+          <el-tag v-else type="warning" effect="light" size="large">
+            <el-icon><WarningFilledIcon /></el-icon>
+            关闭后注册和登录无需验证码
+          </el-tag>
+        </div>
+
+        <div class="form-actions captcha-toggle-actions">
+          <el-button
+            type="primary"
+            :icon="CheckIcon"
+            :loading="saving.captcha"
+            @click="saveSection('captcha')"
+          >
+            保存开关
+          </el-button>
+        </div>
+      </div>
+
+      <!-- d) 验证码服务配置 -->
       <div class="setting-card" v-loading="loading">
         <div class="card-head">
           <div class="head-icon icon-captcha">
             <el-icon><MessageIcon /></el-icon>
           </div>
           <div class="head-text">
-            <h3 class="card-title">验证码配置</h3>
-            <p class="card-sub">短信与邮件验证码服务</p>
+            <h3 class="card-title">验证码服务配置</h3>
+            <p class="card-sub">短信与邮件验证码服务参数</p>
           </div>
+          <el-tag
+            v-if="captchaForm.enabled !== 1"
+            type="info"
+            effect="dark"
+            size="small"
+          >
+            已停用
+          </el-tag>
         </div>
 
         <el-form
           ref="captchaFormRef"
           :model="captchaForm"
           :rules="captchaRules"
+          :disabled="captchaForm.enabled !== 1"
           label-position="top"
           class="setting-form"
         >
-          <el-form-item label="启用验证码">
-            <el-switch v-model="captchaForm.enabled" :active-value="1" :inactive-value="0" />
-            <span style="margin-left: 8px; color: #909399; font-size: 12px;">
-              关闭后注册和登录无需验证码
-            </span>
-          </el-form-item>
-
           <div class="sub-section-title">
             <span class="title-bar"></span>
             短信服务
@@ -756,6 +805,8 @@ import {
   Histogram as HistogramIcon,
   Clock as ClockIcon,
   CircleCheckFilled as CircleCheckFilledIcon,
+  WarningFilled as WarningFilledIcon,
+  Key as KeyIcon,
   Upload as UploadIcon,
   Download as DownloadIcon,
   CircleCheck as CircleCheckIcon,
@@ -1176,6 +1227,15 @@ function onSslToggle(val: string | number | boolean) {
   }
 }
 
+// 验证码开关切换提示
+function onCaptchaToggle(val: number) {
+  if (val === 1) {
+    ElMessage.success('验证码已启用，注册和登录将需要验证码验证')
+  } else {
+    ElMessage.warning('验证码已关闭，注册和登录无需验证码（请确认已保存生效）')
+  }
+}
+
 // 手动触发自动检测并填充
 function autoDetectServer() {
   const detected = detectServerUrls()
@@ -1420,6 +1480,35 @@ onUnmounted(() => {
 <style lang="scss" scoped>
 .settings-page {
   animation: fade-up 0.5s ease;
+}
+
+// ===== 验证码开关独立卡片 =====
+.captcha-toggle-card {
+  .captcha-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px 24px;
+    background: linear-gradient(135deg, rgba(64, 158, 255, 0.08), rgba(103, 194, 58, 0.06));
+    border-radius: 12px;
+    margin-bottom: 16px;
+
+    .captcha-toggle-main {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+
+      .captcha-toggle-text {
+        font-size: 15px;
+        font-weight: 600;
+        color: #303133;
+      }
+    }
+  }
+
+  .captcha-toggle-actions {
+    margin-top: 0;
+  }
 }
 
 // ===== SSL 开关 =====
