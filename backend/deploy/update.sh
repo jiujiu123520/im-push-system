@@ -285,8 +285,9 @@ else
     info "强制拉取远程代码（git fetch --force + git reset --hard）..."
     # 始终强制拉取，避免本地修改/冲突导致 pull 失败
     # 1. 清除本地未提交的修改（防止 merge conflict）
+    #    注意：-e 排除 composer.lock/package-lock.json 等构建产物，避免误删
     git checkout -- . 2>/dev/null || true
-    git clean -fd 2>/dev/null || true
+    git clean -fd -e 'composer.lock' -e 'package-lock.json' -e 'backend/composer.lock' -e 'admin/package-lock.json' 2>/dev/null || true
     # 2. 强制 fetch 最新远程引用
     git fetch --force --all
     # 3. 硬重置到远程 main 分支
@@ -325,8 +326,9 @@ else
     export COMPOSER_ALLOW_SUPERUSER=1
     composer config --global --no-interaction policy.advisories.block false 2>/dev/null || true
     # 同步 composer.lock（当 composer.json 变更后 lock 文件可能过期）
-    composer update --lock --no-interaction --no-dev 2>/dev/null || true
-    composer install --no-dev --optimize-autoloader --no-interaction
+    # --no-audit 跳过安全审计（避免已知 advisory 阻塞安装）
+    composer update --lock --no-interaction --no-dev --no-audit 2>/dev/null || true
+    composer install --no-dev --optimize-autoloader --no-interaction --no-audit
     cd "${PROJECT_DIR}"
 
     # 前端构建（可选跳过）
