@@ -282,13 +282,17 @@ else
     # 配置代理
     setup_git_proxy
 
-    info "拉取远程代码..."
-    # git pull origin main，如果失败则尝试 git reset --hard origin/main
-    git pull origin main || {
-        warn "git pull 失败，尝试 git reset --hard origin/main..."
-        git fetch origin
-        git reset --hard origin/main
-    }
+    info "强制拉取远程代码（git fetch --force + git reset --hard）..."
+    # 始终强制拉取，避免本地修改/冲突导致 pull 失败
+    # 1. 清除本地未提交的修改（防止 merge conflict）
+    git checkout -- . 2>/dev/null || true
+    git clean -fd 2>/dev/null || true
+    # 2. 强制 fetch 最新远程引用
+    git fetch --force --all
+    # 3. 硬重置到远程 main 分支
+    git reset --hard origin/main
+    # 4. 输出当前 commit 信息（便于追溯）
+    info "当前 commit: $(git log -1 --pretty=format:'%h %s (%an, %ad)' --date=short)"
 
     # 恢复代理设置
     restore_git_proxy

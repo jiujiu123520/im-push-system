@@ -133,27 +133,13 @@ class AdminService
     }
 
     /**
-     * 读取验证码开关（admin_settings.settings_captcha.enabled，默认开启）
+     * 读取验证码开关（委托给 UserService::isCaptchaEnabled，避免重复读取）
      *
      * @return bool
      */
     private static function isCaptchaEnabled(): bool
     {
-        try {
-            $row = Database::fetch(
-                'SELECT config_value FROM admin_settings WHERE config_key = ? LIMIT 1',
-                ['settings_captcha']
-            );
-            if ($row !== false) {
-                $cfg = json_decode((string)$row['config_value'], true);
-                if (is_array($cfg) && array_key_exists('enabled', $cfg)) {
-                    return (bool)$cfg['enabled'];
-                }
-            }
-        } catch (\Throwable $e) {
-            // 表可能不存在或读取失败，保持默认开启
-        }
-        return true;
+        return UserService::isCaptchaEnabled();
     }
 
     /**

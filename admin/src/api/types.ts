@@ -59,12 +59,13 @@ export interface UserInfo {
 }
 
 // 用户注册（前台用户）
+// code_type/code_target/code_input 在验证码关闭时可为空字符串
 export interface RegisterParams {
   username: string
   phone: string
   email: string
   password: string
-  code_type: 'sms' | 'email'
+  code_type: 'sms' | 'email' | ''
   code_target: string
   code_input: string
 }

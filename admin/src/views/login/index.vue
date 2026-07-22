@@ -98,7 +98,7 @@
             />
           </el-form-item>
 
-          <el-form-item prop="captcha_input">
+          <el-form-item v-if="captchaEnabled" prop="captcha_input">
             <div class="captcha-row">
               <el-input
                 v-model="form.captcha_input"
@@ -141,7 +141,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import {
@@ -164,6 +164,7 @@ const userStore = useUserStore()
 const formRef = ref<FormInstance>()
 const captchaImage = ref('')
 const captchaToken = ref('')
+const captchaEnabled = ref(true) // 验证码开关（由后端 /captcha/image 返回的 enabled 字段控制）
 const loading = ref(false)
 
 const form = reactive<LoginParams & { remember: boolean }>({
@@ -174,16 +175,29 @@ const form = reactive<LoginParams & { remember: boolean }>({
   remember: true
 })
 
-const rules: FormRules = {
+const rules = computed<FormRules>(() => ({
   username: [{ required: true, message: '请输入账号', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
-  captcha_input: [{ required: true, message: '请输入验证码', trigger: 'blur' }]
-}
+  // 验证码关闭时不强制必填
+  captcha_input: captchaEnabled.value
+    ? [{ required: true, message: '请输入验证码', trigger: 'blur' }]
+    : []
+}))
 
-// 从后端获取图形验证码（返回 base64 图片 + token）
+// 从后端获取图形验证码（返回 base64 图片 + token + enabled 开关）
 async function fetchCaptcha() {
   try {
     const res = await getCaptchaApi()
+    // 验证码开关：后端关闭时不显示验证码输入框
+    captchaEnabled.value = res.data?.enabled !== false
+    if (!captchaEnabled.value) {
+      // 验证码关闭，清空相关字段
+      captchaToken.value = ''
+      captchaImage.value = ''
+      form.captcha_token = ''
+      form.captcha_input = ''
+      return
+    }
     captchaToken.value = res.data?.token || ''
     captchaImage.value = res.data?.image || ''
     form.captcha_token = captchaToken.value
@@ -205,8 +219,8 @@ async function handleLogin() {
     return
   }
 
-  // 确保已加载验证码 token
-  if (!form.captcha_token) {
+  // 验证码启用时确保已加载 token；关闭时跳过
+  if (captchaEnabled.value && !form.captcha_token) {
     ElMessage.error('验证码加载中，请稍后重试')
     refreshCaptcha()
     return
@@ -217,8 +231,9 @@ async function handleLogin() {
     await userStore.login({
       username: form.username,
       password: form.password,
-      captcha_token: form.captcha_token,
-      captcha_input: form.captcha_input
+      // 验证码关闭时传空字符串
+      captcha_token: captchaEnabled.value ? form.captcha_token : '',
+      captcha_input: captchaEnabled.value ? form.captcha_input : ''
     })
     ElMessage.success('登录成功')
     let redirect = (route.query.redirect as string) || '/'
@@ -228,7 +243,10 @@ async function handleLogin() {
     }
     router.replace(redirect)
   } catch (err) {
-    refreshCaptcha()
+    // 验证码启用时登录失败刷新验证码
+    if (captchaEnabled.value) {
+      refreshCaptcha()
+    }
     // request.ts 已对登录接口跳过自动弹框，这里统一弹出错误提示
     ElMessage.error(err instanceof Error ? err.message : '登录失败，请重试')
   } finally {

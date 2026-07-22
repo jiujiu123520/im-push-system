@@ -62,39 +62,51 @@
 
         <el-divider content-position="center">验证码</el-divider>
 
-        <el-form-item prop="codeType" label="验证方式">
-          <el-radio-group v-model="form.codeType" @change="onCodeTypeChange">
-            <el-radio value="sms">短信验证</el-radio>
-            <el-radio value="email">邮箱验证</el-radio>
-          </el-radio-group>
-        </el-form-item>
+        <template v-if="captchaEnabled">
+          <el-form-item prop="codeType" label="验证方式">
+            <el-radio-group v-model="form.codeType" @change="onCodeTypeChange">
+              <el-radio value="sms">短信验证</el-radio>
+              <el-radio value="email">邮箱验证</el-radio>
+            </el-radio-group>
+          </el-form-item>
 
-        <el-form-item prop="codeTarget" :label="form.codeType === 'sms' ? '接收手机号' : '接收邮箱'">
-          <el-input
-            v-model="form.codeTarget"
-            :placeholder="form.codeType === 'sms' ? '请输入接收验证码的手机号' : '请输入接收验证码的邮箱'"
-            clearable
-          />
-        </el-form-item>
-
-        <el-form-item prop="codeInput" label="验证码">
-          <div class="code-row">
+          <el-form-item prop="codeTarget" :label="form.codeType === 'sms' ? '接收手机号' : '接收邮箱'">
             <el-input
-              v-model="form.codeInput"
-              placeholder="请输入收到的验证码"
-              :prefix-icon="KeyIcon"
+              v-model="form.codeTarget"
+              :placeholder="form.codeType === 'sms' ? '请输入接收验证码的手机号' : '请输入接收验证码的邮箱'"
               clearable
             />
-            <el-button
-              type="primary"
-              :disabled="sendCooldown > 0 || sendingCode"
-              :loading="sendingCode"
-              @click="handleSendCode"
-            >
-              {{ sendCooldown > 0 ? `${sendCooldown}s` : '发送验证码' }}
-            </el-button>
-          </div>
-        </el-form-item>
+          </el-form-item>
+
+          <el-form-item prop="codeInput" label="验证码">
+            <div class="code-row">
+              <el-input
+                v-model="form.codeInput"
+                placeholder="请输入收到的验证码"
+                :prefix-icon="KeyIcon"
+                clearable
+              />
+              <el-button
+                type="primary"
+                :disabled="sendCooldown > 0 || sendingCode"
+                :loading="sendingCode"
+                @click="handleSendCode"
+              >
+                {{ sendCooldown > 0 ? `${sendCooldown}s` : '发送验证码' }}
+              </el-button>
+            </div>
+          </el-form-item>
+        </template>
+
+        <el-alert
+          v-else
+          type="success"
+          :closable="false"
+          title="验证码功能已关闭"
+          description="当前无需填写验证码即可完成注册。"
+          show-icon
+          style="margin-bottom: 16px;"
+        />
 
         <el-button
           type="primary"
@@ -147,7 +159,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, onUnmounted } from 'vue'
+import { computed, onMounted, reactive, ref, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
@@ -158,7 +170,7 @@ import {
   Key as KeyIcon,
   CopyDocument as CopyIcon
 } from '@element-plus/icons-vue'
-import { registerApi, sendCodeApi } from '@/api/auth'
+import { registerApi, sendCodeApi, getCaptchaApi } from '@/api/auth'
 import type { RegisterParams } from '@/api/types'
 
 const router = useRouter()
@@ -167,6 +179,9 @@ const loading = ref(false)
 const sendingCode = ref(false)
 const sendCooldown = ref(0)
 let cooldownTimer: ReturnType<typeof setInterval> | null = null
+
+// 验证码开关（由后端 /captcha/image 返回的 enabled 字段控制）
+const captchaEnabled = ref(true)
 
 const form = reactive<{
   username: string
@@ -186,7 +201,7 @@ const form = reactive<{
   codeInput: ''
 })
 
-const rules: FormRules = {
+const rules = computed<FormRules>(() => ({
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
     { min: 3, max: 64, message: '用户名长度需在 3-64 之间', trigger: 'blur' }
@@ -195,7 +210,20 @@ const rules: FormRules = {
     { required: true, message: '请输入密码', trigger: 'blur' },
     { min: 6, max: 64, message: '密码长度需在 6-64 之间', trigger: 'blur' }
   ],
-  codeInput: [{ required: true, message: '请输入验证码', trigger: 'blur' }]
+  // 验证码关闭时不强制必填
+  codeInput: captchaEnabled.value
+    ? [{ required: true, message: '请输入验证码', trigger: 'blur' }]
+    : []
+}))
+
+// onMounted 时获取验证码开关状态
+async function fetchCaptchaStatus() {
+  try {
+    const res = await getCaptchaApi()
+    captchaEnabled.value = res.data?.enabled !== false
+  } catch {
+    // 获取失败时保持默认开启，确保安全
+  }
 }
 
 // 验证方式切换时同步 codeTarget
@@ -204,7 +232,7 @@ function onCodeTypeChange() {
   form.codeInput = ''
 }
 
-// 校验手机号或邮箱至少填写一项，且与验证方式一致
+// 校验手机号或邮箱至少填写一项，且与验证方式一致（验证码关闭时跳过验证码目标校验）
 function validateContact(): string | null {
   if (form.phone === '' && form.email === '') {
     return '手机号与邮箱至少填写一项'
@@ -214,6 +242,10 @@ function validateContact(): string | null {
   }
   if (form.email !== '' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
     return '邮箱格式不正确'
+  }
+  // 验证码关闭时跳过验证码目标与注册信息一致性校验
+  if (!captchaEnabled.value) {
+    return null
   }
   // 验证码目标与注册信息一致
   if (form.codeType === 'sms') {
@@ -226,8 +258,12 @@ function validateContact(): string | null {
   return null
 }
 
-// 发送验证码
+// 发送验证码（验证码关闭时不可用）
 async function handleSendCode() {
+  if (!captchaEnabled.value) {
+    ElMessage.info('验证码功能已关闭，无需发送验证码')
+    return
+  }
   if (form.codeTarget === '') {
     ElMessage.warning(form.codeType === 'sms' ? '请输入接收验证码的手机号' : '请输入接收验证码的邮箱')
     return
@@ -284,9 +320,10 @@ async function handleRegister() {
       phone: form.phone,
       email: form.email,
       password: form.password,
-      code_type: form.codeType,
-      code_target: form.codeTarget,
-      code_input: form.codeInput
+      // 验证码关闭时传空字符串
+      code_type: captchaEnabled.value ? form.codeType : '',
+      code_target: captchaEnabled.value ? form.codeTarget : '',
+      code_input: captchaEnabled.value ? form.codeInput : ''
     }
     const res = await registerApi(params)
     securityCode.value = res.data?.security_code || ''
@@ -329,6 +366,11 @@ function handleSecurityConfirm() {
 function goLogin() {
   router.push('/login')
 }
+
+// 页面加载时获取验证码开关
+onMounted(() => {
+  fetchCaptchaStatus()
+})
 
 onUnmounted(() => {
   if (cooldownTimer) {

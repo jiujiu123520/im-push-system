@@ -29,17 +29,31 @@ class AuthController
      * 获取图形验证码
      * GET /captcha/image
      *
+     * 返回中携带 enabled 字段，前端据此判断是否显示验证码输入框：
+     *   - enabled=true：返回 token + image，前端显示图形验证码
+     *   - enabled=false：token/image 为空，前端隐藏验证码输入框（注册和登录均跳过验证码）
+     *
      * @param array $context 请求上下文
      * @param array $params   路径参数
      * @return array|false
      */
     public static function captchaImage(array $context, array $params = [])
     {
+        // 验证码关闭时返回空 token/image，但带上 enabled=false 标识
+        if (!UserService::isCaptchaEnabled()) {
+            return [
+                'token'   => '',
+                'image'    => '',
+                'enabled' => false,
+            ];
+        }
+
         try {
             $data = CaptchaService::generateImageCaptcha();
             return [
-                'token' => $data['token'],
-                'image' => $data['image'],
+                'token'   => $data['token'],
+                'image'    => $data['image'],
+                'enabled' => true,
             ];
         } catch (\Throwable $e) {
             Response::fail(
@@ -57,12 +71,25 @@ class AuthController
      * POST /auth/send-code
      * Body: { "type": "sms"|"email", "target": "手机号或邮箱" }
      *
+     * 验证码关闭时拒绝发送（注册无需验证码，没必要发送）。
+     *
      * @param array $context
      * @param array $params
      * @return array|false
      */
     public static function sendCode(array $context, array $params = [])
     {
+        // 验证码开关关闭时拒绝发送
+        if (!UserService::isCaptchaEnabled()) {
+            Response::fail(
+                $context['response'],
+                '验证码功能已关闭，无需发送验证码',
+                Response::CODE_BAD_REQUEST,
+                400
+            );
+            return false;
+        }
+
         $body = self::parseJsonBody($context);
         $type = (string)($body['type'] ?? '');
         $target = (string)($body['target'] ?? '');

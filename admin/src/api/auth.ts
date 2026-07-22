@@ -24,9 +24,10 @@ export function getUserInfoApi() {
   return get<UserInfo>('/admin/info')
 }
 
-// 获取图形验证码（后端路由：GET /captcha/image，返回 {token, image}）
+// 获取图形验证码（后端路由：GET /captcha/image，返回 {token, image, enabled}）
+// enabled=false 时验证码功能已关闭，前端应隐藏验证码输入框
 export function getCaptchaApi() {
-  return get<{ token: string; image: string }>('/captcha/image')
+  return get<{ token: string; image: string; enabled: boolean }>('/captcha/image')
 }
 
 // 修改密码（后端路由：PUT /admin/change-password）
