@@ -474,7 +474,12 @@ export default {
                 this.wsUrl = savedWs || this.deriveWsUrl(savedServer)
                 this.form.wsUrl = savedWs || ''
                 this.isLoggedIn = true
-                this.connectWebSocket()
+                // 延迟 500ms 再连接，确保页面和网络都已准备好
+                setTimeout(() => {
+                    if (this.isLoggedIn) {
+                        this.connectWebSocket()
+                    }
+                }, 500)
             }
         },
         deriveWsUrl(serverUrl) {
@@ -953,19 +958,14 @@ export default {
             })
 
             this.socketTask.onOpen(() => {
-                console.log('WebSocket 已连接')
-                this.connecting = false
-                this.connected = true
-                this.reconnectDelay = 3000
-                if (this.connectTimeoutTimer) {
-                    clearTimeout(this.connectTimeoutTimer)
-                    this.connectTimeoutTimer = null
-                }
-                this.startHeartbeat()
-                // 连接成功后启动前台服务保活（防止后台被系统杀掉）
-                this.startForegroundService()
-                // 创建通知渠道（Android 8.0+ 必须，否则通知不显示）
-                this.createNotificationChannel()
+                console.log('WebSocket 连接已建立，等待鉴权确认...')
+                // 注意：onOpen 只是 TCP 连接建立，不算真正可用
+                // 需要等待 auth_result 鉴权成功消息才算真正连接成功
+                // 设置鉴权超时（5秒内没收到鉴权结果则认为连接失败）
+                this._authTimer = setTimeout(() => {
+                    console.warn('鉴权超时（5秒未收到 auth_result），按连接成功处理（兼容旧服务端）')
+                    this._confirmConnection()
+                }, 5000)
             })
 
             this.socketTask.onMessage((res) => {
@@ -973,32 +973,68 @@ export default {
                 this.resetHeartbeatTimeout()
                 try {
                     const data = JSON.parse(res.data)
+                    // 鉴权结果
+                    if (data.type === 'auth_result' || data.message === '连接成功' || (data.code === 0 && data.data && data.data.device_id)) {
+                        if (data.code === 0 || data.type === 'auth_result' && data.code === undefined) {
+                            console.log('鉴权成功，连接已就绪')
+                            this._confirmConnection()
+                        } else {
+                            console.warn('鉴权失败:', data.message)
+                        }
+                        return
+                    }
+                    // 服务端 ping
                     if (data.type === 'ping') {
                         this.socketTask.send({
                             data: JSON.stringify({ type: 'pong' })
                         })
-                    } else if (data.type === 'pong') {
-                        // pong 已经在上面重置过超时
-                    } else if (data.type === 'push' || data.type === 'message' || data.type === 'offline_message') {
-                        // 新格式（PushDispatcher.packMessage）：title/content 在顶层
-                        // 旧格式（WebSocketServer.pack）：title/content 在 data 内
-                        const msg = data.data || data
-                        const title = data.title || msg.title || '消息推送'
-                        const content = data.content || msg.content || ''
-                        this.addMessage(title, content)
-                    } else if (data.code !== undefined && data.data && (data.message === 'message' || data.message === 'offline_message')) {
-                        // 兼容旧格式：WebSocketServer.pack() 未传 type 时，用 message 字段区分
-                        const msg = data.data || {}
-                        this.addMessage(msg.title || '消息推送', msg.content || '')
-                    } else if (data.code !== undefined && data.data && typeof data.data === 'object') {
-                        // 其他带 data 的消息（可能是推送），尝试解析
-                        const msg = data.data
-                        if (msg.title || msg.content) {
-                            this.addMessage(msg.title || '消息推送', msg.content || '')
+                        return
+                    }
+                    // 服务端 pong（心跳响应）
+                    if (data.type === 'pong') {
+                        return
+                    }
+                    // 推送消息（多种格式兼容）
+                    let title = ''
+                    let content = ''
+                    let isPush = false
+                    // 格式1: type=push/message/offline_message，title/content 在顶层
+                    if (data.type === 'push' || data.type === 'message' || data.type === 'offline_message') {
+                        isPush = true
+                        title = data.title || ''
+                        content = data.content || ''
+                        // 如果顶层没有，尝试从 data 字段取
+                        if ((!title || !content) && data.data && typeof data.data === 'object') {
+                            title = title || data.data.title || ''
+                            content = content || data.data.content || ''
                         }
                     }
+                    // 格式2: code/message/data 包装，message 字段标识类型
+                    if (!isPush && data.code !== undefined && data.data && typeof data.data === 'object') {
+                        if (data.message === 'message' || data.message === 'offline_message') {
+                            isPush = true
+                        } else if (data.data.title || data.data.content) {
+                            // 可能是推送，尝试解析
+                            isPush = true
+                        }
+                        if (isPush) {
+                            title = data.data.title || data.title || ''
+                            content = data.data.content || data.content || ''
+                        }
+                    }
+                    // 格式3: 直接就是消息体（不带 type/code）
+                    if (!isPush && (data.title || data.content)) {
+                        isPush = true
+                        title = data.title || ''
+                        content = data.content || ''
+                    }
+                    if (isPush) {
+                        this.addMessage(title || '消息推送', content || '')
+                    } else {
+                        console.log('收到未知类型消息:', data)
+                    }
                 } catch (e) {
-                    console.error('消息解析失败', e)
+                    console.error('消息解析失败', e, '原始数据:', res.data)
                 }
             })
 
@@ -1054,7 +1090,33 @@ export default {
                 }, 2000)
             })
         },
+        _confirmConnection() {
+            if (this.connected) {
+                return
+            }
+            if (this._authTimer) {
+                clearTimeout(this._authTimer)
+                this._authTimer = null
+            }
+            console.log('WebSocket 连接已就绪')
+            this.connecting = false
+            this.connected = true
+            this.reconnectDelay = 3000
+            if (this.connectTimeoutTimer) {
+                clearTimeout(this.connectTimeoutTimer)
+                this.connectTimeoutTimer = null
+            }
+            this.startHeartbeat()
+            // 连接成功后启动前台服务保活（防止后台被系统杀掉）
+            this.startForegroundService()
+            // 创建通知渠道（Android 8.0+ 必须，否则通知不显示）
+            this.createNotificationChannel()
+        },
         closeSocket() {
+            if (this._authTimer) {
+                clearTimeout(this._authTimer)
+                this._authTimer = null
+            }
             if (this.socketTask) {
                 this.socketTask.close()
                 this.socketTask = null
