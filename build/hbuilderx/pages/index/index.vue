@@ -299,13 +299,13 @@ export default {
             // #ifdef APP-PLUS
             try {
                 const main = plus.android.runtimeMainActivity()
-                const Intent = plus.android.importClass('android.content.Intent')
                 const Context = plus.android.importClass('android.content.Context')
                 const NotificationManager = plus.android.importClass('android.app.NotificationManager')
-                const Notification = plus.android.importClass('android.app.Notification')
                 const NotificationCompat = plus.android.importClass('androidx.core.app.NotificationCompat')
                 const Build = plus.android.importClass('android.os.Build')
                 const PendingIntent = plus.android.importClass('android.app.PendingIntent')
+                const PowerManager = plus.android.importClass('android.os.PowerManager')
+                const WifiManager = plus.android.importClass('android.net.wifi.WifiManager')
 
                 const channelId = 'push_keep_alive'
                 const notificationId = 1001
@@ -342,10 +342,39 @@ export default {
 
                 const notification = builder.build()
 
-                // 启动前台服务（使用 HBuilderX 自带的前台服务机制）
-                // 直接通过 NotificationManager 显示常驻通知作为保活手段
+                // 显示常驻通知
                 const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
                 nm.notify(notificationId, notification)
+
+                // 获取 WakeLock（保持 CPU 唤醒，PARTIAL_WAKE_LOCK）
+                try {
+                    const pm = main.getSystemService(Context.POWER_SERVICE)
+                    if (!this._wakeLock) {
+                        this._wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, 'PushApp:WakeLock')
+                        this._wakeLock.setReferenceCounted(false)
+                    }
+                    if (!this._wakeLock.isHeld()) {
+                        this._wakeLock.acquire()
+                        console.log('WakeLock 已获取')
+                    }
+                } catch (e) {
+                    console.warn('获取 WakeLock 失败', e)
+                }
+
+                // 获取 WifiLock（保持 Wi-Fi 连接）
+                try {
+                    const wm = main.getApplicationContext().getSystemService(Context.WIFI_SERVICE)
+                    if (!this._wifiLock) {
+                        this._wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, 'PushApp:WifiLock')
+                        this._wifiLock.setReferenceCounted(false)
+                    }
+                    if (!this._wifiLock.isHeld()) {
+                        this._wifiLock.acquire()
+                        console.log('WifiLock 已获取')
+                    }
+                } catch (e) {
+                    console.warn('获取 WifiLock 失败', e)
+                }
 
                 // 同时使用 plus.push 的常驻通知（双保险）
                 if (typeof plus !== 'undefined' && plus.push) {
@@ -354,7 +383,7 @@ export default {
                     } catch (e) {}
                 }
 
-                console.log('前台服务保活通知已启动')
+                console.log('前台服务保活已启动（通知 + WakeLock + WifiLock）')
             } catch (e) {
                 console.error('启动前台服务失败', e)
             }
@@ -367,7 +396,28 @@ export default {
                 const Context = plus.android.importClass('android.content.Context')
                 const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
                 nm.cancel(1001)
-                console.log('前台服务保活通知已停止')
+
+                // 释放 WakeLock
+                if (this._wakeLock) {
+                    try {
+                        if (this._wakeLock.isHeld()) {
+                            this._wakeLock.release()
+                        }
+                    } catch (e) {}
+                    this._wakeLock = null
+                }
+
+                // 释放 WifiLock
+                if (this._wifiLock) {
+                    try {
+                        if (this._wifiLock.isHeld()) {
+                            this._wifiLock.release()
+                        }
+                    } catch (e) {}
+                    this._wifiLock = null
+                }
+
+                console.log('前台服务保活已停止')
             } catch (e) {
                 console.error('停止前台服务失败', e)
             }
@@ -1102,6 +1152,7 @@ export default {
             this.connecting = false
             this.connected = true
             this.reconnectDelay = 3000
+            this._reconnectCount = 0
             if (this.connectTimeoutTimer) {
                 clearTimeout(this.connectTimeoutTimer)
                 this.connectTimeoutTimer = null
@@ -1133,6 +1184,7 @@ export default {
                 this.connectTimeoutTimer = null
             }
             this.reconnectDelay = 3000
+            this._reconnectCount = 0
         },
         startHeartbeat() {
             this.stopHeartbeat()
@@ -1170,7 +1222,7 @@ export default {
                         this.scheduleReconnect()
                     }
                 }
-            }, 30000)
+            }, 15000)
         },
         stopHeartbeat() {
             if (this.heartbeatTimer) {
@@ -1190,7 +1242,7 @@ export default {
                 clearTimeout(this.heartbeatTimeoutTimer)
             }
             this.heartbeatTimeoutTimer = setTimeout(() => {
-                console.warn('心跳超时（45秒未收到任何消息），主动断开重连')
+                console.warn('心跳超时（30秒未收到任何消息），主动断开重连')
                 this.connected = false
                 this.stopHeartbeat()
                 if (this.socketTask) {
@@ -1209,7 +1261,7 @@ export default {
                 if (!this.reconnectTimer) {
                     this.scheduleReconnect()
                 }
-            }, 45000)
+            }, 30000)
         },
         scheduleReconnect() {
             if (!this.isLoggedIn) {
@@ -1218,14 +1270,28 @@ export default {
             if (this.reconnectTimer) {
                 return
             }
-            console.log(this.reconnectDelay / 1000 + '秒后重连...')
+            // 前 3 次重连使用更短的间隔，加快恢复速度
+            // 第 1 次: 2s, 第 2 次: 5s, 第 3 次: 10s, 之后按指数退避
+            let delay = this.reconnectDelay
+            if (this._reconnectCount === undefined) {
+                this._reconnectCount = 0
+            }
+            this._reconnectCount++
+            if (this._reconnectCount <= 3) {
+                const quickDelays = [2000, 5000, 10000]
+                delay = quickDelays[this._reconnectCount - 1]
+            }
+            console.log('第 ' + this._reconnectCount + ' 次重连，' + delay / 1000 + '秒后重试...')
             this.reconnectTimer = setTimeout(() => {
                 this.reconnectTimer = null
                 if (this.isLoggedIn) {
                     this.connectWebSocket()
                 }
-            }, this.reconnectDelay)
-            this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay)
+            }, delay)
+            // 超过 3 次后按指数退避
+            if (this._reconnectCount >= 3) {
+                this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay)
+            }
         },
         cleanupAndReconnect() {
             // 清理所有可能残留的连接状态，立即重连
