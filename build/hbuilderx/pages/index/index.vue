@@ -122,6 +122,7 @@
                         <button class="btn-sm btn-xiaomi" @click="openXiaomiPermission('background_popup')">后台弹出界面（允许）</button>
                         <button class="btn-sm btn-xiaomi" @click="openXiaomiPermission('lockscreen_show')">锁屏显示（允许）</button>
                         <button class="btn-sm btn-xiaomi" @click="openXiaomiPermission('floating_window')">悬浮窗（允许）</button>
+                        <button class="btn-sm btn-xiaomi" @click="openXiaomiPermission('notification_channel')">通知设置（允许通知+渠道）</button>
                         <button class="btn-sm btn-xiaomi" @click="openXiaomiPermission('notification_service')">通知使用权</button>
                         <button class="btn-sm btn-xiaomi" @click="openXiaomiPermission('developer_keep_alive')">开发者选项-后台进程限制</button>
                         <text class="setting-tip setting-tip-warn">⚠️ 以上权限全部开启后，小米手机后台推送稳定性可大幅提升</text>
@@ -268,6 +269,174 @@ export default {
                 console.error('保存消息失败', e)
             }
         },
+        startForegroundService() {
+            // #ifdef APP-PLUS
+            try {
+                const main = plus.android.runtimeMainActivity()
+                const Intent = plus.android.importClass('android.content.Intent')
+                const Context = plus.android.importClass('android.content.Context')
+                const NotificationManager = plus.android.importClass('android.app.NotificationManager')
+                const Notification = plus.android.importClass('android.app.Notification')
+                const NotificationCompat = plus.android.importClass('androidx.core.app.NotificationCompat')
+                const Build = plus.android.importClass('android.os.Build')
+                const PendingIntent = plus.android.importClass('android.app.PendingIntent')
+
+                const channelId = 'push_keep_alive'
+                const notificationId = 1001
+
+                // 创建通知渠道（Android 8.0+）
+                if (Build.VERSION.SDK_INT >= 26) {
+                    const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
+                    const channel = nm.getNotificationChannel(channelId)
+                    if (channel === null || channel === undefined) {
+                        const NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
+                        const importance = NotificationManager.IMPORTANCE_LOW
+                        const mChannel = new NotificationChannel(channelId, '推送服务保活', importance)
+                        mChannel.setShowBadge(false)
+                        nm.createNotificationChannel(mChannel)
+                    }
+                }
+
+                // 创建点击跳转到 APP 的 Intent
+                const launchIntent = main.getPackageManager().getLaunchIntentForPackage(main.getPackageName())
+                const contentIntent = PendingIntent.getActivity(
+                    main, 0, launchIntent,
+                    Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT
+                )
+
+                // 构建前台服务通知
+                const builder = new NotificationCompat.Builder(main, channelId)
+                builder.setContentTitle('推送服务运行中')
+                builder.setContentText('保持后台连接，实时接收推送消息')
+                builder.setSmallIcon(main.getApplicationInfo().icon)
+                builder.setContentIntent(contentIntent)
+                builder.setOngoing(true)
+                builder.setAutoCancel(false)
+                builder.setPriority(NotificationCompat.PRIORITY_LOW)
+
+                const notification = builder.build()
+
+                // 启动前台服务（使用 HBuilderX 自带的前台服务机制）
+                // 直接通过 NotificationManager 显示常驻通知作为保活手段
+                const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
+                nm.notify(notificationId, notification)
+
+                // 同时使用 plus.push 的常驻通知（双保险）
+                if (typeof plus !== 'undefined' && plus.push) {
+                    try {
+                        plus.push.setAutoNotification(true)
+                    } catch (e) {}
+                }
+
+                console.log('前台服务保活通知已启动')
+            } catch (e) {
+                console.error('启动前台服务失败', e)
+            }
+            // #endif
+        },
+        stopForegroundService() {
+            // #ifdef APP-PLUS
+            try {
+                const main = plus.android.runtimeMainActivity()
+                const Context = plus.android.importClass('android.content.Context')
+                const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
+                nm.cancel(1001)
+                console.log('前台服务保活通知已停止')
+            } catch (e) {
+                console.error('停止前台服务失败', e)
+            }
+            // #endif
+        },
+        createNotificationChannel() {
+            // #ifdef APP-PLUS
+            try {
+                const Build = plus.android.importClass('android.os.Build')
+                if (Build.VERSION.SDK_INT < 26) {
+                    return
+                }
+                const main = plus.android.runtimeMainActivity()
+                const Context = plus.android.importClass('android.content.Context')
+                const NotificationManager = plus.android.importClass('android.app.NotificationManager')
+                const NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
+
+                const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
+
+                // 消息推送通知渠道（高优先级，会响铃震动）
+                const msgChannelId = 'push_messages'
+                const msgChannel = nm.getNotificationChannel(msgChannelId)
+                if (msgChannel === null || msgChannel === undefined) {
+                    const importance = NotificationManager.IMPORTANCE_HIGH
+                    const channel = new NotificationChannel(msgChannelId, '消息推送', importance)
+                    channel.enableLights(true)
+                    channel.enableVibration(true)
+                    channel.setShowBadge(true)
+                    nm.createNotificationChannel(channel)
+                    console.log('消息推送通知渠道已创建')
+                }
+            } catch (e) {
+                console.error('创建通知渠道失败', e)
+            }
+            // #endif
+        },
+        showNotification(title, content) {
+            // #ifdef APP-PLUS
+            try {
+                const main = plus.android.runtimeMainActivity()
+                const Context = plus.android.importClass('android.content.Context')
+                const NotificationCompat = plus.android.importClass('androidx.core.app.NotificationCompat')
+                const PendingIntent = plus.android.importClass('android.app.PendingIntent')
+                const Build = plus.android.importClass('android.os.Build')
+
+                const channelId = 'push_messages'
+                const notificationId = Math.floor(Math.random() * 100000) + 1
+
+                // 创建点击跳转到 APP 的 Intent
+                const launchIntent = main.getPackageManager().getLaunchIntentForPackage(main.getPackageName())
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                const contentIntent = PendingIntent.getActivity(
+                    main, notificationId, launchIntent,
+                    Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT
+                )
+
+                // 构建通知
+                const builder = new NotificationCompat.Builder(main, channelId)
+                builder.setContentTitle(title || '新消息')
+                builder.setContentText(content || '')
+                builder.setSmallIcon(main.getApplicationInfo().icon)
+                builder.setContentIntent(contentIntent)
+                builder.setAutoCancel(true)
+                builder.setPriority(NotificationCompat.PRIORITY_HIGH)
+                builder.setDefaults(NotificationCompat.DEFAULT_SOUND | NotificationCompat.DEFAULT_VIBRATE | NotificationCompat.DEFAULT_LIGHTS)
+
+                // 如果内容较长，使用大文本样式
+                if (content && content.length > 50) {
+                    const BigTextStyle = plus.android.importClass('androidx.core.app.NotificationCompat$BigTextStyle')
+                    const bigText = new BigTextStyle()
+                    bigText.bigText(content)
+                    bigText.setBigContentTitle(title)
+                    builder.setStyle(bigText)
+                }
+
+                const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
+                nm.notify(notificationId, builder.build())
+
+                return true
+            } catch (e) {
+                console.error('显示通知失败', e)
+                // 降级到 uni.showNotification
+                if (uni.showNotification) {
+                    uni.showNotification({ title, content })
+                }
+                return false
+            }
+            // #endif
+            // #ifndef APP-PLUS
+            if (uni.showNotification) {
+                uni.showNotification({ title, content })
+            }
+            return true
+            // #endif
+        },
         checkAutoLogin() {
             const savedKey = uni.getStorageSync('push_key')
             const savedServer = uni.getStorageSync('push_server')
@@ -322,6 +491,7 @@ export default {
                 success: (res) => {
                     if (res.confirm) {
                         this.closeSocket()
+                        this.stopForegroundService()
                         this.isLoggedIn = false
                         this.showSettings = false
                         uni.removeStorageSync('push_key')
@@ -510,6 +680,18 @@ export default {
                             'android.settings.NOTIFICATION_LISTENER_SETTINGS'
                         ]
                     },
+                    notification_channel: {
+                        title: '通知设置',
+                        actions: [
+                            'android.settings.APP_NOTIFICATION_SETTINGS',
+                            'miui.intent.action.APP_NOTIFICATION_SETTINGS'
+                        ],
+                        extras: {
+                            'android.provider.extra.APP_PACKAGE': packageName,
+                            'pkg': packageName
+                        },
+                        tip: '请确保「允许通知」已开启，并打开「消息推送」渠道的通知权限'
+                    },
                     developer_keep_alive: {
                         title: '开发者选项',
                         actions: [
@@ -682,12 +864,16 @@ export default {
                 console.log('WebSocket 已连接')
                 this.connecting = false
                 this.connected = true
-                this.reconnectDelay = 3000  // 连接成功后重置退避延迟
+                this.reconnectDelay = 3000
                 if (this.connectTimeoutTimer) {
                     clearTimeout(this.connectTimeoutTimer)
                     this.connectTimeoutTimer = null
                 }
                 this.startHeartbeat()
+                // 连接成功后启动前台服务保活（防止后台被系统杀掉）
+                this.startForegroundService()
+                // 创建通知渠道（Android 8.0+ 必须，否则通知不显示）
+                this.createNotificationChannel()
             })
 
             this.socketTask.onMessage((res) => {
@@ -740,12 +926,14 @@ export default {
                     console.warn('鉴权失败，停止重连，请检查推送 Key')
                     uni.showToast({ title: '鉴权失败：' + (reason || code), icon: 'none' })
                     this.isLoggedIn = false
+                    this.stopForegroundService()
                     return
                 }
                 if (code === 4003 || reason === 'blacklisted') {
                     console.warn('设备已被拉黑，停止重连')
                     uni.showToast({ title: '设备已被拉黑', icon: 'none' })
                     this.isLoggedIn = false
+                    this.stopForegroundService()
                     return
                 }
                 this.scheduleReconnect()
@@ -913,14 +1101,15 @@ export default {
             this.saveMessages()
             this.updateStats()
 
-            uni.showNotification ? uni.showNotification({
-                title: title,
-                content: content
-            }) : uni.showToast({
-                title: title,
-                icon: 'none',
-                duration: 3000
-            })
+            // 使用原生通知（创建了 NotificationChannel，小米等手机也能显示）
+            const notified = this.showNotification(title, content)
+            if (!notified) {
+                uni.showToast({
+                    title: title,
+                    icon: 'none',
+                    duration: 3000
+                })
+            }
         },
         updateStats() {
             const savedTotal = uni.getStorageSync('push_total_count') || 0
