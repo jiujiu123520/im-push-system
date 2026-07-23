@@ -459,16 +459,34 @@ export default {
             try {
                 const main = plus.android.runtimeMainActivity()
                 const Context = plus.android.importClass('android.content.Context')
+                const Intent = plus.android.importClass('android.content.Intent')
                 const NotificationCompat = plus.android.importClass('androidx.core.app.NotificationCompat')
                 const PendingIntent = plus.android.importClass('android.app.PendingIntent')
                 const Build = plus.android.importClass('android.os.Build')
+                const NotificationManager = plus.android.importClass('android.app.NotificationManager')
+                const NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
 
                 const channelId = 'push_messages'
                 const notificationId = Math.floor(Math.random() * 100000) + 1
 
+                // 确保通知渠道存在（Android 8.0+）
+                if (Build.VERSION.SDK_INT >= 26) {
+                    const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
+                    const channel = nm.getNotificationChannel(channelId)
+                    if (channel === null || channel === undefined) {
+                        const importance = NotificationManager.IMPORTANCE_HIGH
+                        const mChannel = new NotificationChannel(channelId, '消息推送', importance)
+                        mChannel.enableLights(true)
+                        mChannel.enableVibration(true)
+                        mChannel.setShowBadge(true)
+                        nm.createNotificationChannel(mChannel)
+                        console.log('消息推送通知渠道已创建')
+                    }
+                }
+
                 // 创建点击跳转到 APP 的 Intent
                 const launchIntent = main.getPackageManager().getLaunchIntentForPackage(main.getPackageName())
-                launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 const contentIntent = PendingIntent.getActivity(
                     main, notificationId, launchIntent,
                     Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT
@@ -1344,15 +1362,15 @@ export default {
             this.saveMessages()
             this.updateStats()
 
-            // 使用原生通知（创建了 NotificationChannel，小米等手机也能显示）
-            const notified = this.showNotification(title, content)
-            if (!notified) {
-                uni.showToast({
-                    title: title,
-                    icon: 'none',
-                    duration: 3000
-                })
-            }
+            // 显示系统通知（无论 APP 在前台还是后台都显示）
+            this.showNotification(title, content)
+
+            // 前台时同时显示 toast 提示（更直观）
+            uni.showToast({
+                title: title,
+                icon: 'none',
+                duration: 2000
+            })
         },
         updateStats() {
             const savedTotal = uni.getStorageSync('push_total_count') || 0
