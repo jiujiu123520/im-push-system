@@ -478,13 +478,40 @@ export default {
             }
         },
         deriveWsUrl(serverUrl) {
+            let protocol = 'ws://'
+            let hostPart = serverUrl
             if (serverUrl.startsWith('https://')) {
-                return 'wss://' + serverUrl.substring(8)
+                protocol = 'wss://'
+                hostPart = serverUrl.substring(8)
             } else if (serverUrl.startsWith('http://')) {
-                return 'ws://' + serverUrl.substring(7)
-            } else {
-                return 'ws://' + serverUrl
+                protocol = 'ws://'
+                hostPart = serverUrl.substring(7)
             }
+            const colonIndex = hostPart.indexOf(':')
+            const slashIndex = hostPart.indexOf('/')
+            let host = hostPart
+            let port = ''
+            let path = ''
+            if (slashIndex !== -1) {
+                path = hostPart.substring(slashIndex)
+                host = hostPart.substring(0, slashIndex)
+            }
+            if (colonIndex !== -1 && (slashIndex === -1 || colonIndex < slashIndex)) {
+                host = hostPart.substring(0, colonIndex)
+                port = hostPart.substring(colonIndex + 1, slashIndex !== -1 ? slashIndex : undefined)
+            }
+            const wsPortMap = {
+                '80': '80',
+                '443': '443',
+                '9501': '9502',
+                '6999': '7000'
+            }
+            if (port && wsPortMap[port]) {
+                port = wsPortMap[port]
+            } else if (port) {
+                port = String(parseInt(port) + 1)
+            }
+            return protocol + host + (port ? ':' + port : '') + path
         },
         handleLogin() {
             if (!this.form.key.trim()) {
