@@ -553,17 +553,65 @@ export default {
                 const Intent = plus.android.importClass('android.content.Intent')
                 const Settings = plus.android.importClass('android.provider.Settings')
                 const Uri = plus.android.importClass('android.net.Uri')
+                const main = plus.android.runtimeMainActivity()
+                const packageName = main.getPackageName()
+                const Build = plus.android.importClass('android.os.Build')
+
+                if (type === 'notification') {
+                    let launched = false
+                    const notificationIntents = [
+                        {
+                            action: 'android.settings.APP_NOTIFICATION_SETTINGS',
+                            extras: {
+                                'android.provider.extra.APP_PACKAGE': packageName,
+                                'app_package': packageName,
+                                'pkg': packageName
+                            }
+                        },
+                        {
+                            action: Settings.ACTION_APP_NOTIFICATION_SETTINGS,
+                            extras: {
+                                'android.provider.extra.APP_PACKAGE': packageName
+                            }
+                        },
+                        {
+                            action: Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            data: Uri.fromParts('package', packageName, null)
+                        }
+                    ]
+                    for (const cfg of notificationIntents) {
+                        try {
+                            const intent = new Intent()
+                            intent.setAction(cfg.action)
+                            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            if (cfg.data) {
+                                intent.setData(cfg.data)
+                            }
+                            if (cfg.extras) {
+                                for (const key in cfg.extras) {
+                                    intent.putExtra(key, cfg.extras[key])
+                                }
+                            }
+                            main.startActivity(intent)
+                            launched = true
+                            break
+                        } catch (e) {
+                            // 继续尝试下一个
+                        }
+                    }
+                    if (!launched) {
+                        uni.showToast({ title: '无法打开通知设置，请手动前往系统设置', icon: 'none' })
+                    }
+                    return
+                }
+
                 const intent = new Intent()
                 let action = null
                 let data = null
                 switch (type) {
                     case 'app':
                         action = Settings.ACTION_APPLICATION_DETAILS_SETTINGS
-                        data = Uri.fromParts('package', plus.runtime.appid, null)
-                        break
-                    case 'notification':
-                        action = Settings.ACTION_APP_NOTIFICATION_SETTINGS
-                        intent.putExtra('android.provider.extra.APP_PACKAGE', plus.runtime.appid)
+                        data = Uri.fromParts('package', packageName, null)
                         break
                     case 'battery':
                         action = Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS
@@ -582,7 +630,6 @@ export default {
                             'oneplus': ['com.android.settings.action.IGNORE_BATTERY_OPTIMIZATION_SETTINGS']
                         }
                         const actions = autostartActions[brand] || []
-                        const main = plus.android.runtimeMainActivity()
                         let launched = false
                         for (const act of actions) {
                             try {
@@ -601,7 +648,7 @@ export default {
                             uni.showToast({ title: '未找到自启动设置页，已跳转应用详情', icon: 'none' })
                             const fallback = new Intent()
                             fallback.setAction(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                            fallback.setData(Uri.fromParts('package', plus.runtime.appid, null))
+                            fallback.setData(Uri.fromParts('package', packageName, null))
                             fallback.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             main.startActivity(fallback)
                         }
@@ -613,7 +660,6 @@ export default {
                         intent.setData(data)
                     }
                     intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    const main = plus.android.runtimeMainActivity()
                     main.startActivity(intent)
                 }
             } catch (e) {
@@ -647,7 +693,7 @@ export default {
                 const Intent = plus.android.importClass('android.content.Intent')
                 const Uri = plus.android.importClass('android.net.Uri')
                 const main = plus.android.runtimeMainActivity()
-                const packageName = plus.runtime.appid
+                const packageName = main.getPackageName()
 
                 // 小米 MIUI / HyperOS 各权限页面对应的 Intent 配置
                 // 注意：不同 MIUI 版本页面路径可能不同，按优先级尝试
