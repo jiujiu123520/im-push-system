@@ -87,7 +87,7 @@
                     <text class="settings-title">设置</text>
                     <text class="close-btn" @click="showSettings = false">✕</text>
                 </view>
-                <scroll-view scroll-y class="settings-content">
+                <view class="settings-content">
                     <view class="setting-item">
                         <text class="setting-label">推送 Key</text>
                         <text class="setting-value">{{ form.key }}</text>
@@ -127,7 +127,7 @@
                         <button class="btn-sm btn-xiaomi" @click="openXiaomiPermission('developer_keep_alive')">开发者选项-后台进程限制</button>
                         <text class="setting-tip setting-tip-warn">⚠️ 以上权限全部开启后，小米手机后台推送稳定性可大幅提升</text>
                     </view>
-                </scroll-view>
+                </view>
                 <view class="settings-footer">
                     <button class="btn-danger" @click="handleLogout">退出登录</button>
                 </view>
@@ -1469,6 +1469,10 @@ export default {
 
 .settings-content {
     flex: 1;
+    height: 0;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     padding: 20px;
 }
 
