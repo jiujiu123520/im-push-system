@@ -1180,6 +1180,16 @@ export default {
             this.startForegroundService()
             // 创建通知渠道（Android 8.0+ 必须，否则通知不显示）
             this.createNotificationChannel()
+            // 连接成功后立即发送一个测试 ping，验证连接双向可用
+            try {
+                if (this.socketTask) {
+                    this.socketTask.send({
+                        data: JSON.stringify({ type: 'ping' })
+                    })
+                }
+            } catch (e) {
+                console.warn('连接验证 ping 发送失败', e)
+            }
         },
         closeSocket() {
             if (this._authTimer) {

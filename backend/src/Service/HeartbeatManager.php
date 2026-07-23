@@ -157,11 +157,15 @@ class HeartbeatManager
             return;
         }
 
-        // 递增未响应计数
-        $this->pendingPongs[$fd] = ($this->pendingPongs[$fd] ?? 0) + 1;
+        // 先发送 ping（如果还有未响应的 ping，递增计数）
+        // 注意：首次 tick 时 pendingPongs=0，先发第 1 个 ping
+        // 第 2 次 tick 时若还没收到 pong，pendingPongs=1，发第 2 个 ping
+        // 第 3 次 tick 时若还没收到 pong，pendingPongs=2，发第 3 个 ping
+        // 第 4 次 tick 时若还没收到 pong，pendingPongs=3，达到阈值，断开
+        $missed = ($this->pendingPongs[$fd] ?? 0);
 
-        // 连续 3 次未收到 pong，断开连接
-        if ($this->pendingPongs[$fd] >= self::MAX_MISSED_PONG) {
+        // 如果已经有未响应的 ping，再发一个之前先检查是否达到上限
+        if ($missed >= self::MAX_MISSED_PONG) {
             $this->server->disconnect($fd, 4002, 'heartbeat timeout');
             $this->stopHeartbeat($fd);
             return;
@@ -174,6 +178,9 @@ class HeartbeatManager
         ], JSON_UNESCAPED_UNICODE);
 
         $this->server->push($fd, $ping);
+
+        // 发送后递增未响应计数
+        $this->pendingPongs[$fd] = $missed + 1;
     }
 
     /**
