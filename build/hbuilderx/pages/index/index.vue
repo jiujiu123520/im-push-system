@@ -183,20 +183,46 @@ export default {
     onShow() {
         // APP 从后台切回前台 / 页面重新显示时，主动检测并重连断开的 WebSocket
         // 移动系统在后台会冻结网络连接，需要主动恢复
-        if (this.isLoggedIn && !this.connected && !this.connecting) {
-            console.log('页面 onShow 检测到连接已断开，主动重连')
-            // 清理可能残留的失效 socketTask
-            if (this.socketTask) {
-                try { this.socketTask.close() } catch (e) {}
-                this.socketTask = null
+        if (this.isLoggedIn) {
+            // 连接已断开，直接重连
+            if (!this.connected && !this.connecting) {
+                console.log('页面 onShow 检测到连接已断开，主动重连')
+                this.cleanupAndReconnect()
+                return
             }
-            // 清理挂起的重连定时器，立即触发
-            if (this.reconnectTimer) {
-                clearTimeout(this.reconnectTimer)
-                this.reconnectTimer = null
+            // connecting 状态卡住超过 15 秒，强制重连
+            if (this.connecting && this._connectStartTime) {
+                const elapsed = Date.now() - this._connectStartTime
+                if (elapsed > 15000) {
+                    console.warn('页面 onShow 检测到 connecting 状态卡住，强制重连')
+                    this.cleanupAndReconnect()
+                    return
+                }
             }
-            this.reconnectDelay = 3000
-            this.connectWebSocket()
+            // connected 为 true 但 socketTask 不存在，状态不一致，重置并重连
+            if (this.connected && !this.socketTask) {
+                console.warn('页面 onShow 检测到状态不一致（connected=true 但无 socketTask），重置重连')
+                this.connected = false
+                this.cleanupAndReconnect()
+                return
+            }
+            // 连接存在，发一个验证 ping 确认连接真的活着
+            // 后台切回前台时，TCP 连接可能已经静默断开但 onClose 还没触发
+            if (this.connected && this.socketTask) {
+                console.log('页面 onShow，发送验证 ping 确认连接存活')
+                try {
+                    this.socketTask.send({
+                        data: JSON.stringify({ type: 'ping' }),
+                        fail: (err) => {
+                            console.warn('onShow 验证 ping 发送失败，连接已失效，触发重连', err)
+                            this.cleanupAndReconnect()
+                        }
+                    })
+                } catch (e) {
+                    console.warn('onShow 验证 ping 异常，触发重连', e)
+                    this.cleanupAndReconnect()
+                }
+            }
         }
     },
     onUnload() {
@@ -789,18 +815,11 @@ export default {
                 if (res.isConnected) {
                     // 网络恢复，主动重连
                     console.log('网络已恢复，尝试重连 WebSocket')
-                    if (this.isLoggedIn && !this.connected) {
-                        // 清理可能残留的连接和定时器
-                        if (this.socketTask) {
-                            try { this.socketTask.close() } catch (e) {}
-                            this.socketTask = null
+                    if (this.isLoggedIn) {
+                        if (!this.connected) {
+                            // 已断开或正在连接但卡住，都强制重连
+                            this.cleanupAndReconnect()
                         }
-                        if (this.reconnectTimer) {
-                            clearTimeout(this.reconnectTimer)
-                            this.reconnectTimer = null
-                        }
-                        this.reconnectDelay = 3000
-                        this.connectWebSocket()
                     }
                 } else {
                     // 网络断开，标记连接状态
@@ -823,7 +842,7 @@ export default {
             }
 
             this.connecting = true
-            // 注意：不要在这里重置 reconnectDelay，保留指数退避的延迟
+            this._connectStartTime = Date.now()
 
             const url = this.wsUrl + '/ws/client?key=' + encodeURIComponent(this.form.key) + '&device_id=' + encodeURIComponent(this.deviceId)
 
@@ -1072,6 +1091,29 @@ export default {
                 }
             }, this.reconnectDelay)
             this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay)
+        },
+        cleanupAndReconnect() {
+            // 清理所有可能残留的连接状态，立即重连
+            if (this.socketTask) {
+                try { this.socketTask.close() } catch (e) {}
+                this.socketTask = null
+            }
+            if (this.reconnectTimer) {
+                clearTimeout(this.reconnectTimer)
+                this.reconnectTimer = null
+            }
+            if (this.connectTimeoutTimer) {
+                clearTimeout(this.connectTimeoutTimer)
+                this.connectTimeoutTimer = null
+            }
+            this.connecting = false
+            this.connected = false
+            this.stopHeartbeat()
+            this.reconnectDelay = 3000
+            this._connectStartTime = null
+            if (this.isLoggedIn) {
+                this.connectWebSocket()
+            }
         },
         addMessage(title, content) {
             this.messages.unshift({
