@@ -78,6 +78,18 @@
                     <text class="empty-desc">推送的消息将显示在这里</text>
                 </view>
             </view>
+            <!-- 迷你播放器 -->
+            <view v-if="audioEnabled && audioList.length > 0" class="mini-player">
+                <view class="player-info">
+                    <text class="player-title">{{ currentAudioName }}</text>
+                    <text class="player-status">{{ isPlaying ? '播放中' : '已暂停' }}</text>
+                </view>
+                <view class="player-controls">
+                    <text class="player-btn" @click="playPrev">⏮</text>
+                    <text class="player-btn player-btn-play" @click="togglePlay">{{ isPlaying ? '⏸' : '▶' }}</text>
+                    <text class="player-btn" @click="playNext">⏭</text>
+                </view>
+            </view>
         </view>
 
         <!-- 设置弹窗 -->
@@ -127,6 +139,28 @@
                         <button class="btn-sm btn-xiaomi" @click="openXiaomiPermission('developer_keep_alive')">开发者选项-后台进程限制</button>
                         <text class="setting-tip setting-tip-warn">⚠️ 以上权限全部开启后，小米手机后台推送稳定性可大幅提升</text>
                     </view>
+                    <!-- 音频播放器设置 -->
+                    <view class="setting-item setting-item-column">
+                        <text class="setting-label">音频播放器</text>
+                        <text class="setting-tip">添加网络或本地音频，后台循环播放，提升进程保活能力</text>
+                        <view class="audio-switch-row">
+                            <text class="setting-label-sm">启用音频播放</text>
+                            <switch :checked="audioEnabled" @change="onAudioToggle" color="#409EFF" />
+                        </view>
+                        <view v-if="audioEnabled" class="audio-input-row">
+                            <input class="setting-input" v-model="newAudioUrl" placeholder="输入音频地址（支持网络URL）" />
+                            <button class="btn-sm btn-add" @click="addAudioUrl">添加</button>
+                        </view>
+                        <view v-if="audioEnabled && audioList.length > 0" class="audio-list">
+                            <view class="audio-item" v-for="(item, idx) in audioList" :key="idx">
+                                <text class="audio-name">{{ item.name }}</text>
+                                <text class="audio-del" @click="removeAudio(idx)">删除</text>
+                            </view>
+                        </view>
+                        <view v-if="audioEnabled && audioList.length === 0" class="setting-tip">
+                            暂无音频，请添加音频地址
+                        </view>
+                    </view>
                 </view>
                 <view class="settings-footer">
                     <button class="btn-danger" @click="handleLogout">退出登录</button>
@@ -164,12 +198,25 @@ export default {
             connectTimeoutTimer: null,
             reconnectDelay: 3000,
             maxReconnectDelay: 60000,
-            isXiaomiDevice: false
+            isXiaomiDevice: false,
+            // 音频播放器
+            audioEnabled: false,
+            audioList: [],
+            newAudioUrl: '',
+            currentAudioIndex: 0,
+            isPlaying: false,
+            audioContext: null
         }
     },
     computed: {
         deviceIdShort() {
             return this.deviceId ? this.deviceId.substring(0, 8) : '--'
+        },
+        currentAudioName() {
+            if (this.audioList.length === 0) return '暂无音频'
+            const item = this.audioList[this.currentAudioIndex]
+            if (!item) return '暂无音频'
+            return item.name
         }
     },
     onLoad() {
@@ -179,6 +226,7 @@ export default {
         this.loadMessages()
         this.checkAutoLogin()
         this.registerNetworkListener()
+        this.loadAudioConfig()
     },
     onShow() {
         // APP 从后台切回前台 / 页面重新显示时，主动检测并重连断开的 WebSocket
@@ -244,6 +292,168 @@ export default {
         // #endif
     },
     methods: {
+        loadAudioConfig() {
+            const enabled = uni.getStorageSync('audio_enabled')
+            const list = uni.getStorageSync('audio_list')
+            this.audioEnabled = enabled === true || enabled === 'true'
+            if (list && Array.isArray(list)) {
+                this.audioList = list
+            }
+            if (this.audioEnabled && this.audioList.length > 0) {
+                this.initAudioPlayer()
+            }
+        },
+        saveAudioConfig() {
+            uni.setStorageSync('audio_enabled', this.audioEnabled)
+            uni.setStorageSync('audio_list', this.audioList)
+        },
+        onAudioToggle(e) {
+            this.audioEnabled = e.detail.value
+            this.saveAudioConfig()
+            if (this.audioEnabled && this.audioList.length > 0) {
+                this.initAudioPlayer()
+                this.startAudioPlay()
+            } else {
+                this.stopAudioPlay()
+                this.destroyAudioPlayer()
+            }
+        },
+        addAudioUrl() {
+            const url = this.newAudioUrl.trim()
+            if (!url) {
+                uni.showToast({ title: '请输入音频地址', icon: 'none' })
+                return
+            }
+            // 从 URL 中提取文件名作为名称
+            let name = url.substring(url.lastIndexOf('/') + 1)
+            if (name.indexOf('?') > 0) {
+                name = name.substring(0, name.indexOf('?'))
+            }
+            if (!name) name = '音频' + (this.audioList.length + 1)
+            this.audioList.push({ url, name })
+            this.saveAudioConfig()
+            this.newAudioUrl = ''
+            uni.showToast({ title: '添加成功', icon: 'success' })
+            // 如果是第一首，初始化播放器并播放
+            if (this.audioList.length === 1 && this.audioEnabled) {
+                this.initAudioPlayer()
+                this.startAudioPlay()
+            }
+        },
+        removeAudio(index) {
+            this.audioList.splice(index, 1)
+            this.saveAudioConfig()
+            // 如果删除的是当前播放的，重新设置
+            if (index === this.currentAudioIndex && this.audioList.length > 0) {
+                this.currentAudioIndex = 0
+                this.stopAudioPlay()
+                this.startAudioPlay()
+            } else if (this.audioList.length === 0) {
+                this.stopAudioPlay()
+                this.destroyAudioPlayer()
+                this.currentAudioIndex = 0
+                this.isPlaying = false
+            } else if (index < this.currentAudioIndex) {
+                this.currentAudioIndex--
+            }
+        },
+        initAudioPlayer() {
+            if (this.audioContext) {
+                return
+            }
+            this.audioContext = uni.createInnerAudioContext()
+            this.audioContext.autoplay = false
+            this.audioContext.loop = false
+            // 播放结束自动下一首
+            this.audioContext.onEnded(() => {
+                console.log('音频播放结束，播放下一首')
+                this.playNext()
+            })
+            this.audioContext.onError((err) => {
+                console.error('音频播放错误', err)
+                uni.showToast({ title: '播放失败：' + (err.errMsg || '未知错误'), icon: 'none' })
+                // 播放失败也跳下一首
+                setTimeout(() => {
+                    this.playNext()
+                }, 2000)
+            })
+            this.audioContext.onPlay(() => {
+                console.log('音频开始播放')
+                this.isPlaying = true
+                this.updateAudioNotification()
+            })
+            this.audioContext.onPause(() => {
+                console.log('音频暂停')
+                this.isPlaying = false
+                this.updateAudioNotification()
+            })
+            this.audioContext.onStop(() => {
+                console.log('音频停止')
+                this.isPlaying = false
+            })
+            console.log('音频播放器已初始化')
+        },
+        destroyAudioPlayer() {
+            if (this.audioContext) {
+                try {
+                    this.audioContext.destroy()
+                } catch (e) {}
+                this.audioContext = null
+            }
+            this.isPlaying = false
+        },
+        startAudioPlay() {
+            if (!this.audioContext) {
+                this.initAudioPlayer()
+            }
+            if (!this.audioContext || this.audioList.length === 0) {
+                return
+            }
+            const item = this.audioList[this.currentAudioIndex]
+            if (!item) return
+            console.log('开始播放音频:', item.name, item.url)
+            this.audioContext.src = item.url
+            this.audioContext.play()
+        },
+        stopAudioPlay() {
+            if (this.audioContext) {
+                this.audioContext.stop()
+                this.isPlaying = false
+            }
+        },
+        togglePlay() {
+            if (!this.audioContext) {
+                this.initAudioPlayer()
+                this.startAudioPlay()
+                return
+            }
+            if (this.isPlaying) {
+                this.audioContext.pause()
+            } else {
+                // 如果没在播放，尝试播放当前音频
+                if (!this.audioContext.src && this.audioList.length > 0) {
+                    this.startAudioPlay()
+                } else {
+                    this.audioContext.play()
+                }
+            }
+        },
+        playPrev() {
+            if (this.audioList.length === 0) return
+            this.currentAudioIndex = (this.currentAudioIndex - 1 + this.audioList.length) % this.audioList.length
+            this.stopAudioPlay()
+            this.startAudioPlay()
+        },
+        playNext() {
+            if (this.audioList.length === 0) return
+            this.currentAudioIndex = (this.currentAudioIndex + 1) % this.audioList.length
+            this.stopAudioPlay()
+            this.startAudioPlay()
+        },
+        updateAudioNotification() {
+            // 更新前台服务通知，显示当前播放状态
+            this.startForegroundService()
+        },
         initDeviceId() {
             let deviceId = uni.getStorageSync('push_device_id')
             if (!deviceId) {
@@ -332,13 +542,24 @@ export default {
 
                 // 构建前台服务通知
                 const builder = new NotificationCompat.Builder(main, channelId)
-                builder.setContentTitle('推送服务运行中')
-                builder.setContentText('保持后台连接，实时接收推送消息')
+
+                // 如果正在播放音频，显示音频播放信息
+                if (this.audioEnabled && this.isPlaying && this.audioList.length > 0) {
+                    const audioItem = this.audioList[this.currentAudioIndex]
+                    const audioName = audioItem ? audioItem.name : '音乐播放中'
+                    builder.setContentTitle('♪ ' + audioName)
+                    builder.setContentText('推送服务运行中 · 点击返回应用')
+                    builder.setPriority(NotificationCompat.PRIORITY_LOW)
+                } else {
+                    builder.setContentTitle('推送服务运行中')
+                    builder.setContentText('保持后台连接，实时接收推送消息')
+                    builder.setPriority(NotificationCompat.PRIORITY_LOW)
+                }
+
                 builder.setSmallIcon(main.getApplicationInfo().icon)
                 builder.setContentIntent(contentIntent)
                 builder.setOngoing(true)
                 builder.setAutoCancel(false)
-                builder.setPriority(NotificationCompat.PRIORITY_LOW)
 
                 const notification = builder.build()
 
@@ -546,6 +767,11 @@ export default {
                 setTimeout(() => {
                     if (this.isLoggedIn) {
                         this.connectWebSocket()
+                        // 登录后启动音频播放（如果已启用）
+                        if (this.audioEnabled && this.audioList.length > 0) {
+                            this.initAudioPlayer()
+                            this.startAudioPlay()
+                        }
                     }
                 }, 500)
             }
@@ -609,6 +835,11 @@ export default {
             this.form.wsUrl = inputWs
             this.isLoggedIn = true
             this.connectWebSocket()
+            // 登录后启动音频播放（如果已启用）
+            if (this.audioEnabled && this.audioList.length > 0) {
+                this.initAudioPlayer()
+                this.startAudioPlay()
+            }
         },
         handleLogout() {
             uni.showModal({
@@ -618,6 +849,8 @@ export default {
                     if (res.confirm) {
                         this.closeSocket()
                         this.stopForegroundService()
+                        this.stopAudioPlay()
+                        this.destroyAudioPlayer()
                         this.isLoggedIn = false
                         this.showSettings = false
                         uni.removeStorageSync('push_key')
@@ -1835,5 +2068,126 @@ export default {
 .setting-tip-warn {
     color: #e6a23c !important;
     font-weight: 500;
+}
+
+/* 迷你播放器 */
+.mini-player {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+    z-index: 100;
+}
+
+.player-info {
+    flex: 1;
+    overflow: hidden;
+}
+
+.player-title {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.player-status {
+    display: block;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.7);
+    margin-top: 2px;
+}
+
+.player-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-left: 12px;
+}
+
+.player-btn {
+    font-size: 20px;
+    color: #ffffff;
+    padding: 4px 8px;
+}
+
+.player-btn-play {
+    font-size: 28px;
+}
+
+/* 音频设置 */
+.audio-switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 8px;
+}
+
+.setting-label-sm {
+    font-size: 14px;
+    color: #606266;
+}
+
+.audio-input-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    width: 100%;
+}
+
+.audio-input-row .setting-input {
+    flex: 1;
+}
+
+.btn-add {
+    background-color: #67c23a;
+    color: #ffffff;
+    font-size: 13px;
+    padding: 0 16px;
+    height: 36px;
+    line-height: 36px;
+}
+
+.audio-list {
+    margin-top: 12px;
+    width: 100%;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.audio-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background-color: #f5f7fa;
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.audio-name {
+    font-size: 13px;
+    color: #303133;
+    flex: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    margin-right: 12px;
+}
+
+.audio-del {
+    font-size: 12px;
+    color: #f56c6c;
+    flex-shrink: 0;
 }
 </style>
