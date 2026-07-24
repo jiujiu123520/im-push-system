@@ -72,6 +72,7 @@ class AuthController
      * Body: { "type": "sms"|"email", "target": "手机号或邮箱" }
      *
      * 验证码关闭时拒绝发送（注册无需验证码，没必要发送）。
+     * 短信和邮箱验证码分别受独立开关控制。
      *
      * @param array $context
      * @param array $params
@@ -79,17 +80,6 @@ class AuthController
      */
     public static function sendCode(array $context, array $params = [])
     {
-        // 验证码开关关闭时拒绝发送
-        if (!UserService::isCaptchaEnabled()) {
-            Response::fail(
-                $context['response'],
-                '验证码功能已关闭，无需发送验证码',
-                Response::CODE_BAD_REQUEST,
-                400
-            );
-            return false;
-        }
-
         $body = self::parseJsonBody($context);
         $type = (string)($body['type'] ?? '');
         $target = (string)($body['target'] ?? '');
@@ -99,7 +89,21 @@ class AuthController
             return false;
         }
 
-        switch (strtolower($type)) {
+        $typeLower = strtolower($type);
+
+        // 检查对应类型的验证码开关
+        if (!UserService::isCaptchaTypeEnabled($typeLower)) {
+            $typeName = $typeLower === 'sms' ? '短信' : '邮箱';
+            Response::fail(
+                $context['response'],
+                $typeName . '验证码功能已关闭，无需发送验证码',
+                Response::CODE_BAD_REQUEST,
+                400
+            );
+            return false;
+        }
+
+        switch ($typeLower) {
             case 'sms':
                 $result = CaptchaService::sendSmsCode($target);
                 break;

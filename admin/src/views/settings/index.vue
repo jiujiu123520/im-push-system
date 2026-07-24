@@ -281,6 +281,40 @@
           </el-tag>
         </div>
 
+        <!-- 独立开关：短信验证 & 邮箱验证 -->
+        <div v-if="captchaForm.enabled === 1" class="captcha-sub-toggles">
+          <div class="sub-toggle-item">
+            <div class="sub-toggle-left">
+              <span class="sub-toggle-icon">📱</span>
+              <div class="sub-toggle-text">
+                <div class="sub-toggle-title">短信验证码</div>
+                <div class="sub-toggle-desc">注册时通过短信验证码验证手机号</div>
+              </div>
+            </div>
+            <el-switch
+              v-model="captchaForm.smsEnabled"
+              :active-value="1"
+              :inactive-value="0"
+              @change="onSmsCaptchaToggle"
+            />
+          </div>
+          <div class="sub-toggle-item">
+            <div class="sub-toggle-left">
+              <span class="sub-toggle-icon">📧</span>
+              <div class="sub-toggle-text">
+                <div class="sub-toggle-title">邮箱验证码</div>
+                <div class="sub-toggle-desc">注册时通过邮箱验证码验证邮箱</div>
+              </div>
+            </div>
+            <el-switch
+              v-model="captchaForm.emailEnabled"
+              :active-value="1"
+              :inactive-value="0"
+              @change="onEmailCaptchaToggle"
+            />
+          </div>
+        </div>
+
         <div class="form-actions captcha-toggle-actions">
           <el-button
             type="primary"
@@ -611,6 +645,172 @@
         </el-form>
       </div>
 
+      <!-- f) 并发压测推送 -->
+      <div class="setting-card concurrent-test-card">
+        <div class="card-head">
+          <div class="head-icon icon-concurrent">
+            <el-icon><PromotionIcon /></el-icon>
+          </div>
+          <div class="head-text">
+            <h3 class="card-title">并发压测推送</h3>
+            <p class="card-sub">测试推送系统并发承载能力（QPS / 平均耗时）</p>
+          </div>
+        </div>
+
+        <el-form
+          :model="concurrentForm"
+          label-position="top"
+          class="setting-form"
+        >
+          <div class="form-row">
+            <el-form-item label="目标类型">
+              <el-select v-model="concurrentForm.targetType" style="width: 100%">
+                <el-option label="按推送 Key" value="key" />
+                <el-option label="按设备 ID" value="device" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="目标值" required>
+              <el-input
+                v-model="concurrentForm.targetValue"
+                :placeholder="concurrentForm.targetType === 'key' ? '请输入推送 Key' : '请输入设备 ID'"
+                clearable
+              />
+            </el-form-item>
+          </div>
+
+          <div class="form-row">
+            <el-form-item label="标题（可选）">
+              <el-input v-model="concurrentForm.title" placeholder="留空默认为【并发压测】" clearable />
+            </el-form-item>
+            <el-form-item label="内容（可选）">
+              <el-input v-model="concurrentForm.content" placeholder="留空默认为并发压测消息" clearable />
+            </el-form-item>
+          </div>
+
+          <div class="form-row">
+            <el-form-item label="优先级">
+              <el-select v-model="concurrentForm.priority" style="width: 100%">
+                <el-option label="高（high）" value="high" />
+                <el-option label="普通（normal）" value="normal" />
+                <el-option label="低（low）" value="low" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="并发数（1-1000）">
+              <el-input-number
+                v-model="concurrentForm.concurrency"
+                :min="1"
+                :max="1000"
+                :step="1"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </div>
+
+          <div class="form-row">
+            <el-form-item label="总推送次数（0=只按并发数发一批，1-10000）">
+              <el-input-number
+                v-model="concurrentForm.total"
+                :min="0"
+                :max="10000"
+                :step="10"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+            <el-form-item label="批次间隔（毫秒，0=不间隔）">
+              <el-input-number
+                v-model="concurrentForm.intervalMs"
+                :min="0"
+                :max="60000"
+                :step="10"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </div>
+
+          <el-alert type="warning" :closable="false" class="concurrent-tip">
+            <template #title>
+              <div class="concurrent-tip-content">
+                <strong>注意事项：</strong>
+                <div>· 总次数 = 并发数 × 批次数，建议从小到大逐步加压</div>
+                <div>· 压测会真实推送消息到目标设备/Key，请注意影响</div>
+                <div>· 间隔毫秒数越大对服务器冲击越小，建议初始 100ms</div>
+              </div>
+            </template>
+          </el-alert>
+
+          <div class="form-actions">
+            <el-button
+              type="primary"
+              :icon="PromotionIcon"
+              :loading="testing.concurrent"
+              @click="runConcurrentTest"
+            >
+              开始压测
+            </el-button>
+          </div>
+
+          <!-- 压测结果 -->
+          <div v-if="concurrentResult" class="concurrent-result">
+            <div class="result-header">
+              <span class="result-title">压测结果</span>
+              <el-tag
+                :type="concurrentResult.fail_count === 0 ? 'success' : 'warning'"
+                size="small"
+              >
+                {{ concurrentResult.fail_count === 0 ? '全部成功' : '部分失败' }}
+              </el-tag>
+            </div>
+            <div class="result-grid">
+              <div class="result-item">
+                <span class="result-label">并发数</span>
+                <span class="result-value mono">{{ concurrentResult.concurrency }}</span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">总推送数</span>
+                <span class="result-value mono">{{ concurrentResult.total_sent }}</span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">成功数</span>
+                <span class="result-value mono success">{{ concurrentResult.success_count }}</span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">失败数</span>
+                <span class="result-value mono danger">{{ concurrentResult.fail_count }}</span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">总耗时</span>
+                <span class="result-value mono">{{ concurrentResult.elapsed_ms }} ms</span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">平均耗时</span>
+                <span class="result-value mono">{{ concurrentResult.avg_ms }} ms</span>
+              </div>
+              <div class="result-item highlight">
+                <span class="result-label">QPS</span>
+                <span class="result-value mono">{{ concurrentResult.qps }}</span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">批次数</span>
+                <span class="result-value mono">{{ concurrentResult.batches }}</span>
+              </div>
+            </div>
+            <div v-if="concurrentResult.detail && concurrentResult.detail.length > 0" class="result-detail">
+              <div class="detail-title">失败详情（最多显示前 10 条）：</div>
+              <div
+                v-for="(item, idx) in concurrentResult.detail.slice(0, 10)"
+                :key="idx"
+                class="detail-line mono"
+              >
+                #{{ item.seq }} [批次 {{ item.batch }}] {{ item.reason }}
+              </div>
+            </div>
+          </div>
+        </el-form>
+      </div>
+
       <!-- e) 系统信息（只读） -->
       <div class="setting-card system-info-card" v-loading="systemInfoLoading">
         <div class="card-head">
@@ -824,6 +1024,8 @@ import {
   systemUpdateApi,
   getUpdateProgressApi
 } from '@/api/settings'
+import { concurrentTestPushApi } from '@/api/push'
+import type { ConcurrentTestResult } from '@/api/types'
 
 const loading = ref(false)
 
@@ -904,6 +1106,8 @@ const pushRules: FormRules = {
 const captchaFormRef = ref<FormInstance>()
 const captchaForm = reactive({
   enabled: 1,
+  smsEnabled: 1,
+  emailEnabled: 1,
   smsApiKey: '',
   smsApiUrl: '',
   mailHost: '',
@@ -1173,8 +1377,62 @@ const saving = reactive({
 })
 const testing = reactive({
   mail: false,
-  mailNotify: false
+  mailNotify: false,
+  concurrent: false
 })
+
+// ---- 并发压测推送 ----
+const concurrentForm = reactive({
+  targetType: 'key' as 'device' | 'key',
+  targetValue: '',
+  title: '',
+  content: '',
+  priority: 'high' as 'high' | 'normal' | 'low',
+  concurrency: 10,
+  total: 100,
+  intervalMs: 0
+})
+const concurrentResult = ref<ConcurrentTestResult | null>(null)
+
+async function runConcurrentTest() {
+  if (!concurrentForm.targetValue.trim()) {
+    ElMessage.warning('请输入目标设备 ID 或推送 Key')
+    return
+  }
+  if (concurrentForm.concurrency < 1 || concurrentForm.concurrency > 1000) {
+    ElMessage.warning('并发数范围为 1-1000')
+    return
+  }
+  if (concurrentForm.total < 0 || concurrentForm.total > 10000) {
+    ElMessage.warning('总推送次数范围为 0-10000')
+    return
+  }
+
+  testing.concurrent = true
+  concurrentResult.value = null
+  try {
+    const res = await concurrentTestPushApi({
+      target_type: concurrentForm.targetType,
+      target_value: concurrentForm.targetValue.trim(),
+      title: concurrentForm.title || undefined,
+      content: concurrentForm.content || undefined,
+      priority: concurrentForm.priority,
+      concurrency: concurrentForm.concurrency,
+      total: concurrentForm.total,
+      interval_ms: concurrentForm.intervalMs
+    })
+    concurrentResult.value = res.data
+    if (res.data.fail_count === 0) {
+      ElMessage.success(`并发压测完成，共推送 ${res.data.total_sent} 条，全部成功`)
+    } else {
+      ElMessage.warning(`并发压测完成：成功 ${res.data.success_count} / 失败 ${res.data.fail_count}`)
+    }
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '并发压测失败')
+  } finally {
+    testing.concurrent = false
+  }
+}
 
 const configCount = computed(() => 4)
 
@@ -1234,6 +1492,26 @@ function onCaptchaToggle(val: string | number | boolean) {
     ElMessage.success('验证码已启用，注册和登录将需要验证码验证')
   } else {
     ElMessage.warning('验证码已关闭，注册和登录无需验证码（请确认已保存生效）')
+  }
+}
+
+// 短信验证码开关切换
+function onSmsCaptchaToggle(val: string | number | boolean) {
+  const enabled = val === 1 || val === true || val === '1'
+  if (enabled) {
+    ElMessage.success('短信验证码已启用')
+  } else {
+    ElMessage.warning('短信验证码已关闭，注册时手机号无需短信验证（请确认已保存生效）')
+  }
+}
+
+// 邮箱验证码开关切换
+function onEmailCaptchaToggle(val: string | number | boolean) {
+  const enabled = val === 1 || val === true || val === '1'
+  if (enabled) {
+    ElMessage.success('邮箱验证码已启用')
+  } else {
+    ElMessage.warning('邮箱验证码已关闭，注册时邮箱无需邮件验证（请确认已保存生效）')
   }
 }
 
@@ -1483,6 +1761,115 @@ onUnmounted(() => {
   animation: fade-up 0.5s ease;
 }
 
+// ===== 并发压测推送卡片 =====
+.concurrent-test-card {
+  .icon-concurrent {
+    background: $gradient-cyan;
+    box-shadow: 0 6px 18px rgba(92, 184, 255, 0.32);
+  }
+}
+
+.concurrent-tip {
+  margin: 12px 0;
+
+  .concurrent-tip-content {
+    line-height: 1.8;
+    font-size: 12px;
+
+    strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+  }
+}
+
+.concurrent-result {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: $radius-md;
+  background: var(--bg-page);
+  border: 1px solid var(--border-light);
+
+  .result-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+
+    .result-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+  }
+
+  .result-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+
+  .result-item {
+    padding: 10px 12px;
+    border-radius: $radius-sm;
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    &.highlight {
+      background: linear-gradient(135deg, rgba(24, 194, 156, 0.1), rgba(92, 184, 255, 0.06));
+      border-color: rgba(24, 194, 156, 0.3);
+
+      .result-value {
+        color: $color-success;
+        font-size: 18px;
+      }
+    }
+
+    .result-label {
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .result-value {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-primary);
+
+      &.success {
+        color: $color-success;
+      }
+      &.danger {
+        color: $color-danger;
+      }
+    }
+  }
+
+  .result-detail {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: $radius-sm;
+    background: rgba(255, 90, 110, 0.06);
+    border: 1px solid rgba(255, 90, 110, 0.2);
+
+    .detail-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: $color-danger;
+      margin-bottom: 6px;
+    }
+
+    .detail-line {
+      font-size: 11px;
+      color: var(--text-regular);
+      padding: 2px 0;
+      word-break: break-all;
+    }
+  }
+}
+
 // ===== 验证码开关独立卡片 =====
 .captcha-toggle-card {
   .captcha-toggle-row {
@@ -1503,6 +1890,53 @@ onUnmounted(() => {
         font-size: 15px;
         font-weight: 600;
         color: #303133;
+      }
+    }
+  }
+
+  .captcha-sub-toggles {
+    padding: 0 24px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+
+    .sub-toggle-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      background: #f8fafc;
+      border-radius: 10px;
+      border: 1px solid #eef0f3;
+      transition: all 0.2s ease;
+
+      &:hover {
+        background: #f0f4ff;
+        border-color: #d9e4ff;
+      }
+
+      .sub-toggle-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+
+        .sub-toggle-icon {
+          font-size: 22px;
+        }
+
+        .sub-toggle-text {
+          .sub-toggle-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #303133;
+            margin-bottom: 2px;
+          }
+
+          .sub-toggle-desc {
+            font-size: 12px;
+            color: #909399;
+          }
+        }
       }
     }
   }
@@ -2179,6 +2613,9 @@ onUnmounted(() => {
     .el-button {
       width: 100%;
     }
+  }
+  .concurrent-result .result-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 

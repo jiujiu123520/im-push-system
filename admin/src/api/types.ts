@@ -420,3 +420,36 @@ export interface TestPushResult {
     online_devices?: number
   }
 }
+
+// 并发压测推送
+export interface ConcurrentTestParams {
+  target_type: 'device' | 'key'
+  target_value: string
+  title?: string
+  content?: string
+  priority?: 'high' | 'normal' | 'low'
+  // 并发数（1-1000，默认 10）
+  concurrency?: number
+  // 总推送次数（0=只按并发数发一批，1-10000）
+  total?: number
+  // 每批之间的间隔毫秒数（默认 0，不间隔）
+  interval_ms?: number
+}
+
+export interface ConcurrentTestResult {
+  concurrency: number
+  total_sent: number
+  success_count: number
+  fail_count: number
+  elapsed_ms: number
+  avg_ms: number
+  qps: number
+  batches: number
+  interval_ms: number
+  detail: Array<{
+    seq: number
+    batch: number
+    status: 'failed'
+    reason: string
+  }>
+}

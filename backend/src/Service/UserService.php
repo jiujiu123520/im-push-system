@@ -43,8 +43,10 @@ class UserService
         // 支持两种验证码方式：
         //   a) 图形验证码（codeType='captcha'）：codeTarget=验证码token，codeInput=图形验证码
         //   b) 短信/邮箱验证码（codeType='sms'/'email'）：codeTarget=手机号/邮箱，codeInput=收到的验证码
-        if (self::isCaptchaEnabled()) {
-            if (strtolower($codeType) === 'captcha') {
+        // 短信和邮箱验证码分别受 smsEnabled 和 emailEnabled 独立开关控制
+        $codeTypeLower = strtolower($codeType);
+        if (self::isCaptchaTypeEnabled($codeTypeLower)) {
+            if ($codeTypeLower === 'captcha') {
                 // 图形验证码模式：codeTarget 是验证码 token，codeInput 是图形码
                 if (!CaptchaService::verifyImageCaptcha($codeTarget, $codeInput)) {
                     $fail['message'] = '验证码错误或已过期';
@@ -58,7 +60,7 @@ class UserService
                 }
 
                 // 2. 校验验证码目标与注册信息一致（防绕过）
-                $expectedTarget = $codeType === 'sms' ? $phone : $email;
+                $expectedTarget = $codeTypeLower === 'sms' ? $phone : $email;
                 if ($codeTarget !== $expectedTarget) {
                     $fail['message'] = '验证码目标与注册信息不匹配';
                     return $fail;
@@ -385,6 +387,83 @@ class UserService
         } catch (\Throwable $e) {
         }
         return true;
+    }
+
+    /**
+     * 读取短信验证码开关（admin_settings.settings_captcha.smsEnabled，默认开启）
+     *
+     * 总开关关闭时，短信验证码也视为关闭。
+     *
+     * @return bool
+     */
+    public static function isSmsCaptchaEnabled(): bool
+    {
+        if (!self::isCaptchaEnabled()) {
+            return false;
+        }
+        try {
+            $row = Database::fetch(
+                'SELECT config_value FROM admin_settings WHERE config_key = ? LIMIT 1',
+                ['settings_captcha']
+            );
+            if ($row !== false) {
+                $cfg = json_decode((string)$row['config_value'], true);
+                if (is_array($cfg) && array_key_exists('smsEnabled', $cfg)) {
+                    return (bool)$cfg['smsEnabled'];
+                }
+            }
+        } catch (\Throwable $e) {
+        }
+        return true;
+    }
+
+    /**
+     * 读取邮箱验证码开关（admin_settings.settings_captcha.emailEnabled，默认开启）
+     *
+     * 总开关关闭时，邮箱验证码也视为关闭。
+     *
+     * @return bool
+     */
+    public static function isEmailCaptchaEnabled(): bool
+    {
+        if (!self::isCaptchaEnabled()) {
+            return false;
+        }
+        try {
+            $row = Database::fetch(
+                'SELECT config_value FROM admin_settings WHERE config_key = ? LIMIT 1',
+                ['settings_captcha']
+            );
+            if ($row !== false) {
+                $cfg = json_decode((string)$row['config_value'], true);
+                if (is_array($cfg) && array_key_exists('emailEnabled', $cfg)) {
+                    return (bool)$cfg['emailEnabled'];
+                }
+            }
+        } catch (\Throwable $e) {
+        }
+        return true;
+    }
+
+    /**
+     * 检查指定类型的验证码是否启用
+     *
+     * @param string $type captcha|sms|email
+     * @return bool
+     */
+    public static function isCaptchaTypeEnabled(string $type): bool
+    {
+        $type = strtolower($type);
+        if ($type === 'captcha') {
+            return self::isCaptchaEnabled();
+        }
+        if ($type === 'sms') {
+            return self::isSmsCaptchaEnabled();
+        }
+        if ($type === 'email') {
+            return self::isEmailCaptchaEnabled();
+        }
+        return self::isCaptchaEnabled();
     }
 
     /**

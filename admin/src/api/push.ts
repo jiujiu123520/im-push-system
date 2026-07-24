@@ -5,7 +5,9 @@ import type {
   PageResult,
   PushLog,
   PushParams,
-  TestPushResult
+  TestPushResult,
+  ConcurrentTestParams,
+  ConcurrentTestResult
 } from './types'
 
 // 推送记录列表
@@ -86,4 +88,9 @@ export function sendTestPushApi(data: {
 // 检查设备/Key 在线状态
 export function checkOnlineApi(params: { type: 'device' | 'key'; value: string }) {
   return get<{ online: boolean; online_count: number; detail: any }>('/admin/test-push/check', params)
+}
+
+// 并发压测推送
+export function concurrentTestPushApi(data: ConcurrentTestParams) {
+  return post<ConcurrentTestResult>('/admin/test-push/concurrent', data)
 }

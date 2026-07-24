@@ -255,6 +255,7 @@ if ($runWs) {
         $router->post('/admin/push/send',         [\App\Controller\TestPushController::class, 'sendPush']);
         $router->post('/admin/test-push',         [\App\Controller\TestPushController::class, 'send']);
         $router->get('/admin/test-push/check',    [\App\Controller\TestPushController::class, 'check']);
+        $router->post('/admin/test-push/concurrent', [\App\Controller\TestPushController::class, 'concurrentTest']);
 
         // APP 端自测推送（无需鉴权，通过 Key + device_id）
         $router->post('/api/test-push-self',      [\App\Controller\TestPushController::class, 'selfTest']);

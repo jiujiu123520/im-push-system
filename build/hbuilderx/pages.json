@@ -8,6 +8,15 @@
                 "navigationBarTextStyle" : "white",
                 "enablePullDownRefresh" : false
             }
+        },
+        {
+            "path" : "pages/home/index",
+            "style" : {
+                "navigationBarTitleText" : "消息推送",
+                "navigationBarBackgroundColor" : "#667eea",
+                "navigationBarTextStyle" : "white",
+                "enablePullDownRefresh" : false
+            }
         }
     ],
     "globalStyle" : {

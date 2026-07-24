@@ -263,6 +263,201 @@ class TestPushController
     }
 
     /**
+     * 并发压测推送
+     * 路由：POST /admin/test-push/concurrent
+     *
+     * 请求体：
+     *   {
+     *     "target_type":  "device" | "key",
+     *     "target_value": "设备ID或Key值",
+     *     "title":        "可选自定义标题",
+     *     "content":      "可选自定义内容",
+     *     "priority":     "high" | "normal" | "low",
+     *     "concurrency":  int, 并发数（1-1000，默认 10）
+     *     "total":        int, 总推送次数（1-10000，默认 100，0=只按并发数发一批）
+     *     "interval_ms":  int, 每批之间的间隔毫秒数（默认 0，不间隔）
+     *   }
+     *
+     * 返回：
+     *   {
+     *     "concurrency": int,  实际并发数
+     *     "total_sent":  int,  实际发送总数
+     *     "success_count": int,
+     *     "fail_count":    int,
+     *     "elapsed_ms":    int,  总耗时
+     *     "avg_ms":        float, 平均单条耗时
+     *     "qps":           float, 每秒推送次数
+     *     "batches":       int,   批次数
+     *     "detail":        [...]
+     *   }
+     */
+    public function concurrentTest(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $body = $this->parseBody($context);
+
+        $targetType  = (string)($body['target_type'] ?? '');
+        $targetValue = (string)($body['target_value'] ?? '');
+        $title       = (string)($body['title'] ?? '');
+        $content     = (string)($body['content'] ?? '');
+        $priority    = (string)($body['priority'] ?? 'high');
+        $concurrency = max(1, min(1000, (int)($body['concurrency'] ?? 10)));
+        $total       = (int)($body['total'] ?? 100);
+        $intervalMs  = max(0, min(60000, (int)($body['interval_ms'] ?? 0)));
+
+        // 参数校验
+        if (!in_array($targetType, ['device', 'key'], true)) {
+            Response::fail($response, 'target_type 必须为 device 或 key', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+        if ($targetValue === '') {
+            Response::fail($response, 'target_value 不能为空', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+        if ($total < 0 || $total > 10000) {
+            Response::fail($response, 'total 取值范围 0-10000', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        // 默认 0 表示只按并发数发一批
+        $actualTotal = $total > 0 ? $total : $concurrency;
+        $batches = (int)ceil($actualTotal / $concurrency);
+
+        $testTitle = $title !== '' ? $title : '【并发压测】';
+        $baseContent = $content !== '' ? $content : '并发压测消息';
+
+        $startTime = microtime(true);
+
+        $totalSuccess = 0;
+        $totalFail = 0;
+        $totalSent = 0;
+        $details = [];
+
+        // 使用 PushDispatcher 进行推送
+        $dispatcher = new PushDispatcher();
+
+        // 查询 push_key_id（按 Key 推送时使用）
+        $pushKeyId = 0;
+        if ($targetType === 'key') {
+            try {
+                $pushKeyRow = Database::fetch(
+                    'SELECT id FROM push_keys WHERE key_value = ? LIMIT 1',
+                    [$targetValue]
+                );
+                if ($pushKeyRow) {
+                    $pushKeyId = (int)$pushKeyRow['id'];
+                }
+            } catch (\Throwable $e) {}
+        }
+
+        for ($batch = 0; $batch < $batches; $batch++) {
+            // 当前批次应推送的数量
+            $remaining = $actualTotal - $totalSent;
+            $currentBatchSize = min($concurrency, $remaining);
+            if ($currentBatchSize <= 0) {
+                break;
+            }
+
+            // 使用 swoole 协程并发推送（如果在 Swoole HTTP 上下文中）
+            // 这里简化为同步循环推送，因为 PushDispatcher 内部已通过 Redis 队列异步处理
+            for ($i = 0; $i < $currentBatchSize; $i++) {
+                $seq = $totalSent + 1;
+                $message = [
+                    'message_id' => uniqid('conc_test_', true),
+                    'title'      => $testTitle . ' #' . $seq,
+                    'content'    => $baseContent . '（第 ' . $seq . ' 条，批次 ' . ($batch + 1) . '）',
+                    'payload'    => [
+                        'is_test'      => true,
+                        'concurrent'   => true,
+                        'seq'          => $seq,
+                        'batch'        => $batch + 1,
+                        'concurrency'  => $concurrency,
+                        'admin_id'     => $admin['admin_id'] ?? 0,
+                        'admin_name'   => $admin['username'] ?? '',
+                        'sent_at'      => date('Y-m-d H:i:s'),
+                    ],
+                    'priority'   => $priority,
+                    'timestamp'  => time(),
+                ];
+                if ($pushKeyId > 0) {
+                    $message['push_key_id'] = $pushKeyId;
+                }
+
+                try {
+                    if ($targetType === 'device') {
+                        $r = $dispatcher->pushToDevices([$targetValue], $message);
+                    } else {
+                        $r = $dispatcher->pushByKey($targetValue, $message);
+                    }
+                    $totalSuccess += $r['success_count'];
+                    $totalFail    += $r['fail_count'];
+                } catch (\Throwable $e) {
+                    $totalFail++;
+                    $details[] = [
+                        'seq'   => $seq,
+                        'batch' => $batch + 1,
+                        'status' => 'failed',
+                        'reason' => $e->getMessage(),
+                    ];
+                }
+                $totalSent++;
+            }
+
+            // 批次间隔（除最后一批外）
+            if ($intervalMs > 0 && $batch < $batches - 1) {
+                usleep($intervalMs * 1000);
+            }
+        }
+
+        $elapsedMs = (int)((microtime(true) - $startTime) * 1000);
+        $avgMs = $totalSent > 0 ? round($elapsedMs / $totalSent, 2) : 0;
+        $qps = $elapsedMs > 0 ? round($totalSent / ($elapsedMs / 1000), 2) : 0;
+
+        // 记录压测日志
+        try {
+            Database::insert(
+                'INSERT INTO push_logs (api_key_id, target_type, target_value, title, content, success_count, fail_count, detail)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    0,
+                    $targetType,
+                    $targetValue,
+                    $testTitle,
+                    '并发压测：concurrency=' . $concurrency . ', total=' . $actualTotal . ', interval=' . $intervalMs . 'ms',
+                    $totalSuccess,
+                    $totalFail,
+                    json_encode([
+                        'concurrency' => $concurrency,
+                        'total_sent'  => $totalSent,
+                        'batches'     => $batches,
+                        'elapsed_ms'  => $elapsedMs,
+                        'avg_ms'      => $avgMs,
+                        'qps'         => $qps,
+                    ], JSON_UNESCAPED_UNICODE),
+                ]
+            );
+        } catch (\Throwable $e) {}
+
+        return [
+            'concurrency'   => $concurrency,
+            'total_sent'    => $totalSent,
+            'success_count' => $totalSuccess,
+            'fail_count'    => $totalFail,
+            'elapsed_ms'    => $elapsedMs,
+            'avg_ms'        => $avgMs,
+            'qps'           => $qps,
+            'batches'       => $batches,
+            'interval_ms'   => $intervalMs,
+            'detail'        => $details,
+        ];
+    }
+
+    /**
      * 解析请求体
      */
     private function parseBody(array $context): array
