@@ -362,6 +362,16 @@ class SslService
         $link = self::NGINX_ENABLED . '/push-system.conf';
         shell_exec(sprintf('sudo ln -sf %s %s 2>&1', escapeshellarg($confPath), escapeshellarg($link)));
 
+        // 禁用旧的 push.conf，避免与 push-system.conf 冲突（upstream 重复定义）
+        $oldConfEnabled = self::NGINX_ENABLED . '/push.conf';
+        if (file_exists($oldConfEnabled) || is_link($oldConfEnabled)) {
+            shell_exec(sprintf('sudo rm -f %s 2>&1', escapeshellarg($oldConfEnabled)));
+        }
+        $oldConfAvailable = self::NGINX_AVAILABLE . '/push.conf';
+        if (file_exists($oldConfAvailable)) {
+            shell_exec(sprintf('sudo mv %s %s.bak 2>&1', escapeshellarg($oldConfAvailable), escapeshellarg($oldConfAvailable)));
+        }
+
         return [
             'success'   => true,
             'message'   => 'Nginx 配置生成成功',
