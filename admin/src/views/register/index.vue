@@ -62,13 +62,32 @@
 
         <el-divider content-position="center">验证码</el-divider>
 
-        <template v-if="captchaEnabled">
-          <el-form-item prop="codeType" label="验证方式">
+        <template v-if="captchaEnabled && (smsEnabled || emailEnabled)">
+          <el-form-item prop="codeType" label="验证方式" v-if="smsEnabled && emailEnabled">
             <el-radio-group v-model="form.codeType" @change="onCodeTypeChange">
               <el-radio value="sms">短信验证</el-radio>
               <el-radio value="email">邮箱验证</el-radio>
             </el-radio-group>
           </el-form-item>
+
+          <el-alert
+            v-else-if="smsEnabled && !emailEnabled"
+            type="info"
+            :closable="false"
+            title="当前仅启用短信验证"
+            description="邮箱验证码已关闭，将使用短信验证码验证手机号。"
+            show-icon
+            style="margin-bottom: 16px;"
+          />
+          <el-alert
+            v-else-if="!smsEnabled && emailEnabled"
+            type="info"
+            :closable="false"
+            title="当前仅启用邮箱验证"
+            description="短信验证码已关闭，将使用邮箱验证码验证邮箱。"
+            show-icon
+            style="margin-bottom: 16px;"
+          />
 
           <el-form-item prop="codeTarget" :label="form.codeType === 'sms' ? '接收手机号' : '接收邮箱'">
             <el-input
@@ -99,10 +118,20 @@
         </template>
 
         <el-alert
-          v-else
+          v-else-if="!captchaEnabled"
           type="success"
           :closable="false"
           title="验证码功能已关闭"
+          description="当前无需填写验证码即可完成注册。"
+          show-icon
+          style="margin-bottom: 16px;"
+        />
+
+        <el-alert
+          v-else
+          type="success"
+          :closable="false"
+          title="短信和邮箱验证均已关闭"
           description="当前无需填写验证码即可完成注册。"
           show-icon
           style="margin-bottom: 16px;"
@@ -182,6 +211,12 @@ let cooldownTimer: ReturnType<typeof setInterval> | null = null
 
 // 验证码开关（由后端 /captcha/image 返回的 enabled 字段控制）
 const captchaEnabled = ref(true)
+// 短信/邮箱验证码独立开关
+const smsEnabled = ref(true)
+const emailEnabled = ref(true)
+
+// 当前是否需要验证码（总开关开启 且 至少一个独立开关开启）
+const needCaptcha = computed(() => captchaEnabled.value && (smsEnabled.value || emailEnabled.value))
 
 const form = reactive<{
   username: string
@@ -210,8 +245,8 @@ const rules = computed<FormRules>(() => ({
     { required: true, message: '请输入密码', trigger: 'blur' },
     { min: 6, max: 64, message: '密码长度需在 6-64 之间', trigger: 'blur' }
   ],
-  // 验证码关闭时不强制必填
-  codeInput: captchaEnabled.value
+  // 需要验证码时才强制必填
+  codeInput: needCaptcha.value
     ? [{ required: true, message: '请输入验证码', trigger: 'blur' }]
     : []
 }))
@@ -221,6 +256,14 @@ async function fetchCaptchaStatus() {
   try {
     const res = await getCaptchaApi()
     captchaEnabled.value = res.data?.enabled !== false
+    smsEnabled.value = res.data?.smsEnabled !== false
+    emailEnabled.value = res.data?.emailEnabled !== false
+    // 根据独立开关自动调整默认验证方式
+    if (!smsEnabled.value && emailEnabled.value) {
+      form.codeType = 'email'
+    } else if (smsEnabled.value && !emailEnabled.value) {
+      form.codeType = 'sms'
+    }
   } catch {
     // 获取失败时保持默认开启，确保安全
   }
@@ -243,15 +286,17 @@ function validateContact(): string | null {
   if (form.email !== '' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
     return '邮箱格式不正确'
   }
-  // 验证码关闭时跳过验证码目标与注册信息一致性校验
-  if (!captchaEnabled.value) {
+  // 不需要验证码时跳过验证码目标与注册信息一致性校验
+  if (!needCaptcha.value) {
     return null
   }
   // 验证码目标与注册信息一致
   if (form.codeType === 'sms') {
+    if (!smsEnabled.value) return '短信验证码已关闭，请切换验证方式'
     if (form.phone === '') return '使用短信验证时需填写手机号'
     if (form.codeTarget !== form.phone) return '接收验证码的手机号与注册手机号不一致'
   } else {
+    if (!emailEnabled.value) return '邮箱验证码已关闭，请切换验证方式'
     if (form.email === '') return '使用邮箱验证时需填写邮箱'
     if (form.codeTarget !== form.email) return '接收验证码的邮箱与注册邮箱不一致'
   }
@@ -260,8 +305,17 @@ function validateContact(): string | null {
 
 // 发送验证码（验证码关闭时不可用）
 async function handleSendCode() {
-  if (!captchaEnabled.value) {
+  if (!needCaptcha.value) {
     ElMessage.info('验证码功能已关闭，无需发送验证码')
+    return
+  }
+  // 检查当前验证方式是否启用
+  if (form.codeType === 'sms' && !smsEnabled.value) {
+    ElMessage.warning('短信验证码已关闭，请使用邮箱验证')
+    return
+  }
+  if (form.codeType === 'email' && !emailEnabled.value) {
+    ElMessage.warning('邮箱验证码已关闭，请使用短信验证')
     return
   }
   if (form.codeTarget === '') {
@@ -320,10 +374,10 @@ async function handleRegister() {
       phone: form.phone,
       email: form.email,
       password: form.password,
-      // 验证码关闭时传空字符串
-      code_type: captchaEnabled.value ? form.codeType : '',
-      code_target: captchaEnabled.value ? form.codeTarget : '',
-      code_input: captchaEnabled.value ? form.codeInput : ''
+      // 不需要验证码时传空字符串
+      code_type: needCaptcha.value ? form.codeType : '',
+      code_target: needCaptcha.value ? form.codeTarget : '',
+      code_input: needCaptcha.value ? form.codeInput : ''
     }
     const res = await registerApi(params)
     securityCode.value = res.data?.security_code || ''

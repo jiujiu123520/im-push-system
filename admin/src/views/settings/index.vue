@@ -1567,6 +1567,8 @@ async function fetchSettings() {
     // 加载验证码配置
     if (s?.captcha) {
       captchaForm.enabled = s.captcha.enabled ?? 1
+      captchaForm.smsEnabled = s.captcha.smsEnabled ?? 1
+      captchaForm.emailEnabled = s.captcha.emailEnabled ?? 1
       captchaForm.smsApiKey = s.captcha.smsApiKey || ''
       captchaForm.smsApiUrl = s.captcha.smsApiUrl || ''
       captchaForm.mailHost = s.captcha.mailHost || ''

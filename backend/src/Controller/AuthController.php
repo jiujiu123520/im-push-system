@@ -33,6 +33,9 @@ class AuthController
      *   - enabled=true：返回 token + image，前端显示图形验证码
      *   - enabled=false：token/image 为空，前端隐藏验证码输入框（注册和登录均跳过验证码）
      *
+     * 同时返回 smsEnabled / emailEnabled 独立开关状态，供注册页判断
+     * 是否需要短信/邮箱验证码。
+     *
      * @param array $context 请求上下文
      * @param array $params   路径参数
      * @return array|false
@@ -42,18 +45,22 @@ class AuthController
         // 验证码关闭时返回空 token/image，但带上 enabled=false 标识
         if (!UserService::isCaptchaEnabled()) {
             return [
-                'token'   => '',
-                'image'    => '',
-                'enabled' => false,
+                'token'        => '',
+                'image'        => '',
+                'enabled'      => false,
+                'smsEnabled'   => false,
+                'emailEnabled' => false,
             ];
         }
 
         try {
             $data = CaptchaService::generateImageCaptcha();
             return [
-                'token'   => $data['token'],
-                'image'    => $data['image'],
-                'enabled' => true,
+                'token'        => $data['token'],
+                'image'        => $data['image'],
+                'enabled'      => true,
+                'smsEnabled'   => UserService::isSmsCaptchaEnabled(),
+                'emailEnabled' => UserService::isEmailCaptchaEnabled(),
             ];
         } catch (\Throwable $e) {
             Response::fail(
