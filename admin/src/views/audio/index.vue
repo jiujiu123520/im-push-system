@@ -98,7 +98,7 @@
           <template #default="{ row }">
             <el-switch
               :model-value="(row as AudioRecord).status === 1"
-              @change="(val) => toggleStatus(row as AudioRecord, val)"
+              @change="(val) => toggleStatus(row as AudioRecord, !!val)"
             />
           </template>
         </el-table-column>
