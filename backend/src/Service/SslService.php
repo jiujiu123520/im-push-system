@@ -35,25 +35,33 @@ class SslService
      *   ubuntu: /home/ubuntu/.acme.sh/acme.sh
      *   www-data: /var/www/.acme.sh/acme.sh
      * 也可能全局安装到 /usr/local/bin/acme.sh
+     *
+     * 注意：Swoole 以 www-data 用户运行，无权访问 /root 目录，
+     * 对于 /root/.acme.sh 路径需要通过 sudo 检测（sudoers 已配置）。
      */
     public static function isAcmeInstalled(): bool
     {
-        // 检测常见安装路径
-        $candidates = [
-            self::ACME_SH,                          // root 用户
-            '/home/ubuntu/.acme.sh/acme.sh',         // ubuntu 用户
-            '/var/www/.acme.sh/acme.sh',            // www-data 用户
-            '/usr/local/bin/acme.sh',               // 全局安装
-            getenv('HOME') . '/.acme.sh/acme.sh',   // 当前用户家目录
+        // www-data 可直接访问的路径
+        $publicPaths = [
+            '/home/ubuntu/.acme.sh/acme.sh',
+            '/var/www/.acme.sh/acme.sh',
+            '/usr/local/bin/acme.sh',
+            getenv('HOME') . '/.acme.sh/acme.sh',
         ];
-        foreach ($candidates as $path) {
+        foreach ($publicPaths as $path) {
             if ($path && file_exists($path)) {
                 return true;
             }
         }
-        // 最后用 which/command 检测
+        // which 检测
         $which = trim((string) shell_exec('which acme.sh 2>/dev/null') ?? '');
-        return $which !== '';
+        if ($which !== '') {
+            return true;
+        }
+        // /root/.acme.sh/ 目录 www-data 无权直接 file_exists，用 sudo 检测
+        // sudoers 已配置: www-data ALL=(ALL) NOPASSWD: /root/.acme.sh/acme.sh *
+        $check = shell_exec('sudo -n /root/.acme.sh/acme.sh --version 2>/dev/null');
+        return $check !== null && trim($check) !== '';
     }
 
     /**
