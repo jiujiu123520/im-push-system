@@ -138,7 +138,7 @@
               type="danger"
               size="small"
               :icon="DeleteIcon"
-              @click="handleDelete(row)"
+              @click="handleDelete(row as AudioRecord)"
             >
               删除
             </el-button>
