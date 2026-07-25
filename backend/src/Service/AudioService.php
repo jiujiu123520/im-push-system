@@ -135,7 +135,13 @@ class AudioService
     {
         self::init();
 
-        if (!isset($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+        // 检查上传错误码
+        if (isset($file['error']) && $file['error'] !== UPLOAD_ERR_OK) {
+            return ['success' => false, 'message' => '上传错误码：' . $file['error']];
+        }
+
+        // Swoole 环境下 is_uploaded_file 可能失效，改用 is_file 校验
+        if (!isset($file['tmp_name']) || !is_file($file['tmp_name'])) {
             return ['success' => false, 'message' => '无效的上传文件'];
         }
 
@@ -164,7 +170,8 @@ class AudioService
         $newFilename = date('Ymd_His') . '_' . uniqid() . '.' . $ext;
         $targetPath = self::$uploadDir . '/' . $newFilename;
 
-        if (!move_uploaded_file($file['tmp_name'], $targetPath)) {
+        // Swoole 环境下 move_uploaded_file 可能失效，改用 rename
+        if (!rename($file['tmp_name'], $targetPath)) {
             return ['success' => false, 'message' => '文件保存失败'];
         }
 
@@ -179,7 +186,8 @@ class AudioService
 
         $pdo = Database::pdo();
 
-        $countStmt = $pdo->query('SELECT COUNT(*) FROM audio_files');
+        // 首个音频自动设为默认
+        $countStmt = $pdo->query('SELECT COUNT(*) FROM audio_files WHERE is_default = 1');
         $hasDefault = (int)$countStmt->fetchColumn() > 0;
         $isDefault = $hasDefault ? 0 : 1;
 
@@ -260,6 +268,13 @@ class AudioService
             return false;
         }
         $pdo = Database::pdo();
+
+        // 先校验 ID 是否存在，避免清空所有默认后设置无效 ID
+        $check = $pdo->prepare('SELECT id FROM audio_files WHERE id = ? LIMIT 1');
+        $check->execute([$id]);
+        if ($check->fetch() === false) {
+            return false;
+        }
 
         $pdo->beginTransaction();
         try {

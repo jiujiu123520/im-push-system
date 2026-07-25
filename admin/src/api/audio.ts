@@ -36,11 +36,7 @@ export function uploadAudioApi(formData: FormData) {
     filename: string
     file_size: number
     duration: number
-  }>('/admin/audio/upload', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
-  })
+  }>('/admin/audio/upload', formData)
 }
 
 export function updateAudioApi(id: number, data: { title?: string; artist?: string; sort_order?: number; status?: number }) {

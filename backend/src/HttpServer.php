@@ -189,6 +189,7 @@ class HttpServer
                 'response' => $response,
                 'get'      => $request->get ?? [],
                 'post'     => $request->post ?? [],
+                'files'    => $request->files ?? [],
                 'server'   => $request->server ?? [],
                 'header'   => $request->header ?? [],
                 'raw'      => $request->rawContent() ?: '',

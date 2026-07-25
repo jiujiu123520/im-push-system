@@ -180,13 +180,32 @@ class AudioController
         $size = $fileInfo['size'];
         $mimeType = $fileInfo['mime_type'] ?: 'audio/mpeg';
 
-        $response->status(200);
+        // 公共响应头
         $response->header('Content-Type', $mimeType);
-        $response->header('Content-Length', (string)$size);
         $response->header('Accept-Ranges', 'bytes');
         $response->header('Cache-Control', 'public, max-age=3600');
         $response->header('Access-Control-Allow-Origin', '*');
-        $response->sendfile($filePath);
+
+        // 解析 Range 请求头，支持断点续传 / 拖动进度条
+        $rangeHeader = $context['header']['range'] ?? '';
+        if ($rangeHeader !== '' && preg_match('/bytes=(\d+)-(\d*)/', $rangeHeader, $m)) {
+            $start = (int)$m[1];
+            $end = ($m[2] !== '') ? (int)$m[2] : $size - 1;
+            if ($start > $end || $start >= $size) {
+                $response->status(416);
+                $response->header('Content-Range', "bytes */$size");
+                return false;
+            }
+            $length = $end - $start + 1;
+            $response->status(206);
+            $response->header('Content-Range', "bytes $start-$end/$size");
+            $response->header('Content-Length', (string)$length);
+            $response->sendfile($filePath, $start, $length);
+        } else {
+            $response->status(200);
+            $response->header('Content-Length', (string)$size);
+            $response->sendfile($filePath);
+        }
 
         return false;
     }

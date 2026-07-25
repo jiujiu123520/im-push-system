@@ -33,6 +33,10 @@ service.interceptors.request.use(
     if (token && config.headers) {
       config.headers['Authorization'] = `Bearer ${token}`
     }
+    // FormData 上传时删除默认 Content-Type，让浏览器自动设置带 boundary 的 multipart 头
+    if (config.data instanceof FormData && config.headers) {
+      delete config.headers['Content-Type']
+    }
     return config
   },
   (error) => {
