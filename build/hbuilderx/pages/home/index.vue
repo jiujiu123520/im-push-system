@@ -434,6 +434,7 @@ export default {
                             this.currentAudioIndex = defaultIndex
                             if (this.audioEnabled) {
                                 this.initAudioPlayer()
+                                this.startAudioPlay()
                             }
                         }
                     }
