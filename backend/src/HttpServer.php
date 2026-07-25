@@ -79,7 +79,6 @@ class HttpServer
             'max_conn'        => 10000,    // 单 worker 最大并发连接数
             'max_request'     => 10000,    // 每个 worker 处理 10000 次请求后重启,防止内存泄漏
             'max_wait_time'   => 60,       // reload 时等待请求结束的最大秒数
-            'reloadable'      => true,     // worker 可被 reload 重启
             // 文件上传：允许大请求体（音频文件最大 50MB）
             'package_max_length' => 60 * 1024 * 1024,  // 60MB
         ]);
