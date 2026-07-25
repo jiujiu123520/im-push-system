@@ -330,13 +330,12 @@ class DomainController
             }
         }
 
-        // 自动重新生成并重载 Nginx 配置
+        // 自动重新生成并重载 Nginx 配置（即使没有域名也生成默认 server 块支持 IP 访问）
         $domains = Database::fetchAll('SELECT * FROM domains WHERE status = 1 ORDER BY is_primary DESC, id ASC');
-        if (!empty($domains)) {
-            $genResult = SslService::generateNginxConfig($domains);
-            if ($genResult['success']) {
-                SslService::reloadNginx();
-            }
+        $domains = $domains ?: [];
+        $genResult = SslService::generateNginxConfig($domains);
+        if ($genResult['success']) {
+            SslService::reloadNginx();
         }
 
         return ['message' => '域名已删除'];
