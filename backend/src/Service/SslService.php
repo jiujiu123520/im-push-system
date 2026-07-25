@@ -356,8 +356,10 @@ class SslService
         $config = self::buildNginxConfig($domains);
         $confPath = self::NGINX_AVAILABLE . '/push-system.conf';
 
-        $cmd = sprintf("sudo tee %s > /dev/null 2>&1 <<'PUSH_NGINX_EOF'\n%s\nPUSH_NGINX_EOF", escapeshellarg($confPath), $config);
-        shell_exec($cmd);
+        $tmpFile = tempnam(sys_get_temp_dir(), 'push-nginx-');
+        file_put_contents($tmpFile, $config);
+        shell_exec(sprintf('sudo cp %s %s 2>&1', escapeshellarg($tmpFile), escapeshellarg($confPath)));
+        @unlink($tmpFile);
 
         $link = self::NGINX_ENABLED . '/push-system.conf';
         shell_exec(sprintf('sudo ln -sf %s %s 2>&1', escapeshellarg($confPath), escapeshellarg($link)));
