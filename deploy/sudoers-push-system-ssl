@@ -30,8 +30,9 @@ www-data ALL=(ALL) NOPASSWD: /bin/bash /www/push-system/backend/deploy/ssl/setup
 www-data ALL=(ALL) NOPASSWD: /usr/bin/install -d /etc/nginx/ssl
 www-data ALL=(ALL) NOPASSWD: /usr/bin/mkdir -p /etc/nginx/ssl
 www-data ALL=(ALL) NOPASSWD: /usr/bin/mkdir -p /www/push-system/acme
-www-data ALL=(ALL) NOPASSWD: /bin/chown www-data:www-data /www/push-system/acme
-www-data ALL=(ALL) NOPASSWD: /bin/chown -R www-data:www-data /www/push-system/acme
+# chown 的 user:group 冒号需转义，否则 sudoers 解析为 runas 规范
+www-data ALL=(ALL) NOPASSWD: /bin/chown www-data\:www-data /www/push-system/acme
+www-data ALL=(ALL) NOPASSWD: /bin/chown -R www-data\:www-data /www/push-system/acme
 www-data ALL=(ALL) NOPASSWD: /bin/chmod 644 /etc/nginx/ssl/*
 www-data ALL=(ALL) NOPASSWD: /bin/chmod 600 /etc/nginx/ssl/*
 www-data ALL=(ALL) NOPASSWD: /bin/rm -f /etc/nginx/ssl/*
@@ -42,7 +43,6 @@ www-data ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/nginx/sites-available/*
 www-data ALL=(ALL) NOPASSWD: /bin/ln -sf /etc/nginx/sites-available/* /etc/nginx/sites-enabled/*
 www-data ALL=(ALL) NOPASSWD: /bin/rm -f /etc/nginx/sites-enabled/*
 www-data ALL=(ALL) NOPASSWD: /usr/bin/rm -f /etc/nginx/sites-available/*
-www-data ALL=(ALL) NOPASSWD: /bin/mv /etc/nginx/sites-available/* *
 www-data ALL=(ALL) NOPASSWD: /usr/sbin/nginx -t
 www-data ALL=(ALL) NOPASSWD: /usr/sbin/nginx -s reload
 
