@@ -605,11 +605,7 @@ class DomainController
         $domains = Database::fetchAll(
             'SELECT * FROM domains WHERE status = 1 ORDER BY is_primary DESC, id ASC'
         );
-
-        if (empty($domains)) {
-            Response::fail($response, '没有启用的域名，请先添加域名', Response::CODE_BAD_REQUEST, 400);
-            return false;
-        }
+        $domains = $domains ?: [];
 
         $genResult = SslService::generateNginxConfig($domains);
         if (!$genResult['success']) {

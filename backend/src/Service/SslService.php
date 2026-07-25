@@ -349,9 +349,7 @@ class SslService
      */
     public static function generateNginxConfig(array $domains): array
     {
-        if (empty($domains)) {
-            return ['success' => false, 'message' => '没有绑定的域名'];
-        }
+        $domains = is_array($domains) ? $domains : [];
 
         $config = self::buildNginxConfig($domains);
         $confPath = self::NGINX_AVAILABLE . '/push-system.conf';
