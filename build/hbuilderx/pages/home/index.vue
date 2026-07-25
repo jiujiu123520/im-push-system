@@ -422,10 +422,13 @@ export default {
                 method: 'GET',
                 success: (res) => {
                     console.log('云端音频列表获取成功:', res.data)
-                    if (res.data && res.data.list && Array.isArray(res.data.list)) {
-                        this.serverAudioList = res.data.list
+                    // 后端响应格式: { code: 0, data: { list: [...], total: N } }
+                    const resData = res.data || {}
+                    const list = resData.data ? resData.data.list : resData.list
+                    if (list && Array.isArray(list)) {
+                        this.serverAudioList = list
                         // 查找默认音频
-                        const defaultIndex = res.data.list.findIndex(item => item.is_default === 1)
+                        const defaultIndex = list.findIndex(item => item.is_default === 1 || item.is_default === '1')
                         if (defaultIndex >= 0) {
                             this.currentAudioSource = 'server'
                             this.currentAudioIndex = defaultIndex
