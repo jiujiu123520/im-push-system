@@ -421,20 +421,27 @@ class SslService
             $lines[] = '';
         }
 
-        // 默认 ACME challenge server（80 端口，兜底所有未匹配域名）
+        // 默认 server（80 端口，兜底 IP 访问和未匹配域名，支持 HTTP 直接访问）
         $lines[] = '# ----------------------------------------------------------';
-        $lines[] = '# 默认 ACME challenge 兜底（确保 80 端口可验证证书）';
+        $lines[] = '# 默认 server（IP 访问 / 未匹配域名兜底，支持 HTTP 直接访问）';
         $lines[] = '# ----------------------------------------------------------';
         $lines[] = 'server {';
         $lines[] = '    listen 80 default_server;';
         $lines[] = '    listen [::]:80 default_server;';
         $lines[] = '    server_name _;';
+        $lines[] = '    client_max_body_size 50m;';
+        $lines[] = '';
+        $lines[] = '    access_log /var/log/nginx/push_default_access.log;';
+        $lines[] = '    error_log  /var/log/nginx/push_default_error.log;';
+        $lines[] = '';
         $lines[] = '    location /.well-known/acme-challenge/ {';
         $lines[] = '        root ' . self::ACME_WEBROOT . ';';
         $lines[] = '    }';
-        $lines[] = '    location / {';
-        $lines[] = '        return 444;';
-        $lines[] = '    }';
+        $lines[] = '';
+        $defaultLocations = self::buildLocationsByType('all', self::DEFAULT_BACKEND);
+        foreach ($defaultLocations as $locLine) {
+            $lines[] = $locLine;
+        }
         $lines[] = '}';
 
         $lines[] = '';
@@ -676,7 +683,7 @@ class SslService
         $lines[] = '    location ~ /\.(git|env|htaccess) {';
         $lines[] = '        deny all;';
         $lines[] = '        return 404;';
-        $lines[] = '}';
+        $lines[] = '    }';
 
         return $lines;
     }
