@@ -94,6 +94,9 @@ class ConnectionManager
         // Redis：device_id -> fd 集合
         $this->redis->sAdd("ws:device:{$deviceId}", (string)$fd);
 
+        // Redis：fd -> device_id 映射（用于僵尸连接清理）
+        $this->redis->hSet('ws:fd:device', (string)$fd, $deviceId);
+
         // Redis：在线 fd 集合
         $this->redis->sAdd('ws:online', (string)$fd);
     }
@@ -123,6 +126,9 @@ class ConnectionManager
 
         // 从 device_id -> fd 集合移除
         $this->redis->sRem("ws:device:{$deviceId}", (string)$fd);
+
+        // 从 fd -> device_id 映射移除
+        $this->redis->hDel('ws:fd:device', (string)$fd);
 
         // 若该设备已无任何在线 fd，则从 key 订阅集合和 device:key 哈希中移除
         if ($this->redis->sCard("ws:device:{$deviceId}") == 0) {

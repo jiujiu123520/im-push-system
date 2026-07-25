@@ -24,7 +24,15 @@ require $autoload;
 // 2. 加载环境变量
 App\Service\Config::loadEnv();
 
-// 3. 确保运行时目录存在
+// 3. 设置默认时区（优先使用 .env 配置，否则默认 Asia/Shanghai）
+$tz = App\Service\Config::env('TIMEZONE', '');
+if ($tz) {
+    date_default_timezone_set($tz);
+} elseif (!ini_get('date.timezone')) {
+    date_default_timezone_set('Asia/Shanghai');
+}
+
+// 4. 确保运行时目录存在
 $dirs = [
     BASE_PATH . '/runtime',
     BASE_PATH . '/runtime/logs',
@@ -35,7 +43,7 @@ foreach ($dirs as $dir) {
     }
 }
 
-// 4. 解析启动参数
+// 5. 解析启动参数
 $daemonize = in_array('--daemon', $argv, true);
 $runWs     = in_array('--ws', $argv, true);
 

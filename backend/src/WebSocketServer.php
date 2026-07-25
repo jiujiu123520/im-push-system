@@ -241,6 +241,15 @@ class WebSocketServer
                     echo "[WS] 队列消费异常：{$e->getMessage()}\n";
                 }
             });
+
+            // 每 30 秒巡检一次僵尸连接（Redis 记录在线但实际已断开的连接）
+            Timer::tick(30000, function () {
+                try {
+                    $this->cleanupDeadConnections();
+                } catch (\Throwable $e) {
+                    echo "[WS] 僵尸连接巡检异常：{$e->getMessage()}\n";
+                }
+            });
         }
     }
 
@@ -590,6 +599,63 @@ class WebSocketServer
             }
         } catch (\Throwable $e) {
             echo "[WS] onClose 清理异常：{$e->getMessage()}\n";
+        }
+    }
+
+    /**
+     * 巡检并清理僵尸连接
+     *
+     * 遍历 Redis 中所有在线 fd，逐一检查 isEstablished，
+     * 清理那些 Redis 标记在线但实际已断开的连接。
+     *
+     * @return void
+     */
+    private function cleanupDeadConnections(): void
+    {
+        try {
+            $redis = \App\Service\Redis::getInstance();
+        } catch (\Throwable $e) {
+            echo "[WS] cleanupDeadConnections Redis 连接失败：{$e->getMessage()}\n";
+            return;
+        }
+
+        $onlineFds = $redis->sMembers('ws:online');
+        if (empty($onlineFds)) {
+            return;
+        }
+
+        $deadCount = 0;
+        $checked   = 0;
+
+        foreach ($onlineFds as $fdStr) {
+            $fd = (int)$fdStr;
+            $checked++;
+
+            if (!$this->server->isEstablished($fd)) {
+                $deadCount++;
+                $this->connectionManager->unregisterDevice($fd);
+
+                $deviceId = $redis->hGet('ws:fd:device', (string)$fd);
+                if ($deviceId) {
+                    $redis->hDel('ws:fd:device', (string)$fd);
+                    $remaining = $redis->sCard("ws:device:{$deviceId}");
+                    if ($remaining == 0) {
+                        $keyValue = $redis->hGet('device:key', $deviceId);
+                        if ($keyValue) {
+                            $redis->sRem("key:subscribe:{$keyValue}", $deviceId);
+                        }
+                        $redis->hDel('device:key', $deviceId);
+                    }
+                }
+            }
+
+            if ($checked >= 200) {
+                break;
+            }
+        }
+
+        if ($deadCount > 0) {
+            echo "[WS] 僵尸连接巡检完成：检查 {$checked} 个，清理 {$deadCount} 个\n";
         }
     }
 

@@ -371,15 +371,28 @@ export default {
             }
             if (this.connected && this.socketTask) {
                 console.log('页面 onShow，发送验证 ping 确认连接存活')
+                this._onShowPingTimer && clearTimeout(this._onShowPingTimer)
+                this._onShowPongOk = false
+                this._onShowPingTimer = setTimeout(() => {
+                    if (!this._onShowPongOk) {
+                        console.warn('onShow 验证 ping 超时（5秒无响应），连接已失效，触发重连')
+                        this.cleanupAndReconnect()
+                    }
+                    this._onShowPingTimer = null
+                }, 5000)
                 try {
                     this.socketTask.send({
                         data: JSON.stringify({ type: 'ping' }),
                         fail: (err) => {
+                            this._onShowPingTimer && clearTimeout(this._onShowPingTimer)
+                            this._onShowPingTimer = null
                             console.warn('onShow 验证 ping 发送失败，连接已失效，触发重连', err)
                             this.cleanupAndReconnect()
                         }
                     })
                 } catch (e) {
+                    this._onShowPingTimer && clearTimeout(this._onShowPingTimer)
+                    this._onShowPingTimer = null
                     console.warn('onShow 验证 ping 异常，触发重连', e)
                     this.cleanupAndReconnect()
                 }
@@ -948,7 +961,60 @@ export default {
                     } catch (e) {}
                 }
 
-                console.log('前台服务保活已启动（通知 + WakeLock + WifiLock）')
+                // 注册屏幕状态监听（亮屏时检测连接，必要时重连）
+                if (!this._screenReceiverRegistered) {
+                    const self = this
+                    this._screenReceiver = new BroadcastReceiver({
+                        onReceive: function(context, intent) {
+                            const action = intent.getAction()
+                            if (action === 'android.intent.action.SCREEN_ON') {
+                                console.log('[屏幕] 亮屏，检测 WebSocket 连接状态')
+                                if (self.form && self.form.key) {
+                                    if (!self.connected && !self.connecting) {
+                                        console.log('[屏幕] 连接已断开，触发重连')
+                                        self.cleanupAndReconnect()
+                                    } else if (self.connected && self.socketTask) {
+                                        console.log('[屏幕] 发送 ping 验证连接')
+                                        self._screenPingTimer && clearTimeout(self._screenPingTimer)
+                                        self._screenPongOk = false
+                                        self._screenPingTimer = setTimeout(() => {
+                                            if (!self._screenPongOk) {
+                                                console.warn('[屏幕] ping 超时，连接已死，触发重连')
+                                                self.cleanupAndReconnect()
+                                            }
+                                            self._screenPingTimer = null
+                                        }, 5000)
+                                        try {
+                                            self.socketTask.send({
+                                                data: JSON.stringify({ type: 'ping' }),
+                                                fail: () => {
+                                                    self._screenPingTimer && clearTimeout(self._screenPingTimer)
+                                                    self._screenPingTimer = null
+                                                    self.cleanupAndReconnect()
+                                                }
+                                            })
+                                        } catch (e) {
+                                            self._screenPingTimer && clearTimeout(self._screenPingTimer)
+                                            self._screenPingTimer = null
+                                            self.cleanupAndReconnect()
+                                        }
+                                    }
+                                }
+                            } else if (action === 'android.intent.action.SCREEN_OFF') {
+                                console.log('[屏幕] 锁屏，保持 WebSocket 连接（依赖前台服务保活）')
+                            }
+                        }
+                    })
+                    const filter = plus.android.importClass('android.content.IntentFilter')
+                    const screenFilter = new filter()
+                    screenFilter.addAction('android.intent.action.SCREEN_ON')
+                    screenFilter.addAction('android.intent.action.SCREEN_OFF')
+                    main.registerReceiver(this._screenReceiver, screenFilter)
+                    this._screenReceiverRegistered = true
+                    console.log('屏幕状态广播接收器已注册')
+                }
+
+                console.log('前台服务保活已启动（通知 + WakeLock + WifiLock + 屏幕监听）')
             } catch (e) {
                 console.error('启动前台服务失败', e)
             }
@@ -970,6 +1036,17 @@ export default {
                         console.log('媒体控制广播接收器已注销')
                     } catch (e) {
                         console.warn('注销广播接收器失败', e)
+                    }
+                }
+
+                if (this._screenReceiver && this._screenReceiverRegistered) {
+                    try {
+                        main.unregisterReceiver(this._screenReceiver)
+                        this._screenReceiver = null
+                        this._screenReceiverRegistered = false
+                        console.log('屏幕状态广播接收器已注销')
+                    } catch (e) {
+                        console.warn('注销屏幕广播接收器失败', e)
                     }
                 }
 
@@ -1508,6 +1585,18 @@ export default {
                         return
                     }
                     if (data.type === 'pong') {
+                        if (this._onShowPingTimer) {
+                            this._onShowPongOk = true
+                            clearTimeout(this._onShowPingTimer)
+                            this._onShowPingTimer = null
+                            console.log('onShow 验证 ping 成功，连接存活')
+                        }
+                        if (this._screenPingTimer) {
+                            this._screenPongOk = true
+                            clearTimeout(this._screenPingTimer)
+                            this._screenPingTimer = null
+                            console.log('[屏幕] 亮屏 ping 验证成功，连接存活')
+                        }
                         return
                     }
 

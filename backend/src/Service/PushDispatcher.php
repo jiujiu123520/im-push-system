@@ -361,12 +361,10 @@ class PushDispatcher
 
                 $established = $this->server->isEstablished($fd);
                 if (!$established) {
-                    // 原因 1：fd 未建立 WebSocket 连接
-                    // 常见诱因：客户端已断开但 ConnectionManager 的 fd↔device 映射未及时清理；
-                    //          或 Swoole 内置心跳已关闭该连接但 onClose 还没触发
                     $fail++;
                     $detail[] = ['fd' => $fd, 'status' => 'failed', 'message' => 'fd 未建立 WebSocket 连接'];
-                    $this->logPush("[pushToFds·WS] fd 未建立连接 fd={$fd} msg_id={$msgId} 原因=isEstablished=false（连接已关闭或 onClose 未触发）");
+                    $this->logPush("[pushToFds·WS] fd 未建立连接 fd={$fd} msg_id={$msgId} 原因=isEstablished=false（僵尸连接，触发清理）");
+                    $this->cleanupDeadConnection($fd);
                     continue;
                 }
 
@@ -704,6 +702,41 @@ class PushDispatcher
             'data'      => $message,
             'time'      => time(),
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    /**
+     * 清理僵尸连接（Redis 层面）
+     *
+     * 当发现 isEstablished=false 但 Redis 中仍有该 fd 的在线记录时，
+     * 从 Redis 中移除该 fd，避免后续推送继续命中死连接。
+     *
+     * @param int $fd
+     * @return void
+     */
+    private function cleanupDeadConnection(int $fd): void
+    {
+        try {
+            $redis = Redis::getInstance();
+            $redis->sRem('ws:online', (string)$fd);
+
+            $deviceId = $redis->hGet('ws:fd:device', (string)$fd);
+            if ($deviceId) {
+                $redis->sRem("ws:device:{$deviceId}", (string)$fd);
+                $redis->hDel('ws:fd:device', (string)$fd);
+                $remaining = $redis->sCard("ws:device:{$deviceId}");
+                if ($remaining == 0) {
+                    $keyValue = $redis->hGet('device:key', $deviceId);
+                    if ($keyValue) {
+                        $redis->sRem("key:subscribe:{$keyValue}", $deviceId);
+                    }
+                    $redis->hDel('device:key', $deviceId);
+                }
+            }
+
+            $this->logPush("[cleanupDeadConnection] 已清理僵尸连接 fd={$fd} device_id=" . ($deviceId ?: 'unknown'));
+        } catch (\Throwable $e) {
+            $this->logPush("[cleanupDeadConnection] 清理失败 fd={$fd} err=" . $e->getMessage());
+        }
     }
 
     /**
