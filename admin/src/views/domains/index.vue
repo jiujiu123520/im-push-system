@@ -202,6 +202,16 @@
           </template>
         </el-table-column>
 
+        <el-table-column label="强制HTTPS" width="100" align="center">
+          <template #default="{ row }">
+            <el-switch
+              :model-value="row.force_https === 1"
+              :disabled="row.ssl_status !== 'issued'"
+              @change="(val) => toggleForceHttps(row as DomainRecord, val as boolean)"
+            />
+          </template>
+        </el-table-column>
+
         <el-table-column label="Nginx" width="90" align="center">
           <template #default="{ row }">
             <el-tag :type="row.nginx_deployed ? 'success' : 'info'" size="small">
@@ -384,6 +394,7 @@ import {
   syncNginxApi,
   renewAllApi,
   toggleAutoRenewApi,
+  toggleForceHttpsApi,
   getSslEnvironmentApi,
   installAcmeApi
 } from '@/api/domain'
@@ -575,6 +586,18 @@ async function toggleAutoRenew(row: DomainRecord, val: boolean) {
     const res = await toggleAutoRenewApi(row.id, val)
     row.ssl_auto_renew = val ? 1 : 0
     ElMessage.success(res.data?.message || '操作成功')
+  } catch (e: any) {
+    ElMessage.error(e.message || '操作失败')
+  }
+}
+
+// 切换强制HTTPS跳转
+async function toggleForceHttps(row: DomainRecord, val: boolean) {
+  try {
+    const res = await toggleForceHttpsApi(row.id, val)
+    row.force_https = val ? 1 : 0
+    ElMessage.success(res.data?.message || '操作成功')
+    ElMessage.info('需要重新部署 Nginx 才能生效')
   } catch (e: any) {
     ElMessage.error(e.message || '操作失败')
   }

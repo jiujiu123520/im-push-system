@@ -43,7 +43,7 @@ class DomainController
 
         $list = Database::fetchAll(
             'SELECT id, domain, listen_port, type, target_type, target_host,
-                    ssl_enabled, ssl_status, ssl_expire_at, ssl_auto_renew, ssl_last_renew_at,
+                    ssl_enabled, ssl_status, ssl_expire_at, ssl_auto_renew, force_https, ssl_last_renew_at,
                     ssl_cert_path, ssl_key_path, ssl_error, nginx_deployed,
                     is_primary, status, remark, created_at, updated_at
              FROM domains ORDER BY is_primary DESC, id ASC'
@@ -75,6 +75,7 @@ class DomainController
             $row['listen_port'] = (int)$row['listen_port'];
             $row['ssl_enabled'] = (int)$row['ssl_enabled'];
             $row['ssl_auto_renew'] = (int)$row['ssl_auto_renew'];
+            $row['force_https'] = (int)($row['force_https'] ?? 1);
             $row['nginx_deployed'] = (int)$row['nginx_deployed'];
             $row['is_primary'] = (int)$row['is_primary'];
             $row['status'] = (int)$row['status'];
@@ -491,6 +492,35 @@ class DomainController
         return [
             'message' => $autoRenew ? '已开启自动续费' : '已关闭自动续费',
             'ssl_auto_renew' => $autoRenew,
+        ];
+    }
+
+    /**
+     * 切换 HTTP/HTTPS 访问模式
+     * force_https=1 强制跳转 HTTPS
+     * force_https=0 同时支持 HTTP+HTTPS 访问
+     */
+    public function toggleForceHttps(array $context, array $params)
+    {
+        if (AdminAuth::authenticate($context) === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $id = (int)($params['id'] ?? 0);
+        if ($id <= 0) {
+            Response::fail($response, '无效的 ID', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        $body = $this->parseBody($context);
+        $forceHttps = (int)($body['force_https'] ?? 0) ? 1 : 0;
+
+        Database::execute('UPDATE domains SET force_https = ?, updated_at = NOW() WHERE id = ?', [$forceHttps, $id]);
+
+        return [
+            'message' => $forceHttps ? '已开启强制HTTPS跳转' : '已关闭强制跳转，支持HTTP+HTTPS同时访问',
+            'force_https' => $forceHttps,
         ];
     }
 

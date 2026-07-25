@@ -15,6 +15,7 @@ export interface DomainRecord {
   ssl_status: 'none' | 'pending' | 'issued' | 'failed' | 'expired'
   ssl_expire_at: string | null
   ssl_auto_renew: number
+  force_https: number
   ssl_last_renew_at: string | null
   ssl_cert_path: string
   ssl_key_path: string
@@ -123,6 +124,13 @@ export function renewAllApi() {
 export function toggleAutoRenewApi(id: number, ssl_auto_renew: boolean) {
   return post<{ message: string; ssl_auto_renew: number }>(`/admin/domains/${id}/toggle-auto-renew`, {
     ssl_auto_renew: ssl_auto_renew ? 1 : 0
+  })
+}
+
+// 切换强制HTTPS跳转
+export function toggleForceHttpsApi(id: number, force_https: boolean) {
+  return post<{ message: string; force_https: number }>(`/admin/domains/${id}/toggle-force-https`, {
+    force_https: force_https ? 1 : 0
   })
 }
 

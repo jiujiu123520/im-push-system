@@ -297,6 +297,7 @@ if ($runWs) {
         $router->post('/admin/domains/{id}/ssl-renew',         [\App\Controller\DomainController::class, 'renewSsl']);
         $router->post('/admin/domains/{id}/ssl-deploy',         [\App\Controller\DomainController::class, 'deployNginx']);
         $router->post('/admin/domains/{id}/toggle-auto-renew',  [\App\Controller\DomainController::class, 'toggleAutoRenew']);
+        $router->post('/admin/domains/{id}/toggle-force-https', [\App\Controller\DomainController::class, 'toggleForceHttps']);
 
         // ============================================================
         // 音频管理（管理员鉴权）

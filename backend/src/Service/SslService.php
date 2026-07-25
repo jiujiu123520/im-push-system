@@ -451,6 +451,7 @@ class SslService
         $targetType = $row['target_type'] ?? 'all';
         $sslEnabled = (int)$row['ssl_enabled'] === 1 && ($row['ssl_status'] ?? '') === 'issued';
         $targetHost = $row['target_host'] ?? self::DEFAULT_BACKEND;
+        $forceHttps = (int)($row['force_https'] ?? 1) === 1;
 
         $lines = [];
         $lines[] = '# ----------------------------------------------------------';
@@ -503,19 +504,34 @@ class SslService
             $lines = array_merge($lines, self::buildLocationsByType($targetType, $targetHost));
             $lines[] = '}';
 
-            // HTTP 80 → HTTPS 跳转（仅当未指定独立端口时）
+            // HTTP 80 端口处理（仅当未指定独立端口时）
             if ($listenPort === 0) {
                 $lines[] = '';
                 $lines[] = 'server {';
                 $lines[] = '    listen 80;';
                 $lines[] = '    listen [::]:80;';
                 $lines[] = '    server_name ' . $domain . ';';
+                $lines[] = '    client_max_body_size 50m;';
+                $lines[] = '';
                 $lines[] = '    location /.well-known/acme-challenge/ {';
                 $lines[] = '        root ' . self::ACME_WEBROOT . ';';
                 $lines[] = '    }';
-                $lines[] = '    location / {';
-                $lines[] = '        return 301 https://$host$request_uri;';
-                $lines[] = '    }';
+                if ($forceHttps) {
+                    // 强制跳转 HTTPS
+                    $lines[] = '    location / {';
+                    $lines[] = '        return 301 https://$host$request_uri;';
+                    $lines[] = '    }';
+                } else {
+                    // 同时支持 HTTP 访问（不跳转）
+                    $lines[] = '';
+                    $lines[] = '    access_log /var/log/nginx/push_' . $domain . '_http_access.log;';
+                    $lines[] = '    error_log  /var/log/nginx/push_' . $domain . '_http_error.log;';
+                    $lines[] = '';
+                    $httpLocations = self::buildLocationsByType($targetType, $targetHost);
+                    foreach ($httpLocations as $locLine) {
+                        $lines[] = $locLine;
+                    }
+                }
                 $lines[] = '}';
             }
         } else {
