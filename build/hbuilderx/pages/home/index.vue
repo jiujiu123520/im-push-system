@@ -397,10 +397,17 @@ export default {
         if (this.connectTimeoutTimer) {
             clearTimeout(this.connectTimeoutTimer)
         }
-        // 移除网络监听
         // #ifdef APP-PLUS
         try {
             uni.offNetworkStatusChange(this.networkStatusChange)
+        } catch (e) {}
+        try {
+            const main = plus.android.runtimeMainActivity()
+            if (this._mediaReceiver && this._mediaReceiverRegistered) {
+                main.unregisterReceiver(this._mediaReceiver)
+                this._mediaReceiver = null
+                this._mediaReceiverRegistered = false
+            }
         } catch (e) {}
         // #endif
     },
@@ -785,19 +792,21 @@ export default {
                 const PendingIntent = plus.android.importClass('android.app.PendingIntent')
                 const PowerManager = plus.android.importClass('android.os.PowerManager')
                 const WifiManager = plus.android.importClass('android.net.wifi.WifiManager')
+                const Intent = plus.android.importClass('android.content.Intent')
+                const BroadcastReceiver = plus.android.importClass('android.content.BroadcastReceiver')
 
-                const channelId = 'push_keep_alive'
+                const channelId = 'push_media_player'
                 const notificationId = 1001
 
-                // 创建通知渠道（Android 8.0+）
                 if (Build.VERSION.SDK_INT >= 26) {
                     const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
                     const channel = nm.getNotificationChannel(channelId)
                     if (channel === null || channel === undefined) {
                         const NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
-                        const importance = NotificationManager.IMPORTANCE_LOW
-                        const mChannel = new NotificationChannel(channelId, '推送服务保活', importance)
+                        const importance = NotificationManager.IMPORTANCE_DEFAULT
+                        const mChannel = new NotificationChannel(channelId, '音频播放器', importance)
                         mChannel.setShowBadge(false)
+                        mChannel.setSound(null, null)
                         nm.createNotificationChannel(mChannel)
                     }
                 }
@@ -808,38 +817,103 @@ export default {
                     Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT
                 )
 
+                const pkgName = main.getPackageName()
+                const prevAction = 'com.push.app.ACTION_PREV'
+                const playAction = 'com.push.app.ACTION_PLAY'
+                const nextAction = 'com.push.app.ACTION_NEXT'
+
+                const prevIntent = new Intent(prevAction)
+                prevIntent.setPackage(pkgName)
+                const prevPendingIntent = PendingIntent.getBroadcast(
+                    main, 1, prevIntent,
+                    Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT
+                )
+
+                const playIntent = new Intent(playAction)
+                playIntent.setPackage(pkgName)
+                const playPendingIntent = PendingIntent.getBroadcast(
+                    main, 2, playIntent,
+                    Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT
+                )
+
+                const nextIntent = new Intent(nextAction)
+                nextIntent.setPackage(pkgName)
+                const nextPendingIntent = PendingIntent.getBroadcast(
+                    main, 3, nextIntent,
+                    Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT
+                )
+
                 const builder = new NotificationCompat.Builder(main, channelId)
 
-                if (this.audioEnabled && this.isPlaying) {
-                    let audioName = '音乐播放中'
+                let hasAudio = this.audioEnabled && (this.serverAudioList.length > 0 || this.audioList.length > 0)
+                if (hasAudio) {
+                    let audioName = '未知音频'
+                    let audioArtist = ''
                     if (this.currentAudioSource === 'server' && this.serverAudioList.length > 0) {
                         const audioItem = this.serverAudioList[this.currentAudioIndex]
-                        audioName = audioItem ? audioItem.title : '音乐播放中'
+                        audioName = audioItem ? audioItem.title : '未知音频'
+                        audioArtist = audioItem ? (audioItem.artist || '') : ''
                     } else if (this.currentAudioSource === 'local' && this.audioList.length > 0) {
                         const audioItem = this.audioList[this.currentAudioIndex]
-                        audioName = audioItem ? audioItem.name : '音乐播放中'
+                        audioName = audioItem ? audioItem.name : '未知音频'
                     }
                     const modeText = this.playMode === 'single_loop' ? '单曲循环' : (this.playMode === 'list_loop' ? '列表循环' : '播放一次')
                     builder.setContentTitle('♪ ' + audioName)
-                    builder.setContentText('推送服务运行中 · ' + modeText + ' · 点击返回应用')
-                    builder.setPriority(NotificationCompat.PRIORITY_LOW)
+                    builder.setContentText(audioArtist || (this.isPlaying ? modeText : '已暂停'))
+                    builder.setSubText('推送服务运行中')
+
+                    builder.addAction(android.R.drawable.ic_media_previous, '上一曲', prevPendingIntent)
+                    builder.addAction(this.isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play, this.isPlaying ? '暂停' : '播放', playPendingIntent)
+                    builder.addAction(android.R.drawable.ic_media_next, '下一曲', nextPendingIntent)
+
+                    try {
+                        const MediaStyle = plus.android.importClass('androidx.core.app.NotificationCompat$MediaStyle')
+                        const mediaStyle = new MediaStyle()
+                        mediaStyle.setShowActionsInCompactView(0, 1, 2)
+                        builder.setStyle(mediaStyle)
+                    } catch (e) {
+                        console.warn('MediaStyle 不支持', e)
+                    }
                 } else {
                     builder.setContentTitle('推送服务运行中')
                     builder.setContentText('保持后台连接，实时接收推送消息')
-                    builder.setPriority(NotificationCompat.PRIORITY_LOW)
                 }
 
                 builder.setSmallIcon(main.getApplicationInfo().icon)
                 builder.setContentIntent(contentIntent)
                 builder.setOngoing(true)
                 builder.setAutoCancel(false)
+                builder.setPriority(NotificationCompat.PRIORITY_DEFAULT)
 
                 const notification = builder.build()
 
                 const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
                 nm.notify(notificationId, notification)
 
-                // WakeLock 保持 CPU 唤醒
+                if (!this._mediaReceiverRegistered) {
+                    const self = this
+                    this._mediaReceiver = new BroadcastReceiver({
+                        onReceive: function(context, intent) {
+                            const action = intent.getAction()
+                            if (action === prevAction) {
+                                self.playPrev()
+                            } else if (action === playAction) {
+                                self.togglePlay()
+                            } else if (action === nextAction) {
+                                self.playNext()
+                            }
+                        }
+                    })
+                    const filter = plus.android.importClass('android.content.IntentFilter')
+                    const intentFilter = new filter()
+                    intentFilter.addAction(prevAction)
+                    intentFilter.addAction(playAction)
+                    intentFilter.addAction(nextAction)
+                    main.registerReceiver(this._mediaReceiver, intentFilter)
+                    this._mediaReceiverRegistered = true
+                    console.log('媒体控制广播接收器已注册')
+                }
+
                 try {
                     const pm = main.getSystemService(Context.POWER_SERVICE)
                     if (!this._wakeLock) {
@@ -854,7 +928,6 @@ export default {
                     console.warn('获取 WakeLock 失败', e)
                 }
 
-                // WifiLock 保持 Wi-Fi 连接
                 try {
                     const wm = main.getApplicationContext().getSystemService(Context.WIFI_SERVICE)
                     if (!this._wifiLock) {
@@ -888,6 +961,17 @@ export default {
                 const Context = plus.android.importClass('android.content.Context')
                 const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
                 nm.cancel(1001)
+
+                if (this._mediaReceiver && this._mediaReceiverRegistered) {
+                    try {
+                        main.unregisterReceiver(this._mediaReceiver)
+                        this._mediaReceiver = null
+                        this._mediaReceiverRegistered = false
+                        console.log('媒体控制广播接收器已注销')
+                    } catch (e) {
+                        console.warn('注销广播接收器失败', e)
+                    }
+                }
 
                 if (this._wakeLock) {
                     try {

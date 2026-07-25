@@ -97,8 +97,8 @@
         <el-table-column label="状态" width="80" align="center">
           <template #default="{ row }">
             <el-switch
-              :model-value="row.status === 1"
-              @change="(val) => toggleStatus(row, val)"
+              :model-value="(row as AudioRecord).status === 1"
+              @change="(val) => toggleStatus(row as AudioRecord, val)"
             />
           </template>
         </el-table-column>
@@ -115,12 +115,12 @@
         <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
             <el-button
-              v-if="row.is_default !== 1"
+              v-if="(row as AudioRecord).is_default !== 1"
               link
               type="warning"
               size="small"
               :icon="StarIcon"
-              @click="handleSetDefault(row)"
+              @click="handleSetDefault(row as AudioRecord)"
             >
               设为默认
             </el-button>
@@ -129,7 +129,7 @@
               type="primary"
               size="small"
               :icon="EditIcon"
-              @click="openEditDialog(row)"
+              @click="openEditDialog(row as AudioRecord)"
             >
               编辑
             </el-button>
