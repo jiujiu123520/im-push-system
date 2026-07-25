@@ -40,6 +40,9 @@ www-data ALL=(ALL) NOPASSWD: /usr/bin/rm -f /etc/nginx/ssl/*
 # ---------- Nginx 配置部署 ----------
 www-data ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/nginx/sites-available/*
 www-data ALL=(ALL) NOPASSWD: /bin/ln -sf /etc/nginx/sites-available/* /etc/nginx/sites-enabled/*
+www-data ALL=(ALL) NOPASSWD: /bin/rm -f /etc/nginx/sites-enabled/*
+www-data ALL=(ALL) NOPASSWD: /usr/bin/rm -f /etc/nginx/sites-available/*
+www-data ALL=(ALL) NOPASSWD: /bin/mv /etc/nginx/sites-available/* *
 www-data ALL=(ALL) NOPASSWD: /usr/sbin/nginx -t
 www-data ALL=(ALL) NOPASSWD: /usr/sbin/nginx -s reload
 

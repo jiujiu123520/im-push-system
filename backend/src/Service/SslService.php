@@ -146,7 +146,7 @@ class SslService
         shell_exec(sprintf('sudo mkdir -p %s 2>&1', escapeshellarg(self::SSL_DIR)));
 
         $cmd = sprintf(
-            'sudo %s --issue -d %s -w %s --keylength ec-256 2>&1',
+            'sudo %s --issue -d %s -w %s --keylength ec-256 --server letsencrypt 2>&1',
             escapeshellarg(self::getAcmePath()),
             escapeshellarg($domain),
             escapeshellarg(self::ACME_WEBROOT)
@@ -366,10 +366,6 @@ class SslService
         $oldConfEnabled = self::NGINX_ENABLED . '/push.conf';
         if (file_exists($oldConfEnabled) || is_link($oldConfEnabled)) {
             shell_exec(sprintf('sudo rm -f %s 2>&1', escapeshellarg($oldConfEnabled)));
-        }
-        $oldConfAvailable = self::NGINX_AVAILABLE . '/push.conf';
-        if (file_exists($oldConfAvailable)) {
-            shell_exec(sprintf('sudo mv %s %s.bak 2>&1', escapeshellarg($oldConfAvailable), escapeshellarg($oldConfAvailable)));
         }
 
         return [
