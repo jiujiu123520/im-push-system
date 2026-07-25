@@ -596,10 +596,11 @@ async function toggleForceHttps(row: DomainRecord, val: boolean) {
   try {
     const res = await toggleForceHttpsApi(row.id, val)
     row.force_https = val ? 1 : 0
-    ElMessage.success(res.data?.message || '操作成功')
-    ElMessage.info('需要重新部署 Nginx 才能生效')
+    ElMessage.success(res.data?.message || '操作成功，Nginx已自动重载')
   } catch (e: any) {
     ElMessage.error(e.message || '操作失败')
+    // 失败时回滚状态
+    row.force_https = val ? 0 : 1
   }
 }
 

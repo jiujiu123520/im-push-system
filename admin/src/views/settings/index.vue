@@ -281,8 +281,23 @@
           </el-tag>
         </div>
 
-        <!-- 独立开关：短信验证 & 邮箱验证 -->
+        <!-- 独立开关：登录验证 & 短信验证 & 邮箱验证 -->
         <div v-if="captchaForm.enabled === 1" class="captcha-sub-toggles">
+          <div class="sub-toggle-item">
+            <div class="sub-toggle-left">
+              <span class="sub-toggle-icon">🔐</span>
+              <div class="sub-toggle-text">
+                <div class="sub-toggle-title">登录图形验证码</div>
+                <div class="sub-toggle-desc">管理员/用户登录时需要输入图形验证码</div>
+              </div>
+            </div>
+            <el-switch
+              v-model="captchaForm.loginCaptchaEnabled"
+              :active-value="1"
+              :inactive-value="0"
+              @change="onLoginCaptchaToggle"
+            />
+          </div>
           <div class="sub-toggle-item">
             <div class="sub-toggle-left">
               <span class="sub-toggle-icon">📱</span>
@@ -1106,6 +1121,7 @@ const pushRules: FormRules = {
 const captchaFormRef = ref<FormInstance>()
 const captchaForm = reactive({
   enabled: 1,
+  loginCaptchaEnabled: 1,
   smsEnabled: 1,
   emailEnabled: 1,
   smsApiKey: '',
@@ -1495,6 +1511,16 @@ function onCaptchaToggle(val: string | number | boolean) {
   }
 }
 
+// 登录图形验证码开关切换
+function onLoginCaptchaToggle(val: string | number | boolean) {
+  const enabled = val === 1 || val === true || val === '1'
+  if (enabled) {
+    ElMessage.success('登录图形验证码已启用')
+  } else {
+    ElMessage.warning('登录图形验证码已关闭，登录时无需输入验证码（请确认已保存生效）')
+  }
+}
+
 // 短信验证码开关切换
 function onSmsCaptchaToggle(val: string | number | boolean) {
   const enabled = val === 1 || val === true || val === '1'
@@ -1566,9 +1592,10 @@ async function fetchSettings() {
 
     // 加载验证码配置
     if (s?.captcha) {
-      captchaForm.enabled = s.captcha.enabled ?? 1
-      captchaForm.smsEnabled = s.captcha.smsEnabled ?? 1
-      captchaForm.emailEnabled = s.captcha.emailEnabled ?? 1
+  captchaForm.enabled = s.captcha.enabled ?? 1
+  captchaForm.loginCaptchaEnabled = s.captcha.loginCaptchaEnabled ?? 1
+  captchaForm.smsEnabled = s.captcha.smsEnabled ?? 1
+  captchaForm.emailEnabled = s.captcha.emailEnabled ?? 1
       captchaForm.smsApiKey = s.captcha.smsApiKey || ''
       captchaForm.smsApiUrl = s.captcha.smsApiUrl || ''
       captchaForm.mailHost = s.captcha.mailHost || ''

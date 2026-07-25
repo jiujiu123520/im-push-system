@@ -179,8 +179,8 @@ class UserService
     ): array {
         $fail = ['success' => false, 'message' => '', 'token' => null, 'user' => null];
 
-        // 1. 校验图形验证码（受系统设置 captcha.enabled 控制，默认开启）
-        if (self::isCaptchaEnabled() && !CaptchaService::verifyImageCaptcha($captchaToken, $captchaInput)) {
+        // 1. 校验图形验证码（受登录验证码开关 loginCaptchaEnabled 控制，默认开启）
+        if (self::isLoginCaptchaEnabled() && !CaptchaService::verifyImageCaptcha($captchaToken, $captchaInput)) {
             $fail['message'] = '图形验证码错误或已过期';
             return $fail;
         }
@@ -382,6 +382,35 @@ class UserService
                 $cfg = json_decode((string)$row['config_value'], true);
                 if (is_array($cfg) && array_key_exists('enabled', $cfg)) {
                     return (bool)$cfg['enabled'];
+                }
+            }
+        } catch (\Throwable $e) {
+        }
+        return true;
+    }
+
+    /**
+     * 读取登录图形验证码开关（admin_settings.settings_captcha.loginCaptchaEnabled，默认开启）
+     *
+     * 独立于注册验证码总开关，仅控制登录时是否需要图形验证码。
+     * 总开关关闭时，登录验证码也视为关闭。
+     *
+     * @return bool
+     */
+    public static function isLoginCaptchaEnabled(): bool
+    {
+        if (!self::isCaptchaEnabled()) {
+            return false;
+        }
+        try {
+            $row = Database::fetch(
+                'SELECT config_value FROM admin_settings WHERE config_key = ? LIMIT 1',
+                ['settings_captcha']
+            );
+            if ($row !== false) {
+                $cfg = json_decode((string)$row['config_value'], true);
+                if (is_array($cfg) && array_key_exists('loginCaptchaEnabled', $cfg)) {
+                    return (bool)$cfg['loginCaptchaEnabled'];
                 }
             }
         } catch (\Throwable $e) {

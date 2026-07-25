@@ -315,16 +315,29 @@ class DomainController
             return false;
         }
 
-        if ((int)$row['is_primary'] === 1) {
-            Response::fail($response, '不能删除主域名，请先设置其他域名为主域名', Response::CODE_BAD_REQUEST, 400);
-            return false;
-        }
-
+        // 删除域名关联的 SSL 证书
         if ((int)$row['ssl_enabled'] === 1) {
             SslService::removeCertificate($row['domain']);
         }
 
         Database::execute('DELETE FROM domains WHERE id = ?', [$id]);
+
+        // 如果删除的是主域名，自动将下一个域名设为主域名
+        if ((int)$row['is_primary'] === 1) {
+            $next = Database::fetch('SELECT id FROM domains WHERE status = 1 ORDER BY id ASC LIMIT 1');
+            if ($next !== false) {
+                Database::execute('UPDATE domains SET is_primary = 1, updated_at = NOW() WHERE id = ?', [(int)$next['id']]);
+            }
+        }
+
+        // 自动重新生成并重载 Nginx 配置
+        $domains = Database::fetchAll('SELECT * FROM domains WHERE status = 1 ORDER BY is_primary DESC, id ASC');
+        if (!empty($domains)) {
+            $genResult = SslService::generateNginxConfig($domains);
+            if ($genResult['success']) {
+                SslService::reloadNginx();
+            }
+        }
 
         return ['message' => '域名已删除'];
     }
@@ -518,8 +531,17 @@ class DomainController
 
         Database::execute('UPDATE domains SET force_https = ?, updated_at = NOW() WHERE id = ?', [$forceHttps, $id]);
 
+        // 自动重新生成并重载 Nginx 配置，使强制HTTPS立即生效
+        $domains = Database::fetchAll(
+            'SELECT * FROM domains WHERE status = 1 ORDER BY is_primary DESC, id ASC'
+        );
+        $genResult = SslService::generateNginxConfig($domains);
+        if ($genResult['success']) {
+            SslService::reloadNginx();
+        }
+
         return [
-            'message' => $forceHttps ? '已开启强制HTTPS跳转' : '已关闭强制跳转，支持HTTP+HTTPS同时访问',
+            'message' => $forceHttps ? '已开启强制HTTPS跳转，Nginx已自动重载' : '已关闭强制跳转，支持HTTP+HTTPS同时访问，Nginx已自动重载',
             'force_https' => $forceHttps,
         ];
     }

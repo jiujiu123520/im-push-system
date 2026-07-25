@@ -343,6 +343,7 @@ export interface Settings {
   }
   captcha?: {
     enabled?: number
+    loginCaptchaEnabled?: number
     smsEnabled?: number
     emailEnabled?: number
     smsApiKey?: string

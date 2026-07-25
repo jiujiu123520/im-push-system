@@ -164,7 +164,7 @@ const userStore = useUserStore()
 const formRef = ref<FormInstance>()
 const captchaImage = ref('')
 const captchaToken = ref('')
-const captchaEnabled = ref(true) // 验证码开关（由后端 /captcha/image 返回的 enabled 字段控制）
+const captchaEnabled = ref(true) // 登录验证码开关（由后端 /captcha/image 返回的 loginEnabled 字段控制）
 const loading = ref(false)
 
 const form = reactive<LoginParams & { remember: boolean }>({
@@ -184,12 +184,12 @@ const rules = computed<FormRules>(() => ({
     : []
 }))
 
-// 从后端获取图形验证码（返回 base64 图片 + token + enabled 开关）
+// 从后端获取图形验证码（返回 base64 图片 + token + loginEnabled 登录开关）
 async function fetchCaptcha() {
   try {
     const res = await getCaptchaApi()
-    // 验证码开关：后端关闭时不显示验证码输入框
-    captchaEnabled.value = res.data?.enabled !== false
+    // 登录验证码开关：后端 loginEnabled=false 时隐藏验证码输入框
+    captchaEnabled.value = res.data?.loginEnabled !== false
     if (!captchaEnabled.value) {
       // 验证码关闭，清空相关字段
       captchaToken.value = ''

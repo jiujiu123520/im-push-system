@@ -368,6 +368,12 @@ class SslService
             shell_exec(sprintf('sudo rm -f %s 2>&1', escapeshellarg($oldConfEnabled)));
         }
 
+        // 移除系统默认站点，避免 default_server 冲突导致 IP 无法访问
+        $defaultSite = self::NGINX_ENABLED . '/default';
+        if (file_exists($defaultSite) || is_link($defaultSite)) {
+            shell_exec(sprintf('sudo rm -f %s 2>&1', escapeshellarg($defaultSite)));
+        }
+
         return [
             'success'   => true,
             'message'   => 'Nginx 配置生成成功',

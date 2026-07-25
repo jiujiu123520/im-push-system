@@ -86,7 +86,7 @@ class AdminService
         }
 
         // 4. 图形验证码校验（先消费验证码，防止暴力枚举密码）
-        if (self::isCaptchaEnabled() && !CaptchaService::verifyImageCaptcha($captchaToken, $captchaInput)) {
+        if (self::isLoginCaptchaEnabled() && !CaptchaService::verifyImageCaptcha($captchaToken, $captchaInput)) {
             $empty['message'] = '图形验证码错误或已过期';
             return $empty;
         }
@@ -133,13 +133,13 @@ class AdminService
     }
 
     /**
-     * 读取验证码开关（委托给 UserService::isCaptchaEnabled，避免重复读取）
+     * 读取登录验证码开关（委托给 UserService::isLoginCaptchaEnabled）
      *
      * @return bool
      */
-    private static function isCaptchaEnabled(): bool
+    private static function isLoginCaptchaEnabled(): bool
     {
-        return UserService::isCaptchaEnabled();
+        return UserService::isLoginCaptchaEnabled();
     }
 
     /**

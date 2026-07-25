@@ -48,6 +48,7 @@ class AuthController
                 'token'        => '',
                 'image'        => '',
                 'enabled'      => false,
+                'loginEnabled' => false,
                 'smsEnabled'   => false,
                 'emailEnabled' => false,
             ];
@@ -59,6 +60,7 @@ class AuthController
                 'token'        => $data['token'],
                 'image'        => $data['image'],
                 'enabled'      => true,
+                'loginEnabled' => UserService::isLoginCaptchaEnabled(),
                 'smsEnabled'   => UserService::isSmsCaptchaEnabled(),
                 'emailEnabled' => UserService::isEmailCaptchaEnabled(),
             ];
