@@ -68,7 +68,7 @@
                     </view>
                 </view>
                 <text class="player-song-name">{{ currentAudioName }}</text>
-                <text class="player-song-status">{{ isPlaying ? '播放中' : (audioList.length > 0 ? '已暂停' : '未加载') }}</text>
+                <text class="player-song-status">{{ isPlaying ? '播放中' : ((currentAudioSource === 'server' ? serverAudioList.length : audioList.length) > 0 ? '已暂停' : '未加载') }}</text>
 
                 <!-- 播放控制按钮 -->
                 <view class="player-controls-bar">
@@ -101,9 +101,47 @@
             <view class="player-playlist">
                 <view class="section-header">
                     <text class="section-title">播放列表</text>
-                    <text v-if="audioList.length > 0" class="clear-btn" @click="clearAudioList">清空</text>
+                    <text v-if="audioListTab === 'local' && audioList.length > 0" class="clear-btn" @click="clearAudioList">清空</text>
+                    <text v-if="audioListTab === 'server'" class="clear-btn" @click="fetchServerAudioList">刷新</text>
                 </view>
-                <scroll-view scroll-y class="audio-list">
+                <!-- 播放列表 Tab 切换 -->
+                <view class="audio-tab-bar">
+                    <text
+                        :class="['audio-tab-item', audioListTab === 'server' ? 'active' : '']"
+                        @click="audioListTab = 'server'"
+                    >云端音频</text>
+                    <text
+                        :class="['audio-tab-item', audioListTab === 'local' ? 'active' : '']"
+                        @click="audioListTab = 'local'"
+                    >本地音频</text>
+                </view>
+                <!-- 云端音频列表 -->
+                <scroll-view v-if="audioListTab === 'server'" scroll-y class="audio-list">
+                    <view v-if="loadingAudio" class="empty-state">
+                        <text class="empty-icon">⏳</text>
+                        <text class="empty-text">加载中...</text>
+                    </view>
+                    <view v-else-if="serverAudioList.length === 0" class="empty-state">
+                        <text class="empty-icon">🎵</text>
+                        <text class="empty-text">暂无云端音频</text>
+                        <text class="empty-desc">请在服务器端上传音频文件</text>
+                    </view>
+                    <view
+                        v-for="(item, idx) in serverAudioList"
+                        :key="item.id || idx"
+                        :class="['audio-item', (currentAudioSource === 'server' && idx === currentAudioIndex) ? 'audio-item-active' : '']"
+                        @click="playServerAudioByIndex(idx)"
+                    >
+                        <text class="audio-index">{{ idx + 1 }}</text>
+                        <view class="audio-info">
+                            <text class="audio-name">{{ item.title }}</text>
+                            <text class="audio-artist">{{ item.artist || '未知歌手' }} · {{ item.duration_text || '' }}</text>
+                        </view>
+                        <text v-if="currentAudioSource === 'server' && idx === currentAudioIndex && isPlaying" class="audio-playing-icon">🔊</text>
+                    </view>
+                </scroll-view>
+                <!-- 本地音频列表 -->
+                <scroll-view v-else scroll-y class="audio-list">
                     <view v-if="audioList.length === 0" class="empty-state">
                         <text class="empty-icon">🎵</text>
                         <text class="empty-text">暂无音频</text>
@@ -112,12 +150,12 @@
                     <view
                         v-for="(item, idx) in audioList"
                         :key="idx"
-                        :class="['audio-item', idx === currentAudioIndex ? 'audio-item-active' : '']"
-                        @click="playAudioByIndex(idx)"
+                        :class="['audio-item', (currentAudioSource === 'local' && idx === currentAudioIndex) ? 'audio-item-active' : '']"
+                        @click="playLocalAudioByIndex(idx)"
                     >
                         <text class="audio-index">{{ idx + 1 }}</text>
                         <text class="audio-name">{{ item.name }}</text>
-                        <text v-if="idx === currentAudioIndex && isPlaying" class="audio-playing-icon">🔊</text>
+                        <text v-if="currentAudioSource === 'local' && idx === currentAudioIndex && isPlaying" class="audio-playing-icon">🔊</text>
                         <text class="audio-del" @click.stop="removeAudio(idx)">删除</text>
                     </view>
                 </scroll-view>
@@ -258,7 +296,14 @@ export default {
             isPlaying: false,
             audioContext: null,
             // 播放模式：list_loop=列表循环 / single_loop=单曲循环 / single=播放一次
-            playMode: 'list_loop'
+            playMode: 'list_loop',
+            // 云端音频列表
+            serverAudioList: [],
+            loadingAudio: false,
+            // 当前播放音频来源：server=云端 / local=本地
+            currentAudioSource: 'local',
+            // 播放列表当前显示的 tab：server=云端音频 / local=本地音频
+            audioListTab: 'server'
         }
     },
     computed: {
@@ -266,10 +311,17 @@ export default {
             return this.deviceId ? this.deviceId.substring(0, 8) : '--'
         },
         currentAudioName() {
-            if (this.audioList.length === 0) return '暂无音频'
-            const item = this.audioList[this.currentAudioIndex]
-            if (!item) return '暂无音频'
-            return item.name
+            if (this.currentAudioSource === 'server') {
+                if (this.serverAudioList.length === 0) return '暂无音频'
+                const item = this.serverAudioList[this.currentAudioIndex]
+                if (!item) return '暂无音频'
+                return item.title || '未知音频'
+            } else {
+                if (this.audioList.length === 0) return '暂无音频'
+                const item = this.audioList[this.currentAudioIndex]
+                if (!item) return '暂无音频'
+                return item.name
+            }
         }
     },
     onLoad() {
@@ -278,6 +330,7 @@ export default {
         this.loadConfig()
         this.loadMessages()
         this.loadAudioConfig()
+        this.fetchServerAudioList()
         // 验证登录状态，未登录则返回登录页
         const savedKey = uni.getStorageSync('push_key')
         const savedServer = uni.getStorageSync('push_server')
@@ -289,7 +342,7 @@ export default {
         // 延迟连接，确保页面渲染完成
         setTimeout(() => {
             this.connectWebSocket()
-            if (this.audioEnabled && this.audioList.length > 0) {
+            if (this.audioEnabled && (this.audioList.length > 0 || this.serverAudioList.length > 0)) {
                 this.initAudioPlayer()
             }
         }, 300)
@@ -356,6 +409,40 @@ export default {
             this.currentTab = tab
         },
         // ============== 音频播放器 ==============
+        fetchServerAudioList() {
+            if (!this.form.serverUrl) {
+                console.log('服务器地址为空，跳过获取云端音频列表')
+                return
+            }
+            this.loadingAudio = true
+            const url = this.form.serverUrl + '/api/audio/list'
+            console.log('获取云端音频列表:', url)
+            uni.request({
+                url: url,
+                method: 'GET',
+                success: (res) => {
+                    console.log('云端音频列表获取成功:', res.data)
+                    if (res.data && res.data.list && Array.isArray(res.data.list)) {
+                        this.serverAudioList = res.data.list
+                        // 查找默认音频
+                        const defaultIndex = res.data.list.findIndex(item => item.is_default === 1)
+                        if (defaultIndex >= 0) {
+                            this.currentAudioSource = 'server'
+                            this.currentAudioIndex = defaultIndex
+                            if (this.audioEnabled) {
+                                this.initAudioPlayer()
+                            }
+                        }
+                    }
+                },
+                fail: (err) => {
+                    console.error('获取云端音频列表失败:', err)
+                },
+                complete: () => {
+                    this.loadingAudio = false
+                }
+            })
+        },
         loadAudioConfig() {
             const enabled = uni.getStorageSync('audio_enabled')
             const list = uni.getStorageSync('audio_list')
@@ -368,6 +455,7 @@ export default {
                 this.playMode = mode
             }
             if (this.audioEnabled && this.audioList.length > 0) {
+                this.currentAudioSource = 'local'
                 this.initAudioPlayer()
             }
         },
@@ -393,7 +481,8 @@ export default {
         onAudioToggle(e) {
             this.audioEnabled = e.detail.value
             this.saveAudioConfig()
-            if (this.audioEnabled && this.audioList.length > 0) {
+            const hasAudio = this.audioList.length > 0 || this.serverAudioList.length > 0
+            if (this.audioEnabled && hasAudio) {
                 this.initAudioPlayer()
                 this.startAudioPlay()
             } else {
@@ -419,26 +508,36 @@ export default {
             uni.showToast({ title: '添加成功', icon: 'success' })
             // 如果是第一首，初始化播放器
             if (this.audioList.length === 1 && this.audioEnabled) {
+                this.currentAudioSource = 'local'
+                this.currentAudioIndex = 0
                 this.initAudioPlayer()
             }
         },
         removeAudio(index) {
             this.audioList.splice(index, 1)
             this.saveAudioConfig()
-            // 如果删除的是当前播放的，重新设置
-            if (index === this.currentAudioIndex && this.audioList.length > 0) {
-                this.currentAudioIndex = 0
-                this.stopAudioPlay()
-                if (this.audioEnabled) {
-                    this.startAudioPlay()
+            // 只有当前播放的是本地音频时才处理
+            if (this.currentAudioSource === 'local') {
+                // 如果删除的是当前播放的，重新设置
+                if (index === this.currentAudioIndex && this.audioList.length > 0) {
+                    this.currentAudioIndex = 0
+                    this.stopAudioPlay()
+                    if (this.audioEnabled) {
+                        this.startAudioPlay()
+                    }
+                } else if (this.audioList.length === 0) {
+                    this.stopAudioPlay()
+                    this.destroyAudioPlayer()
+                    this.currentAudioIndex = 0
+                    this.isPlaying = false
+                    // 如果有云端音频，切换到云端
+                    if (this.serverAudioList.length > 0) {
+                        this.currentAudioSource = 'server'
+                        this.currentAudioIndex = 0
+                    }
+                } else if (index < this.currentAudioIndex) {
+                    this.currentAudioIndex--
                 }
-            } else if (this.audioList.length === 0) {
-                this.stopAudioPlay()
-                this.destroyAudioPlayer()
-                this.currentAudioIndex = 0
-                this.isPlaying = false
-            } else if (index < this.currentAudioIndex) {
-                this.currentAudioIndex--
             }
         },
         clearAudioList() {
@@ -447,11 +546,20 @@ export default {
                 content: '确定要清空播放列表吗？',
                 success: (res) => {
                     if (res.confirm) {
-                        this.stopAudioPlay()
-                        this.destroyAudioPlayer()
+                        // 如果当前播放的是本地音频，停止播放
+                        if (this.currentAudioSource === 'local') {
+                            this.stopAudioPlay()
+                            this.destroyAudioPlayer()
+                            this.isPlaying = false
+                            // 如果有云端音频，切换到云端
+                            if (this.serverAudioList.length > 0) {
+                                this.currentAudioSource = 'server'
+                                this.currentAudioIndex = 0
+                            } else {
+                                this.currentAudioIndex = 0
+                            }
+                        }
                         this.audioList = []
-                        this.currentAudioIndex = 0
-                        this.isPlaying = false
                         this.saveAudioConfig()
                         uni.showToast({ title: '已清空', icon: 'success' })
                     }
@@ -519,13 +627,23 @@ export default {
             if (!this.audioContext) {
                 this.initAudioPlayer()
             }
-            if (!this.audioContext || this.audioList.length === 0) {
+            const list = this.currentAudioSource === 'server' ? this.serverAudioList : this.audioList
+            if (!this.audioContext || list.length === 0) {
                 return
             }
-            const item = this.audioList[this.currentAudioIndex]
+            const item = list[this.currentAudioIndex]
             if (!item) return
-            console.log('开始播放音频:', item.name, item.url)
-            this.audioContext.src = item.url
+            let audioUrl, audioName
+            if (this.currentAudioSource === 'server') {
+                // 云端音频：play_url 是相对路径，需要拼接服务器地址
+                audioUrl = this.form.serverUrl + item.play_url
+                audioName = item.title
+            } else {
+                audioUrl = item.url
+                audioName = item.name
+            }
+            console.log('开始播放音频:', audioName, audioUrl)
+            this.audioContext.src = audioUrl
             // 设置 loop（单曲循环）
             this.audioContext.loop = (this.playMode === 'single_loop')
             this.audioContext.play()
@@ -545,7 +663,8 @@ export default {
             if (this.isPlaying) {
                 this.audioContext.pause()
             } else {
-                if (!this.audioContext.src && this.audioList.length > 0) {
+                const list = this.currentAudioSource === 'server' ? this.serverAudioList : this.audioList
+                if (!this.audioContext.src && list.length > 0) {
                     this.startAudioPlay()
                 } else {
                     this.audioContext.play()
@@ -553,19 +672,22 @@ export default {
             }
         },
         playPrev() {
-            if (this.audioList.length === 0) return
-            this.currentAudioIndex = (this.currentAudioIndex - 1 + this.audioList.length) % this.audioList.length
+            const list = this.currentAudioSource === 'server' ? this.serverAudioList : this.audioList
+            if (list.length === 0) return
+            this.currentAudioIndex = (this.currentAudioIndex - 1 + list.length) % list.length
             this.stopAudioPlay()
             this.startAudioPlay()
         },
         playNext() {
-            if (this.audioList.length === 0) return
-            this.currentAudioIndex = (this.currentAudioIndex + 1) % this.audioList.length
+            const list = this.currentAudioSource === 'server' ? this.serverAudioList : this.audioList
+            if (list.length === 0) return
+            this.currentAudioIndex = (this.currentAudioIndex + 1) % list.length
             this.stopAudioPlay()
             this.startAudioPlay()
         },
-        playAudioByIndex(idx) {
-            if (idx < 0 || idx >= this.audioList.length) return
+        playServerAudioByIndex(idx) {
+            if (idx < 0 || idx >= this.serverAudioList.length) return
+            this.currentAudioSource = 'server'
             this.currentAudioIndex = idx
             this.stopAudioPlay()
             if (this.audioEnabled) {
@@ -577,6 +699,24 @@ export default {
                 this.initAudioPlayer()
                 this.startAudioPlay()
             }
+        },
+        playLocalAudioByIndex(idx) {
+            if (idx < 0 || idx >= this.audioList.length) return
+            this.currentAudioSource = 'local'
+            this.currentAudioIndex = idx
+            this.stopAudioPlay()
+            if (this.audioEnabled) {
+                this.startAudioPlay()
+            } else {
+                // 未启用音频时，自动启用
+                this.audioEnabled = true
+                this.saveAudioConfig()
+                this.initAudioPlayer()
+                this.startAudioPlay()
+            }
+        },
+        playAudioByIndex(idx) {
+            this.playLocalAudioByIndex(idx)
         },
         updateAudioNotification() {
             this.startForegroundService()
@@ -666,9 +806,15 @@ export default {
 
                 const builder = new NotificationCompat.Builder(main, channelId)
 
-                if (this.audioEnabled && this.isPlaying && this.audioList.length > 0) {
-                    const audioItem = this.audioList[this.currentAudioIndex]
-                    const audioName = audioItem ? audioItem.name : '音乐播放中'
+                if (this.audioEnabled && this.isPlaying) {
+                    let audioName = '音乐播放中'
+                    if (this.currentAudioSource === 'server' && this.serverAudioList.length > 0) {
+                        const audioItem = this.serverAudioList[this.currentAudioIndex]
+                        audioName = audioItem ? audioItem.title : '音乐播放中'
+                    } else if (this.currentAudioSource === 'local' && this.audioList.length > 0) {
+                        const audioItem = this.audioList[this.currentAudioIndex]
+                        audioName = audioItem ? audioItem.name : '音乐播放中'
+                    }
                     const modeText = this.playMode === 'single_loop' ? '单曲循环' : (this.playMode === 'list_loop' ? '列表循环' : '播放一次')
                     builder.setContentTitle('♪ ' + audioName)
                     builder.setContentText('推送服务运行中 · ' + modeText + ' · 点击返回应用')
@@ -1958,8 +2104,50 @@ export default {
     margin-top: 12px;
 }
 
+.audio-tab-bar {
+    display: flex;
+    background: #f0f2f5;
+    border-radius: 8px;
+    padding: 4px;
+    margin-bottom: 12px;
+}
+
+.audio-tab-item {
+    flex: 1;
+    text-align: center;
+    padding: 8px 0;
+    font-size: 13px;
+    color: #666;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.audio-tab-item.active {
+    background: white;
+    color: #667eea;
+    font-weight: 500;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
 .audio-list {
     max-height: 400px;
+}
+
+.audio-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    margin-right: 8px;
+    overflow: hidden;
+}
+
+.audio-artist {
+    font-size: 12px;
+    color: #999;
+    margin-top: 2px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
 .audio-item {

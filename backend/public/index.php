@@ -113,6 +113,12 @@ if ($runWs) {
         $router->get('/api/apk-distribution/download/{token}', [\App\Controller\ApkDistributionController::class, 'downloadByToken']);
 
         // ------------------------------------------------------------
+        // 音频播放（公开，APP 端用）
+        // ------------------------------------------------------------
+        $router->get('/api/audio/list', [\App\Controller\AudioController::class, 'getList']);
+        $router->get('/api/audio/play/{id}', [\App\Controller\AudioController::class, 'play']);
+
+        // ------------------------------------------------------------
         // 任务3：用户注册与登录
         // ------------------------------------------------------------
 
@@ -291,6 +297,15 @@ if ($runWs) {
         $router->post('/admin/domains/{id}/ssl-renew',         [\App\Controller\DomainController::class, 'renewSsl']);
         $router->post('/admin/domains/{id}/ssl-deploy',         [\App\Controller\DomainController::class, 'deployNginx']);
         $router->post('/admin/domains/{id}/toggle-auto-renew',  [\App\Controller\DomainController::class, 'toggleAutoRenew']);
+
+        // ============================================================
+        // 音频管理（管理员鉴权）
+        // ============================================================
+        $router->get('/admin/audio',                          [\App\Controller\AudioController::class, 'index']);
+        $router->post('/admin/audio/upload',                   [\App\Controller\AudioController::class, 'upload']);
+        $router->put('/admin/audio/{id}',                     [\App\Controller\AudioController::class, 'update']);
+        $router->delete('/admin/audio/{id}',                  [\App\Controller\AudioController::class, 'delete']);
+        $router->post('/admin/audio/{id}/default',             [\App\Controller\AudioController::class, 'setDefault']);
     };
 
     $server = new \App\HttpServer($routeRegistrar);

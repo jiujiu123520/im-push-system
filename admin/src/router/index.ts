@@ -224,6 +224,19 @@ export const asyncRoutes: RouteRecordRaw[] = [
     ]
   },
   {
+    path: '/audio',
+    component: Layout,
+    meta: { title: '音频管理', icon: 'Music', roles: ['admin', 'super_admin'] },
+    children: [
+      {
+        path: '',
+        name: 'Audio',
+        component: () => import('@/views/audio/index.vue'),
+        meta: { title: '音频管理', icon: 'Music', cache: true, module: 'audio' }
+      }
+    ]
+  },
+  {
     path: '/settings',
     component: Layout,
     meta: { title: '系统设置', icon: 'Setting', roles: ['admin', 'super_admin'] },
