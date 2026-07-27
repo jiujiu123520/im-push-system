@@ -803,34 +803,53 @@ export default {
         getNotificationSmallIcon(main) {
             // #ifdef APP-PLUS
             try {
-                // 优先尝试用 APP 自带图标
-                const appIcon = main.getApplicationInfo().icon
-                if (appIcon && appIcon > 0) {
-                    return appIcon
+                // 尝试获取 APP 图标
+                const appInfo = main.getApplicationInfo()
+                const icon = appInfo.icon
+                if (icon && icon > 0) {
+                    return icon
                 }
-            } catch (e) {}
-            // 回退到系统图标（白色透明，兼容 Android 5.0+）
-            return 17301651 // android.R.drawable.ic_dialog_info
+            } catch (e) {
+                console.warn('获取 APP 图标失败', e)
+            }
+            // 回退到系统图标
+            // android.R.drawable.ic_dialog_info = 17301651
+            // android.R.drawable.stat_sys_download = 17301633
+            return 17301651
             // #endif
         },
         startForegroundService() {
             // #ifdef APP-PLUS
+            let main, Context, Build, NotificationManager, Intent, PendingIntent
             try {
-                const main = plus.android.runtimeMainActivity()
-                const Context = plus.android.importClass('android.content.Context')
-                const NotificationManager = plus.android.importClass('android.app.NotificationManager')
-                const NotificationCompat = plus.android.importClass('androidx.core.app.NotificationCompat')
-                const Build = plus.android.importClass('android.os.Build')
-                const PendingIntent = plus.android.importClass('android.app.PendingIntent')
-                const PowerManager = plus.android.importClass('android.os.PowerManager')
-                const WifiManager = plus.android.importClass('android.net.wifi.WifiManager')
-                const Intent = plus.android.importClass('android.content.Intent')
-                const BroadcastReceiver = plus.android.importClass('android.content.BroadcastReceiver')
+                main = plus.android.runtimeMainActivity()
+                Context = plus.android.importClass('android.content.Context')
+                Build = plus.android.importClass('android.os.Build')
+                NotificationManager = plus.android.importClass('android.app.NotificationManager')
+                Intent = plus.android.importClass('android.content.Intent')
+                PendingIntent = plus.android.importClass('android.app.PendingIntent')
+            } catch (e) {
+                console.error('导入通知基础类失败', e)
+                return
+            }
 
-                const channelId = 'push_service_foreground'
-                const notificationId = 1001
+            const channelId = 'push_service_foreground'
+            const notificationId = 1001
 
-                // 创建通知渠道 - 用 IMPORTANCE_DEFAULT 确保可见
+            // 检查通知权限
+            try {
+                const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
+                if (nm.areNotificationsEnabled() === false) {
+                    console.warn('通知权限未开启，无法显示通知栏')
+                    this.requestNotificationPermission()
+                    return
+                }
+            } catch (e) {
+                console.warn('检查通知权限失败', e)
+            }
+
+            // 创建通知渠道
+            try {
                 if (Build.VERSION.SDK_INT >= 26) {
                     const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
                     const channel = nm.getNotificationChannel(channelId)
@@ -842,47 +861,47 @@ export default {
                         mChannel.setSound(null, null)
                         mChannel.enableVibration(false)
                         mChannel.setDescription('推送服务运行状态，保持后台连接')
-                        mChannel.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                        // VISIBILITY_PUBLIC = 1
+                        mChannel.setLockscreenVisibility(1)
                         nm.createNotificationChannel(mChannel)
                         console.log('推送服务通知渠道已创建')
                     }
                 }
+            } catch (e) {
+                console.error('创建通知渠道失败', e)
+            }
 
+            // 构建 Intent 和 PendingIntent
+            let contentIntent
+            try {
                 const launchIntent = main.getPackageManager().getLaunchIntentForPackage(main.getPackageName())
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                const contentIntent = PendingIntent.getActivity(
+                contentIntent = PendingIntent.getActivity(
                     main, 0, launchIntent,
-                    Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT
+                    Build.VERSION.SDK_INT >= 31 ? 0x04000000 | 0x08000000 : 0x04000000
                 )
+            } catch (e) {
+                console.error('创建 PendingIntent 失败', e)
+            }
 
-                const pkgName = main.getPackageName()
-                const prevAction = 'com.push.app.ACTION_PREV'
-                const playAction = 'com.push.app.ACTION_PLAY'
-                const nextAction = 'com.push.app.ACTION_NEXT'
-
-                const prevIntent = new Intent(prevAction)
-                prevIntent.setPackage(pkgName)
-                const prevPendingIntent = PendingIntent.getBroadcast(
-                    main, 1, prevIntent,
-                    Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT
-                )
-
-                const playIntent = new Intent(playAction)
-                playIntent.setPackage(pkgName)
-                const playPendingIntent = PendingIntent.getBroadcast(
-                    main, 2, playIntent,
-                    Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT
-                )
-
-                const nextIntent = new Intent(nextAction)
-                nextIntent.setPackage(pkgName)
-                const nextPendingIntent = PendingIntent.getBroadcast(
-                    main, 3, nextIntent,
-                    Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT
-                )
-
-                const builder = new NotificationCompat.Builder(main, channelId)
+            // 构建通知 - 使用原生 Notification.Builder
+            let notification
+            try {
                 const smallIcon = this.getNotificationSmallIcon(main)
+
+                // 尝试 androidx.core.app.NotificationCompat.Builder，失败则回退到 android.app.Notification.Builder
+                let builder
+                let useCompat = false
+                try {
+                    const NotificationCompat = plus.android.importClass('androidx.core.app.NotificationCompat')
+                    builder = new NotificationCompat.Builder(main, channelId)
+                    useCompat = true
+                    console.log('使用 NotificationCompat.Builder')
+                } catch (e) {
+                    console.log('NotificationCompat 不可用，回退到原生 Notification.Builder')
+                    const Notification = plus.android.importClass('android.app.Notification')
+                    builder = new Notification.Builder(main, channelId)
+                }
 
                 let hasAudio = this.audioEnabled && (this.serverAudioList.length > 0 || this.audioList.length > 0)
                 if (hasAudio) {
@@ -901,17 +920,28 @@ export default {
                     builder.setContentText(audioArtist || (this.isPlaying ? modeText : '已暂停'))
                     builder.setSubText('推送服务运行中')
 
-                    builder.addAction(android.R.drawable.ic_media_previous, '上一曲', prevPendingIntent)
-                    builder.addAction(this.isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play, this.isPlaying ? '暂停' : '播放', playPendingIntent)
-                    builder.addAction(android.R.drawable.ic_media_next, '下一曲', nextPendingIntent)
+                    // 媒体控制按钮
+                    const pkgName = main.getPackageName()
+                    const prevAction = 'com.push.app.ACTION_PREV'
+                    const playAction = 'com.push.app.ACTION_PLAY'
+                    const nextAction = 'com.push.app.ACTION_NEXT'
 
                     try {
-                        const MediaStyle = plus.android.importClass('androidx.core.app.NotificationCompat$MediaStyle')
-                        const mediaStyle = new MediaStyle()
-                        mediaStyle.setShowActionsInCompactView(0, 1, 2)
-                        builder.setStyle(mediaStyle)
+                        const prevIntent = new Intent(prevAction)
+                        prevIntent.setPackage(pkgName)
+                        const prevPendingIntent = PendingIntent.getBroadcast(main, 1, prevIntent, Build.VERSION.SDK_INT >= 31 ? 0x04000000 | 0x08000000 : 0x04000000)
+                        const playIntent = new Intent(playAction)
+                        playIntent.setPackage(pkgName)
+                        const playPendingIntent = PendingIntent.getBroadcast(main, 2, playIntent, Build.VERSION.SDK_INT >= 31 ? 0x04000000 | 0x08000000 : 0x04000000)
+                        const nextIntent = new Intent(nextAction)
+                        nextIntent.setPackage(pkgName)
+                        const nextPendingIntent = PendingIntent.getBroadcast(main, 3, nextIntent, Build.VERSION.SDK_INT >= 31 ? 0x04000000 | 0x08000000 : 0x04000000)
+
+                        builder.addAction(17301539, '上一曲', prevPendingIntent)  // android.R.drawable.ic_media_previous
+                        builder.addAction(this.isPlaying ? 17301540 : 17301541, this.isPlaying ? '暂停' : '播放', playPendingIntent)
+                        builder.addAction(17301542, '下一曲', nextPendingIntent)
                     } catch (e) {
-                        console.warn('MediaStyle 不支持', e)
+                        console.warn('添加媒体按钮失败', e)
                     }
                 } else {
                     const statusText = this.connected ? '已连接' : '正在连接...'
@@ -920,19 +950,61 @@ export default {
                 }
 
                 builder.setSmallIcon(smallIcon)
-                builder.setContentIntent(contentIntent)
+                if (contentIntent) builder.setContentIntent(contentIntent)
                 builder.setOngoing(true)
                 builder.setAutoCancel(false)
-                builder.setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                builder.setCategory(NotificationCompat.CATEGORY_SERVICE)
 
-                const notification = builder.build()
+                // 设置优先级和可见性
+                try {
+                    if (useCompat) {
+                        builder.setPriority(0)  // PRIORITY_DEFAULT
+                        builder.setVisibility(1)  // VISIBILITY_PUBLIC
+                        builder.setCategory('service')
+                    } else {
+                        if (Build.VERSION.SDK_INT >= 16) {
+                            builder.setPriority(0)
+                        }
+                    }
+                } catch (e) {}
 
-                const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
-                nm.notify(notificationId, notification)
+                notification = builder.build()
+                console.log('通知构建成功')
+            } catch (e) {
+                console.error('构建通知失败', e)
+                // 最终回退：使用 plus.push
+                try {
+                    if (typeof plus !== 'undefined' && plus.push) {
+                        plus.push.createMessage('推送服务运行中', '', {
+                            title: '推送服务 · ' + (this.connected ? '已连接' : '正在连接...'),
+                            cover: true
+                        })
+                        console.log('使用 plus.push 回退通知')
+                    }
+                } catch (e2) {
+                    console.error('plus.push 也失败', e2)
+                }
+                // 即使通知失败，也继续执行保活逻辑
+            }
 
-                if (!this._mediaReceiverRegistered) {
+            // 显示通知
+            if (notification) {
+                try {
+                    const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
+                    nm.notify(notificationId, notification)
+                    console.log('通知已显示，id=' + notificationId)
+                } catch (e) {
+                    console.error('显示通知失败', e)
+                }
+            }
+
+            // 注册媒体控制广播接收器
+            if (!this._mediaReceiverRegistered) {
+                try {
+                    const pkgName = main.getPackageName()
+                    const prevAction = 'com.push.app.ACTION_PREV'
+                    const playAction = 'com.push.app.ACTION_PLAY'
+                    const nextAction = 'com.push.app.ACTION_NEXT'
+                    const BroadcastReceiver = plus.android.importClass('android.content.BroadcastReceiver')
                     const self = this
                     this._mediaReceiver = new BroadcastReceiver({
                         onReceive: function(context, intent) {
@@ -953,64 +1025,64 @@ export default {
                     intentFilter.addAction(nextAction)
                     main.registerReceiver(this._mediaReceiver, intentFilter)
                     this._mediaReceiverRegistered = true
-                    console.log('媒体控制广播接收器已注册')
-                }
-
-                // WakeLock - 保持 CPU 唤醒
-                try {
-                    const pm = main.getSystemService(Context.POWER_SERVICE)
-                    if (!this._wakeLock) {
-                        this._wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, 'PushApp:WakeLock')
-                        this._wakeLock.setReferenceCounted(false)
-                    }
-                    if (!this._wakeLock.isHeld()) {
-                        this._wakeLock.acquire()
-                        console.log('WakeLock 已获取')
-                    }
                 } catch (e) {
-                    console.warn('获取 WakeLock 失败', e)
+                    console.warn('注册媒体广播接收器失败', e)
                 }
+            }
 
-                // WifiLock - 保持 WiFi 连接
+            // WakeLock
+            try {
+                const PowerManager = plus.android.importClass('android.os.PowerManager')
+                const pm = main.getSystemService(Context.POWER_SERVICE)
+                if (!this._wakeLock) {
+                    this._wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, 'PushApp:WakeLock')
+                    this._wakeLock.setReferenceCounted(false)
+                }
+                if (!this._wakeLock.isHeld()) {
+                    this._wakeLock.acquire()
+                }
+            } catch (e) {
+                console.warn('获取 WakeLock 失败', e)
+            }
+
+            // WifiLock
+            try {
+                const WifiManager = plus.android.importClass('android.net.wifi.WifiManager')
+                const wm = main.getApplicationContext().getSystemService(Context.WIFI_SERVICE)
+                if (!this._wifiLock) {
+                    this._wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, 'PushApp:WifiLock')
+                    this._wifiLock.setReferenceCounted(false)
+                }
+                if (!this._wifiLock.isHeld()) {
+                    this._wifiLock.acquire()
+                }
+            } catch (e) {
+                console.warn('获取 WifiLock 失败', e)
+            }
+
+            // plus.push 自动通知
+            if (typeof plus !== 'undefined' && plus.push) {
                 try {
-                    const wm = main.getApplicationContext().getSystemService(Context.WIFI_SERVICE)
-                    if (!this._wifiLock) {
-                        this._wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, 'PushApp:WifiLock')
-                        this._wifiLock.setReferenceCounted(false)
-                    }
-                    if (!this._wifiLock.isHeld()) {
-                        this._wifiLock.acquire()
-                        console.log('WifiLock 已获取')
-                    }
-                } catch (e) {
-                    console.warn('获取 WifiLock 失败', e)
-                }
+                    plus.push.setAutoNotification(true)
+                } catch (e) {}
+            }
 
-                if (typeof plus !== 'undefined' && plus.push) {
-                    try {
-                        plus.push.setAutoNotification(true)
-                    } catch (e) {}
-                }
-
-                // 注册屏幕状态监听（亮屏时检测连接，必要时重连）
-                if (!this._screenReceiverRegistered) {
+            // 屏幕状态监听
+            if (!this._screenReceiverRegistered) {
+                try {
                     const self = this
                     this._screenReceiver = new BroadcastReceiver({
                         onReceive: function(context, intent) {
                             const action = intent.getAction()
                             if (action === 'android.intent.action.SCREEN_ON') {
-                                console.log('[屏幕] 亮屏，检测 WebSocket 连接状态')
                                 if (self.form && self.form.key) {
                                     if (!self.connected && !self.connecting) {
-                                        console.log('[屏幕] 连接已断开，触发重连')
                                         self.cleanupAndReconnect()
                                     } else if (self.connected && self.socketTask) {
-                                        console.log('[屏幕] 发送 ping 验证连接')
                                         self._screenPingTimer && clearTimeout(self._screenPingTimer)
                                         self._screenPongOk = false
                                         self._screenPingTimer = setTimeout(() => {
                                             if (!self._screenPongOk) {
-                                                console.warn('[屏幕] ping 超时，连接已死，触发重连')
                                                 self.cleanupAndReconnect()
                                             }
                                             self._screenPingTimer = null
@@ -1031,8 +1103,6 @@ export default {
                                         }
                                     }
                                 }
-                            } else if (action === 'android.intent.action.SCREEN_OFF') {
-                                console.log('[屏幕] 锁屏，保持 WebSocket 连接（依赖前台服务保活）')
                             }
                         }
                     })
@@ -1042,13 +1112,12 @@ export default {
                     screenFilter.addAction('android.intent.action.SCREEN_OFF')
                     main.registerReceiver(this._screenReceiver, screenFilter)
                     this._screenReceiverRegistered = true
-                    console.log('屏幕状态广播接收器已注册')
+                } catch (e) {
+                    console.warn('注册屏幕广播接收器失败', e)
                 }
-
-                console.log('前台服务保活已启动（通知 + WakeLock + WifiLock + 屏幕监听）')
-            } catch (e) {
-                console.error('启动前台服务失败', e)
             }
+
+            console.log('前台服务保活已启动')
             // #endif
         },
         checkBatteryOptimization() {
@@ -1231,25 +1300,35 @@ export default {
                 const main = plus.android.runtimeMainActivity()
                 const Context = plus.android.importClass('android.content.Context')
                 const Intent = plus.android.importClass('android.content.Intent')
-                const NotificationCompat = plus.android.importClass('androidx.core.app.NotificationCompat')
                 const PendingIntent = plus.android.importClass('android.app.PendingIntent')
                 const Build = plus.android.importClass('android.os.Build')
                 const NotificationManager = plus.android.importClass('android.app.NotificationManager')
-                const NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
 
                 const channelId = 'push_messages'
                 const notificationId = Math.floor(Math.random() * 100000) + 1
 
+                // 检查通知权限
+                const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
+                try {
+                    if (nm.areNotificationsEnabled() === false) {
+                        console.warn('通知权限未开启，推送消息无法显示通知栏')
+                        this.requestNotificationPermission()
+                        return false
+                    }
+                } catch (e) {}
+
+                // 创建通知渠道
                 if (Build.VERSION.SDK_INT >= 26) {
-                    const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
                     const channel = nm.getNotificationChannel(channelId)
                     if (channel === null || channel === undefined) {
+                        const NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
                         const importance = NotificationManager.IMPORTANCE_HIGH
                         const mChannel = new NotificationChannel(channelId, '消息推送', importance)
                         mChannel.enableLights(true)
                         mChannel.enableVibration(true)
                         mChannel.setShowBadge(true)
                         mChannel.setDescription('推送消息通知')
+                        mChannel.setLockscreenVisibility(1)
                         nm.createNotificationChannel(mChannel)
                         console.log('消息推送通知渠道已创建')
                     }
@@ -1259,45 +1338,83 @@ export default {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 const contentIntent = PendingIntent.getActivity(
                     main, notificationId, launchIntent,
-                    Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT
+                    Build.VERSION.SDK_INT >= 31 ? 0x04000000 | 0x08000000 : 0x04000000
                 )
 
-                const builder = new NotificationCompat.Builder(main, channelId)
-                builder.setContentTitle(title || '新消息')
-                builder.setContentText(content || '')
-                builder.setSmallIcon(main.getApplicationInfo().icon)
-                builder.setContentIntent(contentIntent)
-                builder.setAutoCancel(true)
-                builder.setPriority(NotificationCompat.PRIORITY_MAX)
-                builder.setDefaults(NotificationCompat.DEFAULT_SOUND | NotificationCompat.DEFAULT_VIBRATE | NotificationCompat.DEFAULT_LIGHTS)
-                builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-
-                if (content && content.length > 50) {
-                    const BigTextStyle = plus.android.importClass('androidx.core.app.NotificationCompat$BigTextStyle')
-                    const bigText = new BigTextStyle()
-                    bigText.bigText(content)
-                    bigText.setBigContentTitle(title)
-                    builder.setStyle(bigText)
+                // 尝试 NotificationCompat，失败回退到原生 Notification.Builder
+                let builder
+                let useCompat = false
+                try {
+                    const NotificationCompat = plus.android.importClass('androidx.core.app.NotificationCompat')
+                    builder = new NotificationCompat.Builder(main, channelId)
+                    useCompat = true
+                } catch (e) {
+                    console.log('NotificationCompat 不可用，使用原生 Notification.Builder')
+                    const Notification = plus.android.importClass('android.app.Notification')
+                    builder = new Notification.Builder(main, channelId)
                 }
 
-                const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
-                nm.notify(notificationId, builder.build())
+                builder.setContentTitle(title || '新消息')
+                builder.setContentText(content || '')
+                builder.setSmallIcon(this.getNotificationSmallIcon(main))
+                builder.setContentIntent(contentIntent)
+                builder.setAutoCancel(true)
+
+                try {
+                    if (useCompat) {
+                        builder.setPriority(2)  // PRIORITY_MAX
+                        builder.setDefaults(-1)  // DEFAULT_ALL
+                        builder.setVisibility(1)  // VISIBILITY_PUBLIC
+                    } else {
+                        if (Build.VERSION.SDK_INT >= 16) {
+                            builder.setPriority(2)
+                        }
+                        if (Build.VERSION.SDK_INT < 21) {
+                            builder.setDefaults(-1)
+                        }
+                    }
+                } catch (e) {}
+
+                // 大文本支持
+                if (content && content.length > 50) {
+                    try {
+                        if (useCompat) {
+                            const BigTextStyle = plus.android.importClass('androidx.core.app.NotificationCompat$BigTextStyle')
+                            const bigText = new BigTextStyle()
+                            bigText.bigText(content)
+                            bigText.setBigContentTitle(title)
+                            builder.setStyle(bigText)
+                        } else {
+                            const BigTextStyle = plus.android.importClass('android.app.Notification$BigTextStyle')
+                            const bigText = new BigTextStyle()
+                            bigText.bigText(content)
+                            bigText.setBigContentTitle(title)
+                            builder.setStyle(bigText)
+                        }
+                    } catch (e) {
+                        console.warn('BigTextStyle 不支持', e)
+                    }
+                }
+
+                const notification = builder.build()
+                nm.notify(notificationId, notification)
+                console.log('推送消息通知已显示，id=' + notificationId)
 
                 return true
             } catch (e) {
                 console.error('显示通知失败', e)
+                // 回退到 plus.push
                 try {
                     if (typeof plus !== 'undefined' && plus.push) {
                         plus.push.createMessage(content, '', {
                             title: title || '新消息',
                             cover: false
                         })
+                        console.log('使用 plus.push 显示通知')
+                        return true
                     }
                 } catch (e2) {
                     console.warn('plus.push 通知也失败', e2)
-                }
-                if (uni.showNotification) {
-                    uni.showNotification({ title, content })
                 }
                 return false
             }
