@@ -339,6 +339,12 @@ export default {
             return
         }
         this.registerNetworkListener()
+        // 请求通知权限 + 电池优化 + 小米自启动（延迟 1 秒等页面渲染完）
+        setTimeout(() => {
+            this.requestNotificationPermission()
+            this.checkBatteryOptimization()
+            this.checkXiaomiAutoStart()
+        }, 1000)
         // 延迟连接，确保页面渲染完成
         setTimeout(() => {
             this.connectWebSocket()
@@ -794,6 +800,19 @@ export default {
             }
         },
         // ============== 前台服务保活 ==============
+        getNotificationSmallIcon(main) {
+            // #ifdef APP-PLUS
+            try {
+                // 优先尝试用 APP 自带图标
+                const appIcon = main.getApplicationInfo().icon
+                if (appIcon && appIcon > 0) {
+                    return appIcon
+                }
+            } catch (e) {}
+            // 回退到系统图标（白色透明，兼容 Android 5.0+）
+            return 17301651 // android.R.drawable.ic_dialog_info
+            // #endif
+        },
         startForegroundService() {
             // #ifdef APP-PLUS
             try {
@@ -808,23 +827,29 @@ export default {
                 const Intent = plus.android.importClass('android.content.Intent')
                 const BroadcastReceiver = plus.android.importClass('android.content.BroadcastReceiver')
 
-                const channelId = 'push_media_player'
+                const channelId = 'push_service_foreground'
                 const notificationId = 1001
 
+                // 创建通知渠道 - 用 IMPORTANCE_DEFAULT 确保可见
                 if (Build.VERSION.SDK_INT >= 26) {
                     const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
                     const channel = nm.getNotificationChannel(channelId)
                     if (channel === null || channel === undefined) {
                         const NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
                         const importance = NotificationManager.IMPORTANCE_DEFAULT
-                        const mChannel = new NotificationChannel(channelId, '音频播放器', importance)
+                        const mChannel = new NotificationChannel(channelId, '推送服务', importance)
                         mChannel.setShowBadge(false)
                         mChannel.setSound(null, null)
+                        mChannel.enableVibration(false)
+                        mChannel.setDescription('推送服务运行状态，保持后台连接')
+                        mChannel.setLockscreenVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                         nm.createNotificationChannel(mChannel)
+                        console.log('推送服务通知渠道已创建')
                     }
                 }
 
                 const launchIntent = main.getPackageManager().getLaunchIntentForPackage(main.getPackageName())
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 const contentIntent = PendingIntent.getActivity(
                     main, 0, launchIntent,
                     Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT
@@ -857,6 +882,7 @@ export default {
                 )
 
                 const builder = new NotificationCompat.Builder(main, channelId)
+                const smallIcon = this.getNotificationSmallIcon(main)
 
                 let hasAudio = this.audioEnabled && (this.serverAudioList.length > 0 || this.audioList.length > 0)
                 if (hasAudio) {
@@ -888,15 +914,18 @@ export default {
                         console.warn('MediaStyle 不支持', e)
                     }
                 } else {
-                    builder.setContentTitle('推送服务运行中')
-                    builder.setContentText('保持后台连接，实时接收推送消息')
+                    const statusText = this.connected ? '已连接' : '正在连接...'
+                    builder.setContentTitle('推送服务 · ' + statusText)
+                    builder.setContentText('保持后台运行，实时接收推送消息')
                 }
 
-                builder.setSmallIcon(main.getApplicationInfo().icon)
+                builder.setSmallIcon(smallIcon)
                 builder.setContentIntent(contentIntent)
                 builder.setOngoing(true)
                 builder.setAutoCancel(false)
                 builder.setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                builder.setCategory(NotificationCompat.CATEGORY_SERVICE)
 
                 const notification = builder.build()
 
@@ -927,6 +956,7 @@ export default {
                     console.log('媒体控制广播接收器已注册')
                 }
 
+                // WakeLock - 保持 CPU 唤醒
                 try {
                     const pm = main.getSystemService(Context.POWER_SERVICE)
                     if (!this._wakeLock) {
@@ -941,6 +971,7 @@ export default {
                     console.warn('获取 WakeLock 失败', e)
                 }
 
+                // WifiLock - 保持 WiFi 连接
                 try {
                     const wm = main.getApplicationContext().getSystemService(Context.WIFI_SERVICE)
                     if (!this._wifiLock) {
@@ -1017,6 +1048,96 @@ export default {
                 console.log('前台服务保活已启动（通知 + WakeLock + WifiLock + 屏幕监听）')
             } catch (e) {
                 console.error('启动前台服务失败', e)
+            }
+            // #endif
+        },
+        checkBatteryOptimization() {
+            // #ifdef APP-PLUS
+            try {
+                const main = plus.android.runtimeMainActivity()
+                const Context = plus.android.importClass('android.content.Context')
+                const Build = plus.android.importClass('android.os.Build')
+                const PowerManager = plus.android.importClass('android.os.PowerManager')
+
+                if (Build.VERSION.SDK_INT < 23) return true
+
+                const pm = main.getSystemService(Context.POWER_SERVICE)
+                const isIgnoring = pm.isIgnoringBatteryOptimizations(main.getPackageName())
+                if (isIgnoring) {
+                    console.log('已在电池优化白名单中')
+                    return true
+                }
+
+                // 引导用户关闭电池优化
+                uni.showModal({
+                    title: '关闭电池优化',
+                    content: '为了保持后台推送连接，需要将本应用加入电池优化白名单。请在弹出的设置中选择"不优化"。',
+                    confirmText: '去设置',
+                    cancelText: '稍后',
+                    success: (res) => {
+                        if (res.confirm) {
+                            try {
+                                const Intent = plus.android.importClass('android.content.Intent')
+                                const intent = new Intent('android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS')
+                                const Uri = plus.android.importClass('android.net.Uri')
+                                intent.setData(Uri.fromParts('package', main.getPackageName(), null))
+                                main.startActivity(intent)
+                            } catch (e) {
+                                console.warn('打开电池优化设置失败', e)
+                            }
+                        }
+                    }
+                })
+                return false
+            } catch (e) {
+                console.warn('检查电池优化失败', e)
+                return true
+            }
+            // #endif
+            return true
+        },
+        checkXiaomiAutoStart() {
+            // #ifdef APP-PLUS
+            try {
+                const main = plus.android.runtimeMainActivity()
+                const Build = plus.android.importClass('android.os.Build')
+                const manufacturer = Build.MANUFACTURER.toLowerCase()
+                if (manufacturer !== 'xiaomi') return
+
+                const key = 'xiaomi_autostart_checked'
+                const checked = uni.getStorageSync(key)
+                if (checked) return
+
+                uni.showModal({
+                    title: '开启后台保活权限',
+                    content: '小米手机需要开启以下权限才能在后台保持推送连接：\n\n1. 自启动权限\n2. 后台弹出通知\n3. 锁屏显示通知\n\n请在设置中找到本应用并开启以上权限。',
+                    confirmText: '去设置',
+                    cancelText: '稍后',
+                    success: (res) => {
+                        if (res.confirm) {
+                            try {
+                                const Intent = plus.android.importClass('android.content.Intent')
+                                const intent = new Intent()
+                                intent.setComponent(new plus.android.invoke('android.content.ComponentName', 'init', 'com.miui.securitycenter', 'com.miui.permcenter.autostart.AutoStartManagementActivity'))
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                main.startActivity(intent)
+                            } catch (e) {
+                                console.warn('打开小米自启动设置失败', e)
+                                // 回退到应用详情页
+                                try {
+                                    const Intent2 = plus.android.importClass('android.content.Intent')
+                                    const Uri2 = plus.android.importClass('android.net.Uri')
+                                    const intent2 = new Intent2('android.settings.APPLICATION_DETAILS_SETTINGS')
+                                    intent2.setData(Uri2.fromParts('package', main.getPackageName(), null))
+                                    main.startActivity(intent2)
+                                } catch (e2) {}
+                            }
+                        }
+                        uni.setStorageSync(key, true)
+                    }
+                })
+            } catch (e) {
+                console.warn('检查小米自启动失败', e)
             }
             // #endif
         },
@@ -1128,6 +1249,7 @@ export default {
                         mChannel.enableLights(true)
                         mChannel.enableVibration(true)
                         mChannel.setShowBadge(true)
+                        mChannel.setDescription('推送消息通知')
                         nm.createNotificationChannel(mChannel)
                         console.log('消息推送通知渠道已创建')
                     }
@@ -1146,8 +1268,9 @@ export default {
                 builder.setSmallIcon(main.getApplicationInfo().icon)
                 builder.setContentIntent(contentIntent)
                 builder.setAutoCancel(true)
-                builder.setPriority(NotificationCompat.PRIORITY_HIGH)
+                builder.setPriority(NotificationCompat.PRIORITY_MAX)
                 builder.setDefaults(NotificationCompat.DEFAULT_SOUND | NotificationCompat.DEFAULT_VIBRATE | NotificationCompat.DEFAULT_LIGHTS)
+                builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
                 if (content && content.length > 50) {
                     const BigTextStyle = plus.android.importClass('androidx.core.app.NotificationCompat$BigTextStyle')
@@ -1163,6 +1286,16 @@ export default {
                 return true
             } catch (e) {
                 console.error('显示通知失败', e)
+                try {
+                    if (typeof plus !== 'undefined' && plus.push) {
+                        plus.push.createMessage(content, '', {
+                            title: title || '新消息',
+                            cover: false
+                        })
+                    }
+                } catch (e2) {
+                    console.warn('plus.push 通知也失败', e2)
+                }
                 if (uni.showNotification) {
                     uni.showNotification({ title, content })
                 }
@@ -1174,6 +1307,97 @@ export default {
                 uni.showNotification({ title, content })
             }
             return true
+            // #endif
+        },
+        requestNotificationPermission() {
+            // #ifdef APP-PLUS
+            try {
+                const main = plus.android.runtimeMainActivity()
+                const Context = plus.android.importClass('android.content.Context')
+                const Build = plus.android.importClass('android.os.Build')
+                const NotificationManager = plus.android.importClass('android.app.NotificationManager')
+
+                const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
+                const areNotificationsEnabled = nm.areNotificationsEnabled()
+                if (areNotificationsEnabled) {
+                    console.log('通知权限已开启')
+                    return true
+                }
+
+                if (Build.VERSION.SDK_INT >= 33) {
+                    const Manifest = plus.android.importClass('android.Manifest')
+                    const PermissionCompat = plus.android.importClass('androidx.core.content.ContextCompat')
+                    const ActivityCompat = plus.android.importClass('androidx.core.app.ActivityCompat')
+                    const hasPermission = PermissionCompat.checkSelfPermission(main, Manifest.permission.POST_NOTIFICATIONS)
+                    const PackageManager = plus.android.importClass('android.content.pm.PackageManager')
+                    if (hasPermission !== PackageManager.PERMISSION_GRANTED) {
+                        ActivityCompat.requestPermissions(main, [Manifest.permission.POST_NOTIFICATIONS], 1001)
+                        console.log('请求通知权限（Android 13+）')
+                        return false
+                    }
+                }
+
+                console.log('通知权限未开启，引导用户去设置')
+                uni.showModal({
+                    title: '开启通知权限',
+                    content: '为了让您及时收到推送消息，请在设置中开启通知权限',
+                    confirmText: '去设置',
+                    cancelText: '稍后再说',
+                    success: (res) => {
+                        if (res.confirm) {
+                            this.openNotificationSettings()
+                        }
+                    }
+                })
+                return false
+            } catch (e) {
+                console.warn('请求通知权限失败', e)
+                return false
+            }
+            // #endif
+        },
+        isNotificationEnabled() {
+            // #ifdef APP-PLUS
+            try {
+                const main = plus.android.runtimeMainActivity()
+                const Context = plus.android.importClass('android.content.Context')
+                const NotificationManager = plus.android.importClass('android.app.NotificationManager')
+                const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
+                return nm.areNotificationsEnabled()
+            } catch (e) {
+                console.warn('检查通知权限失败', e)
+                return true
+            }
+            // #endif
+            return true
+        },
+        openNotificationSettings() {
+            // #ifdef APP-PLUS
+            try {
+                const main = plus.android.runtimeMainActivity()
+                const Intent = plus.android.importClass('android.content.Intent')
+                const Uri = plus.android.importClass('android.net.Uri')
+                const Build = plus.android.importClass('android.os.Build')
+
+                const intent = new Intent()
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+                if (Build.VERSION.SDK_INT >= 26) {
+                    intent.setAction('android.settings.APP_NOTIFICATION_SETTINGS')
+                    intent.putExtra('android.provider.extra.APP_PACKAGE', main.getPackageName())
+                } else if (Build.VERSION.SDK_INT >= 21) {
+                    intent.setAction('android.settings.APP_NOTIFICATION_SETTINGS')
+                    intent.putExtra('app_package', main.getPackageName())
+                    intent.putExtra('app_uid', main.getApplicationInfo().uid)
+                } else {
+                    intent.setAction('android.settings.APPLICATION_DETAILS_SETTINGS')
+                    intent.setData(Uri.fromParts('package', main.getPackageName(), null))
+                }
+
+                main.startActivity(intent)
+            } catch (e) {
+                console.warn('打开通知设置失败', e)
+            }
             // #endif
         },
         // ============== 登录与重连 ==============
