@@ -668,15 +668,26 @@ export default {
                 // 云端音频：play_url 是相对路径，需要拼接服务器地址
                 audioUrl = this.form.serverUrl + item.play_url
                 audioName = item.title
+                // 确保 URL 格式正确
+                if (audioUrl.indexOf('http') !== 0) {
+                    // 如果 serverUrl 没有协议头，补上
+                    audioUrl = 'http://' + audioUrl
+                }
             } else {
                 audioUrl = item.url
                 audioName = item.name
             }
             console.log('开始播放音频:', audioName, audioUrl)
+            // Android 平台需要先设置 src 再 play
             this.audioContext.src = audioUrl
             // 设置 loop（单曲循环）
             this.audioContext.loop = (this.playMode === 'single_loop')
-            this.audioContext.play()
+            // 延迟一帧再播放，确保 src 已生效
+            setTimeout(() => {
+                if (this.audioContext) {
+                    this.audioContext.play()
+                }
+            }, 100)
         },
         stopAudioPlay() {
             if (this.audioContext) {
@@ -2094,6 +2105,7 @@ export default {
         startHeartbeat() {
             this.stopHeartbeat()
             this.resetHeartbeatTimeout()
+            // 心跳间隔缩短到 10 秒，锁屏后 JS 被冻结前多发几次心跳
             this.heartbeatTimer = setInterval(() => {
                 if (!this.socketTask || !this.connected) {
                     this.stopHeartbeat()
@@ -2126,7 +2138,7 @@ export default {
                         this.scheduleReconnect()
                     }
                 }
-            }, 15000)
+            }, 10000)
         },
         stopHeartbeat() {
             if (this.heartbeatTimer) {
@@ -2146,7 +2158,7 @@ export default {
                 clearTimeout(this.heartbeatTimeoutTimer)
             }
             this.heartbeatTimeoutTimer = setTimeout(() => {
-                console.warn('心跳超时（30秒未收到任何消息），主动断开重连')
+                console.warn('心跳超时（20秒未收到任何消息），主动断开重连')
                 this.connected = false
                 this.stopHeartbeat()
                 if (this.socketTask) {
@@ -2165,7 +2177,7 @@ export default {
                 if (!this.reconnectTimer) {
                     this.scheduleReconnect()
                 }
-            }, 30000)
+            }, 20000)
         },
         scheduleReconnect() {
             if (!this.form.key) {
