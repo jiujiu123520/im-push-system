@@ -1078,6 +1078,9 @@ export default {
                 } catch (e) {}
             }
 
+            // AlarmManager 定时心跳 - 锁屏后 JS 引擎被冻结时作为备用心跳
+            this.setupAlarmHeartbeat(main, Context, Build)
+
             // 屏幕状态监听
             if (!this._screenReceiverRegistered) {
                 try {
@@ -1129,6 +1132,140 @@ export default {
             }
 
             console.log('前台服务保活已启动')
+            // #endif
+        },
+        setupAlarmHeartbeat(main, Context, Build) {
+            // #ifdef APP-PLUS
+            try {
+                const AlarmManager = plus.android.importClass('android.app.AlarmManager')
+                const PendingIntent = plus.android.importClass('android.app.PendingIntent')
+                const Intent = plus.android.importClass('android.content.Intent')
+                const System = plus.android.importClass('java.lang.System')
+
+                const alarmAction = 'com.push.app.ALARM_HEARTBEAT'
+                const interval = 25 * 1000  // 25 秒
+                const triggerAt = System.currentTimeMillis() + interval
+
+                const intent = new Intent(alarmAction)
+                intent.setPackage(main.getPackageName())
+
+                const flags = Build.VERSION.SDK_INT >= 31
+                    ? 0x04000000 | 0x08000000  // FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE
+                    : 0x04000000  // FLAG_UPDATE_CURRENT
+
+                if (this._alarmPendingIntent) {
+                    try { this._alarmPendingIntent.cancel() } catch (e) {}
+                }
+                this._alarmPendingIntent = PendingIntent.getBroadcast(main, 200, intent, flags)
+
+                const am = main.getSystemService(Context.ALARM_SERVICE)
+
+                // RTC_WAKEUP = 0, 唤醒 CPU
+                if (Build.VERSION.SDK_INT >= 23) {
+                    // setExactAndAllowWhileIdle: 在 Doze 模式下也能精确触发
+                    try {
+                        am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, this._alarmPendingIntent)
+                    } catch (e) {
+                        // Android 12+ 可能需要 SCHEDULE_EXACT_ALARM 权限
+                        console.warn('setExactAndAllowWhileIdle 失败，回退到 setAndAllowWhileIdle', e)
+                        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, this._alarmPendingIntent)
+                    }
+                } else {
+                    am.setExact(AlarmManager.RTC_WAKEUP, triggerAt, this._alarmPendingIntent)
+                }
+
+                // 注册闹钟广播接收器
+                if (!this._alarmReceiverRegistered) {
+                    const BroadcastReceiver = plus.android.importClass('android.content.BroadcastReceiver')
+                    const self = this
+                    this._alarmReceiver = new BroadcastReceiver({
+                        onReceive: function(context, intent) {
+                            const action = intent.getAction()
+                            if (action === alarmAction) {
+                                // 关键：唤醒后立即获取短暂 WakeLock，防止 CPU 在心跳完成前再次休眠
+                                let tmpWakeLock = null
+                                try {
+                                    const PowerManager = plus.android.importClass('android.os.PowerManager')
+                                    const pm = context.getSystemService(Context.POWER_SERVICE)
+                                    tmpWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, 'PushApp:AlarmWake')
+                                    tmpWakeLock.setReferenceCounted(false)
+                                    // 10 秒后自动释放，确保心跳/重连完成
+                                    tmpWakeLock.acquire(10 * 1000)
+                                } catch (e) {
+                                    console.warn('[Alarm] 获取临时 WakeLock 失败', e)
+                                }
+
+                                // 唤醒后立即发送心跳
+                                if (self.socketTask && self.connected) {
+                                    try {
+                                        self.socketTask.send({
+                                            data: JSON.stringify({ type: 'ping' }),
+                                            fail: () => {
+                                                self.connected = false
+                                                self.cleanupAndReconnect()
+                                            }
+                                        })
+                                        console.log('[Alarm] 心跳已发送')
+                                    } catch (e) {
+                                        self.connected = false
+                                        self.cleanupAndReconnect()
+                                    }
+                                } else if (self.form && self.form.key) {
+                                    // 连接断开了，尝试重连
+                                    console.log('[Alarm] 连接已断开，触发重连')
+                                    self.cleanupAndReconnect()
+                                }
+
+                                // 重新设置下一次闹钟
+                                self.setupAlarmHeartbeat(main, Context, Build)
+
+                                // 释放临时 WakeLock（保留几秒让心跳完成）
+                                if (tmpWakeLock) {
+                                    try {
+                                        // 不立即释放，让 10 秒超时自动释放
+                                        // 但如果已持有则保留引用防止被 GC
+                                        self._tmpAlarmWakeLock = tmpWakeLock
+                                    } catch (e) {}
+                                }
+                            }
+                        }
+                    })
+                    const filter = plus.android.importClass('android.content.IntentFilter')
+                    const intentFilter = new filter()
+                    intentFilter.addAction(alarmAction)
+                    main.registerReceiver(this._alarmReceiver, intentFilter)
+                    this._alarmReceiverRegistered = true
+                    console.log('AlarmManager 心跳广播接收器已注册')
+                }
+            } catch (e) {
+                console.error('设置 AlarmManager 心跳失败', e)
+            }
+            // #endif
+        },
+        stopAlarmHeartbeat() {
+            // #ifdef APP-PLUS
+            try {
+                const main = plus.android.runtimeMainActivity()
+                const Context = plus.android.importClass('android.content.Context')
+
+                if (this._alarmPendingIntent) {
+                    const AlarmManager = plus.android.importClass('android.app.AlarmManager')
+                    const am = main.getSystemService(Context.ALARM_SERVICE)
+                    am.cancel(this._alarmPendingIntent)
+                    this._alarmPendingIntent.cancel()
+                    this._alarmPendingIntent = null
+                }
+
+                if (this._alarmReceiver && this._alarmReceiverRegistered) {
+                    try {
+                        main.unregisterReceiver(this._alarmReceiver)
+                        this._alarmReceiver = null
+                        this._alarmReceiverRegistered = false
+                    } catch (e) {}
+                }
+            } catch (e) {
+                console.warn('停止 AlarmManager 心跳失败', e)
+            }
             // #endif
         },
         checkBatteryOptimization() {
@@ -1297,8 +1434,17 @@ export default {
                     channel.enableLights(true)
                     channel.enableVibration(true)
                     channel.setShowBadge(true)
+                    channel.setDescription('推送消息通知（锁屏可见）')
+                    // 锁屏完全可见
+                    channel.setLockscreenVisibility(1)  // VISIBILITY_PUBLIC
+                    // 绕过勿扰模式
+                    try { channel.setBypassDnd(true) } catch (e) {}
+                    // 灯光颜色（绿色）
+                    try { channel.setLightColor(0xFF00FF00) } catch (e) {}
+                    // 振动模式
+                    try { channel.setVibrationPattern([0, 200, 200, 200]) } catch (e) {}
                     nm.createNotificationChannel(channel)
-                    console.log('消息推送通知渠道已创建')
+                    console.log('消息推送通知渠道已创建（锁屏可见）')
                 }
             } catch (e) {
                 console.error('创建通知渠道失败', e)
@@ -1338,10 +1484,21 @@ export default {
                         mChannel.enableLights(true)
                         mChannel.enableVibration(true)
                         mChannel.setShowBadge(true)
-                        mChannel.setDescription('推送消息通知')
-                        mChannel.setLockscreenVisibility(1)
+                        mChannel.setDescription('推送消息通知（锁屏可见）')
+                        // 锁屏完全可见
+                        mChannel.setLockscreenVisibility(1)  // VISIBILITY_PUBLIC
+                        // 绕过勿扰模式
+                        try { mChannel.setBypassDnd(true) } catch (e) {}
+                        // 灯光颜色（绿色）
+                        try { mChannel.setLightColor(0xFF00FF00) } catch (e) {}
+                        // 振动模式：震动 200ms 停 200ms
+                        try {
+                            const VibratorHelper = plus.android.importClass('android.os.VibrationEffect')
+                            // 简单设置振动模式
+                            mChannel.setVibrationPattern([0, 200, 200, 200])
+                        } catch (e) {}
                         nm.createNotificationChannel(mChannel)
-                        console.log('消息推送通知渠道已创建')
+                        console.log('消息推送通知渠道已创建（锁屏可见）')
                     }
                 }
 
@@ -1370,12 +1527,24 @@ export default {
                 builder.setSmallIcon(this.getNotificationSmallIcon(main))
                 builder.setContentIntent(contentIntent)
                 builder.setAutoCancel(true)
+                // Ticker：状态栏首次显示时的滚动文本
+                try { builder.setTicker('收到推送：' + (title || '新消息')) } catch (e) {}
+                // 时间戳
+                try {
+                    const JavaSystem = plus.android.importClass('java.lang.System')
+                    builder.setWhen(JavaSystem.currentTimeMillis())
+                    try { builder.setShowWhen(true) } catch (e) {}
+                } catch (e) {}
 
                 try {
                     if (useCompat) {
                         builder.setPriority(2)  // PRIORITY_MAX
                         builder.setDefaults(-1)  // DEFAULT_ALL
                         builder.setVisibility(1)  // VISIBILITY_PUBLIC
+                        // 分类为消息，锁屏界面会优先显示
+                        try { builder.setCategory('msg') } catch (e) {}  // CATEGORY_MESSAGE
+                        // 锁屏可见性（再次强调）
+                        try { builder.setVisibility(1) } catch (e) {}
                     } else {
                         if (Build.VERSION.SDK_INT >= 16) {
                             builder.setPriority(2)
@@ -1383,8 +1552,27 @@ export default {
                         if (Build.VERSION.SDK_INT < 21) {
                             builder.setDefaults(-1)
                         }
+                        // 原生 Builder 也设置 category
+                        if (Build.VERSION.SDK_INT >= 21) {
+                            try { builder.setCategory('msg') } catch (e) {}
+                            try { builder.setVisibility(1) } catch (e) {}
+                        }
                     }
                 } catch (e) {}
+
+                // 设置全屏 Intent（Android 10 以下可弹出到锁屏上方，Android 10+ 受限但小米可能支持）
+                // USE_FULL_SCREEN_INTENT 权限已申请
+                if (Build.VERSION.SDK_INT >= 28) {
+                    try {
+                        const fullScreenPendingIntent = PendingIntent.getActivity(
+                            main, notificationId + 10000, launchIntent,
+                            Build.VERSION.SDK_INT >= 31 ? 0x04000000 | 0x08000000 : 0x04000000
+                        )
+                        builder.setFullScreenIntent(fullScreenPendingIntent, true)
+                    } catch (e) {
+                        console.warn('设置全屏 Intent 失败', e)
+                    }
+                }
 
                 // 大文本支持
                 if (content && content.length > 50) {
