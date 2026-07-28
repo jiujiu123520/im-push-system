@@ -496,7 +496,10 @@ class WebSocketServer
 
         // 非 JSON 文本：当作心跳 ping 处理（兼容客户端主动 ping）
         if (!is_array($data)) {
-            $server->push($fd, $this->pack(0, 'pong', ['server_time' => time()], 'pong'));
+            $server->push($fd, $this->pack(0, 'pong', [
+                'server_time' => time(),
+                'server_time_ms' => (int)(microtime(true) * 1000),
+            ], 'pong'));
             return;
         }
 
@@ -526,11 +529,31 @@ class WebSocketServer
             case 'pong':
                 // 客户端响应服务端心跳 ping，重置未响应计数
                 $this->heartbeatManager->onPong($fd);
+                // 记录客户端 pong 日志（含设备状态，便于排查）
+                $clientTimestamp = $data['timestamp'] ?? 0;
+                $deviceState = $data['device_state'] ?? null;
+                if ($deviceState && is_array($deviceState)) {
+                    $this->logToFile(sprintf(
+                        "[WS] 收到客户端 pong fd=%d client_ts=%d playing=%s audio=%s tab=%s",
+                        $fd,
+                        $clientTimestamp,
+                        $deviceState['is_playing'] ? 'yes' : 'no',
+                        $deviceState['audio_enabled'] ? 'yes' : 'no',
+                        $deviceState['tab'] ?? '-'
+                    ));
+                }
                 break;
 
             case 'ping':
-                // 客户端主动心跳，响应 pong（带 type 字段，与 APP 协议一致）
-                $server->push($fd, $this->pack(0, 'pong', ['server_time' => time()], 'pong'));
+                // 客户端主动心跳，响应 pong（携带服务器时间、毫秒时间戳、客户端时间回显、在线连接数）
+                $clientTimestamp = $data['timestamp'] ?? 0;
+                $onlineCount = count($this->connectionManager->getAllOnlineFds());
+                $server->push($fd, $this->pack(0, 'pong', [
+                    'server_time' => time(),
+                    'server_time_ms' => (int)(microtime(true) * 1000),
+                    'client_timestamp' => $clientTimestamp,
+                    'online_count' => $onlineCount,
+                ], 'pong'));
                 break;
 
             case 'ack':

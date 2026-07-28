@@ -175,6 +175,7 @@ class HeartbeatManager
         $ping = json_encode([
             'type' => 'ping',
             'time' => time(),
+            'server_time_ms' => (int)(microtime(true) * 1000),
         ], JSON_UNESCAPED_UNICODE);
 
         $this->server->push($fd, $ping);

@@ -2121,16 +2121,50 @@ export default {
 
                     // 2. 心跳 ping/pong
                     if (data.type === 'ping') {
-                        this.socketTask.send({ data: JSON.stringify({ type: 'pong' }) })
+                        // 回复服务端 ping，携带时间戳和设备状态
+                        const pongData = {
+                            type: 'pong',
+                            timestamp: Date.now(),
+                            server_ping_time: data.time || 0,
+                            device_state: {
+                                connected: this.connected,
+                                is_playing: this.isPlaying,
+                                audio_enabled: this.audioEnabled,
+                                tab: this.currentTab
+                            }
+                        }
+                        this.socketTask.send({ data: JSON.stringify(pongData) })
                         return
                     }
                     if (data.type === 'pong') {
+                        // 收到服务端 pong 响应，计算网络延迟并记录
+                        const serverTime = data.server_time || data.data?.server_time || 0
+                        const now = Date.now()
+                        // 如果有记录的 ping 发送时间，计算 RTT（往返时延）
+                        if (this._lastPingSentTime) {
+                            const rtt = now - this._lastPingSentTime
+                            this._lastRtt = rtt
+                            // 每隔几次打印一次延迟日志，避免刷屏
+                            if (!this._pongLogCounter) this._pongLogCounter = 0
+                            this._pongLogCounter++
+                            if (this._pongLogCounter >= 3) {
+                                console.log('[WS] 收到 pong, RTT=' + rtt + 'ms, server_time=' + serverTime)
+                                this._pongLogCounter = 0
+                            }
+                            this._lastPingSentTime = null
+                        }
+                        // 记录服务器时间偏移（秒级），可用于时间显示校准
+                        if (serverTime) {
+                            this._serverTimeOffset = (serverTime * 1000) - now
+                        }
+                        // onShow 验证 ping 成功
                         if (this._onShowPingTimer) {
                             this._onShowPongOk = true
                             clearTimeout(this._onShowPingTimer)
                             this._onShowPingTimer = null
                             console.log('onShow 验证 ping 成功，连接存活')
                         }
+                        // 屏幕亮屏验证 ping 成功
                         if (this._screenPingTimer) {
                             this._screenPongOk = true
                             clearTimeout(this._screenPingTimer)
@@ -2300,6 +2334,8 @@ export default {
                     return
                 }
                 try {
+                    // 记录 ping 发送时间，用于收到 pong 时计算 RTT
+                    this._lastPingSentTime = Date.now()
                     this.socketTask.send({
                         data: JSON.stringify({ type: 'ping' }),
                         success: () => {},
