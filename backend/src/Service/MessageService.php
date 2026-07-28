@@ -208,6 +208,66 @@ class MessageService
 
     // ========== 内部方法 ==========
 
+    /**
+     * 按设备 ID 查询历史消息（APP 端绑定设备后同步用）
+     *
+     * 仅返回该设备在指定 push_key 下的消息，按 ID 倒序排列。
+     * 通过 push_key_id 校验归属，防止越权查询其他 Key 下的消息。
+     *
+     * @param string $deviceId  设备 ID
+     * @param int    $pushKeyId 推送 Key ID（用于归属校验，0 表示不校验）
+     * @param int    $limit     返回条数（最大 100）
+     * @param int    $beforeId  分页游标：返回 ID 小于此值的消息（0 表示从头开始）
+     * @return array { list, total, has_more }
+     */
+    public function listByDevice(string $deviceId, int $pushKeyId = 0, int $limit = 50, int $beforeId = 0): array
+    {
+        $limit = max(1, min(100, $limit));
+
+        $where  = ' WHERE device_id = ?';
+        $args   = [$deviceId];
+
+        if ($pushKeyId > 0) {
+            $where .= ' AND push_key_id = ?';
+            $args[] = $pushKeyId;
+        }
+        if ($beforeId > 0) {
+            $where .= ' AND id < ?';
+            $args[] = $beforeId;
+        }
+
+        // 总数（不受 beforeId 影响，表示该设备消息总量）
+        $countSql = "SELECT COUNT(*) FROM messages WHERE device_id = ?";
+        $countArgs = [$deviceId];
+        if ($pushKeyId > 0) {
+            $countSql .= ' AND push_key_id = ?';
+            $countArgs[] = $pushKeyId;
+        }
+        $stmt = Database::pdo()->prepare($countSql);
+        $stmt->execute($countArgs);
+        $total = (int)$stmt->fetchColumn();
+
+        // 列表
+        $listSql = 'SELECT id, message_id, push_key_id, device_id, title, content, payload, is_read, created_at'
+            . " FROM messages {$where}"
+            . ' ORDER BY id DESC LIMIT ' . $limit;
+        $stmt = Database::pdo()->prepare($listSql);
+        $stmt->execute($args);
+        $list = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        foreach ($list as &$row) {
+            $row['is_read'] = (int)$row['is_read'];
+            $row['payload'] = $row['payload'] ? json_decode($row['payload'], true) : null;
+        }
+        unset($row);
+
+        return [
+            'list'     => $list,
+            'total'    => $total,
+            'has_more' => count($list) === $limit && $total > count($list),
+        ];
+    }
+
     /** 查询全部消息（不分页，用于导出） */
     private function fetchAllMessages(string $keyword = ''): array
     {

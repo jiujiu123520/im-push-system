@@ -276,6 +276,9 @@ if ($runWs) {
         // APP 端自测推送（无需鉴权，通过 Key + device_id）
         $router->post('/api/test-push-self',      [\App\Controller\TestPushController::class, 'selfTest']);
 
+        // APP 端设备历史消息查询（无需鉴权，通过 push_key + device_id）
+        $router->get('/api/device/messages',      [\App\Controller\DeviceApiController::class, 'messages']);
+
         // ============================================================
         // 系统设置（管理员鉴权）
         // ============================================================

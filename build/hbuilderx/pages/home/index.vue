@@ -966,10 +966,41 @@ export default {
         initDeviceId() {
             let deviceId = uni.getStorageSync('push_device_id')
             if (!deviceId) {
-                deviceId = 'app-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36)
+                // 优先使用设备硬件标识生成稳定ID（同一手机重装应用也保持一致）
+                let hardwareId = ''
+                // #ifdef APP-PLUS
+                try {
+                    const info = uni.getSystemInfoSync()
+                    // androidId 在 Android 8+ 仍可用，作为设备唯一标识
+                    hardwareId = info.androidId || info.deviceId || ''
+                } catch (e) {
+                    console.warn('获取设备硬件标识失败', e)
+                }
+                // #endif
+                if (hardwareId) {
+                    // 基于硬件标识 + 应用包名生成稳定ID（同一手机唯一，不同应用不同）
+                    deviceId = 'app-' + this.stableHash(hardwareId + (APP_CONFIG.package_name || 'pushapp'))
+                } else {
+                    // 回退：随机生成（仅在没有硬件标识时使用）
+                    deviceId = 'app-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36)
+                }
                 uni.setStorageSync('push_device_id', deviceId)
             }
             this.deviceId = deviceId
+        },
+        // 稳定哈希函数：将字符串转为固定长度的16进制字符串（同一输入始终产生同一输出）
+        stableHash(str) {
+            let h1 = 0xdeadbeef ^ 0
+            let h2 = 0x41c6ce57 ^ 0
+            for (let i = 0; i < str.length; i++) {
+                const ch = str.charCodeAt(i)
+                h1 = Math.imul(h1 ^ ch, 2654435761)
+                h2 = Math.imul(h2 ^ ch, 1597334677)
+            }
+            h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+            h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+            const hash = 4294967296 * (2097151 & h2) + (h1 >>> 0)
+            return hash.toString(16).padStart(13, '0').substring(0, 12)
         },
         loadConfig() {
             const savedKey = uni.getStorageSync('push_key')
@@ -1182,18 +1213,6 @@ export default {
                 console.log('通知构建成功')
             } catch (e) {
                 console.error('构建通知失败', e)
-                // 最终回退：使用 plus.push
-                try {
-                    if (typeof plus !== 'undefined' && plus.push) {
-                        plus.push.createMessage('推送服务运行中', '', {
-                            title: '推送服务 · ' + (this.connected ? '已连接' : '正在连接...'),
-                            cover: true
-                        })
-                        console.log('使用 plus.push 回退通知')
-                    }
-                } catch (e2) {
-                    console.error('plus.push 也失败', e2)
-                }
                 // 即使通知失败，也继续执行保活逻辑
             }
 
@@ -1269,13 +1288,6 @@ export default {
                 }
             } catch (e) {
                 console.warn('获取 WifiLock 失败', e)
-            }
-
-            // plus.push 自动通知
-            if (typeof plus !== 'undefined' && plus.push) {
-                try {
-                    plus.push.setAutoNotification(true)
-                } catch (e) {}
             }
 
             // AlarmManager 定时心跳 - 锁屏后 JS 引擎被冻结时作为备用心跳
@@ -1802,19 +1814,6 @@ export default {
                 return true
             } catch (e) {
                 console.error('显示通知失败', e)
-                // 回退到 plus.push
-                try {
-                    if (typeof plus !== 'undefined' && plus.push) {
-                        plus.push.createMessage(content, '', {
-                            title: title || '新消息',
-                            cover: false
-                        })
-                        console.log('使用 plus.push 显示通知')
-                        return true
-                    }
-                } catch (e2) {
-                    console.warn('plus.push 通知也失败', e2)
-                }
                 return false
             }
             // #endif
@@ -2061,7 +2060,8 @@ export default {
                     '绑定后将：\n' +
                     '1. 断开当前 WebSocket 连接\n' +
                     '2. 使用新设备 ID 「' + newDeviceId + '」重新连接\n' +
-                    '3. 后台推送消息将发送到该设备 ID\n\n' +
+                    '3. 同步该设备的历史推送消息\n' +
+                    '4. 后台推送消息将发送到该设备 ID\n\n' +
                     '请确认后台「设备管理」中存在此设备 ID。',
                 confirmText: '确认绑定',
                 success: (r) => {
@@ -2071,7 +2071,9 @@ export default {
                     this.deviceId = newDeviceId
                     // 先关闭当前连接
                     this.closeSocket()
-                    uni.showToast({ title: '已绑定，正在重连...', icon: 'none' })
+                    uni.showToast({ title: '已绑定，正在同步消息...', icon: 'none' })
+                    // 同步该设备的历史消息
+                    this.syncDeviceHistoryMessages(newDeviceId)
                     // 稍等片刻后重连（让 closeSocket 完成）
                     setTimeout(() => {
                         this.connectWebSocket()
@@ -2079,18 +2081,91 @@ export default {
                 }
             })
         },
-        // 恢复为自动生成的设备 ID
+        // 同步设备历史消息（绑定新设备 ID 后调用）
+        // 从后端拉取该设备的历史推送消息，合并到本地消息列表
+        syncDeviceHistoryMessages(deviceId) {
+            const pushKey = this.form.key || uni.getStorageSync('push_key') || ''
+            if (!pushKey || !deviceId) {
+                console.warn('[Sync] push_key 或 device_id 为空，跳过同步')
+                return
+            }
+            const serverUrl = (this.form.serverUrl || APP_CONFIG.server_url || '').replace(/\/+$/, '')
+            const url = serverUrl + '/api/device/messages?push_key='
+                + encodeURIComponent(pushKey)
+                + '&device_id=' + encodeURIComponent(deviceId)
+                + '&limit=50'
+
+            console.log('[Sync] 开始同步设备历史消息:', deviceId)
+            uni.request({
+                url: url,
+                method: 'GET',
+                timeout: 10000,
+                success: (res) => {
+                    if (res.statusCode !== 200 || !res.data || res.data.code !== 0) {
+                        console.warn('[Sync] 同步失败:', res.data?.message || res.statusCode)
+                        uni.showToast({ title: '历史消息同步失败', icon: 'none' })
+                        return
+                    }
+                    const data = res.data.data || {}
+                    const list = data.list || []
+                    if (list.length === 0) {
+                        console.log('[Sync] 该设备暂无历史消息')
+                        uni.showToast({ title: '已绑定，正在重连...', icon: 'none' })
+                        return
+                    }
+                    // 将后端历史消息合并到本地消息列表
+                    // 后端返回按 id DESC，本地 messages 也按时间倒序，直接合并去重
+                    const existingIds = new Set(this.messages.map(m => m.message_id || m.id))
+                    const newMsgs = []
+                    list.forEach((item) => {
+                        const msgId = item.message_id || ('db_' + item.id)
+                        if (existingIds.has(msgId)) return
+                        newMsgs.push({
+                            id: msgId,
+                            message_id: item.message_id,
+                            title: item.title || '消息推送',
+                            content: item.content || '',
+                            time: new Date(item.created_at.replace(/-/g, '/')).getTime() || Date.now(),
+                            is_synced: true
+                        })
+                    })
+                    if (newMsgs.length > 0) {
+                        // 合并并按时间倒序排序
+                        this.messages = [...this.messages, ...newMsgs].sort((a, b) => (b.time || 0) - (a.time || 0))
+                        // 限制最多 100 条
+                        if (this.messages.length > 100) {
+                            this.messages = this.messages.slice(0, 100)
+                        }
+                        this.saveMessages()
+                        this.updateStats()
+                        console.log('[Sync] 同步完成，新增', newMsgs.length, '条历史消息')
+                        uni.showToast({
+                            title: '已同步 ' + newMsgs.length + ' 条历史消息',
+                            icon: 'none'
+                        })
+                    } else {
+                        console.log('[Sync] 历史消息已全部存在，无需合并')
+                        uni.showToast({ title: '已绑定，正在重连...', icon: 'none' })
+                    }
+                },
+                fail: (err) => {
+                    console.error('[Sync] 同步请求失败', err)
+                    uni.showToast({ title: '历史消息同步失败', icon: 'none' })
+                }
+            })
+        },
+        // 恢复为自动生成的设备 ID（基于硬件标识生成稳定ID）
         resetDeviceIdAuto() {
             uni.showModal({
                 title: '恢复自动生成',
-                content: '将重新随机生成一个设备 ID（app-xxxx 格式），并使用它重新连接。当前绑定的设备 ID 将被覆盖。',
+                content: '将基于本机硬件标识重新生成稳定的设备 ID（同一手机始终生成相同 ID），并使用它重新连接。当前绑定的设备 ID 将被覆盖。',
                 confirmText: '恢复',
                 success: (r) => {
                     if (!r.confirm) return
-                    const newDeviceId = 'app-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36)
-                    uni.setStorageSync('push_device_id', newDeviceId)
-                    this.deviceId = newDeviceId
-                    this.bindDeviceIdInput = newDeviceId
+                    // 清除本地存储，触发 initDeviceId 重新生成
+                    uni.removeStorageSync('push_device_id')
+                    this.initDeviceId()
+                    this.bindDeviceIdInput = this.deviceId
                     this.closeSocket()
                     uni.showToast({ title: '已恢复，正在重连...', icon: 'none' })
                     setTimeout(() => {
