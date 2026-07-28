@@ -235,7 +235,8 @@ echo ""
 # 二次确认（默认为 Y，直接回车即开始更新；输入 n 取消）
 if [[ "${SKIP_CONFIRM}" != "1" ]]; then
     warn "即将开始更新，更新过程中服务可能短暂中断。"
-    read -r -p "确认开始更新？[Y/n]: " CONFIRM
+    info "提示：直接回车即开始更新（默认为 Y），输入 n 取消"
+    read -r -p "确认开始更新？[Y/n]（默认 Y）: " CONFIRM
     # 默认为 Y（直接回车或输入 y/Y/任意非 n 字符均继续；仅输入 n/N 取消）
     if [[ "${CONFIRM}" =~ ^[Nn]$ ]]; then
         info "已取消更新。"
