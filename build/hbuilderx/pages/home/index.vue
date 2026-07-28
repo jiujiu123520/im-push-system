@@ -162,6 +162,154 @@
             </view>
         </view>
 
+        <!-- ========== Tab 3: 用户中心 ========== -->
+        <view v-show="currentTab === 'profile'" class="tab-page profile-page">
+            <!-- 用户信息卡片 -->
+            <view class="profile-header-card">
+                <view class="profile-avatar">
+                    <image v-if="logoUrl" :src="logoUrl" class="avatar-img" mode="aspectFill" />
+                    <text v-else class="avatar-text">P</text>
+                </view>
+                <view class="profile-user-info">
+                    <text class="profile-username">PushApp 用户</text>
+                    <text class="profile-device-id">设备ID：{{ deviceIdShort }}</text>
+                    <view class="profile-status-row">
+                        <view :class="['profile-status-dot', connected ? 'online' : 'offline']"></view>
+                        <text :class="['profile-status-text', connected ? 'online' : 'offline']">{{ connected ? '在线' : '离线' }}</text>
+                    </view>
+                </view>
+            </view>
+
+            <!-- 数据统计 -->
+            <view class="profile-stats-row">
+                <view class="profile-stat-item">
+                    <text class="profile-stat-value">{{ todayCount }}</text>
+                    <text class="profile-stat-label">今日</text>
+                </view>
+                <view class="profile-stat-divider"></view>
+                <view class="profile-stat-item">
+                    <text class="profile-stat-value">{{ totalCount }}</text>
+                    <text class="profile-stat-label">累计</text>
+                </view>
+                <view class="profile-stat-divider"></view>
+                <view class="profile-stat-item">
+                    <text class="profile-stat-value">{{ messages.length }}</text>
+                    <text class="profile-stat-label">已读</text>
+                </view>
+            </view>
+
+            <!-- 连接信息 -->
+            <view class="profile-section">
+                <view class="profile-section-title">连接信息</view>
+                <view class="profile-cell">
+                    <text class="profile-cell-label">推送 Key</text>
+                    <text class="profile-cell-value">{{ form.key ? form.key.substring(0, 12) + '...' : '--' }}</text>
+                </view>
+                <view class="profile-cell">
+                    <text class="profile-cell-label">服务器</text>
+                    <text class="profile-cell-value">{{ form.serverUrl || '--' }}</text>
+                </view>
+                <view class="profile-cell">
+                    <text class="profile-cell-label">WebSocket</text>
+                    <text class="profile-cell-value">{{ wsUrl || form.wsUrl || '--' }}</text>
+                </view>
+                <view class="profile-cell" v-if="_lastRtt">
+                    <text class="profile-cell-label">网络延迟</text>
+                    <text class="profile-cell-value">{{ _lastRtt }}ms</text>
+                </view>
+                <view class="profile-cell">
+                    <text class="profile-cell-label">连接状态</text>
+                    <text :class="['profile-cell-value', connected ? 'text-success' : 'text-danger']">{{ connected ? '已连接' : '已断开' }}</text>
+                </view>
+            </view>
+
+            <!-- 权限管理 -->
+            <view class="profile-section">
+                <view class="profile-section-title">权限管理</view>
+                <view class="profile-cell profile-cell-tap" @click="openPermission('app')">
+                    <text class="profile-cell-label">应用详情</text>
+                    <text class="profile-cell-arrow">›</text>
+                </view>
+                <view class="profile-cell profile-cell-tap" @click="openPermission('notification')">
+                    <text class="profile-cell-label">通知权限</text>
+                    <text class="profile-cell-arrow">›</text>
+                </view>
+                <view class="profile-cell profile-cell-tap" @click="openPermission('battery')">
+                    <text class="profile-cell-label">电池优化白名单</text>
+                    <text class="profile-cell-arrow">›</text>
+                </view>
+                <view class="profile-cell profile-cell-tap" @click="openPermission('autostart')">
+                    <text class="profile-cell-label">自启动管理</text>
+                    <text class="profile-cell-arrow">›</text>
+                </view>
+                <template v-if="isXiaomiDevice">
+                    <view class="profile-cell profile-cell-tap" @click="openXiaomiPermission('autostart')">
+                        <text class="profile-cell-label">小米·自启动</text>
+                        <text class="profile-cell-arrow">›</text>
+                    </view>
+                    <view class="profile-cell profile-cell-tap" @click="openXiaomiPermission('battery_saver')">
+                        <text class="profile-cell-label">小米·省电策略</text>
+                        <text class="profile-cell-arrow">›</text>
+                    </view>
+                    <view class="profile-cell profile-cell-tap" @click="openXiaomiPermission('background_popup')">
+                        <text class="profile-cell-label">小米·后台弹出</text>
+                        <text class="profile-cell-arrow">›</text>
+                    </view>
+                    <view class="profile-cell profile-cell-tap" @click="openXiaomiPermission('lockscreen_show')">
+                        <text class="profile-cell-label">小米·锁屏显示</text>
+                        <text class="profile-cell-arrow">›</text>
+                    </view>
+                </template>
+            </view>
+
+            <!-- 关于 -->
+            <view class="profile-section">
+                <view class="profile-section-title">关于</view>
+                <view class="profile-cell">
+                    <text class="profile-cell-label">应用版本</text>
+                    <text class="profile-cell-value">{{ versionName }}</text>
+                </view>
+                <view class="profile-cell">
+                    <text class="profile-cell-label">设备型号</text>
+                    <text class="profile-cell-value">{{ deviceModel || '--' }}</text>
+                </view>
+                <view class="profile-cell">
+                    <text class="profile-cell-label">系统版本</text>
+                    <text class="profile-cell-value">{{ osVersion || '--' }}</text>
+                </view>
+                <view class="profile-cell">
+                    <text class="profile-cell-label">设备品牌</text>
+                    <text class="profile-cell-value">{{ deviceBrand || '--' }}</text>
+                </view>
+            </view>
+
+            <!-- 其他操作 -->
+            <view class="profile-section">
+                <view class="profile-section-title">其他操作</view>
+                <view class="profile-cell profile-cell-tap" @click="showSettings = true">
+                    <text class="profile-cell-label">应用设置</text>
+                    <text class="profile-cell-arrow">›</text>
+                </view>
+                <view class="profile-cell profile-cell-tap" @click="checkUpdate">
+                    <text class="profile-cell-label">检查更新</text>
+                    <text class="profile-cell-arrow">›</text>
+                </view>
+                <view class="profile-cell profile-cell-tap" @click="clearCache">
+                    <text class="profile-cell-label">清除缓存</text>
+                    <text class="profile-cell-arrow">›</text>
+                </view>
+                <view class="profile-cell profile-cell-tap" @click="copyDeviceInfo">
+                    <text class="profile-cell-label">复制设备信息</text>
+                    <text class="profile-cell-arrow">›</text>
+                </view>
+            </view>
+
+            <!-- 退出登录 -->
+            <view class="profile-logout-wrap">
+                <button class="profile-logout-btn" @click="handleLogout">退出登录</button>
+            </view>
+        </view>
+
         <!-- ========== 底部导航 Tab Bar ========== -->
         <view class="bottom-tab-bar">
             <view
@@ -177,6 +325,13 @@
             >
                 <text class="tab-icon">🎵</text>
                 <text class="tab-text">音频播放</text>
+            </view>
+            <view
+                :class="['tab-item', currentTab === 'profile' ? 'tab-active' : '']"
+                @click="switchTab('profile')"
+            >
+                <text class="tab-icon">👤</text>
+                <text class="tab-text">用户中心</text>
             </view>
         </view>
 
@@ -303,7 +458,12 @@ export default {
             // 当前播放音频来源：server=云端 / local=本地
             currentAudioSource: 'local',
             // 播放列表当前显示的 tab：server=云端音频 / local=本地音频
-            audioListTab: 'server'
+            audioListTab: 'server',
+            // 用户中心
+            logoUrl: '',
+            deviceModel: '',
+            deviceBrand: '',
+            osVersion: ''
         }
     },
     computed: {
@@ -331,6 +491,8 @@ export default {
         this.loadMessages()
         this.loadAudioConfig()
         this.fetchServerAudioList()
+        this.loadDeviceInfo()
+        this.logoUrl = '/static/logo.jpg'
         // 验证登录状态，未登录则返回登录页
         const savedKey = uni.getStorageSync('push_key')
         const savedServer = uni.getStorageSync('push_server')
@@ -1736,6 +1898,63 @@ export default {
             this.reconnectDelay = 3000
             this.connectWebSocket()
         },
+        // ============== 用户中心 ==============
+        loadDeviceInfo() {
+            try {
+                // #ifdef APP-PLUS
+                const info = uni.getSystemInfoSync()
+                this.deviceModel = info.model || ''
+                this.deviceBrand = info.brand || ''
+                this.osVersion = (info.system || '') + (info.platform ? ' (' + info.platform + ')' : '')
+                // #endif
+            } catch (e) {
+                console.warn('获取设备信息失败', e)
+            }
+        },
+        checkUpdate() {
+            uni.showModal({
+                title: '检查更新',
+                content: '当前版本：' + this.versionName + '\n\n暂无可用的更新，请保持关注。',
+                showCancel: false,
+                confirmText: '知道了'
+            })
+        },
+        clearCache() {
+            uni.showModal({
+                title: '清除缓存',
+                content: '将清除本地消息记录和音频缓存（不影响推送 Key 和服务器配置）',
+                success: (res) => {
+                    if (res.confirm) {
+                        uni.removeStorageSync('push_messages')
+                        uni.removeStorageSync('push_today_count')
+                        uni.removeStorageSync('push_total_count')
+                        this.messages = []
+                        this.todayCount = 0
+                        uni.showToast({ title: '缓存已清除', icon: 'success' })
+                    }
+                }
+            })
+        },
+        copyDeviceInfo() {
+            const info = [
+                '设备ID: ' + this.deviceId,
+                '推送Key: ' + this.form.key,
+                '服务器: ' + this.form.serverUrl,
+                'WebSocket: ' + (this.wsUrl || this.form.wsUrl || ''),
+                '应用版本: ' + this.versionName,
+                '设备型号: ' + this.deviceModel,
+                '设备品牌: ' + this.deviceBrand,
+                '系统版本: ' + this.osVersion,
+                '连接状态: ' + (this.connected ? '在线' : '离线'),
+                '网络延迟: ' + (this._lastRtt ? this._lastRtt + 'ms' : '--')
+            ].join('\n')
+            uni.setClipboardData({
+                data: info,
+                success: () => {
+                    uni.showToast({ title: '设备信息已复制', icon: 'success' })
+                }
+            })
+        },
         handleLogout() {
             uni.showModal({
                 title: '提示',
@@ -2994,6 +3213,202 @@ export default {
 
 .tab-text {
     font-size: 11px;
+}
+
+/* ============== 用户中心 ============== */
+.profile-page {
+    padding-bottom: 80px;
+}
+
+.profile-header-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 24px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.profile-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.avatar-img {
+    width: 100%;
+    height: 100%;
+}
+
+.avatar-text {
+    font-size: 28px;
+    font-weight: bold;
+    color: white;
+}
+
+.profile-user-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.profile-username {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.profile-device-id {
+    font-size: 12px;
+    opacity: 0.85;
+}
+
+.profile-status-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.profile-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.profile-status-dot.online {
+    background: #52c41a;
+    box-shadow: 0 0 6px rgba(82, 196, 26, 0.6);
+}
+
+.profile-status-dot.offline {
+    background: #ff4d4f;
+}
+
+.profile-status-text {
+    font-size: 12px;
+}
+
+.profile-status-text.online {
+    color: #b7eb8f;
+}
+
+.profile-status-text.offline {
+    color: #ffccc7;
+}
+
+.profile-stats-row {
+    display: flex;
+    align-items: center;
+    background: white;
+    padding: 16px 0;
+    margin-bottom: 10px;
+}
+
+.profile-stat-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.profile-stat-value {
+    font-size: 22px;
+    font-weight: 600;
+    color: #333;
+}
+
+.profile-stat-label {
+    font-size: 12px;
+    color: #999;
+}
+
+.profile-stat-divider {
+    width: 1px;
+    height: 30px;
+    background: #eee;
+}
+
+.profile-section {
+    background: white;
+    margin: 0 12px 10px;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.profile-section-title {
+    font-size: 13px;
+    color: #999;
+    padding: 12px 16px 6px;
+}
+
+.profile-cell {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-top: 1px solid #f5f5f5;
+}
+
+.profile-cell-tap {
+    transition: background 0.2s;
+}
+
+.profile-cell-tap:active {
+    background: #f5f5f5;
+}
+
+.profile-cell-label {
+    font-size: 14px;
+    color: #333;
+}
+
+.profile-cell-value {
+    font-size: 13px;
+    color: #999;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.profile-cell-arrow {
+    font-size: 18px;
+    color: #ccc;
+}
+
+.text-success {
+    color: #52c41a !important;
+}
+
+.text-danger {
+    color: #ff4d4f !important;
+}
+
+.profile-logout-wrap {
+    padding: 20px 16px;
+}
+
+.profile-logout-btn {
+    background: white;
+    color: #ff4d4f;
+    border: 1px solid #ffccc7;
+    border-radius: 8px;
+    font-size: 15px;
+    height: 44px;
+    line-height: 44px;
+}
+
+.profile-logout-btn:active {
+    background: #fff1f0;
 }
 
 /* ============== 设置弹窗 ============== */
