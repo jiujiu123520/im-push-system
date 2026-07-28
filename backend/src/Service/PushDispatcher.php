@@ -637,6 +637,14 @@ class PushDispatcher
     /**
      * 处理断开连接队列（仅 WS 上下文调用）
      *
+     * 支持两种命令格式：
+     *   1. {field: 'device_id', value: 'xxx'} — 按 field 查找 fd 并断开（黑名单用）
+     *   2. {action: 'disconnect', device_id: 'xxx', fds: [1,2,3]} — 直接断开指定 fd（踢出/禁用用）
+     *
+     * 同时消费两个队列：
+     *   - ws:command:disconnect（enqueueDisconnect 写入）
+     *   - ws:queue:cmd（DeviceService::notifyDisconnectDevice / kickDevice 写入）
+     *
      * @param int $limit
      * @return int
      */
@@ -650,7 +658,11 @@ class PushDispatcher
         $processed = 0;
 
         for ($i = 0; $i < $limit; $i++) {
+            // 优先消费标准队列，再消费 ws:queue:cmd
             $raw = $redis->rPop(self::DISCONNECT_QUEUE_KEY);
+            if ($raw === null) {
+                $raw = $redis->rPop('ws:queue:cmd');
+            }
             if ($raw === null) {
                 break;
             }
@@ -660,16 +672,33 @@ class PushDispatcher
                 continue;
             }
 
+            // 格式2：直接指定 fds（踢出/禁用设备时使用）
+            $action = $command['action'] ?? '';
+            if ($action === 'disconnect' && isset($command['fds']) && is_array($command['fds'])) {
+                $reason = $command['reason'] ?? 'kicked';
+                foreach ($command['fds'] as $fd) {
+                    $fd = (int)$fd;
+                    if ($this->server->isEstablished($fd)) {
+                        $this->server->disconnect($fd, 4003, $reason);
+                    }
+                }
+                $processed++;
+                continue;
+            }
+
+            // 格式1：按 field/value 查找 fd（黑名单用）
             $field = $command['field'] ?? '';
             $value = $command['value'] ?? '';
 
-            $fds = $this->connectionManager->findFdsByField($field, $value);
-            foreach ($fds as $fd) {
-                if ($this->server->isEstablished($fd)) {
-                    $this->server->disconnect($fd, 4003, 'blacklisted');
+            if ($field !== '' && $value !== '') {
+                $fds = $this->connectionManager->findFdsByField($field, $value);
+                foreach ($fds as $fd) {
+                    if ($this->server->isEstablished($fd)) {
+                        $this->server->disconnect($fd, 4003, 'blacklisted');
+                    }
                 }
+                $processed++;
             }
-            $processed++;
         }
 
         return $processed;

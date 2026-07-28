@@ -87,7 +87,13 @@ export function sendTestPushApi(data: {
 
 // 检查设备/Key 在线状态
 export function checkOnlineApi(params: { type: 'device' | 'key'; value: string }) {
-  return get<{ online: boolean; online_count: number; detail: any }>('/admin/test-push/check', params)
+  return get<{
+    online: boolean
+    online_count: number
+    device_count: number
+    connection_count: number
+    detail: any
+  }>('/admin/test-push/check', params)
 }
 
 // 并发压测推送

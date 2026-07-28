@@ -11,6 +11,14 @@ export function getDeviceDetailApi(id: number) {
   return get<DeviceRecord>(`/admin/devices/${id}`)
 }
 
+// 按 Key 值查询设备列表（含在线状态）
+export function getDevicesByKeyApi(key: string) {
+  return get<{ list: DeviceRecord[]; total: number; online_count: number; key_info: any }>(
+    '/admin/devices/by-key',
+    { key }
+  )
+}
+
 // 新增设备
 export function createDeviceApi(data: DeviceForm) {
   return post('/admin/devices', data)
@@ -29,6 +37,11 @@ export function deleteDeviceApi(id: number) {
 // 切换设备状态
 export function toggleDeviceStatusApi(id: number, status: number) {
   return put(`/admin/devices/${id}/status`, { status })
+}
+
+// 强制断开设备连接（踢出）
+export function kickDeviceApi(id: number) {
+  return post<{ id: number; kicked: number; message: string }>(`/admin/devices/${id}/kick`)
 }
 
 // 更新设备标签

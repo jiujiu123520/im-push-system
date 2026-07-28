@@ -236,8 +236,10 @@ if ($runWs) {
         // 设备管理（管理员鉴权）
         // ============================================================
         $router->get('/admin/devices',                  [\App\Controller\DeviceController::class, 'index']);
+        $router->get('/admin/devices/by-key',           [\App\Controller\DeviceController::class, 'getByKey']);
         $router->get('/admin/devices/{id}',             [\App\Controller\DeviceController::class, 'show']);
         $router->put('/admin/devices/{id}/status',      [\App\Controller\DeviceController::class, 'toggleStatus']);
+        $router->post('/admin/devices/{id}/kick',       [\App\Controller\DeviceController::class, 'kick']);
         $router->delete('/admin/devices/{id}',          [\App\Controller\DeviceController::class, 'destroy']);
 
         // ============================================================

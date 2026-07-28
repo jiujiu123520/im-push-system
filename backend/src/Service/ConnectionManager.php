@@ -292,4 +292,77 @@ class ConnectionManager
         $fds = $this->redis->sMembers('ws:online');
         return array_map('intval', $fds);
     }
+
+    /**
+     * 清理设备的旧连接（重连时调用）
+     *
+     * 当设备重新鉴权时，关闭其所有旧 fd 并清理 Redis 映射，
+     * 防止僵尸连接导致"同一设备多个在线连接"的问题。
+     *
+     * 注意：此方法应在 registerDevice 之前调用，且不清理当前 $excludeFd。
+     *
+     * @param string $deviceId  设备唯一标识
+     * @param int    $excludeFd 当前新连接的 fd（不清理此 fd）
+     * @return int 被清理的旧连接数
+     */
+    public function cleanupOldConnections(string $deviceId, int $excludeFd = 0): int
+    {
+        $oldFds = $this->redis->sMembers("ws:device:{$deviceId}");
+        if (empty($oldFds) || !is_array($oldFds)) {
+            return 0;
+        }
+
+        $cleaned = 0;
+        foreach ($oldFds as $fdStr) {
+            $fd = (int)$fdStr;
+            if ($fd === $excludeFd) {
+                continue;
+            }
+            // 从 Redis 各集合中移除旧 fd
+            $this->redis->sRem("ws:device:{$deviceId}", (string)$fd);
+            $this->redis->hDel('ws:fd:device', (string)$fd);
+            $this->redis->sRem('ws:online', (string)$fd);
+
+            // 从内存表删除
+            if ($this->table !== null) {
+                $this->table->del((string)$fd);
+            }
+            $cleaned++;
+        }
+
+        return $cleaned;
+    }
+
+    /**
+     * 获取设备在线 fd 数量
+     *
+     * @param string $deviceId
+     * @return int
+     */
+    public function getDeviceFdCount(string $deviceId): int
+    {
+        return (int)$this->redis->sCard("ws:device:{$deviceId}");
+    }
+
+    /**
+     * 获取某 Key 下所有在线设备 ID 及其 fd 数
+     *
+     * @param string $keyValue
+     * @return array<array{device_id: string, fd_count: int}>
+     */
+    public function getOnlineDevicesByKey(string $keyValue): array
+    {
+        $deviceIds = $this->redis->sMembers("key:subscribe:{$keyValue}");
+        $result = [];
+        foreach ($deviceIds as $deviceId) {
+            $fdCount = (int)$this->redis->sCard("ws:device:{$deviceId}");
+            if ($fdCount > 0) {
+                $result[] = [
+                    'device_id' => $deviceId,
+                    'fd_count'  => $fdCount,
+                ];
+            }
+        }
+        return $result;
+    }
 }

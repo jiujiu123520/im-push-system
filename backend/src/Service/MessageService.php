@@ -73,11 +73,16 @@ class MessageService
     /**
      * 推送日志列表（分页）
      *
+     * 支持按 target_type 和 status 筛选：
+     *   - target_type: device / key / broadcast / user
+     *   - status: 0=失败 1=成功 2=部分成功（由 success_count/fail_count 派生）
+     *
      * @param int    $page    页码
-     * @param string $keyword 关键词
+     * @param string $keyword 关键词（匹配 title/content/target_value）
+     * @param array  $filters 筛选条件 ['target_type' => string, 'status' => int]
      * @return array
      */
-    public function listPushLogs(int $page, string $keyword = ''): array
+    public function listPushLogs(int $page, string $keyword = '', array $filters = []): array
     {
         $page = max(1, $page);
         $offset = ($page - 1) * self::PER_PAGE;
@@ -93,18 +98,50 @@ class MessageService
             $args[] = $like;
         }
 
+        // 目标类型筛选
+        $targetType = (string)($filters['target_type'] ?? '');
+        if ($targetType !== '') {
+            $where .= ' AND p.target_type = ?';
+            $args[] = $targetType;
+        }
+
+        // 状态筛选（由 success_count/fail_count 派生）
+        // 0=失败(success=0) 1=成功(fail=0且success>0) 2=部分成功(success>0且fail>0)
+        $statusFilter = (int)($filters['status'] ?? -1);
+        if ($statusFilter === 0) {
+            $where .= ' AND p.success_count = 0 AND p.fail_count > 0';
+        } elseif ($statusFilter === 1) {
+            $where .= ' AND p.fail_count = 0 AND p.success_count > 0';
+        } elseif ($statusFilter === 2) {
+            $where .= ' AND p.success_count > 0 AND p.fail_count > 0';
+        }
+
         $countSql = "SELECT COUNT(*) FROM push_logs p {$where}";
         $stmt = Database::pdo()->prepare($countSql);
         $stmt->execute($args);
         $total = (int)$stmt->fetchColumn();
 
         $listSql = "SELECT p.id, p.api_key_id, p.target_type, p.target_value, p.title, p.content,"
-            . " p.success_count, p.fail_count, p.created_at"
+            . " p.success_count, p.fail_count, p.detail, p.created_at"
             . " FROM push_logs p {$where}"
             . " ORDER BY p.id DESC LIMIT " . self::PER_PAGE . " OFFSET {$offset}";
         $stmt = Database::pdo()->prepare($listSql);
         $stmt->execute($args);
         $list = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        // 派生 status 字段：0=失败 1=成功 2=部分成功
+        foreach ($list as &$row) {
+            $success = (int)$row['success_count'];
+            $fail = (int)$row['fail_count'];
+            if ($success > 0 && $fail > 0) {
+                $row['status'] = 2;
+            } elseif ($success > 0) {
+                $row['status'] = 1;
+            } else {
+                $row['status'] = 0;
+            }
+        }
+        unset($row);
 
         return [
             'list'      => $list,

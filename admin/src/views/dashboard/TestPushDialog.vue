@@ -40,7 +40,8 @@
         >
           <template #default>
             <div class="online-detail">
-              <span>在线数：{{ onlineCount }}</span>
+              <span>在线设备：{{ deviceCount }}</span>
+              <span>连接数：{{ connectionCount }}</span>
               <span v-if="onlineDetail?.subscribed_total !== undefined">
                 订阅数：{{ onlineDetail.subscribed_total }}
               </span>
@@ -50,6 +51,54 @@
             </div>
           </template>
         </el-alert>
+      </el-form-item>
+
+      <!-- 在线设备列表（按 Key 查询时显示） -->
+      <el-form-item v-if="onlineChecked && onlineStatus && onlineDeviceDetails.length > 0" label=" ">
+        <div class="online-device-list">
+          <div class="list-title">在线设备详情（可禁用/踢出）</div>
+          <el-table :data="onlineDeviceDetails" size="small" border max-height="280">
+            <el-table-column prop="device_id" label="设备 ID" min-width="160">
+              <template #default="{ row }">
+                <div style="display: flex; align-items: center; gap: 4px;">
+                  <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ row.device_id }}</span>
+                  <el-button text type="primary" size="small" @click="copyText(row.device_id)">
+                    <el-icon><CopyDocumentIcon /></el-icon>
+                  </el-button>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="device_model" label="型号" min-width="100" />
+            <el-table-column prop="platform" label="平台" width="90">
+              <template #default="{ row }">
+                <el-tag v-if="row.platform" size="small" effect="plain" round>{{ row.platform }}</el-tag>
+                <span v-else style="color: #909399;">-</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="fd_count" label="连接数" width="70" align="center" />
+            <el-table-column prop="last_active_at" label="最后活跃" min-width="140" />
+            <el-table-column label="操作" width="140" fixed="right">
+              <template #default="{ row }">
+                <el-button
+                  v-if="row.db_id"
+                  text type="warning" size="small"
+                  :loading="kickingId === row.db_id"
+                  @click="kickDevice(row)"
+                >
+                  踢出
+                </el-button>
+                <el-button
+                  v-if="row.db_id && row.status !== 2"
+                  text type="danger" size="small"
+                  :loading="disablingId === row.db_id"
+                  @click="disableDevice(row)"
+                >
+                  禁用
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
       </el-form-item>
 
       <el-form-item label="消息标题">
@@ -168,9 +217,14 @@
 
 <script setup lang="ts">
 import { reactive, ref, computed, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Search as SearchIcon, Promotion as PromotionIcon } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  Search as SearchIcon,
+  Promotion as PromotionIcon,
+  CopyDocument as CopyDocumentIcon,
+} from '@element-plus/icons-vue'
 import { sendTestPushApi, checkOnlineApi } from '@/api/push'
+import { kickDeviceApi, toggleDeviceStatusApi } from '@/api/device'
 import type { TestPushResult } from '@/api/types'
 
 const props = defineProps<{ modelValue: boolean }>()
@@ -194,23 +248,32 @@ const checking = ref(false)
 const onlineChecked = ref(false)
 const onlineStatus = ref(false)
 const onlineCount = ref(0)
+const deviceCount = ref(0)
+const connectionCount = ref(0)
 const onlineDetail = ref<any>(null)
+const onlineDeviceDetails = ref<any[]>([])
 const result = ref<TestPushResult | null>(null)
+const kickingId = ref(0)
+const disablingId = ref(0)
 
 // 切换目标类型时重置检查状态
 watch(() => form.target_type, () => {
   onlineChecked.value = false
   onlineStatus.value = false
   onlineCount.value = 0
+  deviceCount.value = 0
+  connectionCount.value = 0
   onlineDetail.value = null
+  onlineDeviceDetails.value = []
   result.value = null
 })
 
 const onlineAlertText = computed(() => {
   if (!onlineChecked.value) return ''
-  return onlineStatus.value
-    ? `目标在线，共 ${onlineCount.value} 个连接`
-    : '目标离线，设备未连接或 Key 无订阅'
+  if (onlineStatus.value) {
+    return `目标在线，${deviceCount.value} 个设备，${connectionCount.value} 个连接`
+  }
+  return '目标离线，设备未连接或 Key 无订阅'
 })
 
 /** 检查在线状态 */
@@ -228,7 +291,10 @@ async function checkOnline() {
     onlineChecked.value = true
     onlineStatus.value = res.data.online
     onlineCount.value = res.data.online_count
+    deviceCount.value = res.data.device_count ?? res.data.online_count ?? 0
+    connectionCount.value = res.data.connection_count ?? 0
     onlineDetail.value = res.data.detail
+    onlineDeviceDetails.value = res.data.detail?.online_device_details ?? []
   } catch (err) {
     ElMessage.error('检查失败')
   } finally {
@@ -266,6 +332,64 @@ async function sendTest() {
     sending.value = false
   }
 }
+
+/** 踢出设备（断开连接但不禁用） */
+async function kickDevice(row: any) {
+  if (!row.db_id) return
+  try {
+    await ElMessageBox.confirm(
+      `确定要踢出设备 ${row.device_id} 吗？将断开其所有在线连接，设备可重新连接。`,
+      '踢出确认',
+      { type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  kickingId.value = row.db_id
+  try {
+    const res = await kickDeviceApi(row.db_id)
+    ElMessage.success(res.data?.message || '已踢出')
+    // 刷新在线状态
+    await checkOnline()
+  } catch (err) {
+    ElMessage.error('踢出失败')
+  } finally {
+    kickingId.value = 0
+  }
+}
+
+/** 禁用设备 */
+async function disableDevice(row: any) {
+  if (!row.db_id) return
+  try {
+    await ElMessageBox.confirm(
+      `确定要禁用设备 ${row.device_id} 吗？将断开连接且设备无法重连。`,
+      '禁用确认',
+      { type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  disablingId.value = row.db_id
+  try {
+    await toggleDeviceStatusApi(row.db_id, 2)
+    ElMessage.success('设备已禁用')
+    await checkOnline()
+  } catch (err) {
+    ElMessage.error('禁用失败')
+  } finally {
+    disablingId.value = 0
+  }
+}
+
+/** 复制文本到剪贴板 */
+function copyText(text: string) {
+  navigator.clipboard.writeText(text).then(() => {
+    ElMessage.success('已复制')
+  }).catch(() => {
+    ElMessage.warning('复制失败')
+  })
+}
 </script>
 
 <style lang="scss" scoped>
@@ -285,6 +409,17 @@ async function sendTest() {
   gap: 16px;
   font-size: 13px;
   margin-top: 4px;
+}
+
+.online-device-list {
+  width: 100%;
+
+  .list-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+    margin-bottom: 8px;
+  }
 }
 
 .push-result {

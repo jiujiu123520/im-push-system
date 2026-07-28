@@ -341,4 +341,99 @@ class DeviceService
             error_log('[DeviceService] notifyDisconnectDevice failed: ' . $e->getMessage());
         }
     }
+
+    /**
+     * 按 Key 值查询设备列表（含在线状态）
+     *
+     * 通过 push_keys 表关联 devices 表，返回该 Key 下所有设备。
+     * 同时从 Redis 查询实时在线状态和 fd 数。
+     *
+     * @param string $keyValue 推送 Key 值
+     * @return array { list, total, online_count }
+     */
+    public function listByKeyValue(string $keyValue): array
+    {
+        // 先查 push_keys 获取 push_key_id
+        $pushKey = Database::fetch(
+            'SELECT id, name, status, max_devices FROM push_keys WHERE key_value = ? LIMIT 1',
+            [$keyValue]
+        );
+
+        if ($pushKey === false) {
+            return [
+                'list'         => [],
+                'total'        => 0,
+                'online_count' => 0,
+                'key_info'     => null,
+            ];
+        }
+
+        $pushKeyId = (int)$pushKey['id'];
+
+        $devices = Database::fetchAll(
+            'SELECT id, device_id, push_key_id, user_id, device_name, device_model, os_version, platform, app_version, ip, status, last_connect_at, last_active_at
+             FROM devices WHERE push_key_id = ? ORDER BY last_connect_at DESC, id DESC',
+            [$pushKeyId]
+        );
+
+        $redis = Redis::getInstance();
+        $onlineCount = 0;
+        foreach ($devices as &$row) {
+            $deviceId = (string)$row['device_id'];
+            $fdCount = (int)$redis->sCard('ws:device:' . $deviceId);
+            $row['online'] = $fdCount > 0 ? 1 : 0;
+            $row['fd_count'] = $fdCount;
+            $row['model'] = (string)$row['device_model'];
+            if ($fdCount > 0) {
+                $onlineCount++;
+            }
+        }
+        unset($row);
+
+        return [
+            'list'         => $devices,
+            'total'        => count($devices),
+            'online_count' => $onlineCount,
+            'key_info'     => $pushKey,
+        ];
+    }
+
+    /**
+     * 强制断开设备的所有在线连接（踢出）
+     *
+     * 不会修改设备状态，仅断开当前 WebSocket 连接。
+     * 通过 Redis 命令队列通知 WebSocket Server 断开 fd，
+     * onClose 回调会自动清理 Redis 映射，保留 key 订阅关系。
+     *
+     * @param int $id 设备主键 ID
+     * @return array|null { kicked: int } 或 null（设备不存在）
+     */
+    public function kickDevice(int $id): ?array
+    {
+        $device = Database::fetch('SELECT id, device_id FROM devices WHERE id = ? LIMIT 1', [$id]);
+        if ($device === false) {
+            return null;
+        }
+
+        $deviceId = (string)$device['device_id'];
+        $redis = Redis::getInstance();
+
+        // 获取当前在线 fd 数
+        $fds = $redis->sMembers('ws:device:' . $deviceId);
+        $fdCount = is_array($fds) ? count($fds) : 0;
+
+        if ($fdCount > 0) {
+            // 发送断开命令到 WebSocket Server（不清理 Redis，由 onClose 自动处理）
+            $cmd = [
+                'action'     => 'disconnect',
+                'device_id'  => $deviceId,
+                'fds'        => array_map('intval', $fds),
+                'reason'     => 'kicked by admin',
+                'created_at' => time(),
+            ];
+            $redis->lPush('ws:queue:cmd', json_encode($cmd, JSON_UNESCAPED_UNICODE));
+        }
+
+        return ['kicked' => $fdCount];
+    }
 }

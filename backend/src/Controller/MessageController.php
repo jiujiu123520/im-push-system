@@ -77,6 +77,8 @@ class MessageController
     /**
      * 推送日志列表
      * 路由：GET /admin/push-logs
+     *
+     * 支持参数：page, keyword, target_type, status
      */
     public function pushLogs(array $context, array $params)
     {
@@ -88,8 +90,13 @@ class MessageController
         $page    = (int)($context['get']['page'] ?? 1);
         $keyword = (string)($context['get']['keyword'] ?? '');
 
+        $filters = [
+            'target_type' => (string)($context['get']['targetType'] ?? $context['get']['target_type'] ?? ''),
+            'status'      => isset($context['get']['status']) ? (int)$context['get']['status'] : -1,
+        ];
+
         $service = new MessageService();
-        return $service->listPushLogs($page, $keyword);
+        return $service->listPushLogs($page, $keyword, $filters);
     }
 
     /**

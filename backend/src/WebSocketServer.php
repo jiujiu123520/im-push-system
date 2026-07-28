@@ -438,6 +438,22 @@ class WebSocketServer
             $fingerprint = $this->deviceService->generateFingerprint($deviceId, $model, $osVersion);
         }
 
+        // 清理该设备的旧连接（防止僵尸 fd 导致"同一设备多个在线连接"）
+        try {
+            $cleanedCount = $this->connectionManager->cleanupOldConnections($deviceId, $fd);
+            if ($cleanedCount > 0) {
+                $this->logToFile("[WS] 清理旧连接 device_id={$deviceId} cleaned={$cleanedCount} current_fd={$fd}");
+                // 主动断开旧 fd 的 TCP 连接（跨 worker 安全）
+                foreach ($this->connectionManager->getFdsByDevice($deviceId) as $oldFd) {
+                    if ($oldFd !== $fd && $server->isEstablished($oldFd)) {
+                        $server->disconnect($oldFd, 4000, 'replaced by new connection');
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->logToFile("[WS] 清理旧连接异常 device_id={$deviceId} error={$e->getMessage()}");
+        }
+
         // 注册设备到 ConnectionManager
         try {
             $this->connectionManager->registerDevice($fd, $deviceId, $keyValue, $pushKeyId, [

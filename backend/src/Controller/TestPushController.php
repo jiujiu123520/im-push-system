@@ -186,7 +186,9 @@ class TestPushController
      * 返回：
      *   {
      *     "online": bool,
-     *     "online_count": int,
+     *     "device_count": int,       // 在线设备数
+     *     "connection_count": int,   // 在线连接数（fd 总数）
+     *     "online_count": int,       // 兼容旧前端：等于 device_count
      *     "detail": { ... }
      *   }
      */
@@ -218,25 +220,84 @@ class TestPushController
             $fdCount = (int)$redis->sCard("ws:device:{$value}");
             $keyValue = $redis->hGet('device:key', $value);
 
+            // 查询设备数据库信息
+            $deviceInfo = null;
+            try {
+                $deviceInfo = Database::fetch(
+                    'SELECT id, device_id, device_name, device_model, platform, app_version, status, last_active_at FROM devices WHERE device_id = ? LIMIT 1',
+                    [$value]
+                );
+                if ($deviceInfo !== false) {
+                    $deviceInfo['online_fd_count'] = $fdCount;
+                } else {
+                    $deviceInfo = null;
+                }
+            } catch (\Throwable $e) {
+            }
+
             return [
-                'online'       => $fdCount > 0,
-                'online_count' => $fdCount,
-                'detail'       => [
+                'online'           => $fdCount > 0,
+                'device_count'     => $fdCount > 0 ? 1 : 0,
+                'connection_count' => $fdCount,
+                'online_count'     => $fdCount > 0 ? 1 : 0, // 兼容旧前端
+                'detail'           => [
                     'device_id'   => $value,
                     'key_value'   => $keyValue ?: null,
                     'fd_count'    => $fdCount,
+                    'device_info' => $deviceInfo,
                     'checked_at'  => date('Y-m-d H:i:s'),
                 ],
             ];
         }
 
-        // Key 维度
+        // Key 维度：查询该 Key 下所有订阅设备
         $deviceIds = $redis->sMembers("key:subscribe:{$value}");
         $onlineDevices = [];
+        $totalFdCount = 0;
         foreach ($deviceIds as $deviceId) {
             $fdCount = (int)$redis->sCard("ws:device:{$deviceId}");
             if ($fdCount > 0) {
-                $onlineDevices[] = $deviceId;
+                $onlineDevices[] = [
+                    'device_id' => $deviceId,
+                    'fd_count'  => $fdCount,
+                ];
+                $totalFdCount += $fdCount;
+            }
+        }
+
+        // 查询在线设备的数据库详情（型号、平台、最后活跃时间等）
+        $onlineDeviceDetails = [];
+        if (!empty($onlineDevices)) {
+            $onlineIds = array_column($onlineDevices, 'device_id');
+            $placeholders = implode(',', array_fill(0, count($onlineIds), '?'));
+            try {
+                $stmt = Database::pdo()->prepare(
+                    "SELECT id, device_id, device_name, device_model, platform, app_version, status, last_active_at FROM devices WHERE device_id IN ({$placeholders})"
+                );
+                $stmt->execute($onlineIds);
+                $dbDevices = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+                $dbMap = [];
+                foreach ($dbDevices as $d) {
+                    $dbMap[$d['device_id']] = $d;
+                }
+                // 合并 Redis fd_count 和数据库信息
+                foreach ($onlineDevices as $od) {
+                    $detail = $dbMap[$od['device_id']] ?? null;
+                    $onlineDeviceDetails[] = [
+                        'device_id'      => $od['device_id'],
+                        'fd_count'       => $od['fd_count'],
+                        'device_name'    => $detail['device_name'] ?? '',
+                        'device_model'   => $detail['device_model'] ?? '',
+                        'platform'       => $detail['platform'] ?? '',
+                        'app_version'    => $detail['app_version'] ?? '',
+                        'db_id'          => $detail['id'] ?? 0,
+                        'status'         => $detail['status'] ?? 0,
+                        'last_active_at' => $detail['last_active_at'] ?? '',
+                    ];
+                }
+            } catch (\Throwable $e) {
+                // 数据库查询失败则仅返回 Redis 数据
+                $onlineDeviceDetails = $onlineDevices;
             }
         }
 
@@ -250,12 +311,15 @@ class TestPushController
         }
 
         return [
-            'online'       => count($onlineDevices) > 0,
-            'online_count' => count($onlineDevices),
-            'detail'       => [
+            'online'           => count($onlineDevices) > 0,
+            'device_count'     => count($onlineDevices),
+            'connection_count' => $totalFdCount,
+            'online_count'     => count($onlineDevices), // 兼容旧前端
+            'detail'           => [
                 'key_value'        => $value,
                 'subscribed_total' => count($deviceIds),
-                'online_devices'   => $onlineDevices,
+                'online_devices'   => array_column($onlineDevices, 'device_id'),
+                'online_device_details' => $onlineDeviceDetails,
                 'key_info'         => $keyInfo,
                 'checked_at'       => date('Y-m-d H:i:s'),
             ],

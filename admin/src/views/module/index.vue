@@ -307,7 +307,7 @@
         <el-table-column label="操作" :width="(
           currentModule === 'push-logs' ? 230 :
           currentModule === 'users' ? 280 :
-          currentModule === 'devices' ? 220 :
+          currentModule === 'devices' ? 280 :
           currentModule === 'keys' ? 200 :
           180
         )" fixed="right">
@@ -336,6 +336,15 @@
             <!-- 其他模块：编辑/禁用 + 删除 -->
             <template v-else>
               <el-button v-if="currentModule !== 'devices'" text type="primary" :icon="EditIcon" @click="openDialog(row)">编辑</el-button>
+              <el-button
+                v-if="currentModule === 'devices' && row.online === 1"
+                text type="warning"
+                :icon="SwitchButtonIcon"
+                :loading="kickingDeviceId === row.id"
+                @click="handleKickDevice(row)"
+              >
+                踢出
+              </el-button>
               <el-button
                 v-if="currentModule === 'devices'"
                 text
@@ -595,10 +604,12 @@ import {
   Lock as LockIcon,
   Unlock as UnlockIcon,
   View as ViewIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  SwitchButton as SwitchButtonIcon
 } from '@element-plus/icons-vue'
 import { exportPushLogsApi, getPushLogListApi, sendPushApi, retryPushApi, getPushLogDetailApi } from '@/api/push'
 import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi } from '@/api/key'
+import { getDeviceListApi, deleteDeviceApi, toggleDeviceStatusApi, kickDeviceApi } from '@/api/device'
 import {
   getBlacklistApi,
   createBlacklistApi,
@@ -610,7 +621,6 @@ import {
   updateAdminApi,
   deleteAdminApi
 } from '@/api/admin'
-import { getDeviceListApi, deleteDeviceApi, toggleDeviceStatusApi } from '@/api/device'
 import { getUserListApi, createUserApi, updateUserApi, deleteUserApi, resetUserPasswordApi } from '@/api/user'
 import type { KeyForm, BlacklistForm, AdminForm, UserForm } from '@/api/types'
 
@@ -1463,6 +1473,31 @@ async function handleToggleDeviceStatus(row: Record<string, any>) {
     fetchData()
   } catch {
     // 取消
+  }
+}
+
+// 踢出设备（强制断开连接）
+const kickingDeviceId = ref(0)
+async function handleKickDevice(row: Record<string, any>) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要踢出设备 ${row.device_id} 吗？将断开其所有在线连接，设备可重新连接。`,
+      '踢出设备',
+      {
+        confirmButtonText: '踢出',
+        cancelButtonText: '取消',
+        type: 'warning',
+        appendTo: 'body'
+      }
+    )
+    kickingDeviceId.value = row.id
+    const res = await kickDeviceApi(row.id)
+    ElMessage.success(res.data?.message || '已踢出')
+    fetchData()
+  } catch {
+    // 取消
+  } finally {
+    kickingDeviceId.value = 0
   }
 }
 
