@@ -509,7 +509,7 @@ export default {
         this.loadAudioConfig()
         this.fetchServerAudioList()
         this.loadDeviceInfo()
-        this.logoUrl = '/static/logo.jpg'
+        this.logoUrl = '/static/logo.png'
         // 验证登录状态，未登录则返回登录页
         const savedKey = uni.getStorageSync('push_key')
         const savedServer = uni.getStorageSync('push_server')

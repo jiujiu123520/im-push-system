@@ -49,22 +49,22 @@
             },
             "icons" : {
                 "android" : {
-                    "hdpi" : "static/logo.jpg",
-                    "xhdpi" : "static/logo.jpg",
-                    "xxhdpi" : "static/logo.jpg",
-                    "xxxhdpi" : "static/logo.jpg"
+                    "hdpi" : "static/logo.png",
+                    "xhdpi" : "static/logo.png",
+                    "xxhdpi" : "static/logo.png",
+                    "xxxhdpi" : "static/logo.png"
                 },
                 "ios" : {
-                    "appstore" : "static/logo.jpg",
+                    "appstore" : "static/logo.png",
                     "iphone" : {
-                        "app@2x" : "static/logo.jpg",
-                        "app@3x" : "static/logo.jpg",
-                        "notification@2x" : "static/logo.jpg",
-                        "notification@3x" : "static/logo.jpg",
-                        "settings@2x" : "static/logo.jpg",
-                        "settings@3x" : "static/logo.jpg",
-                        "spotlight@2x" : "static/logo.jpg",
-                        "spotlight@3x" : "static/logo.jpg"
+                        "app@2x" : "static/logo.png",
+                        "app@3x" : "static/logo.png",
+                        "notification@2x" : "static/logo.png",
+                        "notification@3x" : "static/logo.png",
+                        "settings@2x" : "static/logo.png",
+                        "settings@3x" : "static/logo.png",
+                        "spotlight@2x" : "static/logo.png",
+                        "spotlight@3x" : "static/logo.png"
                     }
                 }
             },
