@@ -3,11 +3,23 @@
         <!-- 顶部状态栏 -->
         <view class="header">
             <view class="header-left">
-                <text class="header-title">{{ currentTab === 'message' ? '消息推送' : '音频播放器' }}</text>
+                <text class="header-title">{{ currentTab === 'message' ? '消息推送' : (currentTab === 'player' ? '音频播放器' : '用户中心') }}</text>
                 <view v-if="currentTab === 'message'" :class="['status-dot', connected ? 'connected' : 'disconnected']"></view>
             </view>
             <view class="header-right">
                 <text class="setting-icon" @click="showSettings = true">⚙️</text>
+            </view>
+        </view>
+
+        <!-- 掉线提醒条 -->
+        <view v-if="showDisconnectBanner && !connected" class="disconnect-banner">
+            <view class="disconnect-banner-content">
+                <text class="disconnect-icon">⚠️</text>
+                <view class="disconnect-text-wrap">
+                    <text class="disconnect-title">{{ reconnectingTip || '连接已断开' }}</text>
+                    <text v-if="lastDisconnectTimeStr" class="disconnect-time">上次掉线：{{ lastDisconnectTimeStr }}</text>
+                </view>
+                <text class="disconnect-retry-btn" @click="cleanupAndReconnect">立即重连</text>
             </view>
         </view>
 
@@ -443,6 +455,11 @@ export default {
             reconnectDelay: 3000,
             maxReconnectDelay: 60000,
             isXiaomiDevice: false,
+            // 掉线提醒
+            lastDisconnectTime: null,      // 上次掉线时间（Date 对象）
+            lastDisconnectTimeStr: '',     // 上次掉线时间（格式化字符串）
+            reconnectingTip: '',           // 重连中提示文案
+            showDisconnectBanner: false,   // 是否显示掉线提醒条
             // 音频播放器
             audioEnabled: false,
             audioList: [],
@@ -2450,10 +2467,14 @@ export default {
                     clearTimeout(this.connectTimeoutTimer)
                     this.connectTimeoutTimer = null
                 }
+                // 记录掉线时间
+                this.lastDisconnectTime = new Date()
+                this.lastDisconnectTimeStr = this.formatDateTime(this.lastDisconnectTime)
                 const code = res.code
                 const reason = res.reason || ''
                 if (code === 4001 || reason === 'auth failed' || reason === 'auth timeout') {
                     console.warn('鉴权失败，停止重连，请检查推送 Key')
+                    this.showDisconnectBanner = false
                     uni.showToast({ title: '鉴权失败：' + (reason || code), icon: 'none' })
                     this.stopForegroundService()
                     uni.removeStorageSync('push_key')
@@ -2466,10 +2487,20 @@ export default {
                 }
                 if (code === 4003 || reason === 'blacklisted') {
                     console.warn('设备已被拉黑，停止重连')
+                    this.showDisconnectBanner = false
                     uni.showToast({ title: '设备已被拉黑', icon: 'none' })
                     this.stopForegroundService()
                     return
                 }
+                // 显示掉线提醒条
+                this.showDisconnectBanner = true
+                this.reconnectingTip = '连接已断开，正在重连...'
+                // 掉线 toast 提醒（仅在非主动关闭情况下提示）
+                uni.showToast({
+                    title: '连接已断开 ' + this.lastDisconnectTimeStr,
+                    icon: 'none',
+                    duration: 2500
+                })
                 this.scheduleReconnect()
             })
 
@@ -2505,6 +2536,19 @@ export default {
             this.connected = true
             this.reconnectDelay = 3000
             this._reconnectCount = 0
+            // 如果之前有掉线，显示恢复连接提示
+            if (this.showDisconnectBanner) {
+                const offlineDuration = this.lastDisconnectTime
+                    ? Math.round((Date.now() - this.lastDisconnectTime.getTime()) / 1000)
+                    : 0
+                this.showDisconnectBanner = false
+                this.reconnectingTip = ''
+                uni.showToast({
+                    title: '已恢复连接（离线 ' + offlineDuration + ' 秒）',
+                    icon: 'success',
+                    duration: 2500
+                })
+            }
             if (this.connectTimeoutTimer) {
                 clearTimeout(this.connectTimeoutTimer)
                 this.connectTimeoutTimer = null
@@ -2639,6 +2683,8 @@ export default {
                 delay = quickDelays[this._reconnectCount - 1]
             }
             console.log('第 ' + this._reconnectCount + ' 次重连，' + delay / 1000 + '秒后重试...')
+            // 更新掉线提醒条的重连提示
+            this.reconnectingTip = '第 ' + this._reconnectCount + ' 次重连，' + (delay / 1000) + '秒后重试（掉线于 ' + this.lastDisconnectTimeStr + '）'
             this.reconnectTimer = setTimeout(() => {
                 this.reconnectTimer = null
                 if (this.form.key) {
@@ -2766,6 +2812,17 @@ export default {
                 return (date.getMonth() + 1) + '-' + date.getDate() + ' ' + this.padZero(date.getHours()) + ':' + this.padZero(date.getMinutes())
             }
         },
+        formatDateTime(date) {
+            if (!date) return ''
+            const d = date instanceof Date ? date : new Date(date)
+            const year = d.getFullYear()
+            const month = this.padZero(d.getMonth() + 1)
+            const day = this.padZero(d.getDate())
+            const hour = this.padZero(d.getHours())
+            const minute = this.padZero(d.getMinutes())
+            const second = this.padZero(d.getSeconds())
+            return year + '-' + month + '-' + day + ' ' + hour + ':' + minute + ':' + second
+        },
         padZero(num) {
             return num < 10 ? '0' + num : '' + num
         }
@@ -2820,6 +2877,59 @@ export default {
 .status-dot.disconnected {
     background: #ff4d4f;
     box-shadow: 0 0 8px rgba(255, 77, 79, 0.5);
+}
+
+/* ============== 掉线提醒条 ============== */
+.disconnect-banner {
+    background: #fff7e6;
+    border-bottom: 1px solid #ffd591;
+    padding: 10px 16px;
+}
+
+.disconnect-banner-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.disconnect-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.disconnect-text-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+}
+
+.disconnect-title {
+    font-size: 13px;
+    color: #d46b08;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.disconnect-time {
+    font-size: 11px;
+    color: #fa8c16;
+}
+
+.disconnect-retry-btn {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: #fff;
+    background: #fa8c16;
+    padding: 5px 12px;
+    border-radius: 4px;
+}
+
+.disconnect-retry-btn:active {
+    background: #d46b08;
 }
 
 .setting-icon {
