@@ -310,6 +310,11 @@
                     <text class="profile-cell-label">清除缓存</text>
                     <text class="profile-cell-arrow">›</text>
                 </view>
+                <view class="profile-cell profile-cell-tap" @click="openBindDeviceId">
+                    <text class="profile-cell-label">绑定/修改设备 ID</text>
+                    <text class="profile-cell-value profile-cell-value-sub">{{ deviceIdShort }}</text>
+                    <text class="profile-cell-arrow">›</text>
+                </view>
                 <view class="profile-cell profile-cell-tap" @click="copyDeviceInfo">
                     <text class="profile-cell-label">复制设备信息</text>
                     <text class="profile-cell-arrow">›</text>
@@ -367,6 +372,21 @@
                         <text class="setting-label">WebSocket 地址</text>
                         <input class="setting-input" v-model="wsUrl" placeholder="ws://example.com:9502" />
                         <button class="btn-sm" @click="handleChangeWsUrl">应用并重连</button>
+                    </view>
+                    <view class="setting-item setting-item-column">
+                        <text class="setting-label">设备 ID 绑定</text>
+                        <text class="setting-tip">从后台「设备管理」列表复制设备 ID（如 app-xxxx）粘贴到下方，即可绑定到该设备（消息将推送到此 ID）。绑定后会断开当前连接并以新设备 ID 重连。</text>
+                        <input
+                            class="setting-input"
+                            v-model="bindDeviceIdInput"
+                            placeholder="输入/粘贴后台设备 ID，例如 app-6yfple6sms4x1f93"
+                        />
+                        <view class="setting-btn-row">
+                            <button class="btn-sm" @click="applyBoundDeviceId">应用并重连</button>
+                            <button class="btn-sm btn-secondary" @click="pasteDeviceIdFromClipboard">粘贴剪贴板</button>
+                            <button class="btn-sm btn-reset" @click="resetDeviceIdAuto">恢复自动生成</button>
+                        </view>
+                        <text class="setting-tip">当前设备 ID：{{ deviceId }}</text>
                     </view>
                     <view class="setting-item">
                         <text class="setting-label">应用版本</text>
@@ -441,6 +461,7 @@ export default {
                 wsUrl: ''
             },
             wsUrl: '',
+            bindDeviceIdInput: '',
             messages: [],
             scrollTop: 0,
             todayCount: 0,
@@ -1969,6 +1990,112 @@ export default {
                 data: info,
                 success: () => {
                     uni.showToast({ title: '设备信息已复制', icon: 'success' })
+                }
+            })
+        },
+        // 跳转到设置中的「设备 ID 绑定」区域
+        openBindDeviceId() {
+            this.bindDeviceIdInput = this.deviceId || ''
+            this.showSettings = true
+            // 延迟一点滚动到对应区域（设置弹窗打开动画完成后）
+            setTimeout(() => {
+                uni.pageScrollTo({
+                    selector: '.setting-item-column',
+                    scrollTop: 400,
+                    duration: 300
+                })
+            }, 300)
+        },
+        // 从剪贴板粘贴设备 ID 到输入框
+        pasteDeviceIdFromClipboard() {
+            uni.getClipboardData({
+                success: (res) => {
+                    let text = (res.data || '').trim()
+                    // 兼容：剪贴板是"设备ID: app-xxx"格式时自动提取 ID
+                    const match = text.match(/(app-[a-z0-9]+|[A-Z]{2,}[a-zA-Z0-9_-]{6,})/i)
+                    if (match) {
+                        text = match[1]
+                    }
+                    this.bindDeviceIdInput = text
+                    if (text) {
+                        uni.showToast({ title: '已粘贴', icon: 'success' })
+                    } else {
+                        uni.showToast({ title: '剪贴板为空', icon: 'none' })
+                    }
+                },
+                fail: () => {
+                    uni.showToast({ title: '读取剪贴板失败', icon: 'none' })
+                }
+            })
+        },
+        // 应用绑定的设备 ID 并重连
+        applyBoundDeviceId() {
+            const newDeviceId = (this.bindDeviceIdInput || '').trim()
+            if (!newDeviceId) {
+                uni.showToast({ title: '请输入设备 ID', icon: 'none' })
+                return
+            }
+            if (newDeviceId === this.deviceId) {
+                uni.showToast({ title: '与当前设备 ID 相同', icon: 'none' })
+                return
+            }
+            // 基本校验：长度和字符（允许：字母数字下划线短横线）
+            if (!/^[A-Za-z0-9_-]{4,64}$/.test(newDeviceId)) {
+                uni.showModal({
+                    title: '设备 ID 格式异常',
+                    content: '您输入的设备 ID 格式可能不正确（长度 4-64，仅字母数字下划线短横线）。\n\n确认继续使用？',
+                    success: (r) => {
+                        if (r.confirm) {
+                            this._confirmBindDeviceId(newDeviceId)
+                        }
+                    }
+                })
+                return
+            }
+            this._confirmBindDeviceId(newDeviceId)
+        },
+        _confirmBindDeviceId(newDeviceId) {
+            uni.showModal({
+                title: '绑定设备 ID',
+                content:
+                    '绑定后将：\n' +
+                    '1. 断开当前 WebSocket 连接\n' +
+                    '2. 使用新设备 ID 「' + newDeviceId + '」重新连接\n' +
+                    '3. 后台推送消息将发送到该设备 ID\n\n' +
+                    '请确认后台「设备管理」中存在此设备 ID。',
+                confirmText: '确认绑定',
+                success: (r) => {
+                    if (!r.confirm) return
+                    // 保存到本地存储
+                    uni.setStorageSync('push_device_id', newDeviceId)
+                    this.deviceId = newDeviceId
+                    // 先关闭当前连接
+                    this.closeSocket()
+                    uni.showToast({ title: '已绑定，正在重连...', icon: 'none' })
+                    // 稍等片刻后重连（让 closeSocket 完成）
+                    setTimeout(() => {
+                        this.connectWebSocket()
+                    }, 800)
+                }
+            })
+        },
+        // 恢复为自动生成的设备 ID
+        resetDeviceIdAuto() {
+            uni.showModal({
+                title: '恢复自动生成',
+                content: '将重新随机生成一个设备 ID（app-xxxx 格式），并使用它重新连接。当前绑定的设备 ID 将被覆盖。',
+                confirmText: '恢复',
+                success: (r) => {
+                    if (!r.confirm) return
+                    const newDeviceId = 'app-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36)
+                    uni.setStorageSync('push_device_id', newDeviceId)
+                    this.deviceId = newDeviceId
+                    this.bindDeviceIdInput = newDeviceId
+                    this.closeSocket()
+                    uni.showToast({ title: '已恢复，正在重连...', icon: 'none' })
+                    setTimeout(() => {
+                        this.connectWebSocket()
+                    }, 800)
                 }
             })
         },
@@ -3643,6 +3770,25 @@ export default {
     font-size: 13px;
     line-height: 32px;
     margin-bottom: 6px;
+    margin-right: 6px;
+}
+
+.btn-sm.btn-secondary {
+    background: #f0f2f7;
+    color: #555;
+    border: 1px solid #e4e7ed;
+}
+
+.btn-sm.btn-reset {
+    background: #fff5f5;
+    color: #ff4d4f;
+    border: 1px solid #ffccc7;
+}
+
+.setting-btn-row {
+    display: flex;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
 }
 
 .setting-tip {
@@ -3650,6 +3796,16 @@ export default {
     color: #999;
     line-height: 1.4;
     margin-bottom: 10px;
+}
+
+.profile-cell-value-sub {
+    font-size: 12px;
+    color: #999;
+    flex-shrink: 0;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .btn-danger {
