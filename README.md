@@ -1,13 +1,13 @@
 # IM Push System - 即时消息推送系统
 
-> 基于 PHP + Swoole 的实时消息推送平台，支持 WebSocket 长连接、设备掉线邮箱通知、API 对接推送、Android APP 后台保活。
+> 基于 PHP + Swoole 的实时消息推送平台，支持 WebSocket 长连接、设备掉线邮箱通知、API 对接推送、Android APP 深度保活（前台服务 + AlarmManager + WakeLock + WifiLock）。
 
 ## 系统架构
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │  Android APP │◄──►│  WebSocket   │◄──►│   HTTP API   │
-│  (Kotlin)    │     │  (Swoole)    │     │  (Swoole)    │
+│  (uni-app)   │     │  (Swoole)    │     │  (Swoole)    │
 └─────────────┘     └──────┬──────┘     └──────┬──────┘
                            │                    │
                     ┌──────┴──────┐     ┌──────┴──────┐
@@ -27,7 +27,18 @@
 - **实时推送** - WebSocket 长连接，毫秒级消息送达
 - **Key 推送** - 一个 Key 多人订阅，支持单人/多人/批量推送
 - **离线消息** - 设备离线时消息存储 Redis，上线自动补发
-- **心跳保活** - 客户端自定义心跳间隔（10-300 秒）
+- **双向心跳** - 服务端主动 ping + 客户端主动 ping，pong 携带时间戳、设备状态、在线连接数，支持 RTT 网络延迟计算
+- **僵尸连接巡检** - 每 30 秒检测 Redis 在线但实际已断开的连接并清理
+- **推送消息无字数限制** - title 字段 TEXT 类型、content 字段 MEDIUMTEXT 类型
+
+### APP 功能（HBuilderX uni-app 版本）
+- **消息推送** - 实时接收推送消息，统计卡片（今日/累计/设备ID），消息记录列表
+- **音频播放器** - 云端音频 + 本地音频双列表，支持列表循环/单曲循环/播放一次三种模式
+- **用户中心** - 用户信息卡片、连接信息（推送Key/服务器/RTT延迟/连接状态）、权限管理、设备信息、清除缓存、复制设备信息
+- **掉线提醒** - 掉线时 Toast 提醒 + 顶部橙色提醒条（显示上次掉线时间和重连进度），重连成功后显示离线时长
+- **锁屏保活** - 五层保活机制确保锁屏后连接不中断
+- **锁屏通知** - 推送消息在锁屏页面直接显示，支持全屏 Intent、CATEGORY_MESSAGE、VISIBILITY_PUBLIC
+- **通知栏媒体控制** - 通知栏显示播放器控件，支持上一首/播放暂停/下一首
 
 ### 通知功能
 - **设备掉线通知** - 设备断开连接自动发送邮件通知
@@ -39,38 +50,32 @@
 - **用户注册** - 用户可通过注册页自助注册账号（手机号/邮箱验证码）
 - **忘记密码** - 通过 8 位数字安全码重置密码
 - **验证码加密** - 注册/登录验证码 AES 加密传输
+- **图形验证码开关** - 后台可控制登录是否需要图形验证码
 - **设备指纹** - 记录设备 IP、UA、指纹，支持拉黑
 - **黑名单管理** - 按用户/设备/IP 维度拉黑，实时断连
 - **管理员鉴权** - JWT Token 鉴权，支持多角色权限
-- **安全码** - 注册时自动生成 8 位数字安全码，用于忘记密码时重置
 - **登录失败限制** - 管理员登录失败次数限制（Redis 计数，默认 5 次锁定 30 分钟）
-- **验证码防暴力枚举** - 登录时先消费图形验证码再校验密码，防止暴力枚举密码
 
 ### 管理功能
-- **管理后台** - Vue3 + Element Plus，美观易用
+- **管理后台** - Vue3 + Element Plus + Vite，美观易用
 - **消息导出** - 支持导出推送记录和消息记录（CSV/JSON）
 - **测试推送** - 内置调试推送功能，方便开发排查
-- **分页处理** - 列表分页展示，每页 10 条
 - **用户管理** - 管理员可修改用户信息、重置密码、切换状态
+- **音频管理** - 后台上传音频文件，APP 端自动同步播放列表
+- **域名与 SSL** - 独立绑定域名、端口访问、自动申请/续费 Let's Encrypt 证书
 - **APK 分发** - 构建后自动生成分发记录，支持自托管下载/蓝奏云/自定义上传，二维码下载
-
-### Android APP
-- **Kotlin + Compose** - 最新 Jetpack Compose UI
-- **后台保活** - WorkManager 前台服务 + 自启动
-- **通知栏消息** - 系统通知栏实时显示推送消息
-- **消息历史** - 本地存储消息记录，支持查看
 
 ## 技术栈
 
 | 模块 | 技术 | 说明 |
 |------|------|------|
 | 后端 | PHP 8.2 + Swoole 5.x | WebSocket/HTTP 双服务 |
-| 数据库 | MySQL 8.0 | 数据持久化 |
-| 缓存 | Redis 7.x | 连接映射、离线消息、通知间隔 |
-| 反向代理 | Nginx | HTTP/WebSocket 反向代理 |
-| 管理后台 | Vue3 + Element Plus + Vite | 响应式管理界面 |
-| Android APP | Kotlin + Jetpack Compose | 原生 Android 应用 |
-| APP 打包 | GitHub Actions | 在 GitHub 云端打包，无需服务器资源 |
+| 数据库 | MySQL 8.0 | 数据持久化（utf8mb4） |
+| 缓存 | Redis 7.x | 连接映射、离线消息、通知间隔、构建队列 |
+| 反向代理 | Nginx | HTTP/WebSocket 反向代理，支持 IP/域名共存 |
+| 管理后台 | Vue3 + Element Plus + Vite + TypeScript | 响应式管理界面 |
+| Android APP | HBuilderX uni-app (Vue 3) + plus.android 原生 API | 主推版本 |
+| APP 打包 | GitHub Actions / HBuilderX 云打包 | JDK 17 / Android SDK 34 / Gradle 8.7 |
 | 邮件服务 | PHPMailer | SMTP 邮件发送（QQ 邮箱等） |
 
 ## 快速开始
@@ -147,33 +152,16 @@ sudo bash deploy/deploy.sh \
   --gh-proxy
 ```
 
-### 分步安装（已有代码）
+### 日常更新（默认 Y 确认）
 
-```bash
-# 1. 核心服务安装（需要 root）
-sudo bash deploy/install.sh
-
-# 2. 单独安装 SSL 证书环境（可选，需要 root）
-sudo bash backend/deploy/ssl/setup-acme.sh
-sudo cp deploy/sudoers-push-system-ssl /etc/sudoers.d/push-system
-sudo chmod 440 /etc/sudoers.d/push-system
-sudo visudo -c
-
-# 3. 安装 SSL 自动续费 cron
-echo "0 3 * * * root /www/push-system/backend/deploy/ssl/auto-renew-cron.sh" | sudo tee /etc/cron.d/push-ssl-renew
-sudo chmod 644 /etc/cron.d/push-ssl-renew
-```
-
-### 日常更新（无需 root）
-
-安装完成后，日常代码更新使用更新脚本即可，无需 root 权限：
+安装完成后，日常代码更新使用更新脚本即可：
 
 ```bash
 cd /www/push-system
 bash backend/deploy/update.sh
 ```
 
-> 更新脚本会自动拉取代码、安装依赖、执行数据库迁移、构建前端、重启服务。
+> 更新脚本默认回车即开始更新（输入 n 才取消），自动拉取代码、安装依赖、执行数据库迁移、构建前端、重启服务。
 > 如涉及端口变更或服务配置修改，需使用 `sudo systemctl restart push-http push-websocket`。
 
 ### 安装流程（9 步）
@@ -190,11 +178,26 @@ bash backend/deploy/update.sh
 | [8/9] | 安装 SSL 证书环境（acme.sh + 自动续费 cron） | 可选 |
 | [9/9] | 配置 sudoers 权限 | 可选 |
 
-## APP 打包（GitHub Actions）
+## APP 打包
+
+项目支持两种 APP 打包方式：
+
+### 方式一：HBuilderX 云打包（推荐，当前主推版本）
+
+APP 源码位于 `build/hbuilderx/`，基于 uni-app (Vue 3) 开发，使用 HBuilderX 云打包生成 APK。
+
+1. 下载安装 [HBuilderX](https://www.dcloud.io/hbuilderx.html)
+2. 打开 `build/hbuilderx/` 目录作为项目
+3. 在 HBuilderX 中配置 `manifest.json`（App 图标、模块、权限）
+4. 点击「发行」→「原生 App-云打包」→ 选择 Android → 提交
+
+> 也可使用 `build/build_hbuilderx.sh` 脚本生成可导入 HBuilderX 的项目结构。
+
+### 方式二：GitHub Actions 云端构建
 
 APP 打包已完全迁移到 GitHub Actions，在 GitHub 云端构建，无需在服务器安装 JDK/Android SDK/Gradle，节省服务器资源。
 
-### 配置步骤
+#### 配置步骤
 
 详细配置请参考 [docs/github-actions-build.md](docs/github-actions-build.md)，或在管理后台「APP 生成」页面查看配置提示面板。
 
@@ -232,6 +235,45 @@ APP 打包已完全迁移到 GitHub Actions，在 GitHub 云端构建，无需�
 → 前端轮询 list 接口获取最新状态 → 用户下载 APK
 ```
 
+## Android APP 深度保活机制
+
+APP 通过 `plus.android` 调用原生 API 实现**五层保活**，确保锁屏和后台状态下 WebSocket 连接不中断：
+
+| 层级 | 机制 | 说明 |
+|------|------|------|
+| 1. 前台服务 | `startForegroundService` | 创建常驻通知栏，进程优先级提升至前台，防止被系统杀死 |
+| 2. WakeLock | `PowerManager.PARTIAL_WAKE_LOCK` | 保持 CPU 唤醒，防止锁屏后 CPU 休眠导致心跳停止 |
+| 3. AlarmManager | `setExactAndAllowWhileIdle` | 锁屏后 JS 引擎被冻结时作为备用心跳，25 秒间隔定时唤醒 CPU 发送心跳 |
+| 4. WifiLock | `WifiManager.WIFI_MODE_FULL_HIGH_PERF` | 保持 WiFi 不休眠，防止锁屏后网络断开 |
+| 5. 电池优化白名单 | `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | 申请加入电池优化白名单，避免 Doze 模式限制 |
+
+### 心跳与重连策略
+
+- **客户端心跳**：10 秒间隔主动发送 ping，20 秒未收到任何消息则主动断开重连
+- **服务端心跳**：HeartbeatManager 定时发送 ping，连续 3 次未收到 pong 则断开连接（60 秒超时）
+- **重连策略**：前 3 次快速重连（2s/5s/10s），之后指数退避（最大 60 秒）
+- **AlarmManager 唤醒**：锁屏后闹钟触发时获取临时 WakeLock（10 秒），发送心跳或触发重连
+- **onShow 检测**：APP 切回前台时主动发送验证 ping，5 秒无响应则强制重连
+
+### 锁屏通知显示
+
+- 通知渠道 `VISIBILITY_PUBLIC`（锁屏完全可见）
+- `setBypassDnd` 绕过勿扰模式
+- `setFullScreenIntent` 全屏 Intent（Android 10 以下弹出到锁屏上方）
+- `setCategory('msg')` 分类为消息，锁屏界面优先展示
+- 振动模式 `[0, 200, 200, 200]`，绿色灯光提示
+
+### 小米手机专属优化
+
+小米 / Redmi / POCO 手机（MIUI / HyperOS）需额外开启以下权限，APP 设置页提供一键跳转：
+
+- 自启动（设为允许）
+- 省电策略（设为无限制）
+- 后台弹出界面（允许）
+- 锁屏显示（允许）
+- 悬浮窗（允许）
+- 通知使用权
+
 ## 服务器配置建议
 
 ### 3-5 人使用（最低配置）
@@ -263,35 +305,55 @@ im-push-system/
 │   │   ├── Controller/       # 控制器（API 路由处理）
 │   │   ├── Middleware/        # 中间件（鉴权、日志）
 │   │   ├── Service/          # 服务层（业务逻辑）
+│   │   │   ├── HeartbeatManager.php    # 心跳管理（ping/pong 双向）
+│   │   │   ├── ConnectionManager.php  # 连接管理（fd↔device_id 映射）
+│   │   │   ├── PushDispatcher.php      # 推送分发（跨进程队列）
+│   │   │   ├── DeviceOfflineNotifier.php # 设备掉线邮件通知
+│   │   │   ├── SslService.php          # SSL 证书与 Nginx 配置
+│   │   │   ├── AudioService.php        # 音频文件管理
+│   │   │   ├── CaptchaService.php      # 图形验证码
+│   │   │   └── ...
 │   │   ├── HttpServer.php    # HTTP API 服务
 │   │   ├── WebSocketServer.php # WebSocket 推送服务
 │   │   └── Router.php        # 路由器
-│   ├── config/               # 配置文件
-│   ├── database/             # 数据库迁移脚本
+│   ├── config/               # 配置文件（database/redis/github）
+│   ├── database/
+│   │   ├── migrations/       # 数据库迁移（001-011）
+│   │   └── seeders/          # 种子数据
 │   ├── public/               # 入口文件
 │   └── .env.example          # 环境变量示例
 ├── admin/                    # 管理后台
 │   ├── src/
 │   │   ├── api/              # API 接口定义
-│   │   ├── views/            # 页面组件
+│   │   ├── views/            # 页面组件（16 个页面）
+│   │   │   ├── dashboard/    # 仪表盘（含测试推送）
+│   │   │   ├── api-keys/     # API Key 管理
+│   │   │   ├── audio/        # 音频管理
+│   │   │   ├── domains/      # 域名与 SSL
+│   │   │   ├── apk-distribution/ # APK 分发
+│   │   │   ├── app-build/    # APP 构建
+│   │   │   ├── settings/     # 系统设置
+│   │   │   └── ...
 │   │   ├── layout/           # 布局组件
 │   │   ├── router/           # 路由配置
 │   │   └── stores/           # 状态管理
 │   └── vite.config.ts        # Vite 构建配置
-├── app/                      # Android APP 源码
-│   └── src/main/java/com/push/app/
-│       ├── data/             # 数据层（WebSocket、存储）
-│       ├── keepalive/        # 后台保活
-│       ├── service/          # 推送服务、通知
-│       ├── ui/               # Compose UI
-│       └── util/             # 工具类
 ├── build/                    # APP 构建脚本
-│   ├── build_apk.sh          # APK 打包脚本（由 GitHub Actions 调用）
-│   ├── inject_config.sh      # 配置注入脚本（包名、服务器地址等）
-│   ├── queue/                # 构建队列管理
-│   │   └── BuildQueue.php    # 队列管理（Redis List + Hash + Sorted Set）
-│   ├── logs/                 # 构建日志
-│   └── output/               # APK 产物输出目录
+│   ├── hbuilderx/            # HBuilderX uni-app 源码（主推版本）
+│   │   ├── pages/
+│   │   │   ├── index/        # 登录页
+│   │   │   └── home/         # 主页面（消息/音频/用户中心三 Tab）
+│   │   ├── static/           # 静态资源（APP 图标）
+│   │   ├── App.vue
+│   │   ├── config.js         # 配置注入（构建时生成）
+│   │   ├── manifest.json     # APP 配置（权限、图标、模块）
+│   │   └── pages.json        # 页面路由
+│   ├── app/                  # Kotlin 原生 APP 源码（旧版本）
+│   ├── build_apk.sh          # APK 打包脚本（GitHub Actions 调用）
+│   ├── build_hbuilderx.sh    # HBuilderX 项目生成脚本
+│   ├── inject_config.sh      # 配置注入脚本
+│   ├── generate_keystore.sh  # 签名生成脚本
+│   └── queue/                # 构建队列管理
 ├── .github/workflows/        # GitHub Actions 工作流
 │   └── build-apk.yml         # APP 构建 workflow
 ├── deploy/                   # 部署脚本
@@ -302,8 +364,9 @@ im-push-system/
 │   ├── uninstall.sh          # 卸载脚本
 │   ├── manage.sh             # 交互式管理菜单
 │   ├── nginx/                # Nginx 配置
-│   └── systemd/              # systemd 服务文件（push-http/push-websocket）
-└── .gitignore
+│   ├── systemd/              # systemd 服务文件
+│   └── apk/                  # APK 分发脚本
+└── manage.sh                 # 交互式管理菜单入口
 ```
 
 ## API 接口
@@ -348,12 +411,12 @@ curl -X POST http://localhost:9501/api/push \
 | `/admin/messages` | GET | 消息记录 |
 | `/admin/settings/mail` | GET/POST | 邮件配置 |
 | `/admin/test-push` | POST | 测试推送 |
+| `/admin/audio` | GET/POST | 音频文件管理 |
+| `/admin/domains` | GET/POST | 域名与 SSL 管理 |
 
 ## APK 分发管理
 
 APP 构建成功后，系统自动创建分发记录，支持三种分发方式：
-
-### 分发方式
 
 | 方式 | 说明 | 文件大小限制 | 是否需要额外配置 |
 |------|------|------------|----------------|
@@ -361,59 +424,11 @@ APP 构建成功后，系统自动创建分发记录，支持三种分发方式�
 | **蓝奏云上传** | 自动上传到蓝奏云并生成分享链接 | 100MB | 需配置蓝奏云 Cookie |
 | **自定义上传** | 调用自定义脚本上传到任意存储服务 | 无限制 | 需配置上传脚本 |
 
-### 使用流程
-
-1. **构建 APP**：在管理后台「APP 生成」页面提交打包任务
-2. **自动创建分发记录**：构建成功后，系统自动在「APK 分发」页面创建分发记录
-3. **下载/分享**：
-   - **自托管下载**：点击「下载」按钮直接下载，或点击「二维码」生成扫码下载链接
-   - **蓝奏云**：点击「上传蓝奏云」按钮，自动上传并生成分享链接
-   - **自定义上传**：点击「自定义上传」按钮，执行配置的上传脚本
-
-### 分发设置
-
-在「APK 分发」页面点击右上角「分发设置」按钮：
-
-| 配置项 | 说明 |
-|--------|------|
-| 启用自动分发 | 开关，构建成功后是否自动创建分发记录 |
-| 蓝奏云 Cookie | 从浏览器开发者工具获取的蓝奏云登录 Cookie |
-| 自定义上传脚本路径 | 可执行脚本的绝对路径（如 /www/push-system/deploy/apk/custom-upload.sh） |
-| 下载基础 URL | 用于生成完整下载链接（留空则使用当前访问域名） |
-
-### 获取蓝奏云 Cookie
-
-1. 在浏览器登录蓝奏云（https://pan.lanzou.com）
-2. 按 F12 打开开发者工具 → Network 面板
-3. 刷新页面，找到任意请求 → Headers → Cookie
-4. 复制完整 Cookie 值，粘贴到分发设置中
-
-### 自定义上传脚本
-
-参考 `deploy/apk/custom-upload-example.sh`，复制为 `custom-upload.sh` 并修改上传逻辑：
-
-```bash
-# 复制示例脚本
-cp deploy/apk/custom-upload-example.sh deploy/apk/custom-upload.sh
-chmod +x deploy/apk/custom-upload.sh
-
-# 编辑脚本，实现你的上传逻辑（如上传到阿里云 OSS、腾讯 COS、七牛云等）
-vim deploy/apk/custom-upload.sh
-```
-
-脚本约定：
-- 参数：`<apk_path> <build_id> <app_name>`
-- 输出：第一行为上传后的 URL（http/https 开头），后续行可选
-
-### 公开下载链接
-
 每个分发记录生成一个带 token 的公开下载链接（无需登录）：
 
 ```
 https://your-domain.com/api/apk-distribution/download/{token}
 ```
-
-此链接可直接用于二维码分享或发送给用户下载。
 
 ## 设备掉线邮箱通知配置
 
@@ -432,20 +447,34 @@ https://your-domain.com/api/apk-distribution/download/{token}
 - 填写通知邮箱（多个用逗号分隔，如 `a@qq.com,b@qq.com`）
 - 设置通知间隔（默认 300 秒）
 
-### 3. 获取 QQ 邮箱授权码
+## 域名与 SSL 管理
 
-1. 登录 QQ 邮箱 → 设置 → 账户
-2. 找到"POP3/SMTP 服务" → 开启
-3. 按提示发送短信 → 获取授权码
-4. 使用授权码作为 SMTP 密码
+### 在管理后台配置
+
+1. **添加域名**：管理后台 → 域名与SSL → 添加域名
+   - 选择目标类型：管理后台 / 后端API / WebSocket / 全部
+   - 设置监听端口（0=默认80/443，>0=指定端口，支持前后端分开端口）
+   - 设置后端目标地址（支持 IP+端口 直连）
+
+2. **申请 SSL 证书**：点击「申请SSL」自动申请 Let's Encrypt 免费证书
+
+3. **部署 Nginx**：点击「部署」自动生成 Nginx 配置并重载
+   - 支持 IP 访问与域名访问共存
+   - 支持 HTTP 与 HTTPS 同时访问
+   - 支持强制 HTTPS 开关（开启后 HTTP 自动 301 跳转 HTTPS）
+
+4. **自动续费**：开启「自动续费」开关，cron 每天凌晨 3 点自动检查，30 天内到期自动续费
 
 ## APP 使用说明
 
 1. 安装 APK 后打开 APP
-2. 在首页输入推送 Key
-3. 点击连接，APP 自动建立 WebSocket 长连接
-4. 消息通过系统通知栏实时显示
-5. 支持在设置中自定义心跳间隔
+2. 在登录页输入推送 Key 和服务器地址
+3. APP 自动建立 WebSocket 长连接，启动五层保活机制
+4. 消息通过系统通知栏实时显示，锁屏页面可见
+5. 底部三个 Tab 切换功能：
+   - **消息推送**：查看推送记录和连接状态
+   - **音频播放**：播放云端或本地音频，提升进程保活能力
+   - **用户中心**：查看连接信息、管理权限、复制设备信息
 
 ## 常用运维命令
 
@@ -460,8 +489,8 @@ sudo journalctl -u push-http -f               # HTTP API 服务
 # 重启服务
 sudo systemctl restart push-http push-websocket
 
-# 更新代码（一键更新：代码 + 依赖 + 迁移 + 权限 + 服务重启）
-cd /www/push-system && bash backend/deploy/update.sh --yes
+# 更新代码（默认回车即开始更新）
+cd /www/push-system && bash backend/deploy/update.sh
 
 # 回滚代码
 cd /www/push-system && bash deploy/rollback.sh
@@ -469,150 +498,33 @@ cd /www/push-system && bash deploy/rollback.sh
 # 交互式管理菜单
 cd /www/push-system && bash manage.sh
 
+# 查看 WebSocket 调试日志（含 ping/pong、设备状态）
+sudo tail -50 /www/push-system/backend/runtime/logs/ws_debug.log
+
 # 查看 APP 构建日志（替换 <build_id>）
 cat /www/push-system/build/logs/<build_id>.log
 
-# 查看 GitHub Actions 构建历史
-# 访问 GitHub 仓库 → Actions 页面
-
 # 查看 SSL 证书自动续费日志
 cat /var/log/push-ssl-renew.log
-```
 
-### 累积修复部署命令
-
-以下命令用于部署近期所有修复（并发支持、用户注册/忘记密码、深度检测修复），按需执行：
-
-#### 1. 完整部署（一次性应用所有修复）
-
-```bash
-#!/bin/bash
-set -e
-PROJECT_DIR="/www/push-system"
-cd "$PROJECT_DIR"
-
-echo "===== [1/9] 拉取最新代码 ====="
-git fetch origin main
-git merge --no-edit FETCH_HEAD
-
-echo "===== [2/9] 修复 CRLF 行结尾 (Windows->Linux) ====="
-find backend/src -name "*.php" -exec sed -i 's/\r$//' {} \;
-find backend/bin -name "*.php" -exec sed -i 's/\r$//' {} \;
-find admin/src -name "*.ts" -o -name "*.vue" | xargs -r sed -i 's/\r$//'
-
-echo "===== [3/9] 验证后端 PHP 语法 ====="
-php -l backend/public/index.php
-php -l backend/src/Service/AdminService.php
-php -l backend/src/Controller/PushKeyController.php
-php -l backend/src/HttpServer.php
-php -l backend/src/WebSocketServer.php
-php -l backend/src/Service/Database.php
-php -l backend/src/Service/Redis.php
-php -l backend/src/Service/PushDispatcher.php
-
-echo "===== [4/9] 确认 runtime/logs 目录存在 ====="
-mkdir -p backend/runtime/logs
-chown -R www-data:www-data backend/runtime
-
-echo "===== [5/9] 构建前端 ====="
-cd admin
-npm install --prefer-offline --no-audit --no-fund 2>/dev/null || npm install
-npm run build
-cd ..
-
-echo "===== [6/9] 修复权限 ====="
-chown -R www-data:www-data admin/dist
-chown -R www-data:www-data backend/runtime
-
-echo "===== [7/9] 重启服务 ====="
-systemctl daemon-reload
-systemctl reset-failed push-http push-websocket 2>/dev/null || true
-systemctl restart push-websocket
-sleep 2
-systemctl restart push-http
-
-echo "===== [8/9] 验证服务状态 ====="
-systemctl status push-http --no-pager -l | head -n 12
-echo "---"
-systemctl status push-websocket --no-pager -l | head -n 12
-
-echo "===== [9/9] 完成 ====="
-echo "新增页面:"
-echo "  注册页:     https://your-domain/#/register"
-echo "  忘记密码页: https://your-domain/#/forgot-password"
-echo ""
-echo "新增后端路由 (双路由 APP/前端共用):"
-echo "  POST /auth/register 和 POST /api/auth/register"
-echo "  POST /auth/send-code  和 POST /api/auth/send-code"
-echo "  POST /auth/login       和 POST /api/auth/login"
-echo "  POST /auth/reset-password 和 POST /api/auth/reset-password"
-```
-
-#### 2. 仅更新代码（快速模式，跳过前端构建）
-
-```bash
-cd /www/push-system
-git fetch origin main && git merge --no-edit FETCH_HEAD
-find backend/src -name "*.php" -exec sed -i 's/\r$//' {} \;
-sudo systemctl restart push-http push-websocket
-sudo systemctl status push-http push-websocket --no-pager | head -n 20
-```
-
-#### 3. 仅重建前端
-
-```bash
-cd /www/push-system/admin
-npm install --prefer-offline --no-audit --no-fund
-npm run build
-sudo chown -R www-data:www-data dist
-# 无需重启服务，Nginx 直接读取新 dist 目录
-```
-
-## 域名与 SSL 管理
-
-### 在管理后台配置
-
-1. **添加域名**：管理后台 → 域名与SSL → 添加域名
-   - 选择目标类型：管理后台 / 后端API / WebSocket / 全部
-   - 设置监听端口（0=默认80/443，>0=指定端口，支持前后端分开端口）
-   - 设置后端目标地址（支持 IP+端口 直连）
-
-2. **申请 SSL 证书**：点击「申请SSL」自动申请 Let's Encrypt 免费证书
-   - 需先在 DNS 解析域名到服务器 IP
-   - 需 80 端口可被外网访问（ACME 验证用）
-
-3. **部署 Nginx**：点击「部署」自动生成 Nginx 配置并重载
-   - 每个域名独立 server 块
-   - 前端和后端可绑定不同域名和端口
-
-4. **自动续费**：开启「自动续费」开关
-   - cron 每天凌晨 3 点自动检查
-   - 30 天内到期自动续费
-
-### 命令行操作
-
-```bash
-# 安装 SSL 环境
-sudo bash /www/push-system/backend/deploy/ssl/setup-acme.sh
-
-# 配置 sudoers
-sudo cp /www/push-system/deploy/sudoers-push-system-ssl /etc/sudoers.d/push-system
-sudo chmod 440 /etc/sudoers.d/push-system && sudo visudo -c
-
-# 安装自动续费 cron
-echo "0 3 * * * root /www/push-system/backend/deploy/ssl/auto-renew-cron.sh" | sudo tee /etc/cron.d/push-ssl-renew
-sudo chmod 644 /etc/cron.d/push-ssl-renew
+# 检查服务器与云端版本是否一致
+cd /www/push-system && bash backend/deploy/check-version.sh
 ```
 
 ## 故障排查
 
-### APP 构建失败
+### APP 掉线频繁
 
-APP 打包已迁移到 GitHub Actions，请查看：
+1. 检查 APP 是否在电池优化白名单中（设置 → 权限管理）
+2. 小米手机需开启自启动、省电策略设为无限制
+3. 查看服务器日志中 ping/pong 记录：`grep "收到客户端 pong" ws_debug.log`
+4. 确认 APP 已开启通知权限（前台服务依赖通知栏）
 
-1. **GitHub Actions 运行日志**：访问 GitHub 仓库 → Actions 页面，点击对应 workflow 查看详细日志
-2. **管理后台构建状态**：「APP 生成」页面查看构建任务状态
-3. **服务器端日志**：`cat /www/push-system/build/logs/<build_id>.log`
+### APP 通知栏不显示
+
+1. 检查通知权限是否开启（设置 → 通知）
+2. 小米手机检查「锁屏显示」权限
+3. 确认通知渠道未被禁用
 
 ### 端口 9501/9502 被占用
 
@@ -645,6 +557,22 @@ sudo journalctl -u push-http -f --since "10 minutes ago"
 # 检查数据库连接
 cd /www/push-system/backend && php -r "new PDO('mysql:host=127.0.0.1', 'im_push', 'YourPass');"
 ```
+
+## 数据库迁移演进
+
+| 版本 | 文件 | 内容 |
+|------|------|------|
+| 001 | `001_init.sql` | 初始化 9 张表（users/admins/push_keys/devices/messages/blacklists/push_logs/admin_logs/api_keys） |
+| 002 | `002_add_notify_fields.sql` | 通知相关字段 |
+| 003 | `003_add_admin_settings.sql` | 管理员设置 |
+| 004 | `004_admin_login_logs.sql` | 管理员登录日志 |
+| 005 | `005_domains.sql` | 域名表 |
+| 006 | `006_domains_extend.sql` | 域名表扩展 |
+| 007 | `007_users_security_code.sql` | 用户安全码 |
+| 008 | `008_apk_distribution.sql` | APK 分发记录 |
+| 009 | `009_audio_files.sql` | 音频文件表 |
+| 010 | `010_domains_force_https.sql` | 域名强制 HTTPS |
+| 011 | `011_push_message_unlimited.sql` | 推送消息无字数限制（TEXT/MEDIUMTEXT） |
 
 ## 默认账号
 
