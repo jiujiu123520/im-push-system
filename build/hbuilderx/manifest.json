@@ -47,6 +47,27 @@
                 "abiFilters" : [ "armeabi-v7a", "arm64-v8a" ],
                 "usesCleartextTraffic" : true
             },
+            "icons" : {
+                "android" : {
+                    "hdpi" : "static/logo.jpg",
+                    "xhdpi" : "static/logo.jpg",
+                    "xxhdpi" : "static/logo.jpg",
+                    "xxxhdpi" : "static/logo.jpg"
+                },
+                "ios" : {
+                    "appstore" : "static/logo.jpg",
+                    "iphone" : {
+                        "app@2x" : "static/logo.jpg",
+                        "app@3x" : "static/logo.jpg",
+                        "notification@2x" : "static/logo.jpg",
+                        "notification@3x" : "static/logo.jpg",
+                        "settings@2x" : "static/logo.jpg",
+                        "settings@3x" : "static/logo.jpg",
+                        "spotlight@2x" : "static/logo.jpg",
+                        "spotlight@3x" : "static/logo.jpg"
+                    }
+                }
+            },
             "ios" : {
                 "dSYMs" : false,
                 "idfa" : false,
