@@ -288,8 +288,10 @@ class WebSocketServer
             $osVersion   = (string)($request->get['os_version'] ?? '');
             $fingerprint = (string)($request->get['fingerprint'] ?? '');
             $heartbeatInterval = (int)($request->get['heartbeat_interval'] ?? $this->heartbeatInterval);
+            $platform    = (string)($request->get['platform'] ?? '');
+            $appVersion  = (string)($request->get['app_version'] ?? '');
 
-            $this->authenticateDevice($server, $fd, $keyValue, $deviceId, $deviceName, $model, $osVersion, $fingerprint, $heartbeatInterval, $ip, $ua);
+            $this->authenticateDevice($server, $fd, $keyValue, $deviceId, $deviceName, $model, $osVersion, $fingerprint, $heartbeatInterval, $ip, $ua, $platform, $appVersion);
         } else {
             // 新协议：等待客户端发送 auth 消息
             // 存储客户端 IP 和 UA 供后续鉴权使用(使用 Swoole Table 跨 worker 共享)
@@ -333,6 +335,8 @@ class WebSocketServer
      * @param int $heartbeatInterval
      * @param string $ip
      * @param string $ua
+     * @param string $platform    设备平台（android/ios/web/harmony）
+     * @param string $appVersion  APP 版本号
      * @return void
      */
     private function authenticateDevice(
@@ -346,7 +350,9 @@ class WebSocketServer
         string $fingerprint,
         int $heartbeatInterval,
         string $ip,
-        string $ua
+        string $ua,
+        string $platform = '',
+        string $appVersion = ''
     ): void {
         // 清除待鉴权标记(从 Swoole Table 删除)
         $this->pendingAuthTable->del((string)$fd);
@@ -454,6 +460,8 @@ class WebSocketServer
             'device_name'  => $deviceName,
             'device_model' => $model,
             'os_version'   => $osVersion,
+            'platform'     => $platform,
+            'app_version'  => $appVersion,
             'ip'           => $ip,
             'ua'           => $ua,
             'fingerprint'  => $fingerprint,
@@ -522,7 +530,9 @@ class WebSocketServer
                     (string)($data['fingerprint'] ?? ''),
                     (int)($data['heartbeat_interval'] ?? $this->heartbeatInterval),
                     $pendingIp,
-                    $pendingUa
+                    $pendingUa,
+                    (string)($data['platform'] ?? ''),
+                    (string)($data['app_version'] ?? '')
                 );
                 break;
 
@@ -542,6 +552,9 @@ class WebSocketServer
                         $deviceState['tab'] ?? '-'
                     ));
                 }
+                // 更新设备最后活跃时间（异步、低频，避免每次心跳都写库）
+                // 通过 ConnectionManager 获取 device_id 与 push_key_id
+                $this->updateDeviceLastActiveByFd($fd);
                 break;
 
             case 'ping':
@@ -554,6 +567,8 @@ class WebSocketServer
                     'client_timestamp' => $clientTimestamp,
                     'online_count' => $onlineCount,
                 ], 'pong'));
+                // 更新设备最后活跃时间
+                $this->updateDeviceLastActiveByFd($fd);
                 break;
 
             case 'ack':
@@ -779,6 +794,40 @@ class WebSocketServer
             }
         } catch (\Throwable $e) {
             echo "[WS] 离线消息回放异常：{$e->getMessage()}\n";
+        }
+    }
+
+    /**
+     * 根据 fd 更新对应设备的 last_active_at
+     *
+     * 为避免高频心跳写库压垮数据库，使用 Redis 限频：
+     *   - 每个 device_id 每 30 秒最多写一次 last_active_at
+     *   - Redis key: ws:active:{deviceId}，TTL 30 秒
+     *
+     * @param int $fd
+     * @return void
+     */
+    private function updateDeviceLastActiveByFd(int $fd): void
+    {
+        try {
+            $deviceInfo = $this->connectionManager->getDeviceInfo($fd);
+            $deviceId   = (string)($deviceInfo['device_id'] ?? '');
+            $pushKeyId  = (int)($deviceInfo['push_key_id'] ?? 0);
+            if ($deviceId === '' || $pushKeyId <= 0) {
+                return;
+            }
+            // Redis 限频：30 秒内已更新过则跳过
+            $redis = Redis::getInstance();
+            $throttleKey = 'ws:active:' . $deviceId;
+            // setnx 返回 true 表示首次设置（未限频），false 表示已存在（限频跳过）
+            if (!$redis->setnx($throttleKey, (string)time())) {
+                return;
+            }
+            $redis->expire($throttleKey, 30);
+            // 异步写库（失败不影响心跳）
+            $this->deviceService->updateLastActive($deviceId, $pushKeyId);
+        } catch (\Throwable $e) {
+            // 忽略 last_active_at 更新异常
         }
     }
 

@@ -2490,7 +2490,38 @@ export default {
             this.connecting = true
             this._connectStartTime = Date.now()
 
-            const url = this.wsUrl + '/ws/client?key=' + encodeURIComponent(this.form.key) + '&device_id=' + encodeURIComponent(this.deviceId)
+            // 收集设备信息上报到服务端（用于设备管理列表展示）
+            let platform = ''
+            let appVersion = ''
+            let deviceModel = ''
+            let osVersion = ''
+            // #ifdef APP-PLUS
+            try {
+                const info = uni.getSystemInfoSync()
+                platform = (info.platform || '').toLowerCase()  // android/ios
+                appVersion = info.appVersion || info.appWgtVersion || ''
+                deviceModel = info.model || ''
+                osVersion = (info.system || '') + (info.platform ? ' (' + info.platform + ')' : '')
+            } catch (e) {
+                console.warn('获取设备信息失败', e)
+            }
+            // #endif
+
+            // 构造 WebSocket URL，附加设备信息参数（服务端会写入 devices 表）
+            let url = this.wsUrl + '/ws/client?key=' + encodeURIComponent(this.form.key)
+                + '&device_id=' + encodeURIComponent(this.deviceId)
+            if (deviceModel) {
+                url += '&model=' + encodeURIComponent(deviceModel)
+            }
+            if (osVersion) {
+                url += '&os_version=' + encodeURIComponent(osVersion)
+            }
+            if (platform) {
+                url += '&platform=' + encodeURIComponent(platform)
+            }
+            if (appVersion) {
+                url += '&app_version=' + encodeURIComponent(appVersion)
+            }
 
             if (this.connectTimeoutTimer) {
                 clearTimeout(this.connectTimeoutTimer)

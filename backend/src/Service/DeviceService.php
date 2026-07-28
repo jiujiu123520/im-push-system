@@ -41,6 +41,8 @@ class DeviceService
         $deviceName = (string)($data['device_name'] ?? '');
         $model      = (string)($data['device_model'] ?? '');
         $osVersion  = (string)($data['os_version'] ?? '');
+        $platform   = (string)($data['platform'] ?? '');
+        $appVersion = (string)($data['app_version'] ?? '');
         $ip         = (string)($data['ip'] ?? '');
         $ua         = (string)($data['ua'] ?? '');
         $fingerprint = (string)($data['fingerprint'] ?? '');
@@ -59,18 +61,21 @@ class DeviceService
         if ($existing === false) {
             // 插入新设备
             $id = Database::insert(
-                'INSERT INTO devices (device_id, push_key_id, user_id, device_name, device_model, os_version, ip, ua, fingerprint, status, last_connect_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())',
-                [$deviceId, $pushKeyId, $userId, $deviceName, $model, $osVersion, $ip, $ua, $fingerprint]
+                'INSERT INTO devices (device_id, push_key_id, user_id, device_name, device_model, os_version, platform, app_version, ip, ua, fingerprint, status, last_connect_at, last_active_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())',
+                [$deviceId, $pushKeyId, $userId, $deviceName, $model, $osVersion, $platform, $appVersion, $ip, $ua, $fingerprint]
             );
             $device = Database::fetch('SELECT * FROM devices WHERE id = ?', [$id]);
         } else {
-            // 更新已有设备
+            // 更新已有设备（仅当新值非空时才覆盖，避免旧 APP 未上报时清空字段）
             Database::execute(
                 'UPDATE devices
-                 SET user_id = ?, device_name = ?, device_model = ?, os_version = ?, ip = ?, ua = ?, fingerprint = ?, status = 1, last_connect_at = NOW()
+                 SET user_id = ?, device_name = ?, device_model = ?, os_version = ?,
+                     platform = IF(? = "", platform, ?),
+                     app_version = IF(? = "", app_version, ?),
+                     ip = ?, ua = ?, fingerprint = ?, status = 1, last_connect_at = NOW(), last_active_at = NOW()
                  WHERE id = ?',
-                [$userId, $deviceName, $model, $osVersion, $ip, $ua, $fingerprint, $existing['id']]
+                [$userId, $deviceName, $model, $osVersion, $platform, $platform, $appVersion, $appVersion, $ip, $ua, $fingerprint, $existing['id']]
             );
             $device = Database::fetch('SELECT * FROM devices WHERE id = ?', [$existing['id']]);
         }
@@ -110,21 +115,43 @@ class DeviceService
     /**
      * 分页查询设备列表
      *
+     * 返回字段中额外补充：
+     *   - online: bool 是否在线（从 Redis 查询 ws:device:{device_id} 是否有 fd）
+     *   - model:  string 等于 device_model（前端字段映射，避免前端处理）
+     *
      * @param int    $page    页码（从 1 开始）
      * @param string $keyword 搜索关键词（匹配 device_id / device_name / device_model）
+     * @param array  $filters 筛选条件 ['platform' => string, 'online' => int(0/1), 'status' => int(1/2)]
      * @return array
      */
-    public function listDevices(int $page, string $keyword = ''): array
+    public function listDevices(int $page, string $keyword = '', array $filters = []): array
     {
         $page    = max(1, $page);
         $perPage = self::PER_PAGE;
         $offset  = ($page - 1) * $perPage;
 
-        $where  = '';
+        // 构造 WHERE 条件
+        $where  = ' WHERE 1=1';
         $params = [];
+
         if ($keyword !== '') {
-            $where  = ' WHERE device_id LIKE ? OR device_name LIKE ? OR device_model LIKE ?';
-            $params = ["%{$keyword}%", "%{$keyword}%", "%{$keyword}%"];
+            $where .= ' AND (device_id LIKE ? OR device_name LIKE ? OR device_model LIKE ? OR ip LIKE ?)';
+            $kw = "%{$keyword}%";
+            array_push($params, $kw, $kw, $kw, $kw);
+        }
+
+        // 平台筛选
+        $platform = (string)($filters['platform'] ?? '');
+        if ($platform !== '') {
+            $where .= ' AND platform = ?';
+            $params[] = $platform;
+        }
+
+        // 状态筛选（1=启用 2=禁用）
+        $statusFilter = (int)($filters['status'] ?? 0);
+        if ($statusFilter > 0) {
+            $where .= ' AND status = ?';
+            $params[] = $statusFilter;
         }
 
         $devices = Database::fetchAll(
@@ -133,6 +160,28 @@ class DeviceService
         );
 
         $total = (int)(Database::fetch("SELECT COUNT(*) AS total FROM devices{$where}", $params)['total'] ?? 0);
+
+        // 查询 Redis 获取在线设备集合，补充 online 字段
+        $redis = Redis::getInstance();
+        foreach ($devices as &$row) {
+            $deviceId = (string)$row['device_id'];
+            // ws:device:{deviceId} 是 SET，存储该设备所有在线 fd
+            $fdCount = $redis->sCard('ws:device:' . $deviceId);
+            $row['online'] = ($fdCount !== false && (int)$fdCount > 0) ? 1 : 0;
+            // 字段映射：device_model -> model（前端使用 model 字段）
+            $row['model'] = (string)$row['device_model'];
+        }
+        unset($row);
+
+        // 在线状态筛选（需要在 PHP 层过滤，因为 online 来自 Redis）
+        $onlineFilter = (int)($filters['online'] ?? 0);
+        if ($onlineFilter > 0) {
+            $devices = array_values(array_filter($devices, function ($row) use ($onlineFilter) {
+                return (int)$row['online'] === $onlineFilter;
+            }));
+            // 在线筛选后总数需要重新计算
+            $total = count($devices);
+        }
 
         return [
             'list'        => $devices,

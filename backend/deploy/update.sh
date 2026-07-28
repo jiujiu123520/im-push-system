@@ -685,6 +685,8 @@ EOF
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='audio_files'),1,0);"
         record_if_applied "010_domains_force_https.sql" \
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='domains' AND COLUMN_NAME='force_https'),1,0);"
+        record_if_applied "012_devices_extend.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='devices' AND COLUMN_NAME='platform'),1,0);"
 
         APPLIED_COUNT=0
         SKIPPED_COUNT=0

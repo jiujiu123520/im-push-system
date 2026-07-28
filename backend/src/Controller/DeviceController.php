@@ -22,6 +22,13 @@ class DeviceController
      * 设备列表
      * 路由：GET /admin/devices
      *
+     * 支持参数：
+     *   page     页码
+     *   keyword  搜索关键词
+     *   platform 平台筛选（android/ios/web/harmony）
+     *   online   在线状态筛选（1=在线 0=全部）
+     *   status   启用状态筛选（1=启用 2=禁用）
+     *
      * @param array $context
      * @param array $params
      * @return array|false
@@ -36,8 +43,15 @@ class DeviceController
         $page    = (int)($context['get']['page'] ?? 1);
         $keyword = (string)($context['get']['keyword'] ?? '');
 
+        // 筛选条件
+        $filters = [
+            'platform' => (string)($context['get']['platform'] ?? ''),
+            'online'   => (int)($context['get']['online'] ?? 0),
+            'status'   => (int)($context['get']['status'] ?? 0),
+        ];
+
         $service = new DeviceService();
-        return $service->listDevices($page, $keyword);
+        return $service->listDevices($page, $keyword, $filters);
     }
 
     /**

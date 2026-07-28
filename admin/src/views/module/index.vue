@@ -30,7 +30,12 @@
         >
           一键清空
         </el-button>
-        <el-button type="primary" :icon="PlusIcon" @click="openDialog()">
+        <el-button
+          v-if="currentModule !== 'devices'"
+          type="primary"
+          :icon="PlusIcon"
+          @click="openDialog()"
+        >
           新增{{ moduleTitle }}
         </el-button>
       </div>
@@ -46,6 +51,30 @@
         style="width: 220px"
         @keyup.enter="handleSearch"
       />
+      <!-- 设备模块：平台筛选 -->
+      <el-select
+        v-if="currentModule === 'devices'"
+        v-model="query.platform"
+        placeholder="平台"
+        clearable
+        style="width: 140px"
+      >
+        <el-option label="Android" value="android" />
+        <el-option label="iOS" value="ios" />
+        <el-option label="Web" value="web" />
+        <el-option label="HarmonyOS" value="harmony" />
+      </el-select>
+      <!-- 设备模块：在线状态筛选 -->
+      <el-select
+        v-if="currentModule === 'devices'"
+        v-model="query.online"
+        placeholder="在线状态"
+        clearable
+        style="width: 140px"
+      >
+        <el-option label="在线" :value="1" />
+        <el-option label="离线" :value="2" />
+      </el-select>
       <el-select v-model="query.status" placeholder="状态筛选" clearable style="width: 160px">
         <el-option label="启用" :value="1" />
         <el-option label="禁用" :value="0" />
@@ -87,7 +116,35 @@
               style="margin-right: 4px"
             >{{ t }}</el-tag>
           </template>
+          <template v-else-if="col.slot === 'online'" #default="{ row }">
+            <el-tag
+              :type="row[col.prop] === 1 ? 'success' : 'info'"
+              effect="dark"
+              round
+              size="small"
+            >
+              {{ row[col.prop] === 1 ? '在线' : '离线' }}
+            </el-tag>
+          </template>
+          <template v-else-if="col.slot === 'platform'" #default="{ row }">
+            <el-tag
+              :type="platformTagType(row[col.prop])"
+              effect="plain"
+              round
+              size="small"
+            >
+              {{ platformLabel(row[col.prop]) }}
+            </el-tag>
+          </template>
           <template v-else-if="col.prop === 'key_value'" #default="{ row }">
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ row[col.prop] }}</span>
+              <el-button text type="primary" size="small" @click="copyToClipboard(row[col.prop])">
+                <el-icon><CopyDocumentIcon /></el-icon>
+              </el-button>
+            </div>
+          </template>
+          <template v-else-if="currentModule === 'devices' && col.prop === 'device_id'" #default="{ row }">
             <div style="display: flex; align-items: center; gap: 4px;">
               <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ row[col.prop] }}</span>
               <el-button text type="primary" size="small" @click="copyToClipboard(row[col.prop])">
@@ -97,9 +154,9 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" :width="(currentModule === 'users' ? 260 : (currentModule === 'devices' ? 260 : 180))" fixed="right">
+        <el-table-column label="操作" :width="(currentModule === 'users' ? 260 : (currentModule === 'devices' ? 220 : 180))" fixed="right">
           <template #default="{ row }">
-            <el-button text type="primary" :icon="EditIcon" @click="openDialog(row)">编辑</el-button>
+            <el-button v-if="currentModule !== 'devices'" text type="primary" :icon="EditIcon" @click="openDialog(row)">编辑</el-button>
             <el-button v-if="currentModule === 'users'" text type="warning" :icon="KeyIcon" @click="openPasswordDialog(row)">修改密码</el-button>
             <el-button
               v-if="currentModule === 'devices'"
@@ -273,7 +330,7 @@ interface ColumnConfig {
   prop: string
   label: string
   width?: number
-  slot?: 'status' | 'tag'
+  slot?: 'status' | 'tag' | 'online' | 'platform'
 }
 
 // 各模块配置
@@ -343,11 +400,11 @@ const moduleConfigs: Record<string, {
   devices: {
     title: '设备',
     columns: [
-      { prop: 'device_id', label: '设备ID', width: 180 },
-      { prop: 'platform', label: '平台', width: 100 },
+      { prop: 'device_id', label: '设备ID', width: 220 },
+      { prop: 'platform', label: '平台', width: 110, slot: 'platform' },
       { prop: 'model', label: '型号' },
       { prop: 'app_version', label: 'App版本', width: 100 },
-      { prop: 'online', label: '在线', width: 80, slot: 'status' },
+      { prop: 'online', label: '在线', width: 90, slot: 'online' },
       { prop: 'status', label: '状态', width: 90, slot: 'tag' },
       { prop: 'last_active_at', label: '最后活跃', width: 170 }
     ],
@@ -543,7 +600,9 @@ const query = reactive({
   page: 1,
   pageSize: 10,
   keyword: '',
-  status: undefined as number | undefined
+  status: undefined as number | undefined,
+  platform: undefined as string | undefined,
+  online: undefined as number | undefined
 })
 
 const currentModule = computed(() => (route.meta.module as string) || 'users')
@@ -671,13 +730,20 @@ async function fetchData() {
       const res = await getDeviceListApi(query)
       const rawList = res.data?.list || []
       tableData.value = rawList.map((row: any) => {
-        const rawStatus = typeof row.status === 'object' ? (row.status as any)[0] : (row.status ?? 1)
+        // 后端 status 字段：1=启用 2=禁用
+        const rawStatus = typeof row.status === 'object' ? (row.status as any)[0] : (Number(row.status) || 1)
         return {
           ...row,
           // 原始状态数字，供切换按钮判断
           _rawStatus: rawStatus,
+          // 兼容旧字段
+          model: row.model || row.device_model || '',
           // 将 status 数字转换为 tag 数组（1=启用 2=禁用），供 slot='tag' 渲染
-          status: rawStatus === 2 ? ['禁用'] : ['启用']
+          status: rawStatus === 2 ? ['禁用'] : ['启用'],
+          // 确保 online 字段为数字
+          online: Number(row.online) || 0,
+          // 时间字段兜底
+          last_active_at: row.last_active_at || row.last_connect_at || ''
         }
       })
       total.value = res.data?.total || 0
@@ -714,6 +780,8 @@ function handleSearch() {
 function handleReset() {
   query.keyword = ''
   query.status = undefined
+  query.platform = undefined
+  query.online = undefined
   query.page = 1
   fetchData()
 }
@@ -851,6 +919,28 @@ async function handleSubmit() {
   submitting.value = false
   dialogVisible.value = false
   fetchData()
+}
+
+// 平台标签文本映射
+function platformLabel(platform: string): string {
+  const map: Record<string, string> = {
+    android: 'Android',
+    ios: 'iOS',
+    web: 'Web',
+    harmony: 'HarmonyOS'
+  }
+  return map[platform] || platform || '-'
+}
+
+// 平台标签颜色映射
+function platformTagType(platform: string): 'success' | 'warning' | 'info' | 'primary' | 'danger' {
+  const map: Record<string, 'success' | 'warning' | 'info' | 'primary' | 'danger'> = {
+    android: 'success',
+    ios: 'primary',
+    web: 'warning',
+    harmony: 'danger'
+  }
+  return map[platform] || 'info'
 }
 
 // 复制到剪贴板（兼容HTTP环境）
@@ -1004,6 +1094,8 @@ watch(
     query.page = 1
     query.keyword = ''
     query.status = undefined
+    query.platform = undefined
+    query.online = undefined
     fetchData()
   },
   { immediate: true }
