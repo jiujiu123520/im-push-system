@@ -76,8 +76,29 @@
         <el-option label="离线" :value="2" />
       </el-select>
       <el-select v-model="query.status" placeholder="状态筛选" clearable style="width: 160px">
-        <el-option label="启用" :value="1" />
-        <el-option label="禁用" :value="0" />
+        <template v-if="currentModule === 'push-logs'">
+          <el-option label="失败" :value="0" />
+          <el-option label="成功" :value="1" />
+          <el-option label="部分成功" :value="2" />
+          <el-option label="进行中" :value="3" />
+        </template>
+        <template v-else>
+          <el-option label="启用" :value="1" />
+          <el-option label="禁用" :value="0" />
+        </template>
+      </el-select>
+      <!-- 推送记录：目标类型筛选 -->
+      <el-select
+        v-if="currentModule === 'push-logs'"
+        v-model="query.targetType"
+        placeholder="目标类型"
+        clearable
+        style="width: 140px"
+      >
+        <el-option label="设备" value="device" />
+        <el-option label="按Key" value="key" />
+        <el-option label="广播" value="broadcast" />
+        <el-option label="用户" value="user" />
       </el-select>
       <el-button type="primary" :icon="SearchIcon" @click="handleSearch">查询</el-button>
       <el-button :icon="RefreshLeftIcon" @click="handleReset">重置</el-button>
@@ -102,9 +123,54 @@
           show-overflow-tooltip
         >
           <template v-if="col.slot === 'status'" #default="{ row }">
-            <el-tag :type="row[col.prop] === 1 ? 'success' : 'info'" effect="light" round size="small">
-              {{ row[col.prop] === 1 ? '启用' : '禁用' }}
-            </el-tag>
+            <!-- 推送记录：status 0=失败 1=成功 2=部分成功 3=进行中 -->
+            <template v-if="currentModule === 'push-logs'">
+              <el-tag
+                v-if="row.status === 1"
+                type="success"
+                effect="light"
+                round
+                size="small"
+              >
+                成功
+              </el-tag>
+              <el-tag
+                v-else-if="row.status === 0"
+                type="danger"
+                effect="dark"
+                round
+                size="small"
+              >
+                失败
+              </el-tag>
+              <el-tag
+                v-else-if="row.status === 2"
+                type="warning"
+                effect="dark"
+                round
+                size="small"
+              >
+                部分成功
+              </el-tag>
+              <el-tag
+                v-else-if="row.status === 3"
+                type="primary"
+                effect="dark"
+                round
+                size="small"
+              >
+                进行中
+              </el-tag>
+              <el-tag v-else type="info" effect="plain" round size="small">
+                未知
+              </el-tag>
+            </template>
+            <!-- 其他模块：1=启用 0=禁用 -->
+            <template v-else>
+              <el-tag :type="row[col.prop] === 1 ? 'success' : 'info'" effect="light" round size="small">
+                {{ row[col.prop] === 1 ? '启用' : '禁用' }}
+              </el-tag>
+            </template>
           </template>
           <template v-else-if="col.slot === 'tag'" #default="{ row }">
             <el-tag
@@ -136,6 +202,90 @@
               {{ platformLabel(row[col.prop]) }}
             </el-tag>
           </template>
+          <!-- 推送记录：目标类型 -->
+          <template v-else-if="col.slot === 'targetType'" #default="{ row }">
+            <el-tag
+              :type="targetTypeTagType(row.target_type)"
+              effect="plain"
+              round
+              size="small"
+            >
+              {{ targetTypeLabel(row.target_type) }}
+            </el-tag>
+          </template>
+          <!-- 推送记录：目标值 -->
+          <template v-else-if="col.slot === 'targetValue'" #default="{ row }">
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ row[col.prop] || '-' }}</span>
+              <el-button v-if="row[col.prop]" text type="primary" size="small" @click="copyToClipboard(row[col.prop])">
+                <el-icon><CopyDocumentIcon /></el-icon>
+              </el-button>
+            </div>
+          </template>
+          <!-- 推送记录：成功/失败计数 -->
+          <template v-else-if="col.slot === 'count'" #default="{ row }">
+            <span
+              :class="{
+                'text-green-600 font-semibold': col.prop === 'success_count' && row[col.prop] > 0,
+                'text-red-600 font-semibold': col.prop === 'fail_count' && row[col.prop] > 0
+              }"
+            >
+              {{ Number(row[col.prop]) || 0 }}
+            </span>
+          </template>
+          <!-- 用户：邮箱 -->
+          <template v-else-if="col.slot === 'email'" #default="{ row }">
+            <div v-if="row.email" style="display: flex; align-items: center; gap: 4px;">
+              <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ row.email }}</span>
+              <el-button text type="primary" size="small" @click="copyToClipboard(row.email)">
+                <el-icon><CopyDocumentIcon /></el-icon>
+              </el-button>
+            </div>
+            <span v-else style="color: #909399;">-</span>
+          </template>
+          <!-- 用户：手机号 -->
+          <template v-else-if="col.slot === 'phone'" #default="{ row }">
+            <div v-if="row.phone" style="display: flex; align-items: center; gap: 4px;">
+              <span style="flex: 1;">{{ formatPhone(row.phone) }}</span>
+              <el-button text type="primary" size="small" @click="copyToClipboard(row.phone)">
+                <el-icon><CopyDocumentIcon /></el-icon>
+              </el-button>
+            </div>
+            <span v-else style="color: #909399;">-</span>
+          </template>
+          <!-- Key：掉线通知 -->
+          <template v-else-if="col.slot === 'notifyEnabled'" #default="{ row }">
+            <el-tag
+              v-if="row.notify_enabled === 1"
+              type="warning"
+              effect="dark"
+              round
+              size="small"
+            >
+              已开启
+            </el-tag>
+            <el-tag v-else type="info" effect="plain" round size="small">
+              未开启
+            </el-tag>
+          </template>
+          <!-- Key：通知邮箱 -->
+          <template v-else-if="col.slot === 'notifyEmail'" #default="{ row }">
+            <div v-if="row.notify_email" style="display: flex; align-items: center; gap: 4px;">
+              <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ row.notify_email }}</span>
+              <el-button text type="primary" size="small" @click="copyToClipboard(row.notify_email)">
+                <el-icon><CopyDocumentIcon /></el-icon>
+              </el-button>
+            </div>
+            <span v-else style="color: #909399;">未配置</span>
+          </template>
+          <!-- Key：通知间隔 -->
+          <template v-else-if="col.slot === 'notifyInterval'" #default="{ row }">
+            <span v-if="row.notify_interval">
+              <span style="font-weight: 500;">{{ row.notify_interval }}</span> 秒
+              <span style="color: #909399; margin-left: 6px;">（{{ formatDuration(row.notify_interval) }}）</span>
+            </span>
+            <span v-else style="color: #909399;">默认 5 分钟</span>
+          </template>
           <template v-else-if="col.prop === 'key_value'" #default="{ row }">
             <div style="display: flex; align-items: center; gap: 4px;">
               <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ row[col.prop] }}</span>
@@ -154,20 +304,49 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" :width="(currentModule === 'users' ? 260 : (currentModule === 'devices' ? 220 : 180))" fixed="right">
+        <el-table-column label="操作" :width="(
+          currentModule === 'push-logs' ? 230 :
+          currentModule === 'users' ? 280 :
+          currentModule === 'devices' ? 220 :
+          currentModule === 'keys' ? 200 :
+          180
+        )" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="currentModule !== 'devices'" text type="primary" :icon="EditIcon" @click="openDialog(row)">编辑</el-button>
-            <el-button v-if="currentModule === 'users'" text type="warning" :icon="KeyIcon" @click="openPasswordDialog(row)">修改密码</el-button>
-            <el-button
-              v-if="currentModule === 'devices'"
-              text
-              :type="(row._rawStatus ?? row.status[0] ?? 1) === 2 ? 'success' : 'warning'"
-              :icon="(row._rawStatus ?? row.status[0] ?? 1) === 2 ? UnlockIcon : LockIcon"
-              @click="handleToggleDeviceStatus(row)"
-            >
-              {{ (row._rawStatus ?? row.status[0] ?? 1) === 2 ? '启用' : '禁用' }}
-            </el-button>
-            <el-button text type="danger" :icon="DeleteIcon" @click="handleDelete(row)">删除</el-button>
+            <!-- 推送记录：详情 + 重新推送 + 删除 -->
+            <template v-if="currentModule === 'push-logs'">
+              <el-button text type="primary" :icon="ViewIcon" @click="viewPushLogDetail(row)">
+                详情
+              </el-button>
+              <el-button
+                v-if="row.status !== 1 && row.status !== 3"
+                text type="success"
+                :icon="RefreshIcon"
+                @click="retryPushLog(row)"
+              >
+                重新推送
+              </el-button>
+              <el-button text type="danger" :icon="DeleteIcon" @click="handleDelete(row)">删除</el-button>
+            </template>
+            <!-- 用户：编辑 + 修改密码 + 删除 -->
+            <template v-else-if="currentModule === 'users'">
+              <el-button text type="primary" :icon="EditIcon" @click="openDialog(row)">编辑</el-button>
+              <el-button text type="warning" :icon="KeyIcon" @click="openPasswordDialog(row)">修改密码</el-button>
+              <el-button text type="danger" :icon="DeleteIcon" @click="handleDelete(row)">删除</el-button>
+            </template>
+            <!-- 其他模块：编辑/禁用 + 删除 -->
+            <template v-else>
+              <el-button v-if="currentModule !== 'devices'" text type="primary" :icon="EditIcon" @click="openDialog(row)">编辑</el-button>
+              <el-button
+                v-if="currentModule === 'devices'"
+                text
+                :type="(row._rawStatus ?? row.status[0] ?? 1) === 2 ? 'success' : 'warning'"
+                :icon="(row._rawStatus ?? row.status[0] ?? 1) === 2 ? UnlockIcon : LockIcon"
+                @click="handleToggleDeviceStatus(row)"
+              >
+                {{ (row._rawStatus ?? row.status[0] ?? 1) === 2 ? '启用' : '禁用' }}
+              </el-button>
+              <el-button text type="danger" :icon="DeleteIcon" @click="handleDelete(row)">删除</el-button>
+            </template>
           </template>
         </el-table-column>
       </el-table>
@@ -279,6 +458,123 @@
         <el-button type="primary" :loading="resettingPassword" @click="handleResetPassword">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 推送记录详情弹窗 -->
+    <el-dialog
+      v-model="pushDetailVisible"
+      title="推送记录详情"
+      width="680px"
+      destroy-on-close
+    >
+      <div v-loading="pushDetailLoading">
+        <template v-if="pushDetailData">
+          <!-- 基础信息 -->
+          <div class="detail-section">
+            <div class="detail-title">基础信息</div>
+            <el-descriptions :column="2" border size="small">
+              <el-descriptions-item label="ID">
+                {{ pushDetailData.id || '-' }}
+              </el-descriptions-item>
+              <el-descriptions-item label="状态">
+                <el-tag :type="pushStatusType(Number(pushDetailData.status))" effect="light" round size="small">
+                  {{ pushStatusLabel(Number(pushDetailData.status)) }}
+                </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="目标类型">
+                <el-tag :type="targetTypeTagType(pushDetailData.target_type)" effect="plain" round size="small">
+                  {{ targetTypeLabel(pushDetailData.target_type) }}
+                </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="目标值" :span="2">
+                <span v-if="pushDetailData.target_value"
+                  >{{ pushDetailData.target_value }}</span>
+                <span v-else style="color: #909399;">-</span>
+              </el-descriptions-item>
+              <el-descriptions-item label="创建时间">
+                {{ pushDetailData.created_at || '-' }}
+              </el-descriptions-item>
+              <el-descriptions-item label="耗时">
+                {{ pushDetailData.elapsed_ms != null ? `${pushDetailData.elapsed_ms} ms` : '-' }}
+              </el-descriptions-item>
+            </el-descriptions>
+          </div>
+
+          <!-- 推送内容 -->
+          <div class="detail-section">
+            <div class="detail-title">推送内容</div>
+            <el-descriptions :column="1" border size="small">
+              <el-descriptions-item label="标题">
+                {{ pushDetailData.title || '-' }}
+              </el-descriptions-item>
+              <el-descriptions-item label="内容">
+                <div style="white-space: pre-wrap; word-break: break-all; line-height: 1.6;">
+                  {{ pushDetailData.content || '-' }}
+                </div>
+              </el-descriptions-item>
+              <el-descriptions-item v-if="pushDetailData.payload" label="Payload">
+                <pre class="payload-pre">{{ JSON.stringify(
+                  typeof pushDetailData.payload === 'string'
+                    ? (() => {
+                        try { return JSON.parse(pushDetailData.payload) } catch { return pushDetailData.payload }
+                      })()
+                    : pushDetailData.payload,
+                  null,
+                  2
+                ) }}</pre>
+              </el-descriptions-item>
+            </el-descriptions>
+          </div>
+
+          <!-- 结果统计 -->
+          <div class="detail-section">
+            <div class="detail-title">结果统计</div>
+            <el-descriptions :column="3" border size="small">
+              <el-descriptions-item label="成功数">
+                <span class="text-green-600 font-semibold text-lg">
+                  {{ Number(pushDetailData.success_count) || 0 }}
+                </span>
+              </el-descriptions-item>
+              <el-descriptions-item label="失败数">
+                <span class="text-red-600 font-semibold text-lg">
+                  {{ Number(pushDetailData.fail_count) || 0 }}
+                </span>
+              </el-descriptions-item>
+              <el-descriptions-item label="总计">
+                <span class="font-semibold text-lg">
+                  {{ Number(pushDetailData.success_count || 0) + Number(pushDetailData.fail_count || 0) }}
+                </span>
+              </el-descriptions-item>
+            </el-descriptions>
+          </div>
+
+          <!-- 失败明细（若有） -->
+          <div v-if="pushDetailData.fail_detail && pushDetailData.fail_detail.length > 0" class="detail-section">
+            <div class="detail-title">失败明细</div>
+            <el-table :data="pushDetailData.fail_detail" size="small" border>
+              <el-table-column prop="target" label="目标" width="160" />
+              <el-table-column prop="reason" label="原因" />
+            </el-table>
+          </div>
+        </template>
+      </div>
+      <template #footer>
+        <el-button @click="pushDetailVisible = false">关闭</el-button>
+        <el-button
+          v-if="pushDetailData && Number(pushDetailData.status) !== 1 && Number(pushDetailData.status) !== 3"
+          type="primary"
+          :icon="RefreshIcon"
+          :loading="retryPushLoading"
+          @click="
+            () => {
+              pushDetailVisible = false
+              if (pushDetailData) retryPushLog(pushDetailData)
+            }
+          "
+        >
+          重新推送
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -297,9 +593,11 @@ import {
   CopyDocument as CopyDocumentIcon,
   Key as KeyIcon,
   Lock as LockIcon,
-  Unlock as UnlockIcon
+  Unlock as UnlockIcon,
+  View as ViewIcon,
+  Refresh as RefreshIcon
 } from '@element-plus/icons-vue'
-import { exportPushLogsApi, getPushLogListApi, sendPushApi } from '@/api/push'
+import { exportPushLogsApi, getPushLogListApi, sendPushApi, retryPushApi, getPushLogDetailApi } from '@/api/push'
 import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi } from '@/api/key'
 import {
   getBlacklistApi,
@@ -331,6 +629,8 @@ interface ColumnConfig {
   label: string
   width?: number
   slot?: 'status' | 'tag' | 'online' | 'platform'
+        | 'targetType' | 'targetValue' | 'count' | 'email' | 'phone'
+        | 'notifyEnabled' | 'notifyEmail' | 'notifyInterval'
 }
 
 // 各模块配置
@@ -343,17 +643,18 @@ const moduleConfigs: Record<string, {
   users: {
     title: '用户',
     columns: [
-      { prop: 'id', label: '用户ID', width: 120 },
-      { prop: 'username', label: '用户名', width: 140 },
-      { prop: 'email', label: '邮箱' },
-      { prop: 'phone', label: '手机号', width: 140 },
+      { prop: 'id', label: '用户ID', width: 100 },
+      { prop: 'username', label: '用户名', width: 160 },
+      { prop: 'email', label: '邮箱', slot: 'email' },
+      { prop: 'phone', label: '手机号', width: 160, slot: 'phone' },
       { prop: 'status', label: '状态', width: 90, slot: 'status' },
       { prop: 'created_at', label: '注册时间', width: 170 }
     ],
     fields: [
-      { prop: 'username', label: '用户名', type: 'input', required: true },
-      { prop: 'phone', label: '手机号', type: 'input' },
-      { prop: 'email', label: '邮箱', type: 'input' },
+      { prop: 'username', label: '用户名', type: 'input', required: true, placeholder: '字母、数字、下划线，4-20位' },
+      { prop: 'password', label: '密码', type: 'input', required: true, placeholder: '默认密码 Admin@123，用户可自行修改' },
+      { prop: 'phone', label: '手机号', type: 'input', placeholder: '11位手机号' },
+      { prop: 'email', label: '邮箱', type: 'input', placeholder: '用于账号安全通知' },
       { prop: 'status', label: '状态', type: 'switch' }
     ],
     mockRow: () => ({
@@ -368,31 +669,31 @@ const moduleConfigs: Record<string, {
   keys: {
     title: 'Key',
     columns: [
-      { prop: 'key_value', label: 'AppKey', width: 180 },
-      { prop: 'name', label: '名称' },
-      { prop: 'max_devices', label: '最大设备数', width: 100 },
-      { prop: 'notify_enabled', label: '掉线通知', width: 100, slot: 'status' },
-      { prop: 'notify_email', label: '通知邮箱', width: 180 },
-      { prop: 'notify_interval', label: '通知间隔', width: 100 },
+      { prop: 'key_value', label: 'AppKey', width: 220 },
+      { prop: 'name', label: '名称', width: 160 },
+      { prop: 'max_devices', label: '最大设备数', width: 110 },
+      { prop: 'notify_enabled', label: '掉线通知', width: 100, slot: 'notifyEnabled' },
+      { prop: 'notify_email', label: '通知邮箱', width: 220, slot: 'notifyEmail' },
+      { prop: 'notify_interval', label: '通知间隔', width: 120, slot: 'notifyInterval' },
       { prop: 'status', label: '状态', width: 90, slot: 'status' },
       { prop: 'created_at', label: '创建时间', width: 170 }
     ],
     fields: [
-      { prop: 'name', label: '名称', type: 'input', required: true },
-      { prop: 'max_devices', label: '最大设备数', type: 'number' },
+      { prop: 'name', label: '名称', type: 'input', required: true, placeholder: '用于区分不同的应用或场景', tip: '建议填写应用名称，例如：官网APP、内部OA' },
+      { prop: 'max_devices', label: '最大设备数', type: 'number', tip: '0 表示不限制；大于 0 表示该 Key 下最多允许连接多少台设备，超过会拒绝新连接' },
       { prop: 'status', label: '状态', type: 'switch' },
-      { prop: 'notify_enabled', label: '启用掉线通知', type: 'switch' },
-      { prop: 'notify_email', label: '通知邮箱', type: 'input', placeholder: '多个邮箱用逗号分隔，支持QQ邮箱' },
-      { prop: 'notify_interval', label: '通知间隔(秒)', type: 'number' }
+      { prop: 'notify_enabled', label: '启用掉线通知', type: 'switch', tip: '开启后，设备掉线会向指定邮箱发送告警邮件' },
+      { prop: 'notify_email', label: '通知邮箱', type: 'input', placeholder: '多个邮箱用英文逗号分隔，如：a@qq.com,b@163.com', tip: '支持 QQ 邮箱、163 邮箱、Gmail 等，建议至少填 2 个以免漏收' },
+      { prop: 'notify_interval', label: '通知间隔(秒)', type: 'number', tip: '同一设备的重复掉线通知最小间隔，默认 300 秒（5分钟），可避免邮件轰炸' }
     ],
     mockRow: () => ({
       id: 0,
       key_value: 'AK' + Math.floor(Math.random() * 9e15 + 1e15).toString(16),
       name: '应用Key ' + Math.floor(Math.random() * 99),
-      max_devices: 0,
+      max_devices: Math.random() > 0.5 ? 0 : Math.floor(Math.random() * 500),
       notify_enabled: Math.random() > 0.5 ? 1 : 0,
-      notify_email: Math.random() > 0.5 ? 'admin@example.com' : '',
-      notify_interval: 300,
+      notify_email: Math.random() > 0.5 ? 'admin@example.com' : 'dev@qq.com,ops@163.com',
+      notify_interval: [60, 180, 300, 600][Math.floor(Math.random() * 4)],
       status: Math.random() > 0.15 ? 1 : 0,
       created_at: '2026-07-' + String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')
     })
@@ -433,13 +734,13 @@ const moduleConfigs: Record<string, {
     title: '推送记录',
     columns: [
       { prop: 'id', label: 'ID', width: 80 },
-      { prop: 'title', label: '推送标题' },
+      { prop: 'title', label: '推送标题', width: 220 },
       { prop: 'content', label: '内容' },
-      { prop: 'target_type', label: '目标类型', width: 100 },
-      { prop: 'target_value', label: '目标值', width: 160 },
-      { prop: 'success_count', label: '成功', width: 80 },
-      { prop: 'fail_count', label: '失败', width: 80 },
-      { prop: 'status', label: '状态', width: 90, slot: 'status' },
+      { prop: 'target_type', label: '目标类型', width: 110, slot: 'targetType' },
+      { prop: 'target_value', label: '目标值', width: 200, slot: 'targetValue' },
+      { prop: 'success_count', label: '成功', width: 100, slot: 'count' },
+      { prop: 'fail_count', label: '失败', width: 100, slot: 'count' },
+      { prop: 'status', label: '状态', width: 110, slot: 'status' },
       { prop: 'created_at', label: '时间', width: 170 }
     ],
     fields: [
@@ -447,21 +748,28 @@ const moduleConfigs: Record<string, {
       { prop: 'content', label: '内容', type: 'textarea', required: true, placeholder: '例如：系统将于今晚 22:00-23:00 进行维护升级，期间推送服务可能短暂不可用', tip: '推送消息正文，支持纯文本' },
       { prop: 'target_type', label: '目标类型', type: 'select', required: true, options: [
         { label: '设备', value: 'device' },
-        { label: 'Key', value: 'key' }
-      ], placeholder: '选择推送目标类型：设备=指定 device_id，Key=按 key 分组推送', tip: '设备：精确推送到指定 device_id；Key：按 key 分组推送给该 key 下所有设备' },
-      { prop: 'target_value', label: '目标值', type: 'input', required: true, placeholder: 'device_id 或 key_value，多个用英文逗号分隔，如：dev_001,dev_002', tip: '案例：device 类型填 dev_001,dev_002；key 类型填 my_app_key' }
+        { label: 'Key', value: 'key' },
+        { label: '广播', value: 'broadcast' },
+        { label: '用户', value: 'user' }
+      ], placeholder: '选择推送目标类型', tip: '设备：精确推送到 device_id；Key：按 key 分组推送；广播：推送给所有在线设备；用户：按 user_id 推送' },
+      { prop: 'target_value', label: '目标值', type: 'input', required: true, placeholder: 'device_id / key_value / user_id，多个用英文逗号分隔', tip: '案例：device 类型填 dev_001,dev_002；key 类型填 my_app_key；broadcast 可留空' }
     ],
-    mockRow: () => ({
-      id: 0,
-      title: '推送消息 ' + Math.floor(Math.random() * 999),
-      content: '这是一条测试推送消息',
-      target_type: ['device', 'key'][Math.floor(Math.random() * 2)],
-      target_value: 'target_' + Math.floor(Math.random() * 99999),
-      success_count: Math.floor(Math.random() * 8000),
-      fail_count: Math.floor(Math.random() * 200),
-      status: Math.random() > 0.2 ? 1 : 0,
-      created_at: '2026-07-12 ' + String(Math.floor(Math.random() * 24)).padStart(2, '0') + ':' + String(Math.floor(Math.random() * 60)).padStart(2, '0')
-    })
+    mockRow: () => {
+      const successCount = Math.floor(Math.random() * 8000)
+      const failCount = Math.floor(Math.random() * 200)
+      return {
+        id: 0,
+        title: '推送消息 ' + Math.floor(Math.random() * 999),
+        content: '这是一条测试推送消息内容，包含多字段用于展示。',
+        target_type: ['device', 'key', 'broadcast', 'user'][Math.floor(Math.random() * 4)],
+        target_value: 'target_' + Math.floor(Math.random() * 99999),
+        success_count: successCount,
+        fail_count: failCount,
+        // status: 0=失败 1=成功 2=部分成功 3=进行中
+        status: failCount === 0 ? (successCount > 0 ? 1 : 3) : (successCount > 0 ? 2 : 0),
+        created_at: '2026-07-12 ' + String(Math.floor(Math.random() * 24)).padStart(2, '0') + ':' + String(Math.floor(Math.random() * 60)).padStart(2, '0')
+      }
+    }
   },
   blacklist: {
     title: '黑名单',
@@ -602,7 +910,8 @@ const query = reactive({
   keyword: '',
   status: undefined as number | undefined,
   platform: undefined as string | undefined,
-  online: undefined as number | undefined
+  online: undefined as number | undefined,
+  targetType: undefined as string | undefined
 })
 
 const currentModule = computed(() => (route.meta.module as string) || 'users')
@@ -748,8 +1057,23 @@ async function fetchData() {
       })
       total.value = res.data?.total || 0
     } else if (mod === 'push-logs') {
-      const res = await getPushLogListApi(query)
-      tableData.value = res.data?.list || []
+      // 传 target_type 参数给后端（若支持则自动过滤，否则返回全量，前端兜底）
+      const apiParams: any = { ...query }
+      if (query.targetType) {
+        apiParams.target_type = query.targetType
+      }
+      const res = await getPushLogListApi(apiParams)
+      const rawList = res.data?.list || []
+      tableData.value = rawList.map((row: any) => {
+        // 兜底：后端未返回 status 时，根据 success_count/fail_count 计算
+        let status = Number(row.status)
+        if (Number.isNaN(status)) {
+          const sc = Number(row.success_count) || 0
+          const fc = Number(row.fail_count) || 0
+          status = fc === 0 ? (sc > 0 ? 1 : 3) : (sc > 0 ? 2 : 0)
+        }
+        return { ...row, status }
+      })
       total.value = res.data?.total || 0
     } else {
       await new Promise((r) => setTimeout(r, 300))
@@ -782,6 +1106,7 @@ function handleReset() {
   query.status = undefined
   query.platform = undefined
   query.online = undefined
+  query.targetType = undefined
   query.page = 1
   fetchData()
 }
@@ -943,6 +1268,52 @@ function platformTagType(platform: string): 'success' | 'warning' | 'info' | 'pr
   return map[platform] || 'info'
 }
 
+// ------------------------------------------------------------
+// 推送记录：目标类型映射
+// ------------------------------------------------------------
+function targetTypeLabel(type: string): string {
+  const map: Record<string, string> = {
+    device:    '设备',
+    key:       '按 Key',
+    broadcast: '广播',
+    user:      '用户'
+  }
+  return map[type] || type || '-'
+}
+function targetTypeTagType(type: string): 'success' | 'warning' | 'info' | 'primary' | 'danger' {
+  const map: Record<string, 'success' | 'warning' | 'info' | 'primary' | 'danger'> = {
+    device:    'success',
+    key:       'primary',
+    broadcast: 'danger',
+    user:      'warning'
+  }
+  return map[type] || 'info'
+}
+
+// 手机号格式化（脱敏显示：138****1234）
+function formatPhone(phone: string): string {
+  if (!phone) return ''
+  if (phone.length === 11) {
+    return phone.substring(0, 3) + '****' + phone.substring(7)
+  }
+  return phone
+}
+
+// 秒数转换为人类可读时长（300秒 -> 5分钟）
+function formatDuration(seconds: number | string): string {
+  const s = Number(seconds) || 0
+  if (s <= 0) return '-'
+  if (s < 60) return s + ' 秒'
+  if (s < 3600) {
+    const m = Math.floor(s / 60)
+    const r = s % 60
+    return r > 0 ? `${m}分${r}秒` : `${m}分钟`
+  }
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  return m > 0 ? `${h}小时${m}分钟` : `${h}小时`
+}
+
 // 复制到剪贴板（兼容HTTP环境）
 async function copyToClipboard(text: string) {
   if (!text) return
@@ -1004,6 +1375,74 @@ async function handleDelete(row: Record<string, any>) {
 }
 
 // 切换设备状态（禁用/启用）
+// ------------------------------------------------------------
+// 推送记录：查看详情（弹窗展示完整内容与统计）
+// ------------------------------------------------------------
+const pushDetailVisible = ref(false)
+const pushDetailData = ref<Record<string, any> | null>(null)
+const pushDetailLoading = ref(false)
+
+async function viewPushLogDetail(row: Record<string, any>) {
+  pushDetailData.value = null
+  pushDetailVisible.value = true
+  if (!row.id) {
+    pushDetailData.value = { ...row }
+    return
+  }
+  pushDetailLoading.value = true
+  try {
+    const res = await getPushLogDetailApi(row.id)
+    pushDetailData.value = res.data || { ...row }
+  } catch {
+    // 接口不可用时回退到行数据
+    pushDetailData.value = { ...row }
+  } finally {
+    pushDetailLoading.value = false
+  }
+}
+
+// 推送状态标签
+function pushStatusLabel(status: number) {
+  const map: Record<number, string> = { 0: '失败', 1: '成功', 2: '部分成功', 3: '进行中' }
+  return map[status] || '未知'
+}
+function pushStatusType(status: number): 'success' | 'danger' | 'warning' | 'primary' | 'info' {
+  const map: Record<number, 'success' | 'danger' | 'warning' | 'primary' | 'info'> = {
+    0: 'danger',
+    1: 'success',
+    2: 'warning',
+    3: 'primary'
+  }
+  return map[status] || 'info'
+}
+
+// ------------------------------------------------------------
+// 推送记录：重新推送（对失败的消息进行重试）
+// ------------------------------------------------------------
+const retryPushLoading = ref(false)
+async function retryPushLog(row: Record<string, any>) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要对该推送记录（ID: ${row.id}）进行重新推送吗？仅会对推送失败的目标重新发送。`,
+      '重新推送',
+      {
+        confirmButtonText: '确认推送',
+        cancelButtonText: '取消',
+        type: 'warning',
+        appendTo: 'body'
+      }
+    )
+    retryPushLoading.value = true
+    await retryPushApi(row.id)
+    ElMessage.success('已提交重新推送任务，请稍后查看最新状态')
+    fetchData()
+  } catch {
+    // 取消或失败
+  } finally {
+    retryPushLoading.value = false
+  }
+}
+
 async function handleToggleDeviceStatus(row: Record<string, any>) {
   try {
     const current = (row._rawStatus ?? (Array.isArray(row.status) ? (row.status[0] === '禁用' ? 2 : 1) : (row.status ?? 1))) as number
@@ -1096,6 +1535,7 @@ watch(
     query.status = undefined
     query.platform = undefined
     query.online = undefined
+    query.targetType = undefined
     fetchData()
   },
   { immediate: true }
@@ -1168,4 +1608,39 @@ async function handleExport(format: string) {
     transform: translateY(0);
   }
 }
+
+// 推送详情弹窗样式
+.detail-section {
+  margin-bottom: 18px;
+
+  .detail-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #303133;
+    margin: 0 0 8px 2px;
+    padding-left: 8px;
+    border-left: 3px solid #409eff;
+  }
+}
+
+.payload-pre {
+  margin: 0;
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #303133;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow: auto;
+}
+
+// 通用工具类（与全局 class 保持一致）
+.text-green-600 { color: #67c23a; }
+.text-red-600   { color: #f56c6c; }
+.font-semibold  { font-weight: 600; }
+.text-lg        { font-size: 16px; }
 </style>
