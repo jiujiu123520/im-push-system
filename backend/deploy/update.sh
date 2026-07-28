@@ -10,7 +10,7 @@
 #   5. [5/5] 重启服务（使用 systemctl 重启 push-http、push-websocket、push-build-worker）
 #
 # 用法:
-#   bash backend/deploy/update.sh                    # 正常更新（交互式确认）
+#   bash backend/deploy/update.sh                    # 正常更新（默认 Y，直接回车即开始）
 #   bash backend/deploy/update.sh --yes              # 跳过确认（CI/自动化场景）
 #   bash backend/deploy/update.sh --gh-proxy         # 使用 gh.jasonzeng.dev GitHub 代理
 #   bash backend/deploy/update.sh --proxy=http://127.0.0.1:7890  # 使用自定义 HTTP 代理
@@ -232,10 +232,11 @@ echo "========================================"
 echo "项目目录: ${PROJECT_DIR}"
 echo ""
 
-# 二次确认（非交互模式可跳过）
+# 二次确认（默认为 Y，直接回车即开始更新；输入 n 取消）
 if [[ "${SKIP_CONFIRM}" != "1" ]]; then
     warn "即将开始更新，更新过程中服务可能短暂中断。"
     read -r -p "确认开始更新？[Y/n]: " CONFIRM
+    # 默认为 Y（直接回车或输入 y/Y/任意非 n 字符均继续；仅输入 n/N 取消）
     if [[ "${CONFIRM}" =~ ^[Nn]$ ]]; then
         info "已取消更新。"
         exit 0
