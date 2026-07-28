@@ -97,10 +97,19 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" :width="currentModule === 'users' ? 260 : 180" fixed="right">
+        <el-table-column label="操作" :width="(currentModule === 'users' ? 260 : (currentModule === 'devices' ? 260 : 180))" fixed="right">
           <template #default="{ row }">
             <el-button text type="primary" :icon="EditIcon" @click="openDialog(row)">编辑</el-button>
             <el-button v-if="currentModule === 'users'" text type="warning" :icon="KeyIcon" @click="openPasswordDialog(row)">修改密码</el-button>
+            <el-button
+              v-if="currentModule === 'devices'"
+              text
+              :type="(row._rawStatus ?? row.status[0] ?? 1) === 2 ? 'success' : 'warning'"
+              :icon="(row._rawStatus ?? row.status[0] ?? 1) === 2 ? UnlockIcon : LockIcon"
+              @click="handleToggleDeviceStatus(row)"
+            >
+              {{ (row._rawStatus ?? row.status[0] ?? 1) === 2 ? '启用' : '禁用' }}
+            </el-button>
             <el-button text type="danger" :icon="DeleteIcon" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -229,7 +238,9 @@ import {
   Download as DownloadIcon,
   ArrowDown as ArrowDownIcon,
   CopyDocument as CopyDocumentIcon,
-  Key as KeyIcon
+  Key as KeyIcon,
+  Lock as LockIcon,
+  Unlock as UnlockIcon
 } from '@element-plus/icons-vue'
 import { exportPushLogsApi, getPushLogListApi, sendPushApi } from '@/api/push'
 import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi } from '@/api/key'
@@ -244,7 +255,7 @@ import {
   updateAdminApi,
   deleteAdminApi
 } from '@/api/admin'
-import { getDeviceListApi } from '@/api/device'
+import { getDeviceListApi, deleteDeviceApi, toggleDeviceStatusApi } from '@/api/device'
 import { getUserListApi, createUserApi, updateUserApi, deleteUserApi, resetUserPasswordApi } from '@/api/user'
 import type { KeyForm, BlacklistForm, AdminForm, UserForm } from '@/api/types'
 
@@ -337,6 +348,7 @@ const moduleConfigs: Record<string, {
       { prop: 'model', label: '型号' },
       { prop: 'app_version', label: 'App版本', width: 100 },
       { prop: 'online', label: '在线', width: 80, slot: 'status' },
+      { prop: 'status', label: '状态', width: 90, slot: 'tag' },
       { prop: 'last_active_at', label: '最后活跃', width: 170 }
     ],
     fields: [
@@ -356,6 +368,7 @@ const moduleConfigs: Record<string, {
       model: ['iPhone 15', 'Xiaomi 14', 'HUAWEI Mate60', 'Pixel 8'][Math.floor(Math.random() * 4)],
       app_version: '2.' + Math.floor(Math.random() * 9) + '.' + Math.floor(Math.random() * 9),
       online: Math.random() > 0.4 ? 1 : 0,
+      status: Math.random() > 0.15 ? 1 : 2,
       last_active_at: '2026-07-12 ' + String(Math.floor(Math.random() * 24)).padStart(2, '0') + ':' + String(Math.floor(Math.random() * 60)).padStart(2, '0')
     })
   },
@@ -656,7 +669,17 @@ async function fetchData() {
       total.value = res.data?.total || 0
     } else if (mod === 'devices') {
       const res = await getDeviceListApi(query)
-      tableData.value = res.data?.list || []
+      const rawList = res.data?.list || []
+      tableData.value = rawList.map((row: any) => {
+        const rawStatus = typeof row.status === 'object' ? (row.status as any)[0] : (row.status ?? 1)
+        return {
+          ...row,
+          // 原始状态数字，供切换按钮判断
+          _rawStatus: rawStatus,
+          // 将 status 数字转换为 tag 数组（1=启用 2=禁用），供 slot='tag' 渲染
+          status: rawStatus === 2 ? ['禁用'] : ['启用']
+        }
+      })
       total.value = res.data?.total || 0
     } else if (mod === 'push-logs') {
       const res = await getPushLogListApi(query)
@@ -878,10 +901,36 @@ async function handleDelete(row: Record<string, any>) {
       await deleteBlacklistApi(row.id)
     } else if (mod === 'admins') {
       await deleteAdminApi(row.id)
+    } else if (mod === 'devices') {
+      await deleteDeviceApi(row.id)
     } else {
       allData = allData.filter((item) => item.id !== row.id)
     }
     ElMessage.success('删除成功')
+    fetchData()
+  } catch {
+    // 取消
+  }
+}
+
+// 切换设备状态（禁用/启用）
+async function handleToggleDeviceStatus(row: Record<string, any>) {
+  try {
+    const current = (row._rawStatus ?? (Array.isArray(row.status) ? (row.status[0] === '禁用' ? 2 : 1) : (row.status ?? 1))) as number
+    const next = current === 2 ? 1 : 2
+    const action = next === 2 ? '禁用' : '启用'
+    await ElMessageBox.confirm(
+      `确定要${action}该设备吗？禁用后设备将断开连接并无法接收推送。`,
+      `${action}设备`,
+      {
+        confirmButtonText: action,
+        cancelButtonText: '取消',
+        type: next === 2 ? 'warning' : 'success',
+        appendTo: 'body'
+      }
+    )
+    await toggleDeviceStatusApi(row.id, next)
+    ElMessage.success(`${action}成功`)
     fetchData()
   } catch {
     // 取消

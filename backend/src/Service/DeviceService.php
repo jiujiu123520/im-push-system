@@ -201,4 +201,95 @@ class DeviceService
             [$pushKeyId]
         )['total'] ?? 0);
     }
+
+    /**
+     * 切换设备状态（禁用/启用）
+     *
+     * @param int $id 主键 ID
+     * @return array|null 切换后的设备记录，null 表示设备不存在
+     */
+    public function toggleStatus(int $id): ?array
+    {
+        $device = Database::fetch('SELECT id, device_id, push_key_id, status FROM devices WHERE id = ? LIMIT 1', [$id]);
+        if ($device === false) {
+            return null;
+        }
+
+        $newStatus = (int)$device['status'] === 2 ? 1 : 2;
+        Database::execute(
+            'UPDATE devices SET status = ?, last_connect_at = last_connect_at WHERE id = ?',
+            [$newStatus, $id]
+        );
+
+        // 禁用时通知 WebSocket 断开该设备所有连接
+        if ($newStatus === 2) {
+            $this->notifyDisconnectDevice((string)$device['device_id']);
+        }
+
+        return Database::fetch('SELECT * FROM devices WHERE id = ? LIMIT 1', [$id]);
+    }
+
+    /**
+     * 删除设备
+     *
+     * @param int $id 主键 ID
+     * @return bool true 删除成功，false 设备不存在
+     */
+    public function deleteDevice(int $id): bool
+    {
+        $device = Database::fetch('SELECT id, device_id FROM devices WHERE id = ? LIMIT 1', [$id]);
+        if ($device === false) {
+            return false;
+        }
+
+        // 先通知 WebSocket 断开所有该设备的连接
+        $this->notifyDisconnectDevice((string)$device['device_id']);
+
+        Database::execute('DELETE FROM devices WHERE id = ?', [$id]);
+        return true;
+    }
+
+    /**
+     * 更新设备最后活跃时间
+     *
+     * @param string $deviceId 设备唯一标识
+     * @param int    $pushKeyId 推送 Key ID
+     * @return bool
+     */
+    public function updateLastActive(string $deviceId, int $pushKeyId): bool
+    {
+        return Database::execute(
+            'UPDATE devices SET last_active_at = NOW() WHERE device_id = ? AND push_key_id = ?',
+            [$deviceId, $pushKeyId]
+        ) > 0;
+    }
+
+    /**
+     * 通知 WebSocket 断开指定设备的所有连接（通过 Redis 命令队列）
+     *
+     * @param string $deviceId
+     * @return void
+     */
+    private function notifyDisconnectDevice(string $deviceId): void
+    {
+        try {
+            $redis = Redis::getInstance();
+            // 找到该设备的所有在线 fd，发送断开命令
+            $fds = $redis->sMembers('ws:device:' . $deviceId);
+            if (!empty($fds) && is_array($fds)) {
+                $cmd = [
+                    'action'     => 'disconnect',
+                    'device_id'  => $deviceId,
+                    'fds'        => array_map('intval', $fds),
+                    'created_at' => time(),
+                ];
+                $redis->lPush('ws:queue:cmd', json_encode($cmd, JSON_UNESCAPED_UNICODE));
+            }
+            // 同时清理 Redis 中的在线映射（兜底：确保即使命令消费失败也不再被按在线推）
+            $redis->del('ws:device:' . $deviceId);
+        } catch (\Throwable $e) {
+            // Redis 异常不影响删除/禁用操作
+            error_log('[DeviceService] notifyDisconnectDevice failed: ' . $e->getMessage());
+        }
+    }
 }
