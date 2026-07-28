@@ -3,19 +3,27 @@
 # 即时消息推送系统 - 一键更新脚本
 #
 # 功能：
-#   1. [1/5] 拉取最新代码（git pull origin main，支持 gh-proxy 代理）
+#   0. [0/5] 版本检测（本地 vs 云端）- 显示版本对比，智能判断是否需要拉取
+#   1. [1/5] 拉取最新代码（git reset --hard origin/main，支持 gh-proxy 代理）
 #   2. [2/5] 更新依赖（composer install --no-dev --optimize-autoloader）
 #   3. [3/5] 数据库迁移（执行 backend/database/migrations 下的 SQL 文件）
 #   4. [4/5] 设置 APP 打包环境（build/app 目录权限、删除 gradlew、安装 BuildWorker 服务）
 #   5. [5/5] 重启服务（使用 systemctl 重启 push-http、push-websocket、push-build-worker）
 #
+# 版本检测行为：
+#   - 已是最新(up-to-date)：询问是否强制完整更新（默认仅重启服务，不拉取代码）
+#   - 本地落后(behind)    ：列出云端新增的最近 10 条提交，正常更新
+#   - 本地领先(ahead)     ：警告本地有未推送的提交，二次确认后强制覆盖
+#   - 版本分叉(diverged)  ：提示版本已分叉，二次确认后强制重置到云端
+#
 # 用法:
 #   bash backend/deploy/update.sh                    # 正常更新（默认 Y，直接回车即开始）
-#   bash backend/deploy/update.sh --yes              # 跳过确认（CI/自动化场景）
+#   bash backend/deploy/update.sh --yes              # 跳过所有确认（CI/自动化场景，含版本检测确认）
 #   bash backend/deploy/update.sh --gh-proxy         # 使用 gh.jasonzeng.dev GitHub 代理
 #   bash backend/deploy/update.sh --proxy=http://127.0.0.1:7890  # 使用自定义 HTTP 代理
 #   bash backend/deploy/update.sh --skip-build       # 跳过前端构建
 #   bash backend/deploy/update.sh --skip-migration   # 跳过数据库迁移
+#   bash backend/deploy/update.sh --skip-version-check  # 跳过版本检测（直接进入代码拉取流程）
 #   bash backend/deploy/update.sh --resume           # 从上次失败处继续
 #   bash backend/deploy/update.sh --restart          # 清除进度记录重新开始
 #
@@ -44,6 +52,7 @@ PROGRESS_FILE="/tmp/push-update-progress.env"
 SKIP_CONFIRM=""
 SKIP_BUILD=""
 SKIP_MIGRATION=""
+SKIP_VERSION_CHECK=""
 GH_PROXY=""
 GIT_PROXY=""
 RESUME_MODE=""
@@ -56,11 +65,12 @@ for arg in "$@"; do
         --proxy=*)              GIT_PROXY="${arg#*=}" ;;
         --skip-build)           SKIP_BUILD="1" ;;
         --skip-migration)       SKIP_MIGRATION="1" ;;
+        --skip-version-check)   SKIP_VERSION_CHECK="1" ;;
         --resume)               RESUME_MODE="1" ;;
         --restart)              RESTART_MODE="1" ;;
         --project-dir=*)        PROJECT_DIR="${arg#*=}" ;;
         -h|--help)
-            head -n 30 "$0"
+            head -n 35 "$0"
             exit 0
             ;;
         *)
@@ -250,10 +260,220 @@ echo ""
 info "开始更新流程..."
 
 # ============================================================
-# [1/5] 拉取最新代码（支持 gh-proxy 代理）
+# [0/5] 版本检测（本地 vs 云端）
+# ============================================================
+VERSION_CHECK_DONE=""
+if [[ "${SKIP_VERSION_CHECK}" == "1" ]]; then
+    warn "已跳过版本检测 (--skip-version-check)"
+    VERSION_CHECK_DONE="1"
+    mark_done "step0_version_check"
+elif step_done "step0_version_check"; then
+    info "跳过 [0/5] 版本检测（已完成）"
+    VERSION_CHECK_DONE="1"
+else
+    CURRENT_STEP="[0/5] 版本检测"
+    step "[0/5] 版本检测（本地 vs 云端）..."
+
+    # 修复 .git 目录权限（避免版本检测时因权限失败）
+    if [[ -d "${PROJECT_DIR}/.git" ]]; then
+        local_owner="$(stat -c '%U' "${PROJECT_DIR}/.git" 2>/dev/null || echo '')"
+        current_user="$(whoami)"
+        if [[ -n "${local_owner}" && "${local_owner}" != "${current_user}" ]]; then
+            warn "修复 .git 目录权限 (${local_owner} -> ${current_user})..."
+            if [[ "$(id -u)" == "0" ]]; then
+                chown -R "${current_user}:${current_user}" "${PROJECT_DIR}/.git" 2>/dev/null || true
+            else
+                sudo chown -R "${current_user}:${current_user}" "${PROJECT_DIR}/.git" 2>/dev/null || true
+            fi
+        fi
+    fi
+
+    # 配置代理（供 fetch 使用）
+    setup_git_proxy
+
+    # ------------------------------------------------------------
+    # 获取本地版本信息
+    # ------------------------------------------------------------
+    LOCAL_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo '')"
+    LOCAL_SHORT="${LOCAL_COMMIT:0:8}"
+    LOCAL_DATE="$(git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S' 2>/dev/null || echo '未知')"
+    LOCAL_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
+    if [[ -z "${LOCAL_BRANCH}" || "${LOCAL_BRANCH}" == "HEAD" ]]; then
+        LOCAL_BRANCH="main"
+    fi
+    LOCAL_SUBJECT="$(git log -1 --format='%s' 2>/dev/null || echo '')"
+
+    # ------------------------------------------------------------
+    # 获取远端版本信息（浅 fetch 加速）
+    # ------------------------------------------------------------
+    info "获取云端版本信息..."
+    # 先浅 fetch，失败则完整 fetch；结果会被后续 [1/5] 步骤复用
+    if ! git fetch origin --depth=50 2>/dev/null; then
+        git fetch origin 2>/dev/null || {
+            warn "无法连接到远程仓库，请检查网络或代理设置。将直接进入更新流程。"
+            echo ""
+            restore_git_proxy
+            VERSION_CHECK_SKIPPED="1"
+        }
+    fi
+
+    if [[ -z "${VERSION_CHECK_SKIPPED}" ]]; then
+        # 确定远端分支（优先 main，回退 master）
+        REMOTE_BRANCH=""
+        if git rev-parse --verify origin/main >/dev/null 2>&1; then
+            REMOTE_BRANCH="main"
+        elif git rev-parse --verify origin/master >/dev/null 2>&1; then
+            REMOTE_BRANCH="master"
+        fi
+
+        if [[ -n "${REMOTE_BRANCH}" ]]; then
+            REMOTE_COMMIT="$(git rev-parse "origin/${REMOTE_BRANCH}" 2>/dev/null || echo '')"
+            REMOTE_SHORT="${REMOTE_COMMIT:0:8}"
+            REMOTE_DATE="$(git log -1 "origin/${REMOTE_BRANCH}" --format=%cd --date=format:'%Y-%m-%d %H:%M:%S' 2>/dev/null || echo '未知')"
+            REMOTE_SUBJECT="$(git log -1 "origin/${REMOTE_BRANCH}" --format='%s' 2>/dev/null || echo '')"
+
+            # 对比 ahead/behind
+            AHEAD_COUNT=0   # 云端比本地新的提交数（behind状态下）
+            BEHIND_COUNT=0  # 本地比云端新的提交数（ahead状态下）
+            VERSION_STATUS="unknown"
+
+            if [[ -n "${LOCAL_COMMIT}" && -n "${REMOTE_COMMIT}" ]]; then
+                if [[ "${LOCAL_COMMIT}" == "${REMOTE_COMMIT}" ]]; then
+                    VERSION_STATUS="up-to-date"
+                elif git merge-base --is-ancestor HEAD "origin/${REMOTE_BRANCH}" 2>/dev/null; then
+                    VERSION_STATUS="behind"
+                    AHEAD_COUNT="$(git rev-list --count "HEAD..origin/${REMOTE_BRANCH}" 2>/dev/null || echo 0)"
+                elif git merge-base --is-ancestor "origin/${REMOTE_BRANCH}" HEAD 2>/dev/null; then
+                    VERSION_STATUS="ahead"
+                    BEHIND_COUNT="$(git rev-list --count "origin/${REMOTE_BRANCH}..HEAD" 2>/dev/null || echo 0)"
+                else
+                    VERSION_STATUS="diverged"
+                    AHEAD_COUNT="$(git rev-list --count "HEAD..origin/${REMOTE_BRANCH}" 2>/dev/null || echo 0)"
+                    BEHIND_COUNT="$(git rev-list --count "origin/${REMOTE_BRANCH}..HEAD" 2>/dev/null || echo 0)"
+                fi
+            fi
+
+            # 恢复代理（fetch 完成）
+            restore_git_proxy
+
+            # ------------------------------------------------------------
+            # 输出版本对比
+            # ------------------------------------------------------------
+            echo ""
+            echo "========================================"
+            echo "  版本对比"
+            echo "========================================"
+            echo ""
+            echo -e "  ${COLOR_CYAN}本地版本:${COLOR_RESET}"
+            echo -e "    commit:    ${LOCAL_SHORT}"
+            echo -e "    分支:      ${LOCAL_BRANCH}"
+            echo -e "    时间:      ${LOCAL_DATE}"
+            [[ -n "${LOCAL_SUBJECT}" ]] && echo -e "    说明:      ${LOCAL_SUBJECT}"
+            echo ""
+            echo -e "  ${COLOR_CYAN}云端版本:${COLOR_RESET}"
+            echo -e "    commit:    ${REMOTE_SHORT}"
+            echo -e "    分支:      origin/${REMOTE_BRANCH}"
+            echo -e "    时间:      ${REMOTE_DATE}"
+            [[ -n "${REMOTE_SUBJECT}" ]] && echo -e "    说明:      ${REMOTE_SUBJECT}"
+            echo ""
+
+            case "${VERSION_STATUS}" in
+                up-to-date)
+                    echo -e "  版本状态:  ${COLOR_GREEN}✓ 已是最新版本${COLOR_RESET}"
+                    echo ""
+                    warn "本地与云端版本一致，无需拉取代码。"
+                    # 询问是否仍要执行更新（例如需要重新构建/重启服务）
+                    if [[ "${SKIP_CONFIRM}" != "1" ]]; then
+                        warn "提示：直接回车仅重新执行构建与服务重启（不拉取新代码）；输入 y/Y 完整执行更新流程；输入 n/N 取消"
+                        read -r -p "是否仍要完整执行更新流程？[y/N]（默认 N，仅重启）: " FORCE_UPDATE_CONFIRM
+                        if [[ "${FORCE_UPDATE_CONFIRM}" =~ ^[Yy]$ ]]; then
+                            info "将完整执行更新流程（含强制拉取）"
+                            SKIP_PULL_CODE=""
+                        else
+                            info "跳过代码拉取，仅执行后续构建与服务重启步骤"
+                            SKIP_PULL_CODE="1"
+                            # 标记代码拉取步骤已完成，避免重复执行
+                            mark_done "step1_pull_code"
+                        fi
+                    else
+                        info "--yes 模式下版本一致，仍将完整执行更新流程（含强制拉取）"
+                    fi
+                    ;;
+                behind)
+                    echo -e "  版本状态:  ${COLOR_YELLOW}↑ 本地落后 ${AHEAD_COUNT} 个提交${COLOR_RESET}"
+                    echo ""
+                    info "云端新增的提交（最近 10 条）："
+                    git log --oneline "HEAD..origin/${REMOTE_BRANCH}" 2>/dev/null | head -n 10 | while read -r line; do
+                        echo -e "    ${COLOR_YELLOW}↑${COLOR_RESET} ${line}"
+                    done
+                    echo ""
+                    info "将拉取最新代码并执行更新流程。"
+                    ;;
+                ahead)
+                    echo -e "  版本状态:  ${COLOR_RED}↓ 本地领先 ${BEHIND_COUNT} 个提交${COLOR_RESET}"
+                    echo ""
+                    warn "本地有未推送的提交，更新时会被强制覆盖！"
+                    warn "本地领先的提交（最近 10 条）："
+                    git log --oneline "origin/${REMOTE_BRANCH}..HEAD" 2>/dev/null | head -n 10 | while read -r line; do
+                        echo -e "    ${COLOR_RED}↓${COLOR_RESET} ${line}"
+                    done
+                    echo ""
+                    # 二次确认（非 --yes 模式）
+                    if [[ "${SKIP_CONFIRM}" != "1" ]]; then
+                        warn "⚠ 强制更新将重置本地到云端版本，本地修改会丢失！"
+                        read -r -p "确认继续强制更新？[y/N]（默认 N，取消）: " FORCE_RESET_CONFIRM
+                        if [[ ! "${FORCE_RESET_CONFIRM}" =~ ^[Yy]$ ]]; then
+                            info "已取消更新。"
+                            clear_progress
+                            exit 0
+                        fi
+                    fi
+                    ;;
+                diverged)
+                    echo -e "  版本状态:  ${COLOR_RED}✗ 版本分叉${COLOR_RESET}"
+                    echo ""
+                    warn "本地与云端版本已分叉："
+                    echo -e "    云端新增:  ${COLOR_YELLOW}${AHEAD_COUNT} 条${COLOR_RESET}"
+                    echo -e "    本地新增:  ${COLOR_RED}${BEHIND_COUNT} 条${COLOR_RESET}"
+                    echo ""
+                    error "版本已分叉，强制更新会重置本地到云端，本地修改将丢失！"
+                    # 二次确认（非 --yes 模式）
+                    if [[ "${SKIP_CONFIRM}" != "1" ]]; then
+                        read -r -p "仍要强制更新（丢弃本地修改）？[y/N]（默认 N，取消）: " FORCE_RESET_CONFIRM
+                        if [[ ! "${FORCE_RESET_CONFIRM}" =~ ^[Yy]$ ]]; then
+                            info "已取消更新。"
+                            clear_progress
+                            exit 0
+                        fi
+                    fi
+                    ;;
+                *)
+                    echo -e "  版本状态:  ${COLOR_YELLOW}未知${COLOR_RESET}"
+                    echo ""
+                    warn "无法判断版本差异，将正常执行更新流程。"
+                    ;;
+            esac
+
+            echo "========================================"
+            echo ""
+        else
+            warn "无法获取远程分支信息，跳过版本对比。"
+            restore_git_proxy
+        fi
+    fi
+
+    mark_done "step0_version_check"
+fi
+
+# ============================================================
+# [1/5] 拉取最新代码（支持 gh-proxy 代理，支持因版本一致而跳过）
 # ============================================================
 if step_done "step1_pull_code"; then
     info "跳过 [1/5] 拉取最新代码（已完成）"
+elif [[ "${SKIP_PULL_CODE}" == "1" ]]; then
+    # 版本检测时已确认本地与云端一致，用户选择仅重启服务
+    warn "跳过 [1/5] 拉取最新代码（版本已是最新，用户选择仅执行后续步骤）"
+    mark_done "step1_pull_code"
 else
     CURRENT_STEP="[1/5] 拉取最新代码"
     step "[1/5] 拉取最新代码..."
