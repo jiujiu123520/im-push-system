@@ -2351,6 +2351,8 @@ export default {
                             this._confirmConnection()
                         } else {
                             console.warn('[WS] 鉴权失败:', data.message)
+                            // 标记鉴权失败原因，供 onClose 判断是否清除 Key
+                            this._authFailReason = data.message || '鉴权失败'
                         }
                         return
                     }
@@ -2472,10 +2474,15 @@ export default {
                 this.lastDisconnectTimeStr = this.formatDateTime(this.lastDisconnectTime)
                 const code = res.code
                 const reason = res.reason || ''
-                if (code === 4001 || reason === 'auth failed' || reason === 'auth timeout') {
-                    console.warn('鉴权失败，停止重连，请检查推送 Key')
+                const authFailReason = this._authFailReason
+                this._authFailReason = null
+
+                // 仅当服务端明确返回"Key 无效/已禁用"时才清除 Key 并跳转
+                // 其他 4001 场景（鉴权超时、连接被服务端重启断开等）应允许重连
+                if (authFailReason && authFailReason.indexOf('推送 Key 无效或已禁用') !== -1) {
+                    console.warn('推送 Key 无效或已禁用，停止重连并清除本地 Key')
                     this.showDisconnectBanner = false
-                    uni.showToast({ title: '鉴权失败：' + (reason || code), icon: 'none' })
+                    uni.showToast({ title: '推送 Key 无效或已禁用', icon: 'none' })
                     this.stopForegroundService()
                     uni.removeStorageSync('push_key')
                     uni.removeStorageSync('push_server')
@@ -2485,10 +2492,18 @@ export default {
                     }, 1500)
                     return
                 }
-                if (code === 4003 || reason === 'blacklisted') {
+                if (code === 4003 || reason === 'blacklisted' || (authFailReason && authFailReason.indexOf('拉黑') !== -1)) {
                     console.warn('设备已被拉黑，停止重连')
                     this.showDisconnectBanner = false
                     uni.showToast({ title: '设备已被拉黑', icon: 'none' })
+                    this.stopForegroundService()
+                    return
+                }
+                // 设备数量超限：提示用户但不清除 Key（用户可去管理后台删除多余设备）
+                if (authFailReason && authFailReason.indexOf('设备数量已达上限') !== -1) {
+                    console.warn('设备数量已达上限，停止重连')
+                    this.showDisconnectBanner = false
+                    uni.showToast({ title: authFailReason, icon: 'none', duration: 3000 })
                     this.stopForegroundService()
                     return
                 }
