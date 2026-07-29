@@ -15,7 +15,8 @@
                 "navigationBarTitleText" : "消息推送",
                 "navigationBarBackgroundColor" : "#667eea",
                 "navigationBarTextStyle" : "white",
-                "enablePullDownRefresh" : false
+                "enablePullDownRefresh" : true,
+                "backgroundTextStyle" : "light"
             }
         }
     ],

@@ -7,6 +7,10 @@
                 <view v-if="currentTab === 'message'" :class="['status-dot', connected ? 'connected' : 'disconnected']"></view>
             </view>
             <view class="header-right">
+                <text
+                    :class="['refresh-icon', refreshing ? 'refreshing' : '']"
+                    @click="handleManualRefresh"
+                >{{ refreshing ? '⏳' : '🔄' }}</text>
                 <text class="setting-icon" @click="showSettings = true">⚙️</text>
             </view>
         </view>
@@ -45,7 +49,11 @@
             <view class="message-section">
                 <view class="section-header">
                     <text class="section-title">消息记录</text>
-                    <text class="clear-btn" @click="clearMessages">清空</text>
+                    <view class="section-header-right">
+                        <text v-if="refreshTimeAgo" class="last-refresh">已更新 {{ refreshTimeAgo }}</text>
+                        <text class="refresh-btn" @click="handleManualRefresh">{{ refreshing ? '刷新中...' : '刷新' }}</text>
+                        <text class="clear-btn" @click="clearMessages">清空</text>
+                    </view>
                 </view>
                 <scroll-view
                     scroll-y
@@ -208,6 +216,12 @@
                     <text class="profile-stat-value">{{ messages.length }}</text>
                     <text class="profile-stat-label">已读</text>
                 </view>
+            </view>
+
+            <!-- 刷新按钮（用户中心） -->
+            <view class="profile-refresh-row">
+                <text v-if="refreshTimeAgo" class="profile-last-refresh">最后更新：{{ refreshTimeAgo }}</text>
+                <text class="profile-refresh-btn" @click="handleManualRefresh">{{ refreshing ? '刷新中...' : '🔄 刷新数据' }}</text>
             </view>
 
             <!-- 连接信息 -->
@@ -481,6 +495,12 @@ export default {
             lastDisconnectTimeStr: '',     // 上次掉线时间（格式化字符串）
             reconnectingTip: '',           // 重连中提示文案
             showDisconnectBanner: false,   // 是否显示掉线提醒条
+            // 数据刷新机制
+            refreshing: false,             // 是否正在刷新
+            lastRefreshTime: null,         // 上次刷新时间（Date 对象）
+            lastRefreshTimeStr: '',        // 上次刷新时间（格式化字符串）
+            _autoRefreshTimer: null,       // 自动刷新定时器
+            _lastRefreshAt: 0,             // 上次刷新时间戳（毫秒），用于节流
             // 音频播放器
             audioEnabled: false,
             audioList: [],
@@ -507,6 +527,14 @@ export default {
     computed: {
         deviceIdShort() {
             return this.deviceId ? this.deviceId.substring(0, 8) : '--'
+        },
+        // 上次刷新时间的友好显示（如"刚刚"、"2分钟前"）
+        refreshTimeAgo() {
+            if (!this.lastRefreshTime) return ''
+            const diff = Date.now() - this.lastRefreshTime.getTime()
+            if (diff < 60000) return '刚刚'
+            if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
+            return this.lastRefreshTimeStr
         },
         currentAudioName() {
             if (this.currentAudioSource === 'server') {
@@ -552,6 +580,19 @@ export default {
                 this.initAudioPlayer()
             }
         }, 300)
+        // 启动自动刷新定时器（每 60 秒静默同步一次历史消息，保证数据最新）
+        this.startAutoRefresh()
+        // 首次加载延迟同步一次历史消息
+        setTimeout(() => {
+            this.refreshData(true)
+        }, 2000)
+    },
+    // 下拉刷新：用户主动下拉触发
+    onPullDownRefresh() {
+        console.log('[Refresh] 用户下拉刷新')
+        this.refreshData(false).finally(() => {
+            uni.stopPullDownRefresh()
+        })
     },
     onShow() {
         // APP 从后台切回前台 / 页面重新显示时，主动检测并重连断开的 WebSocket
@@ -559,6 +600,8 @@ export default {
             if (!this.connected && !this.connecting) {
                 console.log('页面 onShow 检测到连接已断开，主动重连')
                 this.cleanupAndReconnect()
+                // 切回前台时静默刷新一次数据
+                this.refreshData(true)
                 return
             }
             if (this.connecting && this._connectStartTime) {
@@ -603,6 +646,11 @@ export default {
                     this.cleanupAndReconnect()
                 }
             }
+            // 切回前台时静默刷新一次数据（节流：距离上次刷新超过 30 秒才触发）
+            const now = Date.now()
+            if (now - this._lastRefreshAt > 30000) {
+                this.refreshData(true)
+            }
         }
     },
     onUnload() {
@@ -616,6 +664,8 @@ export default {
         if (this.connectTimeoutTimer) {
             clearTimeout(this.connectTimeoutTimer)
         }
+        // 清理自动刷新定时器
+        this.stopAutoRefresh()
         // #ifdef APP-PLUS
         try {
             uni.offNetworkStatusChange(this.networkStatusChange)
@@ -633,6 +683,133 @@ export default {
     methods: {
         switchTab(tab) {
             this.currentTab = tab
+        },
+        // ============== 数据刷新机制 ==============
+        // 启动自动刷新定时器（每 60 秒静默同步一次）
+        startAutoRefresh() {
+            this.stopAutoRefresh()
+            this._autoRefreshTimer = setInterval(() => {
+                // 仅在连接正常时静默刷新
+                if (this.connected && this.form.key) {
+                    console.log('[Refresh] 自动刷新触发')
+                    this.refreshData(true)
+                }
+            }, 60000)
+            console.log('[Refresh] 自动刷新已启动（60秒间隔）')
+        },
+        // 停止自动刷新定时器
+        stopAutoRefresh() {
+            if (this._autoRefreshTimer) {
+                clearInterval(this._autoRefreshTimer)
+                this._autoRefreshTimer = null
+                console.log('[Refresh] 自动刷新已停止')
+            }
+        },
+        // 手动刷新入口（带节流和 Toast 提示）
+        handleManualRefresh() {
+            // 节流：3 秒内只允许触发一次
+            const now = Date.now()
+            if (now - this._lastRefreshAt < 3000) {
+                uni.showToast({ title: '刚刷新过，请稍候', icon: 'none', duration: 1000 })
+                return
+            }
+            this.refreshData(false).then((newCount) => {
+                if (newCount > 0) {
+                    uni.showToast({ title: '新增 ' + newCount + ' 条消息', icon: 'success' })
+                } else {
+                    uni.showToast({ title: '已是最新', icon: 'none', duration: 1000 })
+                }
+            })
+        },
+        // 核心刷新方法：同步历史消息 + 更新统计
+        // silent=true 静默刷新（不显示 loading），false 显示 loading
+        refreshData(silent = false) {
+            if (this.refreshing) {
+                return Promise.resolve(0)
+            }
+            this.refreshing = true
+            const pushKey = this.form.key || uni.getStorageSync('push_key') || ''
+            const deviceId = this.deviceId || ''
+            // 无 push_key 或 device_id 时仅更新本地统计
+            if (!pushKey || !deviceId) {
+                this.updateStats()
+                this.markRefreshed()
+                this.refreshing = false
+                return Promise.resolve(0)
+            }
+            const serverUrl = (this.form.serverUrl || APP_CONFIG.server_url || '').replace(/\/+$/, '')
+            const url = serverUrl + '/api/device/messages?push_key='
+                + encodeURIComponent(pushKey)
+                + '&device_id=' + encodeURIComponent(deviceId)
+                + '&limit=50'
+            return new Promise((resolve) => {
+                uni.request({
+                    url: url,
+                    method: 'GET',
+                    timeout: 8000,
+                    success: (res) => {
+                        if (res.statusCode !== 200 || !res.data || res.data.code !== 0) {
+                            console.warn('[Refresh] 同步失败:', res.data?.message || res.statusCode)
+                            resolve(0)
+                            return
+                        }
+                        const data = res.data.data || {}
+                        const list = data.list || []
+                        // 合并去重
+                        const existingIds = new Set(this.messages.map(m => m.message_id || m.id))
+                        const newMsgs = []
+                        list.forEach((item) => {
+                            const msgId = item.message_id || ('db_' + item.id)
+                            if (existingIds.has(msgId)) return
+                            newMsgs.push({
+                                id: msgId,
+                                message_id: item.message_id,
+                                title: item.title || '消息推送',
+                                content: item.content || '',
+                                time: new Date(item.created_at.replace(/-/g, '/')).getTime() || Date.now(),
+                                is_synced: true
+                            })
+                        })
+                        if (newMsgs.length > 0) {
+                            this.messages = [...this.messages, ...newMsgs].sort((a, b) => (b.time || 0) - (a.time || 0))
+                            if (this.messages.length > 100) {
+                                this.messages = this.messages.slice(0, 100)
+                            }
+                            this.saveMessages()
+                            this.updateStats()
+                            console.log('[Refresh] 新增', newMsgs.length, '条消息')
+                        } else {
+                            console.log('[Refresh] 已是最新')
+                        }
+                        this.markRefreshed()
+                        resolve(newMsgs.length)
+                    },
+                    fail: (err) => {
+                        console.error('[Refresh] 请求失败', err)
+                        // 失败时仍更新本地统计
+                        this.updateStats()
+                        this.markRefreshed()
+                        resolve(0)
+                    },
+                    complete: () => {
+                        this.refreshing = false
+                    }
+                })
+            })
+        },
+        // 记录刷新时间
+        markRefreshed() {
+            this.lastRefreshTime = new Date()
+            this.lastRefreshTimeStr = this.formatDateTime(this.lastRefreshTime)
+            this._lastRefreshAt = Date.now()
+        },
+        // 格式化日期时间（用于刷新时间显示）
+        formatDateTime(date) {
+            if (!date) return ''
+            const d = date instanceof Date ? date : new Date(date)
+            const pad = (n) => (n < 10 ? '0' + n : '' + n)
+            return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+                + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds())
         },
         // ============== 音频播放器 ==============
         fetchServerAudioList() {
@@ -3180,9 +3357,47 @@ export default {
     background: #d46b08;
 }
 
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .setting-icon {
     font-size: 20px;
     padding: 4px;
+}
+
+.refresh-icon {
+    font-size: 20px;
+    padding: 4px;
+}
+
+.refresh-icon.refreshing {
+    animation: spin 1s linear infinite;
+    display: inline-block;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.section-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.last-refresh {
+    font-size: 11px;
+    color: #999;
+}
+
+.refresh-btn {
+    font-size: 13px;
+    color: #667eea;
+    padding: 4px 8px;
 }
 
 /* Tab 页面 */
@@ -3693,6 +3908,32 @@ export default {
     width: 1px;
     height: 30px;
     background: #eee;
+}
+
+.profile-refresh-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 20px 4px;
+}
+
+.profile-last-refresh {
+    font-size: 11px;
+    color: #999;
+}
+
+.profile-refresh-btn {
+    font-size: 12px;
+    color: #667eea;
+    background: #fff;
+    border: 1px solid #667eea;
+    padding: 4px 12px;
+    border-radius: 12px;
+}
+
+.profile-refresh-btn:active {
+    background: #667eea;
+    color: #fff;
 }
 
 .profile-section {
