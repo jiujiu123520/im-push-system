@@ -149,10 +149,12 @@ class WebSocketServer
             'send_buffer_size'       => 1048576,  // 1MB 单连接发送缓冲区
             // 鉴权超时定时器依赖,允许毫秒级 Timer
             'enable_coroutine'       => true,
-            // Swoole 内置心跳检测：60 秒无数据则关闭连接
-            // APP 端 10 秒发一次 ping，60 秒阈值允许连续 5 次心跳丢失
-            'heartbeat_idle_time'      => 60,
-            'heartbeat_check_interval' => 20,
+            // Swoole 内置心跳检测：120 秒无数据则关闭连接
+            // APP 端 10 秒发一次 ping，但锁屏后 JS 引擎被冻结、AlarmManager 在 Doze
+            // 模式下可能被延迟到维护窗口（2-9 分钟），60 秒太短会误杀正在 Doze 的设备。
+            // 120 秒阈值允许 AlarmManager（15 秒间隔）在 Doze 维护窗口内至少触发 1-2 次
+            'heartbeat_idle_time'      => 120,
+            'heartbeat_check_interval' => 30,
         ]);
     }
 

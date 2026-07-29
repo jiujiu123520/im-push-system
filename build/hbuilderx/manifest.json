@@ -13,7 +13,9 @@
             "alwaysShowBeforeRender" : true,
             "waiting" : true,
             "autoclose" : true,
-            "delay" : 0
+            "delay" : 0,
+            "ads" : true,
+            "image" : "static/logo.png"
         },
         "modules" : {},
         "distribute" : {

@@ -1655,7 +1655,7 @@ export default {
                 const System = plus.android.importClass('java.lang.System')
 
                 const alarmAction = 'com.push.app.ALARM_HEARTBEAT'
-                const interval = 25 * 1000  // 25 秒
+                const interval = 15 * 1000  // 15 秒（缩短间隔，Doze 维护窗口内更可能触发）
                 const triggerAt = System.currentTimeMillis() + interval
 
                 const intent = new Intent(alarmAction)
@@ -3339,7 +3339,7 @@ export default {
                 clearTimeout(this.heartbeatTimeoutTimer)
             }
             this.heartbeatTimeoutTimer = setTimeout(() => {
-                console.warn('心跳超时（20秒未收到任何消息），主动断开重连')
+                console.warn('心跳超时（45秒未收到任何消息），主动断开重连')
                 this.connected = false
                 this.stopHeartbeat()
                 if (this.socketTask) {
@@ -3358,7 +3358,7 @@ export default {
                 if (!this.reconnectTimer) {
                     this.scheduleReconnect()
                 }
-            }, 20000)
+            }, 45000)
         },
         scheduleReconnect() {
             if (!this.form.key) {
