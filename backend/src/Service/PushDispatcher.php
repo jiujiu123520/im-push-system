@@ -108,6 +108,7 @@ class PushDispatcher
             // 设备离线，存离线消息
             $this->storeOfflineMessage($deviceId, $message);
             $this->logPush("[pushToDevice·{$ctx}] 设备离线，已存离线 device_id={$deviceId} msg_id={$msgId}");
+            $reason = '设备离线，APP未连接或已断开（消息已存为离线，设备重连后可拉取）';
             return [
                 'success_count' => 0,
                 'fail_count'    => 1,
@@ -115,9 +116,11 @@ class PushDispatcher
                     [
                         'device_id' => $deviceId,
                         'status'    => 'offline',
-                        'message'   => '设备离线，消息已存为离线',
+                        'message'   => $reason,
                     ],
                 ],
+                'fail_detail'   => [['target' => $deviceId, 'reason' => $reason]],
+                'fail_reason'   => $reason,
             ];
         }
 
@@ -139,8 +142,11 @@ class PushDispatcher
             'success_count' => 0,
             'fail_count'    => 0,
             'detail'        => [],
+            'fail_detail'   => [],
+            'fail_reason'   => '',
         ];
 
+        $failReasons = [];
         foreach ($deviceIds as $deviceId) {
             $deviceId = trim((string)$deviceId);
             if ($deviceId === '') {
@@ -150,7 +156,14 @@ class PushDispatcher
             $result['success_count'] += $r['success_count'];
             $result['fail_count']    += $r['fail_count'];
             $result['detail']         = array_merge($result['detail'], $r['detail']);
+            if (!empty($r['fail_detail'])) {
+                $result['fail_detail'] = array_merge($result['fail_detail'], $r['fail_detail']);
+            }
+            if (!empty($r['fail_reason'])) {
+                $failReasons[$r['fail_reason']] = ($failReasons[$r['fail_reason']] ?? 0) + 1;
+            }
         }
+        $result['fail_reason'] = $this->buildFailReasonSummary($failReasons);
 
         return $result;
     }
@@ -181,6 +194,7 @@ class PushDispatcher
             $deviceIds = Redis::getInstance()->sMembers("key:subscribe:{$keyValue}");
             if (empty($deviceIds)) {
                 $this->logPush("[pushByKey] 无订阅设备 key={$keyValue} msg_id={$message['message_id']}");
+                $reason = '无订阅设备：该 Key 未绑定任何设备，APP端未注册或已解绑';
                 return [
                     'success_count' => 0,
                     'fail_count'    => 0,
@@ -188,9 +202,11 @@ class PushDispatcher
                         [
                             'key'     => $keyValue,
                             'status'  => 'no_subscribers',
-                            'message' => '无订阅设备',
+                            'message' => $reason,
                         ],
                     ],
+                    'fail_detail'   => [['target' => 'key:' . $keyValue, 'reason' => $reason]],
+                    'fail_reason'   => $reason,
                 ];
             }
             foreach ($deviceIds as $deviceId) {
@@ -198,6 +214,7 @@ class PushDispatcher
                 $this->storeOfflineMessage($deviceId, $message);
             }
             $this->logPush("[pushByKey] 所有设备离线，已存离线 key={$keyValue} devices=" . count($deviceIds) . " msg_id={$message['message_id']}");
+            $reason = '所有设备离线（共' . count($deviceIds) . '台），APP未连接或已断开，消息已存为离线';
             return [
                 'success_count' => 0,
                 'fail_count'    => count($deviceIds),
@@ -205,10 +222,12 @@ class PushDispatcher
                     [
                         'key'     => $keyValue,
                         'status'  => 'all_offline',
-                        'message' => '所有设备离线，已存离线消息',
+                        'message' => $reason,
                         'count'   => count($deviceIds),
                     ],
                 ],
+                'fail_detail'   => [['target' => 'key:' . $keyValue, 'reason' => $reason]],
+                'fail_reason'   => $reason,
             ];
         }
 
@@ -341,6 +360,8 @@ class PushDispatcher
         $success = 0;
         $fail    = 0;
         $detail  = [];
+        $failDetail = [];  // 结构化失败明细：[{target, reason}]
+        $failReasons = []; // 失败原因摘要集合（用于生成 fail_reason）
 
         $payload = $this->packMessage($message);
         $msgId   = $message['message_id'] ?? '';
@@ -362,7 +383,10 @@ class PushDispatcher
                 $established = $this->server->isEstablished($fd);
                 if (!$established) {
                     $fail++;
-                    $detail[] = ['fd' => $fd, 'status' => 'failed', 'message' => 'fd 未建立 WebSocket 连接'];
+                    $reason = 'fd 未建立 WebSocket 连接（设备已离线或连接已断开）';
+                    $detail[] = ['fd' => $fd, 'status' => 'failed', 'message' => $reason];
+                    $failDetail[] = ['target' => 'fd:' . $fd, 'reason' => $reason];
+                    $failReasons[$reason] = ($failReasons[$reason] ?? 0) + 1;
                     $this->logPush("[pushToFds·WS] fd 未建立连接 fd={$fd} msg_id={$msgId} 原因=isEstablished=false（僵尸连接，触发清理）");
                     $this->cleanupDeadConnection($fd);
                     continue;
@@ -392,21 +416,24 @@ class PushDispatcher
                     // 原因 2：push 返回 false，表示 Swoole 底层投递失败
                     // 详细诊断：错误码 + fd 状态 + 消息大小，便于判断是缓冲区满、连接断开还是包过大
                     $fail++;
+                    $reason = $this->explainPushFailure($errAfter, $connInfo['sending'], $payloadSize);
                     $detail[] = [
                         'fd'        => $fd,
                         'status'    => 'failed',
-                        'message'   => 'push 返回 false',
+                        'message'   => 'push 返回 false：' . $reason,
                         'err_code'  => $errAfter,
                         'err_str'   => $errStr,
                         'size'      => $payloadSize,
                         'sending'   => $connInfo['sending'],
                     ];
+                    $failDetail[] = ['target' => 'fd:' . $fd, 'reason' => $reason];
+                    $failReasons[$reason] = ($failReasons[$reason] ?? 0) + 1;
                     $this->logPush(
                         "[pushToFds·WS] push 返回 false fd={$fd} msg_id={$msgId}" .
                         " err_code={$errAfter} err_str={$errStr}" .
                         " size={$payloadSize} sending={$connInfo['sending']}" .
                         " remote={$connInfo['remote_ip']}:{$connInfo['remote_port']}" .
-                        " 原因=" . $this->explainPushFailure($errAfter, $connInfo['sending'], $payloadSize)
+                        " 原因=" . $reason
                     );
                 }
             }
@@ -437,11 +464,14 @@ class PushDispatcher
                 $this->logPush("[pushToFds·HTTP] 已入队 fds=" . json_encode($fds) . " msg_id={$msgId} key=" . ($keyValue ?? 'null') . " size={$payloadSize}");
             } else {
                 $fail = count($fds);
+                $reason = '入队失败：Redis 写入异常，推送指令丢失';
                 $detail[] = [
                     'status'  => 'enqueue_failed',
                     'count'   => count($fds),
-                    'message' => '入队失败：Redis 写入异常，推送指令丢失',
+                    'message' => $reason,
                 ];
+                $failDetail[] = ['target' => 'fds:' . count($fds), 'reason' => $reason];
+                $failReasons[$reason] = ($failReasons[$reason] ?? 0) + 1;
                 $this->logPush("[pushToFds·HTTP] 入队失败 msg_id={$msgId} fds=" . json_encode($fds) . " 原因=Redis lPush 返回 false");
             }
         }
@@ -450,7 +480,38 @@ class PushDispatcher
             'success_count' => $success,
             'fail_count'    => $fail,
             'detail'        => $detail,
+            'fail_detail'   => $failDetail,
+            'fail_reason'   => $this->buildFailReasonSummary($failReasons),
         ];
+    }
+
+    /**
+     * 构建失败原因摘要（人类可读）
+     *
+     * 将多个失败原因合并为简洁的摘要字符串，限制长度避免数据库字段溢出
+     *
+     * @param array $failReasons 失败原因统计 [reason => count]
+     * @return string 摘要文本，无失败时返回空字符串
+     */
+    private function buildFailReasonSummary(array $failReasons): string
+    {
+        if (empty($failReasons)) {
+            return '';
+        }
+        $parts = [];
+        foreach ($failReasons as $reason => $count) {
+            if ($count > 1) {
+                $parts[] = $reason . '（' . $count . '次）';
+            } else {
+                $parts[] = $reason;
+            }
+        }
+        $summary = implode('；', $parts);
+        // 限制 480 字符，预留数据库 VARCHAR(500) 的安全余量
+        if (strlen($summary) > 480) {
+            $summary = mb_substr($summary, 0, 160, 'UTF-8') . '...';
+        }
+        return $summary;
     }
 
     /**

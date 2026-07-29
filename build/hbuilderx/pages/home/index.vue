@@ -65,10 +65,16 @@
                     show-scrollbar
                 >
                     <view v-for="(msg) in messages" :key="msg.id" class="message-item">
-                        <text class="message-title">{{ msg.title }}</text>
-                        <text class="message-content">{{ msg.content }}</text>
-                        <text class="message-time">{{ formatTime(msg.time) }}</text>
-                    </view>
+                <view class="message-header">
+                    <text class="message-title">{{ msg.title }}</text>
+                    <text class="message-copy-btn" @click="copyMessage(msg)">复制</text>
+                </view>
+                <text class="message-content">{{ msg.content }}</text>
+                <view class="message-footer">
+                    <text class="message-time">{{ formatTime(msg.time) }}</text>
+                    <text v-if="msg.is_synced" class="message-synced-tag">已同步</text>
+                </view>
+            </view>
                 </scroll-view>
                 <view v-else class="empty-state">
                     <text class="empty-icon">📭</text>
@@ -3222,6 +3228,19 @@ export default {
                 }
             })
         },
+        // 复制单条推送消息（标题 + 内容）
+        copyMessage(msg) {
+            const text = (msg.title || '消息推送') + '\n' + (msg.content || '')
+            uni.setClipboardData({
+                data: text,
+                success: () => {
+                    uni.showToast({ title: '已复制消息', icon: 'success', duration: 1500 })
+                },
+                fail: () => {
+                    uni.showToast({ title: '复制失败', icon: 'none', duration: 1500 })
+                }
+            })
+        },
         formatTime(timestamp) {
             const date = new Date(timestamp)
             const now = new Date()
@@ -3483,7 +3502,28 @@ export default {
     font-weight: 600;
     color: #333;
     display: block;
+    flex: 1;
+}
+
+.message-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 8px;
+}
+
+.message-copy-btn {
+    font-size: 12px;
+    color: #667eea;
+    padding: 2px 10px;
+    border: 1px solid #667eea;
+    border-radius: 10px;
+    flex-shrink: 0;
+}
+
+.message-copy-btn:active {
+    background: #667eea;
+    color: #fff;
 }
 
 .message-content {
@@ -3494,10 +3534,23 @@ export default {
     margin-bottom: 12px;
 }
 
+.message-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
 .message-time {
     font-size: 12px;
     color: #999;
-    display: block;
+}
+
+.message-synced-tag {
+    font-size: 10px;
+    color: #00C896;
+    background: rgba(0, 200, 150, 0.1);
+    padding: 1px 6px;
+    border-radius: 8px;
 }
 
 .empty-state {

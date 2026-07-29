@@ -183,18 +183,20 @@ export interface DeviceForm {
 // ---- 推送记录 ----
 export interface PushLog {
   id: number
-  messageId: string
-  userId: string
+  api_key_id: number
+  target_type: string
+  target_value: string
   title: string
   content: string
-  platform: string
-  targetType: 'all' | 'tag' | 'alias' | 'deviceId'
-  target: string
-  successCount: number
-  failCount: number
-  status: 'pending' | 'sending' | 'success' | 'partial' | 'failed'
-  pushType: 'notification' | 'message' | 'silent'
-  createdAt: string
+  success_count: number
+  fail_count: number
+  fail_reason?: string
+  status: number  // 0=失败 1=成功 2=部分成功 3=进行中
+  elapsed_ms?: number
+  created_at: string
+  // 详情接口返回的扩展字段
+  push_detail?: any[]
+  fail_detail?: { target: string; reason: string }[]
 }
 
 export interface PushParams {

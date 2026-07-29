@@ -100,6 +100,35 @@ class MessageController
     }
 
     /**
+     * 推送日志详情
+     * 路由：GET /admin/push-logs/{id}
+     *
+     * 返回单条推送日志详情，包含解析后的 fail_detail 失败明细
+     */
+    public function pushLogDetail(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $id = (int)($params['id'] ?? 0);
+        if ($id <= 0) {
+            Response::fail($context['response'], '无效的日志ID', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        $service = new MessageService();
+        $detail = $service->getPushLogDetail($id);
+        if ($detail === null) {
+            Response::fail($context['response'], '推送日志不存在', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+
+        return $detail;
+    }
+
+    /**
      * 导出推送日志
      * 路由：GET /admin/push-logs/export?format=csv|json&keyword=
      */

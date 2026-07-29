@@ -115,6 +115,7 @@ class ApiPushController
         }
 
         // 调用 PushDispatcher 执行推送（HTTP 上下文，无 server 引用）
+        $startTime = microtime(true);
         $dispatcher = new PushDispatcher();
 
         if ($targetType === 'device') {
@@ -125,29 +126,58 @@ class ApiPushController
                 'success_count' => 0,
                 'fail_count'    => 0,
                 'detail'        => [],
+                'fail_detail'   => [],
+                'fail_reason'   => '',
             ];
+            $failReasons = [];
             foreach ($targets as $key) {
                 $r = $dispatcher->pushByKey($key, $message);
                 $result['success_count'] += $r['success_count'];
                 $result['fail_count']    += $r['fail_count'];
                 $result['detail']         = array_merge($result['detail'], $r['detail']);
+                if (!empty($r['fail_detail'])) {
+                    $result['fail_detail'] = array_merge($result['fail_detail'], $r['fail_detail']);
+                }
+                if (!empty($r['fail_reason'])) {
+                    $failReasons[$r['fail_reason']] = ($failReasons[$r['fail_reason']] ?? 0) + 1;
+                }
             }
+            $result['fail_reason'] = $this->buildFailReasonSummary($failReasons);
         }
 
-        // 记录到 push_logs 表
+        $elapsedMs = (int)((microtime(true) - $startTime) * 1000);
+
+        // 派生推送状态：0=失败 1=成功 2=部分成功
+        $successCount = (int)$result['success_count'];
+        $failCount    = (int)$result['fail_count'];
+        if ($successCount > 0 && $failCount === 0) {
+            $status = 1;
+        } elseif ($successCount > 0 && $failCount > 0) {
+            $status = 2;
+        } else {
+            $status = 0;
+        }
+
+        // 记录到 push_logs 表（含失败原因、状态、耗时）
         try {
             Database::insert(
-                'INSERT INTO push_logs (api_key_id, target_type, target_value, title, content, success_count, fail_count, detail)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO push_logs (api_key_id, target_type, target_value, title, content, success_count, fail_count, fail_reason, status, elapsed_ms, detail)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                     $apiKeyId,
                     $targetType,
                     $targetValue,
                     $title,
                     $content,
-                    $result['success_count'],
-                    $result['fail_count'],
-                    json_encode($result['detail'], JSON_UNESCAPED_UNICODE),
+                    $successCount,
+                    $failCount,
+                    $result['fail_reason'] ?? '',
+                    $status,
+                    $elapsedMs,
+                    json_encode([
+                        'push_detail'  => $result['detail'],
+                        'fail_detail'  => $result['fail_detail'] ?? [],
+                    ], JSON_UNESCAPED_UNICODE),
                 ]
             );
         } catch (\Throwable $e) {
@@ -157,8 +187,32 @@ class ApiPushController
         return [
             'success_count' => $result['success_count'],
             'fail_count'    => $result['fail_count'],
+            'fail_reason'   => $result['fail_reason'] ?? '',
             'detail'        => $result['detail'],
+            'elapsed_ms'    => $elapsedMs,
         ];
+    }
+
+    /**
+     * 构建失败原因摘要（与 PushDispatcher::buildFailReasonSummary 逻辑一致）
+     *
+     * @param array $failReasons 失败原因统计 [reason => count]
+     * @return string
+     */
+    private function buildFailReasonSummary(array $failReasons): string
+    {
+        if (empty($failReasons)) {
+            return '';
+        }
+        $parts = [];
+        foreach ($failReasons as $reason => $count) {
+            $parts[] = $count > 1 ? $reason . '（' . $count . '次）' : $reason;
+        }
+        $summary = implode('；', $parts);
+        if (strlen($summary) > 480) {
+            $summary = mb_substr($summary, 0, 160, 'UTF-8') . '...';
+        }
+        return $summary;
     }
 
     /**

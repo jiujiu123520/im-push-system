@@ -148,20 +148,37 @@ class TestPushController
 
         $elapsedMs = (int)((microtime(true) - $startTime) * 1000);
 
-        // 记录测试推送日志
+        // 派生推送状态：0=失败 1=成功 2=部分成功
+        $successCount = (int)$result['success_count'];
+        $failCount    = (int)$result['fail_count'];
+        if ($successCount > 0 && $failCount === 0) {
+            $status = 1;
+        } elseif ($successCount > 0 && $failCount > 0) {
+            $status = 2;
+        } else {
+            $status = 0;
+        }
+
+        // 记录测试推送日志（含失败原因、状态、耗时）
         try {
             Database::insert(
-                'INSERT INTO push_logs (api_key_id, target_type, target_value, title, content, success_count, fail_count, detail)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO push_logs (api_key_id, target_type, target_value, title, content, success_count, fail_count, fail_reason, status, elapsed_ms, detail)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                     0, // api_key_id=0 表示管理员测试推送
                     $targetType,
                     $targetValue,
                     $testTitle,
                     $testContent,
-                    $result['success_count'],
-                    $result['fail_count'],
-                    json_encode($result['detail'], JSON_UNESCAPED_UNICODE),
+                    $successCount,
+                    $failCount,
+                    $result['fail_reason'] ?? '',
+                    $status,
+                    $elapsedMs,
+                    json_encode([
+                        'push_detail'  => $result['detail'],
+                        'fail_detail'  => $result['fail_detail'] ?? [],
+                    ], JSON_UNESCAPED_UNICODE),
                 ]
             );
         } catch (\Throwable $e) {
@@ -482,11 +499,23 @@ class TestPushController
         $avgMs = $totalSent > 0 ? round($elapsedMs / $totalSent, 2) : 0;
         $qps = $elapsedMs > 0 ? round($totalSent / ($elapsedMs / 1000), 2) : 0;
 
-        // 记录压测日志
+        // 派生推送状态
+        if ($totalSuccess > 0 && $totalFail === 0) {
+            $stressStatus = 1;
+        } elseif ($totalSuccess > 0 && $totalFail > 0) {
+            $stressStatus = 2;
+        } else {
+            $stressStatus = 0;
+        }
+        $stressFailReason = $totalFail > 0
+            ? '并发压测失败 ' . $totalFail . '/' . $totalSent . '（详见 detail）'
+            : '';
+
+        // 记录压测日志（含失败原因、状态、耗时）
         try {
             Database::insert(
-                'INSERT INTO push_logs (api_key_id, target_type, target_value, title, content, success_count, fail_count, detail)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO push_logs (api_key_id, target_type, target_value, title, content, success_count, fail_count, fail_reason, status, elapsed_ms, detail)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                     0,
                     $targetType,
@@ -495,6 +524,9 @@ class TestPushController
                     '并发压测：concurrency=' . $concurrency . ', total=' . $actualTotal . ', interval=' . $intervalMs . 'ms',
                     $totalSuccess,
                     $totalFail,
+                    $stressFailReason,
+                    $stressStatus,
+                    $elapsedMs,
                     json_encode([
                         'concurrency' => $concurrency,
                         'total_sent'  => $totalSent,
@@ -502,6 +534,7 @@ class TestPushController
                         'elapsed_ms'  => $elapsedMs,
                         'avg_ms'      => $avgMs,
                         'qps'         => $qps,
+                        'fail_detail' => $details,
                     ], JSON_UNESCAPED_UNICODE),
                 ]
             );
@@ -538,6 +571,28 @@ class TestPushController
             }
         }
         return [];
+    }
+
+    /**
+     * 构建失败原因摘要（与 PushDispatcher::buildFailReasonSummary 逻辑一致）
+     *
+     * @param array $failReasons 失败原因统计 [reason => count]
+     * @return string
+     */
+    private function buildFailReasonSummary(array $failReasons): string
+    {
+        if (empty($failReasons)) {
+            return '';
+        }
+        $parts = [];
+        foreach ($failReasons as $reason => $count) {
+            $parts[] = $count > 1 ? $reason . '（' . $count . '次）' : $reason;
+        }
+        $summary = implode('；', $parts);
+        if (strlen($summary) > 480) {
+            $summary = mb_substr($summary, 0, 160, 'UTF-8') . '...';
+        }
+        return $summary;
     }
 
     /**
@@ -700,6 +755,8 @@ class TestPushController
             $totalSuccess = 0;
             $totalFail = 0;
             $details = [];
+            $failDetail = [];
+            $failReasons = [];
             foreach ($keyValues as $kv) {
                 $r = $dispatcher->pushByKey($kv, $message);
                 $totalSuccess += $r['success_count'];
@@ -709,11 +766,19 @@ class TestPushController
                     'success' => $r['success_count'],
                     'fail' => $r['fail_count'],
                 ];
+                if (!empty($r['fail_detail'])) {
+                    $failDetail = array_merge($failDetail, $r['fail_detail']);
+                }
+                if (!empty($r['fail_reason'])) {
+                    $failReasons[$r['fail_reason']] = ($failReasons[$r['fail_reason']] ?? 0) + 1;
+                }
             }
             $result = [
                 'success_count' => $totalSuccess,
                 'fail_count'    => $totalFail,
                 'detail'        => $details,
+                'fail_detail'   => $failDetail,
+                'fail_reason'   => $this->buildFailReasonSummary($failReasons),
             ];
         } else {
             // 全量推送：遍历所有启用状态的 push_keys
@@ -725,6 +790,8 @@ class TestPushController
             $totalSuccess = 0;
             $totalFail = 0;
             $details = [];
+            $failDetail = [];
+            $failReasons = [];
 
             foreach ($keys as $keyRow) {
                 $keyValue = (string)$keyRow['key_value'];
@@ -736,31 +803,56 @@ class TestPushController
                     'success' => $r['success_count'],
                     'fail' => $r['fail_count'],
                 ];
+                if (!empty($r['fail_detail'])) {
+                    $failDetail = array_merge($failDetail, $r['fail_detail']);
+                }
+                if (!empty($r['fail_reason'])) {
+                    $failReasons[$r['fail_reason']] = ($failReasons[$r['fail_reason']] ?? 0) + 1;
+                }
             }
 
             $result = [
                 'success_count' => $totalSuccess,
                 'fail_count'    => $totalFail,
                 'detail'        => $details,
+                'fail_detail'   => $failDetail,
+                'fail_reason'   => $this->buildFailReasonSummary($failReasons),
             ];
         }
 
         $elapsedMs = (int)((microtime(true) - $startTime) * 1000);
 
-        // 记录推送日志
+        // 派生推送状态
+        $spSuccess = (int)$result['success_count'];
+        $spFail    = (int)$result['fail_count'];
+        if ($spSuccess > 0 && $spFail === 0) {
+            $spStatus = 1;
+        } elseif ($spSuccess > 0 && $spFail > 0) {
+            $spStatus = 2;
+        } else {
+            $spStatus = 0;
+        }
+
+        // 记录推送日志（含失败原因、状态、耗时）
         try {
             Database::insert(
-                'INSERT INTO push_logs (api_key_id, target_type, target_value, title, content, success_count, fail_count, detail)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO push_logs (api_key_id, target_type, target_value, title, content, success_count, fail_count, fail_reason, status, elapsed_ms, detail)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                     0,
                     $targetType,
                     $target,
                     $title,
                     $content,
-                    $result['success_count'],
-                    $result['fail_count'],
-                    json_encode($result['detail'], JSON_UNESCAPED_UNICODE),
+                    $spSuccess,
+                    $spFail,
+                    $result['fail_reason'] ?? '',
+                    $spStatus,
+                    $elapsedMs,
+                    json_encode([
+                        'push_detail'  => $result['detail'],
+                        'fail_detail'  => $result['fail_detail'] ?? [],
+                    ], JSON_UNESCAPED_UNICODE),
                 ]
             );
         } catch (\Throwable $e) {

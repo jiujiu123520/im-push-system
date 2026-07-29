@@ -84,6 +84,9 @@ class MessageService
      */
     public function listPushLogs(int $page, string $keyword = '', array $filters = []): array
     {
+        // 7天日志自动清理（每次查询时触发，轻量级，避免引入定时任务依赖）
+        $this->cleanExpiredPushLogs(7);
+
         $page = max(1, $page);
         $offset = ($page - 1) * self::PER_PAGE;
 
@@ -105,15 +108,11 @@ class MessageService
             $args[] = $targetType;
         }
 
-        // 状态筛选（由 success_count/fail_count 派生）
-        // 0=失败(success=0) 1=成功(fail=0且success>0) 2=部分成功(success>0且fail>0)
+        // 状态筛选：0=失败 1=成功 2=部分成功 3=进行中
         $statusFilter = (int)($filters['status'] ?? -1);
-        if ($statusFilter === 0) {
-            $where .= ' AND p.success_count = 0 AND p.fail_count > 0';
-        } elseif ($statusFilter === 1) {
-            $where .= ' AND p.fail_count = 0 AND p.success_count > 0';
-        } elseif ($statusFilter === 2) {
-            $where .= ' AND p.success_count > 0 AND p.fail_count > 0';
+        if ($statusFilter >= 0 && $statusFilter <= 3) {
+            $where .= ' AND p.status = ?';
+            $args[] = $statusFilter;
         }
 
         $countSql = "SELECT COUNT(*) FROM push_logs p {$where}";
@@ -122,24 +121,20 @@ class MessageService
         $total = (int)$stmt->fetchColumn();
 
         $listSql = "SELECT p.id, p.api_key_id, p.target_type, p.target_value, p.title, p.content,"
-            . " p.success_count, p.fail_count, p.detail, p.created_at"
+            . " p.success_count, p.fail_count, p.fail_reason, p.status, p.elapsed_ms, p.created_at"
             . " FROM push_logs p {$where}"
             . " ORDER BY p.id DESC LIMIT " . self::PER_PAGE . " OFFSET {$offset}";
         $stmt = Database::pdo()->prepare($listSql);
         $stmt->execute($args);
         $list = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
-        // 派生 status 字段：0=失败 1=成功 2=部分成功
+        // 类型规范化
         foreach ($list as &$row) {
-            $success = (int)$row['success_count'];
-            $fail = (int)$row['fail_count'];
-            if ($success > 0 && $fail > 0) {
-                $row['status'] = 2;
-            } elseif ($success > 0) {
-                $row['status'] = 1;
-            } else {
-                $row['status'] = 0;
-            }
+            $row['success_count'] = (int)$row['success_count'];
+            $row['fail_count']    = (int)$row['fail_count'];
+            $row['status']        = (int)$row['status'];
+            $row['elapsed_ms']    = (int)$row['elapsed_ms'];
+            $row['fail_reason']   = $row['fail_reason'] ?? '';
         }
         unset($row);
 
@@ -149,6 +144,102 @@ class MessageService
             'page'      => $page,
             'page_size' => self::PER_PAGE,
         ];
+    }
+
+    /**
+     * 获取推送日志详情
+     *
+     * @param int $id 日志ID
+     * @return array|null
+     */
+    public function getPushLogDetail(int $id): ?array
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT id, api_key_id, target_type, target_value, title, content,'
+            . ' success_count, fail_count, fail_reason, status, elapsed_ms, detail, created_at'
+            . ' FROM push_logs WHERE id = ? LIMIT 1'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$row) {
+            return null;
+        }
+
+        $row['success_count'] = (int)$row['success_count'];
+        $row['fail_count']    = (int)$row['fail_count'];
+        $row['status']        = (int)$row['status'];
+        $row['elapsed_ms']    = (int)$row['elapsed_ms'];
+        $row['fail_reason']   = $row['fail_reason'] ?? '';
+
+        // 解析 detail JSON：兼容新旧两种结构
+        // 旧结构：detail 是数组 [{fd, status, message}]
+        // 新结构：detail 是对象 {push_detail: [...], fail_detail: [{target, reason}]}
+        $rawDetail = $row['detail'] ?? '';
+        $decoded = $rawDetail !== '' ? json_decode($rawDetail, true) : null;
+
+        if (is_array($decoded) && isset($decoded['fail_detail'])) {
+            // 新结构
+            $row['push_detail']  = $decoded['push_detail'] ?? [];
+            $row['fail_detail']  = $decoded['fail_detail'] ?? [];
+        } elseif (is_array($decoded)) {
+            // 旧结构（索引数组）：尝试转换为 fail_detail 格式
+            $row['push_detail']  = $decoded;
+            $row['fail_detail']  = [];
+            foreach ($decoded as $item) {
+                if (is_array($item) && ($item['status'] ?? '') === 'failed') {
+                    $row['fail_detail'][] = [
+                        'target' => isset($item['device_id']) ? $item['device_id']
+                                  : (isset($item['key']) ? 'key:' . $item['key']
+                                  : (isset($item['fd']) ? 'fd:' . $item['fd'] : '-')),
+                        'reason' => $item['message'] ?? '未知原因',
+                    ];
+                }
+            }
+        } else {
+            $row['push_detail']  = [];
+            $row['fail_detail']  = [];
+        }
+        unset($row['detail']);
+
+        return $row;
+    }
+
+    /**
+     * 清理过期推送日志（默认保留 7 天）
+     *
+     * 使用低频触发策略：每次列表查询时调用，但仅在距离上次清理超过 6 小时时真正执行 DELETE
+     * 通过 Redis 标记 last_clean_time，避免高频 DELETE 影响数据库性能
+     *
+     * @param int $retainDays 保留天数
+     * @return int 删除的记录数
+     */
+    public function cleanExpiredPushLogs(int $retainDays = 7): int
+    {
+        try {
+            $redis = Redis::getInstance();
+            $lockKey = 'push_logs:last_clean_at';
+            $lastClean = (int)$redis->get($lockKey);
+            $now = time();
+            // 6 小时内已清理过则跳过
+            if ($lastClean > 0 && ($now - $lastClean) < 21600) {
+                return 0;
+            }
+            // 设置清理标记（即使清理失败也避免频繁尝试）
+            $redis->set($lockKey, (string)$now, ['ex' => 21600]);
+
+            $cutoff = date('Y-m-d H:i:s', $now - $retainDays * 86400);
+            $stmt = Database::pdo()->prepare('DELETE FROM push_logs WHERE created_at < ?');
+            $stmt->execute([$cutoff]);
+            $deleted = $stmt->rowCount();
+
+            if ($deleted > 0) {
+                error_log("[PushLogs] 清理 {$retainDays} 天前过期日志：删除 {$deleted} 条，截止时间 {$cutoff}");
+            }
+            return $deleted;
+        } catch (\Throwable $e) {
+            error_log('[PushLogs] 清理过期日志失败：' . $e->getMessage());
+            return 0;
+        }
     }
 
     /**

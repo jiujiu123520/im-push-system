@@ -266,6 +266,7 @@ if ($runWs) {
         $router->get('/admin/messages/export',    [\App\Controller\MessageController::class, 'exportMessages']);
         $router->get('/admin/push-logs',          [\App\Controller\MessageController::class, 'pushLogs']);
         $router->get('/admin/push-logs/export',   [\App\Controller\MessageController::class, 'exportPushLogs']);
+        $router->get('/admin/push-logs/{id}',     [\App\Controller\MessageController::class, 'pushLogDetail']);
 
         // ============================================================
         // 测试调试推送（管理员鉴权）

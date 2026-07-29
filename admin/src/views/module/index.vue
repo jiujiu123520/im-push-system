@@ -233,6 +233,27 @@
               {{ Number(row[col.prop]) || 0 }}
             </span>
           </template>
+          <!-- 推送记录：失败原因 -->
+          <template v-else-if="col.slot === 'failReason'" #default="{ row }">
+            <el-tooltip
+              v-if="row.fail_reason"
+              :content="row.fail_reason"
+              placement="top"
+              :show-after="300"
+            >
+              <span style="color: #f56c6c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; max-width: 100%;">
+                {{ row.fail_reason }}
+              </span>
+            </el-tooltip>
+            <span v-else style="color: #909399;">-</span>
+          </template>
+          <!-- 推送记录：耗时 -->
+          <template v-else-if="col.slot === 'elapsedMs'" #default="{ row }">
+            <span v-if="row.elapsed_ms != null && row.elapsed_ms > 0" style="font-family: monospace; font-size: 12px;">
+              {{ row.elapsed_ms < 1000 ? row.elapsed_ms + ' ms' : (row.elapsed_ms / 1000).toFixed(2) + ' s' }}
+            </span>
+            <span v-else style="color: #909399;">-</span>
+          </template>
           <!-- 用户：邮箱 -->
           <template v-else-if="col.slot === 'email'" #default="{ row }">
             <div v-if="row.email" style="display: flex; align-items: center; gap: 4px;">
@@ -556,14 +577,73 @@
             </el-descriptions>
           </div>
 
+          <!-- 失败原因摘要（若有） -->
+          <div v-if="pushDetailData.fail_reason" class="detail-section">
+            <div class="detail-title">失败原因</div>
+            <el-alert
+              :title="pushDetailData.fail_reason"
+              type="error"
+              :closable="false"
+              show-icon
+            >
+              <template #default>
+                <div style="white-space: pre-wrap; word-break: break-all; line-height: 1.6;">
+                  {{ pushDetailData.fail_reason }}
+                </div>
+              </template>
+            </el-alert>
+          </div>
+
           <!-- 失败明细（若有） -->
           <div v-if="pushDetailData.fail_detail && pushDetailData.fail_detail.length > 0" class="detail-section">
-            <div class="detail-title">失败明细</div>
-            <el-table :data="pushDetailData.fail_detail" size="small" border>
-              <el-table-column prop="target" label="目标" width="160" />
-              <el-table-column prop="reason" label="原因" />
+            <div class="detail-title">失败明细（共 {{ pushDetailData.fail_detail.length }} 条）</div>
+            <el-table :data="pushDetailData.fail_detail" size="small" border max-height="320">
+              <el-table-column type="index" label="#" width="50" align="center" />
+              <el-table-column prop="target" label="目标" width="180" show-overflow-tooltip>
+                <template #default="{ row }">
+                  <span style="font-family: monospace; font-size: 12px;">{{ row.target }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="reason" label="失败原因" show-overflow-tooltip>
+                <template #default="{ row }">
+                  <span style="color: #f56c6c;">{{ row.reason }}</span>
+                </template>
+              </el-table-column>
             </el-table>
           </div>
+
+          <!-- 推送详情明细（若有，调试用） -->
+          <el-collapse v-if="pushDetailData.push_detail && pushDetailData.push_detail.length > 0" class="detail-section">
+            <el-collapse-item title="推送详情明细（高级调试）" name="push_detail">
+              <el-table :data="pushDetailData.push_detail" size="small" border max-height="320">
+                <el-table-column type="index" label="#" width="50" align="center" />
+                <el-table-column label="目标/FD" width="120" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <span style="font-family: monospace; font-size: 12px;">
+                      {{ row.fd !== undefined ? 'fd:' + row.fd : (row.device_id || row.key || '-') }}
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="状态" width="100">
+                  <template #default="{ row }">
+                    <el-tag
+                      :type="row.status === 'success' ? 'success' : (row.status === 'queued' ? 'primary' : 'danger')"
+                      effect="plain"
+                      round
+                      size="small"
+                    >
+                      {{ row.status || '-' }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="详情" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <span style="font-size: 12px; color: #606266;">{{ row.message || '-' }}</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-collapse-item>
+          </el-collapse>
         </template>
       </div>
       <template #footer>
@@ -750,7 +830,9 @@ const moduleConfigs: Record<string, {
       { prop: 'target_value', label: '目标值', width: 200, slot: 'targetValue' },
       { prop: 'success_count', label: '成功', width: 100, slot: 'count' },
       { prop: 'fail_count', label: '失败', width: 100, slot: 'count' },
+      { prop: 'fail_reason', label: '失败原因', width: 240, slot: 'failReason' },
       { prop: 'status', label: '状态', width: 110, slot: 'status' },
+      { prop: 'elapsed_ms', label: '耗时', width: 100, slot: 'elapsedMs' },
       { prop: 'created_at', label: '时间', width: 170 }
     ],
     fields: [
@@ -767,6 +849,7 @@ const moduleConfigs: Record<string, {
     mockRow: () => {
       const successCount = Math.floor(Math.random() * 8000)
       const failCount = Math.floor(Math.random() * 200)
+      const reasons = ['设备离线，APP未连接或已断开', '连接不存在或已关闭', '发送缓冲区已满', '无订阅设备', '']
       return {
         id: 0,
         title: '推送消息 ' + Math.floor(Math.random() * 999),
@@ -775,8 +858,10 @@ const moduleConfigs: Record<string, {
         target_value: 'target_' + Math.floor(Math.random() * 99999),
         success_count: successCount,
         fail_count: failCount,
+        fail_reason: failCount > 0 ? reasons[Math.floor(Math.random() * reasons.length)] : '',
         // status: 0=失败 1=成功 2=部分成功 3=进行中
         status: failCount === 0 ? (successCount > 0 ? 1 : 3) : (successCount > 0 ? 2 : 0),
+        elapsed_ms: Math.floor(Math.random() * 500) + 10,
         created_at: '2026-07-12 ' + String(Math.floor(Math.random() * 24)).padStart(2, '0') + ':' + String(Math.floor(Math.random() * 60)).padStart(2, '0')
       }
     }
