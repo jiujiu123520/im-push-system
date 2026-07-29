@@ -1146,30 +1146,132 @@ export default {
             this.startForegroundService()
         },
         // ============== 设备与配置 ==============
-        initDeviceId() {
+        // 设备 ID 生成与持久化策略（解决 HBuilderX 换包名/签名导致设备 ID 变化的问题）：
+        //   1. 优先从本地存储读取（uni.getStorageSync）
+        //   2. 本地无则从外部存储公共目录恢复（/sdcard/PushApp/.device_id）—— 跨包名/签名共享
+        //   3. 都没有才生成新 ID（基于 androidId 或随机 UUID）
+        //   4. 生成新 ID 后同时写入本地存储 + 外部存储，供下次恢复
+        //   5. 检测到从外部存储恢复时，弹窗提示用户已恢复旧设备 ID
+        async initDeviceId() {
+            // 1. 优先从本地存储读取
             let deviceId = uni.getStorageSync('push_device_id')
+            let restoredFromExternal = false
+
+            // 2. 本地无则尝试从外部存储恢复
             if (!deviceId) {
-                // 优先使用设备硬件标识生成稳定ID（同一手机重装应用也保持一致）
+                const externalId = this.readDeviceIdFromExternal()
+                if (externalId) {
+                    deviceId = externalId
+                    restoredFromExternal = true
+                    console.log('[DeviceID] 从外部存储恢复设备ID:', deviceId)
+                }
+            }
+
+            // 3. 都没有才生成新 ID
+            if (!deviceId) {
                 let hardwareId = ''
                 // #ifdef APP-PLUS
                 try {
                     const info = uni.getSystemInfoSync()
-                    // androidId 在 Android 8+ 仍可用，作为设备唯一标识
                     hardwareId = info.androidId || info.deviceId || ''
                 } catch (e) {
                     console.warn('获取设备硬件标识失败', e)
                 }
                 // #endif
                 if (hardwareId) {
-                    // 基于硬件标识 + 应用包名生成稳定ID（同一手机唯一，不同应用不同）
-                    deviceId = 'app-' + this.stableHash(hardwareId + (APP_CONFIG.package_name || 'pushapp'))
+                    deviceId = 'app-' + this.stableHash(hardwareId + 'pushapp')
                 } else {
-                    // 回退：随机生成（仅在没有硬件标识时使用）
-                    deviceId = 'app-' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36)
+                    deviceId = 'app-' + this.generateUUID()
                 }
-                uni.setStorageSync('push_device_id', deviceId)
+                console.log('[DeviceID] 生成新设备ID:', deviceId)
             }
+
+            // 4. 写入本地存储
+            uni.setStorageSync('push_device_id', deviceId)
             this.deviceId = deviceId
+
+            // 5. 同步到外部存储（首次生成或恢复后都写入，确保外部存储有备份）
+            this.writeDeviceIdToExternal(deviceId)
+
+            // 6. 如果是从外部存储恢复的，提示用户
+            if (restoredFromExternal) {
+                uni.showModal({
+                    title: '已恢复设备 ID',
+                    content: '检测到本机之前使用的设备 ID：\n' + deviceId.substring(0, 16) + '...\n\n已自动恢复，您将继续收到之前的推送消息。',
+                    showCancel: false,
+                    confirmText: '知道了'
+                })
+            }
+        },
+        // 生成 UUID（不依赖硬件标识，避免签名/包名影响）
+        generateUUID() {
+            // #ifdef APP-PLUS
+            try {
+                const uuidClass = plus.android.importClass('java.util.UUID')
+                const uuid = uuidClass.randomUUID().toString().replace(/-/g, '')
+                return uuid.substring(0, 16)
+            } catch (e) {
+                console.warn('[DeviceID] 使用 Java UUID 失败，降级到 JS 生成:', e)
+            }
+            // #endif
+            return Date.now().toString(36) + Math.random().toString(36).substring(2, 10)
+        },
+        // 从外部存储读取设备 ID（跨包名/签名共享，APP 卸载不丢失）
+        // 存储路径：/sdcard/PushApp/.device_id
+        readDeviceIdFromExternal() {
+            // #ifdef APP-PLUS
+            try {
+                const Environment = plus.android.importClass('android.os.Environment')
+                const File = plus.android.importClass('java.io.File')
+                const sdCard = Environment.getExternalStorageDirectory().getAbsolutePath()
+                const filePath = sdCard + '/PushApp/.device_id'
+                const file = new File(filePath)
+                if (!file.exists()) {
+                    return ''
+                }
+                const FileInputStream = plus.android.importClass('java.io.FileInputStream')
+                const fis = new FileInputStream(file)
+                const BufferedReader = plus.android.importClass('java.io.BufferedReader')
+                const InputStreamReader = plus.android.importClass('java.io.InputStreamReader')
+                const reader = new BufferedReader(new InputStreamReader(fis, 'UTF-8'))
+                const id = reader.readLine()
+                reader.close()
+                fis.close()
+                return (id || '').trim()
+            } catch (e) {
+                console.warn('[DeviceID] 读取外部存储失败（可能无权限）:', e.message || e)
+                return ''
+            }
+            // #endif
+            return ''
+        },
+        // 写入设备 ID 到外部存储
+        writeDeviceIdToExternal(deviceId) {
+            // #ifdef APP-PLUS
+            try {
+                const Environment = plus.android.importClass('android.os.Environment')
+                const File = plus.android.importClass('java.io.File')
+                const sdCard = Environment.getExternalStorageDirectory().getAbsolutePath()
+                const dirPath = sdCard + '/PushApp'
+                const filePath = dirPath + '/.device_id'
+                // 创建目录
+                const dir = new File(dirPath)
+                if (!dir.exists()) {
+                    dir.mkdirs()
+                }
+                // 写入文件
+                const FileOutputStream = plus.android.importClass('java.io.FileOutputStream')
+                const fos = new FileOutputStream(filePath)
+                const bytes = plus.android.invoke('java.lang.String', 'getBytes', deviceId, 'UTF-8')
+                fos.write(bytes)
+                fos.close()
+                console.log('[DeviceID] 已备份到外部存储:', filePath)
+            } catch (e) {
+                console.warn('[DeviceID] 写入外部存储失败（可能无权限）:', e.message || e)
+                // 无外部存储权限时静默失败，不影响 APP 正常使用
+                // 用户仍可通过"设置-绑定设备 ID"手动恢复
+            }
+            // #endif
         },
         // 稳定哈希函数：将字符串转为固定长度的16进制字符串（同一输入始终产生同一输出）
         stableHash(str) {
@@ -2445,16 +2547,17 @@ export default {
                 }
             })
         },
-        // 恢复为自动生成的设备 ID（基于硬件标识生成稳定ID）
+        // 恢复为自动生成的设备 ID（基于硬件标识或随机 UUID 生成）
         resetDeviceIdAuto() {
             uni.showModal({
                 title: '恢复自动生成',
-                content: '将基于本机硬件标识重新生成稳定的设备 ID（同一手机始终生成相同 ID），并使用它重新连接。当前绑定的设备 ID 将被覆盖。',
+                content: '将清除当前绑定的设备 ID，并基于本机硬件标识重新生成（如硬件标识不可用则随机生成）。\n\n注意：新 ID 将与之前不同，后台需要重新添加该设备才能接收推送。',
                 confirmText: '恢复',
                 success: (r) => {
                     if (!r.confirm) return
-                    // 清除本地存储，触发 initDeviceId 重新生成
+                    // 清除本地存储 + 外部存储备份，触发 initDeviceId 重新生成
                     uni.removeStorageSync('push_device_id')
+                    this.clearExternalDeviceId()
                     this.initDeviceId()
                     this.bindDeviceIdInput = this.deviceId
                     this.closeSocket()
@@ -2464,6 +2567,24 @@ export default {
                     }, 800)
                 }
             })
+        },
+        // 清除外部存储的设备 ID 备份（用于"恢复自动生成"时）
+        clearExternalDeviceId() {
+            // #ifdef APP-PLUS
+            try {
+                const Environment = plus.android.importClass('android.os.Environment')
+                const File = plus.android.importClass('java.io.File')
+                const sdCard = Environment.getExternalStorageDirectory().getAbsolutePath()
+                const filePath = sdCard + '/PushApp/.device_id'
+                const file = new File(filePath)
+                if (file.exists()) {
+                    file.delete()
+                    console.log('[DeviceID] 已清除外部存储备份')
+                }
+            } catch (e) {
+                console.warn('[DeviceID] 清除外部存储失败:', e.message || e)
+            }
+            // #endif
         },
         handleLogout() {
             uni.showModal({
