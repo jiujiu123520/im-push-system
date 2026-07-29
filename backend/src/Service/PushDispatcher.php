@@ -371,6 +371,7 @@ class PushDispatcher
         $detail  = [];
         $failDetail = [];  // 结构化失败明细：[{target, reason}]
         $failReasons = []; // 失败原因摘要集合（用于生成 fail_reason）
+        $httpStoredOffline = false;  // HTTP 上下文下从 WS 进程回传的 stored_offline 标记
 
         $payload = $this->packMessage($message);
         $msgId   = $message['message_id'] ?? '';
@@ -460,30 +461,49 @@ class PushDispatcher
             }
         } else {
             // HTTP 上下文：写入 Redis 队列，由 WS 进程消费
-            // 注意：这里返回的 success_count 表示"已成功入队"，并非"已成功推送到 APP"
-            // 真正的推送结果由 WS 进程的 processQueue 处理后写入 ws_debug.log
+            // 入队后短暂等待 WS 进程的真实投递结果（最多 800ms），避免状态显示为"queued"
             $enqueued = $this->enqueuePush($fds, $message, $deviceId, $keyValue);
+            $fdCount = count($fds);
             if ($enqueued) {
-                $success = count($fds);
-                $detail[] = [
+                $queuedDetail = [
                     'status'  => 'queued',
-                    'count'   => count($fds),
+                    'count'   => $fdCount,
                     'message' => '已加入推送队列，等待 WS 进程投递',
                 ];
-                $this->logPush("[pushToFds·HTTP] 已入队 fds=" . json_encode($fds) . " msg_id={$msgId} key=" . ($keyValue ?? 'null') . " size={$payloadSize}");
+                $this->logPush("[pushToFds·HTTP] 已入队 fds=" . json_encode($fds) . " msg_id={$msgId} key=" . ($keyValue ?? 'null') . " size={$payloadSize} 等待 WS 投递结果...");
+
+                // 等待 WS 进程消费队列并写入真实投递结果
+                $realResult = $this->waitForPushResult($msgId, [$queuedDetail], $fdCount);
+
+                $success   = (int)$realResult['success_count'];
+                $fail      = (int)$realResult['fail_count'];
+                $detail    = $realResult['detail'];
+                $failDetail= $realResult['fail_detail'] ?? [];
+                $failReasons = [];
+                if (!empty($realResult['fail_reason'])) {
+                    $failReasons[$realResult['fail_reason']] = $fail;
+                }
+                // 继承 WS 进程的 stored_offline 标记
+                $httpStoredOffline = !empty($realResult['stored_offline']);
             } else {
-                $fail = count($fds);
+                $fail = $fdCount;
                 $reason = '入队失败：Redis 写入异常，推送指令丢失';
                 $detail[] = [
                     'status'  => 'enqueue_failed',
-                    'count'   => count($fds),
+                    'count'   => $fdCount,
                     'message' => $reason,
                 ];
-                $failDetail[] = ['target' => 'fds:' . count($fds), 'reason' => $reason];
+                $failDetail[] = ['target' => 'fds:' . $fdCount, 'reason' => $reason];
                 $failReasons[$reason] = ($failReasons[$reason] ?? 0) + 1;
                 $this->logPush("[pushToFds·HTTP] 入队失败 msg_id={$msgId} fds=" . json_encode($fds) . " 原因=Redis lPush 返回 false");
+                $httpStoredOffline = false;
             }
         }
+
+        // stored_offline 判断：WS 上下文直接判断，HTTP 上下文从 waitForPushResult 继承
+        $storedOffline = ($this->server !== null)
+            ? ($success === 0 && $fail > 0 && $deviceId !== null)
+            : (bool)($httpStoredOffline ?? false);
 
         return [
             'success_count' => $success,
@@ -491,6 +511,7 @@ class PushDispatcher
             'detail'        => $detail,
             'fail_detail'   => $failDetail,
             'fail_reason'   => $this->buildFailReasonSummary($failReasons),
+            'stored_offline'=> $storedOffline,
         ];
     }
 
@@ -571,16 +592,18 @@ class PushDispatcher
      */
     private function enqueuePush(array $fds, array $message, ?string $deviceId, ?string $keyValue): bool
     {
+        $msgId = $message['message_id'] ?? '';
         $command = [
             'fds'       => array_map('intval', $fds),
             'message'   => $message,
             'device_id' => $deviceId,
             'key_value' => $keyValue,
             'created_at'=> time(),
+            'msg_id'    => $msgId,
         ];
         $payload = json_encode($command, JSON_UNESCAPED_UNICODE);
         if ($payload === false) {
-            $this->logPush("[enqueuePush] JSON 编码失败 msg_id=" . ($message['message_id'] ?? '') . " json_err=" . json_last_error_msg());
+            $this->logPush("[enqueuePush] JSON 编码失败 msg_id={$msgId} json_err=" . json_last_error_msg());
             return false;
         }
 
@@ -589,14 +612,85 @@ class PushDispatcher
             $result = $redis->lPush(self::PUSH_QUEUE_KEY, $payload);
             // lPush 返回队列长度（>=1 表示成功），false 表示失败
             if ($result === false) {
-                $this->logPush("[enqueuePush] lPush 返回 false msg_id=" . ($message['message_id'] ?? '') . " 原因=Redis 操作失败（连接异常或权限问题）");
+                $this->logPush("[enqueuePush] lPush 返回 false msg_id={$msgId} 原因=Redis 操作失败（连接异常或权限问题）");
                 return false;
+            }
+            // 预置结果等待 key（TTL 10秒），WS processQueue 消费后会写入真实投递结果
+            // HTTP 端入队后短暂等待，读取此 key 获取真实结果
+            if ($msgId !== '') {
+                $redis->setex('push:result:wait:' . $msgId, 10, '1');
             }
             return true;
         } catch (\Throwable $e) {
-            $this->logPush("[enqueuePush] 异常 msg_id=" . ($message['message_id'] ?? '') . " err=" . $e->getMessage());
+            $this->logPush("[enqueuePush] 异常 msg_id={$msgId} err=" . $e->getMessage());
             return false;
         }
+    }
+
+    /**
+     * HTTP 端入队后等待 WS 进程的真实投递结果（最多等待 800ms）
+     *
+     * 机制：
+     *   1. enqueuePush 时预置 push:result:wait:{msgId}（TTL 10s）
+     *   2. WS processQueue 消费后写入 push:result:{msgId}（含真实 success/fail/detail）
+     *   3. HTTP 端轮询读取 push:result:{msgId}，拿到后覆盖 queued 状态
+     *   4. 超时未拿到仍返回 queued（WS 进程消费慢或未启动）
+     *
+     * @param string $msgId 消息 ID
+     * @param array  $queuedDetail 入队时的初始 detail（queued 状态）
+     * @param int    $fdCount 入队时的 fd 数量
+     * @return array [success_count, fail_count, detail, fail_detail, fail_reason, stored_offline]
+     */
+    private function waitForPushResult(string $msgId, array $queuedDetail, int $fdCount): array
+    {
+        $defaultResult = [
+            'success_count' => $fdCount,
+            'fail_count'    => 0,
+            'detail'        => $queuedDetail,
+            'fail_detail'   => [],
+            'fail_reason'   => '',
+            'stored_offline'=> false,
+        ];
+
+        if ($msgId === '') {
+            return $defaultResult;
+        }
+
+        try {
+            $redis = Redis::getInstance();
+        } catch (\Throwable $e) {
+            return $defaultResult;
+        }
+
+        // 轮询 800ms（每 50ms 检查一次，共 16 次）
+        $maxAttempts = 16;
+        $intervalMs  = 50;
+        for ($i = 0; $i < $maxAttempts; $i++) {
+            usleep($intervalMs * 1000);
+            try {
+                $raw = $redis->get('push:result:' . $msgId);
+                if ($raw !== null && $raw !== false) {
+                    $result = json_decode($raw, true);
+                    if (is_array($result) && isset($result['success_count'])) {
+                        // 清理结果 key
+                        $redis->del('push:result:' . $msgId);
+                        $redis->del('push:result:wait:' . $msgId);
+                        $this->logPush("[waitForPushResult] 获取真实结果成功 msg_id={$msgId} attempt=" . ($i + 1) . " success={$result['success_count']} fail={$result['fail_count']}");
+                        return $result;
+                    }
+                }
+            } catch (\Throwable $e) {
+                $this->logPush("[waitForPushResult] 读取异常 msg_id={$msgId} err=" . $e->getMessage());
+                break;
+            }
+        }
+
+        // 超时未拿到结果，清理等待 key，返回 queued 状态
+        try {
+            $redis->del('push:result:wait:' . $msgId);
+        } catch (\Throwable $e) {}
+        $this->logPush("[waitForPushResult] 等待超时（800ms）msg_id={$msgId} 仍为 queued 状态");
+        return $defaultResult;
     }
 
     /**
@@ -675,6 +769,28 @@ class PushDispatcher
             } elseif ($fc > 0) {
                 // 部分失败：部分 fd 投递成功，部分失败，失败的 fd 已在 pushToFds 记录详细原因
                 $this->logPush("[processQueue] 投递部分失败 msg_id={$msgId} success={$sc} fail={$fc}");
+            }
+
+            // 将真实投递结果写入 Redis，供 HTTP 端 waitForPushResult 读取
+            // 仅当 HTTP 端已预置 push:result:wait:{msgId} 时才写入（避免无谓写入）
+            if ($msgId !== '') {
+                try {
+                    $waitKey = 'push:result:wait:' . $msgId;
+                    if ($redis->exists($waitKey)) {
+                        $realResult = [
+                            'success_count' => $sc,
+                            'fail_count'    => $fc,
+                            'detail'        => $result['detail'] ?? [],
+                            'fail_detail'   => $result['fail_detail'] ?? [],
+                            'fail_reason'   => $result['fail_reason'] ?? '',
+                            'stored_offline'=> ($sc === 0 && $fc > 0 && $deviceId !== null),
+                        ];
+                        $redis->setex('push:result:' . $msgId, 10, json_encode($realResult, JSON_UNESCAPED_UNICODE));
+                        $this->logPush("[processQueue] 已写入真实结果 msg_id={$msgId} success={$sc} fail={$fc}");
+                    }
+                } catch (\Throwable $e) {
+                    $this->logPush("[processQueue] 写入真实结果失败 msg_id={$msgId} err=" . $e->getMessage());
+                }
             }
 
             $processed++;
