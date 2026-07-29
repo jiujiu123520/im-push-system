@@ -379,6 +379,18 @@ class PushDispatcher
 
         if ($this->server !== null) {
             // WebSocket 上下文：直接推送
+            // ⚠️ 注意：Swoole 多 worker 模型下，每个 fd 由 hash 分配到固定 worker。
+            //   isEstablished($fd) 只能正确判断"当前 worker 所属"的 fd，跨 worker
+            //   调用时永远返回 false（即使目标 fd 在其所属 worker 中完全活跃）。
+            //   processQueue() 只在 Worker 0 执行，若直接用 isEstablished 会误判
+            //   Worker 1/N 的所有 fd 为"未建立"，导致推送 100% 失败 + 错误清理在线连接。
+            //   修复策略：移除 isEstablished 前置拦截；先通过 ConnectionManager 的
+            //   Swoole Table（跨 Worker 共享）读取 last_active 过滤长时间死连接，
+            //   再直接调用 server->push()，由 Swoole 内核做真实投递并返回结果。
+            $deadThreshold = 180;  // 与 cleanupDeadConnections 保持一致：3 倍心跳超时
+            $now = time();
+            $cm = $this->connectionManager;
+
             foreach ($fds as $fd) {
                 $fd = (int)$fd;
 
@@ -390,27 +402,54 @@ class PushDispatcher
                     $errBefore = 0;
                 }
 
-                $established = $this->server->isEstablished($fd);
+                // [步骤1] 使用 Swoole Table 的 last_active 做"软过滤"
+                //   - 有信息且在有效期内：认为活跃，直接 push（避免 isEstablished 跨 worker 误判）
+                //   - 有信息但超阈值：标记疑似死连接，走 push 验证
+                //   - 无信息：新连接或已清理过，走 push 验证
+                $skipEstablishedCheck = false;
+                $info = $cm ? $cm->getDeviceInfo($fd) : null;
+                if ($info !== null && !empty($info['last_active'])) {
+                    $lastActive = (int)$info['last_active'];
+                    if (($now - $lastActive) <= $deadThreshold) {
+                        $skipEstablishedCheck = true;
+                    }
+                }
+
+                // [步骤2] 仅当 last_active 超时且 fd 有可能属于"当前 worker"时才调 isEstablished
+                //   Swoole 中 fd 分配：worker_id = (fd - 1) % worker_num（启动后 worker_num 固定）
+                //   若计算出不属于当前 worker，则永远跳过 isEstablished，直接 push
+                $established = true;
+                if (!$skipEstablishedCheck) {
+                    $workerNum = $this->server->setting['worker_num'] ?? 1;
+                    $expectedWorker = ($fd - 1) % max(1, $workerNum);
+                    $currentWorker = $this->server->worker_id ?? 0;
+                    if ($expectedWorker == $currentWorker) {
+                        // fd 理论上属于当前 worker，isEstablished 才有意义
+                        $established = $this->server->isEstablished($fd);
+                    }
+                }
+
                 if (!$established) {
+                    // 只有在"当前 worker 的 fd"才会走到这里
                     $fail++;
                     $reason = 'fd 未建立 WebSocket 连接（设备已离线或连接已断开）';
                     $detail[] = ['fd' => $fd, 'status' => 'failed', 'message' => $reason];
                     $failDetail[] = ['target' => 'fd:' . $fd, 'reason' => $reason];
                     $failReasons[$reason] = ($failReasons[$reason] ?? 0) + 1;
-                    $this->logPush("[pushToFds·WS] fd 未建立连接 fd={$fd} msg_id={$msgId} 原因=isEstablished=false（僵尸连接，触发清理）");
+                    $this->logPush("[pushToFds·WS] fd 未建立连接（本 worker） fd={$fd} msg_id={$msgId} 原因=isEstablished=false，触发清理");
                     $this->cleanupDeadConnection($fd);
                     continue;
                 }
 
-                // 采集 fd 详细状态（用于失败时定位）
+                // 采集 fd 详细状态（用于失败时定位）—— getClientInfo 同样有 worker 归属限制，尽量容错
                 $clientInfo = $this->server->getClientInfo($fd);
                 $connInfo = [
-                    'established'     => $clientInfo['websocket_status'] ?? '?',
-                    'sending'         => $clientInfo['sending'] ?? '?',      // 1=正在发送，缓冲区可能堆积
-                    'connect_time'    => $clientInfo['connect_time'] ?? '?',
-                    'last_time'       => $clientInfo['last_time'] ?? '?',
-                    'remote_ip'       => $clientInfo['remote_ip'] ?? '?',
-                    'remote_port'     => $clientInfo['remote_port'] ?? '?',
+                    'established'     => is_array($clientInfo) ? ($clientInfo['websocket_status'] ?? '?') : '?',
+                    'sending'         => is_array($clientInfo) ? ($clientInfo['sending'] ?? '?') : '?',
+                    'connect_time'    => is_array($clientInfo) ? ($clientInfo['connect_time'] ?? '?') : '?',
+                    'last_time'       => is_array($clientInfo) ? ($clientInfo['last_time'] ?? '?') : '?',
+                    'remote_ip'       => is_array($clientInfo) ? ($clientInfo['remote_ip'] ?? '?') : '?',
+                    'remote_port'     => is_array($clientInfo) ? ($clientInfo['remote_port'] ?? '?') : '?',
                 ];
 
                 $pushResult = $this->server->push($fd, $payload);
@@ -445,6 +484,13 @@ class PushDispatcher
                         " remote={$connInfo['remote_ip']}:{$connInfo['remote_port']}" .
                         " 原因=" . $reason
                     );
+                    // 只有明确是"连接不存在/已关闭"时才清理连接映射，避免临时错误误杀
+                    //   1001 / 1202 = Swoole 连接不存在或已关闭
+                    //   其他错误（1002包过大 / 1003缓冲区满）不应该清理在线映射
+                    if (in_array($errAfter, [1001, 1202], true)) {
+                        $this->logPush("[pushToFds·WS] push失败确认为连接已关闭，清理 fd={$fd} err_code={$errAfter}");
+                        $this->cleanupDeadConnection($fd);
+                    }
                 }
             }
 

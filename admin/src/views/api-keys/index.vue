@@ -504,7 +504,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { useClipboard } from '@vueuse/core'
 import {
   Connection as ConnectionIcon,
   Plus as PlusIcon,
@@ -531,8 +530,33 @@ import {
 } from '@/api/apiKey'
 import type { ApiKeyRecord } from '@/api/types'
 
-// 剪贴板（Key 复制与代码复制共用）
-const { copy } = useClipboard()
+// 剪贴板复制（兼容HTTP环境，优先Clipboard API，回退execCommand）
+async function copy(text: string): Promise<boolean> {
+  if (!text) return false
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // 忽略，走回退方案
+  }
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    textarea.style.top = '0'
+    document.body.appendChild(textarea)
+    textarea.focus()
+    textarea.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(textarea)
+    return ok
+  } catch {
+    return false
+  }
+}
 
 // 列表数据
 const loading = ref(false)
@@ -606,20 +630,20 @@ async function copyKey(text: string) {
     ElMessage.warning('内容为空')
     return
   }
-  try {
-    await copy(text)
-    ElMessage.success('已复制到剪贴板')
-  } catch {
-    ElMessage.error('复制失败，请手动复制')
+  const ok = await copy(text)
+  if (ok) {
+    ElMessage.success('AccessKey 已复制到剪贴板')
+  } else {
+    ElMessage.error('复制失败，请手动选择文本后 Ctrl+C 复制')
   }
 }
 
 async function copyCode(text: string) {
-  try {
-    await copy(text)
+  const ok = await copy(text)
+  if (ok) {
     ElMessage.success('代码已复制')
-  } catch {
-    ElMessage.error('复制失败')
+  } else {
+    ElMessage.error('复制失败，请手动复制')
   }
 }
 

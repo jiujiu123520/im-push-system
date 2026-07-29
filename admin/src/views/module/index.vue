@@ -332,6 +332,30 @@
               </el-button>
             </div>
           </template>
+          <!-- API Key 模块：AccessKey 列（带复制按钮） -->
+          <template v-else-if="currentModule === 'api-keys' && col.prop === 'accessKey'" #default="{ row }">
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 13px;">{{ row.accessKey || row.key_value || '-' }}</span>
+              <el-button
+                v-if="row.accessKey || row.key_value"
+                text
+                type="primary"
+                size="small"
+                @click="copyToClipboard(String(row.accessKey || row.key_value))"
+              >
+                <el-icon><CopyDocumentIcon /></el-icon>
+              </el-button>
+            </div>
+          </template>
+          <!-- API Key 模块：过期时间列 -->
+          <template v-else-if="currentModule === 'api-keys' && col.prop === 'expireAt'" #default="{ row }">
+            <span v-if="row.expireAt && row.expireAt !== '永不过期'" :style="isExpired(row.expireAt) ? 'color: #f56c6c; font-weight: 500;' : ''">
+              {{ row.expireAt }}
+              <el-tag v-if="isExpireSoon(row.expireAt)" type="warning" size="small" effect="dark" round style="margin-left: 4px;">即将过期</el-tag>
+              <el-tag v-if="isExpired(row.expireAt)" type="danger" size="small" effect="dark" round style="margin-left: 4px;">已过期</el-tag>
+            </span>
+            <span v-else style="color: #67c23a;">永不过期</span>
+          </template>
           <template v-else-if="currentModule === 'devices' && col.prop === 'device_id'" #default="{ row }">
             <div style="display: flex; align-items: center; gap: 4px;">
               <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ row[col.prop] }}</span>
@@ -719,6 +743,7 @@ import {
   deleteAdminApi
 } from '@/api/admin'
 import { getUserListApi, createUserApi, updateUserApi, deleteUserApi, resetUserPasswordApi } from '@/api/user'
+import { getApiKeyListApi } from '@/api/apiKey'
 import type { KeyForm, BlacklistForm, AdminForm, UserForm } from '@/api/types'
 
 interface FieldConfig {
@@ -968,9 +993,10 @@ const moduleConfigs: Record<string, {
     title: 'API Key',
     columns: [
       { prop: 'name', label: '名称' },
-      { prop: 'accessKey', label: 'AccessKey', width: 220 },
+      { prop: 'accessKey', label: 'AccessKey', width: 260 },
       { prop: 'rateLimit', label: '限流/分', width: 100 },
       { prop: 'permissions', label: '权限', width: 200, slot: 'tag' },
+      { prop: 'expireAt', label: '过期时间', width: 180 },
       { prop: 'status', label: '状态', width: 90, slot: 'status' },
       { prop: 'createdAt', label: '创建时间', width: 170 }
     ],
@@ -1135,6 +1161,24 @@ async function fetchData() {
     if (mod === 'keys') {
       const res = await getKeyListApi(query)
       tableData.value = res.data?.list || []
+      total.value = res.data?.total || 0
+    } else if (mod === 'api-keys') {
+      // API Key 模块：接入真实后端 API
+      const res = await getApiKeyListApi(query)
+      const rawList = res.data?.list || []
+      tableData.value = rawList.map((row: any) => ({
+        ...row,
+        // 字段映射：后端 key_value -> 前端 accessKey（列配置用 accessKey）
+        accessKey: row.key_value || row.accessKey || '',
+        // 后端 created_at -> 前端 createdAt
+        createdAt: row.created_at || row.createdAt || '',
+        // 后端 expire_at -> 前端 expireAt
+        expireAt: row.expire_at || row.expireAt || '永不过期',
+        // 限流兜底（后端可能暂无此字段）
+        rateLimit: row.rate_limit || row.rateLimit || '—',
+        // 权限兜底
+        permissions: Array.isArray(row.permissions) ? row.permissions : (row.permissions ? row.permissions.split(',').filter(Boolean) : [])
+      }))
       total.value = res.data?.total || 0
     } else if (mod === 'blacklist') {
       const res = await getBlacklistApi(query)
@@ -1425,6 +1469,22 @@ function formatDuration(seconds: number | string): string {
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
   return m > 0 ? `${h}小时${m}分钟` : `${h}小时`
+}
+
+// 判断过期时间是否已过期
+function isExpired(expireAt: string): boolean {
+  if (!expireAt || expireAt === '永不过期') return false
+  const ts = new Date(expireAt.replace(/-/g, '/')).getTime()
+  return !Number.isNaN(ts) && ts < Date.now()
+}
+
+// 判断过期时间是否即将过期（7天内）
+function isExpireSoon(expireAt: string): boolean {
+  if (!expireAt || expireAt === '永不过期') return false
+  const ts = new Date(expireAt.replace(/-/g, '/')).getTime()
+  if (Number.isNaN(ts)) return false
+  const diff = ts - Date.now()
+  return diff > 0 && diff < 7 * 24 * 3600 * 1000
 }
 
 // 复制到剪贴板（兼容HTTP环境）
