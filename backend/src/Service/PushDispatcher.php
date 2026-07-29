@@ -484,11 +484,12 @@ class PushDispatcher
                         " remote={$connInfo['remote_ip']}:{$connInfo['remote_port']}" .
                         " 原因=" . $reason
                     );
-                    // 只有明确是"连接不存在/已关闭"时才清理连接映射，避免临时错误误杀
+                    // 只有明确是"连接不存在/已关闭/状态无效"时才清理连接映射，避免临时错误误杀
                     //   1001 / 1202 = Swoole 连接不存在或已关闭
+                    //   503 = WebSocket 状态无效（未完成握手或正在关闭），连接无法接收推送
                     //   其他错误（1002包过大 / 1003缓冲区满）不应该清理在线映射
-                    if (in_array($errAfter, [1001, 1202], true)) {
-                        $this->logPush("[pushToFds·WS] push失败确认为连接已关闭，清理 fd={$fd} err_code={$errAfter}");
+                    if (in_array($errAfter, [1001, 1202, 503], true)) {
+                        $this->logPush("[pushToFds·WS] push失败确认为连接已失效，清理 fd={$fd} err_code={$errAfter}");
                         $this->cleanupDeadConnection($fd);
                     }
                 }
@@ -602,6 +603,7 @@ class PushDispatcher
     {
         // Swoole 错误码定义见 swoole_strerror，常见值：
         // 1001=连接不存在/已关闭，1002=数据包超过 max_packet_size，1003=发送缓冲区满
+        // 503=WebSocket连接状态无效（未完成握手或正在关闭），1202=连接不存在
         switch ($errCode) {
             case 0:
                 // 无错误码但仍失败，通常是 fd 已在 push 时被关闭（时序竞态）
@@ -609,6 +611,11 @@ class PushDispatcher
             case 1001:
             case 1202:
                 return '连接不存在或已关闭';
+            case 503:
+                // SW_ERROR_WEBSOCKET_BAD_REQUEST：fd 存在但 websocket_status 不是 ACTIVE
+                // 原因：连接未完成 WebSocket 握手（还在 pending auth 阶段），
+                //       或连接正在关闭过程中（状态已从 ACTIVE 变为 CLOSING/CLOSED）
+                return 'WebSocket 连接状态无效（未完成握手或正在关闭）';
             case 1002:
                 return "数据包过大 size={$payloadSize}，超过 max_packet_size（默认 2MB）";
             case 1003:

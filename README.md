@@ -243,17 +243,18 @@ APP 通过 `plus.android` 调用原生 API 实现**五层保活**，确保锁屏
 |------|------|------|
 | 1. 前台服务 | `startForegroundService` | 创建常驻通知栏，进程优先级提升至前台，防止被系统杀死 |
 | 2. WakeLock | `PowerManager.PARTIAL_WAKE_LOCK` | 保持 CPU 唤醒，防止锁屏后 CPU 休眠导致心跳停止 |
-| 3. AlarmManager | `setExactAndAllowWhileIdle` | 锁屏后 JS 引擎被冻结时作为备用心跳，25 秒间隔定时唤醒 CPU 发送心跳 |
+| 3. AlarmManager | `setExactAndAllowWhileIdle` | 锁屏后 JS 引擎被冻结时作为备用心跳，15 秒间隔定时唤醒 CPU 发送心跳 |
 | 4. WifiLock | `WifiManager.WIFI_MODE_FULL_HIGH_PERF` | 保持 WiFi 不休眠，防止锁屏后网络断开 |
 | 5. 电池优化白名单 | `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | 申请加入电池优化白名单，避免 Doze 模式限制 |
 
 ### 心跳与重连策略
 
-- **客户端心跳**：10 秒间隔主动发送 ping，20 秒未收到任何消息则主动断开重连
-- **服务端心跳**：HeartbeatManager 定时发送 ping，连续 3 次未收到 pong 则断开连接（60 秒超时）
+- **客户端心跳**：10 秒间隔主动发送 ping，45 秒未收到任何消息则主动断开重连
+- **服务端心跳**：Swoole 内置心跳检测 120 秒无数据则关闭连接，HeartbeatManager 定时发送 ping
 - **重连策略**：前 3 次快速重连（2s/5s/10s），之后指数退避（最大 60 秒）
-- **AlarmManager 唤醒**：锁屏后闹钟触发时获取临时 WakeLock（10 秒），发送心跳或触发重连
+- **AlarmManager 唤醒**：锁屏后闹钟 15 秒间隔触发，获取临时 WakeLock（10 秒），发送心跳或触发重连
 - **onShow 检测**：APP 切回前台时主动发送验证 ping，5 秒无响应则强制重连
+- **僵尸连接清理**：push 失败时根据 Swoole 错误码（1001/1202/503）自动清理无效连接映射
 
 ### 锁屏通知显示
 
@@ -519,6 +520,8 @@ cd /www/push-system && bash backend/deploy/check-version.sh
 2. 小米手机需开启自启动、省电策略设为无限制
 3. 查看服务器日志中 ping/pong 记录：`grep "收到客户端 pong" ws_debug.log`
 4. 确认 APP 已开启通知权限（前台服务依赖通知栏）
+5. 服务端心跳超时已提升至 120 秒，客户端心跳超时 45 秒，AlarmManager 15 秒间隔备用心跳
+6. 若推送日志出现 err_code=503，表示 WebSocket 连接状态无效，服务端会自动清理僵尸连接
 
 ### APP 通知栏不显示
 
