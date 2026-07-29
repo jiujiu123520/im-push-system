@@ -731,6 +731,7 @@ interface ColumnConfig {
   slot?: 'status' | 'tag' | 'online' | 'platform'
         | 'targetType' | 'targetValue' | 'count' | 'email' | 'phone'
         | 'notifyEnabled' | 'notifyEmail' | 'notifyInterval'
+        | 'failReason' | 'elapsedMs'
 }
 
 // 各模块配置
