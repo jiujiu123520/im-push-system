@@ -1143,6 +1143,8 @@ export default {
             this.playLocalAudioByIndex(idx)
         },
         updateAudioNotification() {
+            // 音频状态变化时强制更新通知（绕过节流）
+            this._lastStartForegroundTs = 0
             this.startForegroundService()
         },
         // ============== 设备与配置 ==============
@@ -1347,6 +1349,15 @@ export default {
         },
         startForegroundService() {
             // #ifdef APP-PLUS
+            // 节流：避免频繁重连导致通知栏反复弹出"推送服务·已连接"
+            // 5 秒内重复调用直接跳过（通知已存在，无需重复创建）
+            const now = Date.now()
+            if (this._lastStartForegroundTs && (now - this._lastStartForegroundTs) < 5000) {
+                console.log('[Foreground] 节流跳过（5秒内已调用），避免通知反复弹出')
+                return
+            }
+            this._lastStartForegroundTs = now
+
             let main, Context, Build, NotificationManager, Intent, PendingIntent
             try {
                 main = plus.android.runtimeMainActivity()
@@ -1487,9 +1498,13 @@ export default {
                         builder.setPriority(0)  // PRIORITY_DEFAULT
                         builder.setVisibility(1)  // VISIBILITY_PUBLIC
                         builder.setCategory('service')
+                        // 关键：通知已存在时只更新内容，不弹出提示（避免重连反复弹出）
+                        builder.setOnlyAlertOnce(true)
                     } else {
                         if (Build.VERSION.SDK_INT >= 16) {
                             builder.setPriority(0)
+                            // 原生 Builder 也设置 setOnlyAlertOnce
+                            try { builder.setOnlyAlertOnce(true) } catch (e2) {}
                         }
                     }
                 } catch (e) {}
@@ -1857,6 +1872,8 @@ export default {
         },
         stopForegroundService() {
             // #ifdef APP-PLUS
+            // 重置节流时间戳，允许下次 startForegroundService 重新创建通知
+            this._lastStartForegroundTs = 0
             try {
                 const main = plus.android.runtimeMainActivity()
                 const Context = plus.android.importClass('android.content.Context')
