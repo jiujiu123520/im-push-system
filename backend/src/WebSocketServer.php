@@ -491,6 +491,9 @@ class WebSocketServer
         $this->heartbeatManager->startHeartbeat($fd, $heartbeatInterval);
         $effectiveInterval = $this->heartbeatManager->getInterval($fd);
 
+        // 鉴权成功视为一次活跃，更新 last_active（供僵尸连接巡检使用）
+        $this->connectionManager->updateLastActive($fd);
+
         // 回放离线消息
         $this->replayOfflineMessages($server, $fd, $deviceId);
 
@@ -524,6 +527,8 @@ class WebSocketServer
                 'server_time' => time(),
                 'server_time_ms' => (int)(microtime(true) * 1000),
             ], 'pong'));
+            // 心跳活跃，更新 last_active
+            $this->connectionManager->updateLastActive($fd);
             return;
         }
 
@@ -568,6 +573,8 @@ class WebSocketServer
                         $deviceState['tab'] ?? '-'
                     ));
                 }
+                // 心跳活跃，更新 Swoole Table 的 last_active（供僵尸连接巡检使用）
+                $this->connectionManager->updateLastActive($fd);
                 // 更新设备最后活跃时间（异步、低频，避免每次心跳都写库）
                 // 通过 ConnectionManager 获取 device_id 与 push_key_id
                 $this->updateDeviceLastActiveByFd($fd);
@@ -583,6 +590,8 @@ class WebSocketServer
                     'client_timestamp' => $clientTimestamp,
                     'online_count' => $onlineCount,
                 ], 'pong'));
+                // 心跳活跃，更新 Swoole Table 的 last_active（供僵尸连接巡检使用）
+                $this->connectionManager->updateLastActive($fd);
                 // 更新设备最后活跃时间
                 $this->updateDeviceLastActiveByFd($fd);
                 break;
@@ -658,8 +667,22 @@ class WebSocketServer
     /**
      * 巡检并清理僵尸连接
      *
-     * 遍历 Redis 中所有在线 fd，逐一检查 isEstablished，
-     * 清理那些 Redis 标记在线但实际已断开的连接。
+     * 遍历 Redis 中所有在线 fd，结合 Swoole Table 的 last_active 时间戳
+     * 判断连接是否真的死亡，清理那些 Redis 标记在线但实际已断开的连接。
+     *
+     * 关键说明：
+     *   Swoole 的 isEstablished($fd) 在跨 worker 调用时不可靠——它只能
+     *   检查当前 worker 的连接。本方法运行在 Worker 0，遍历的是所有 worker
+     *   的 fd，若仅依赖 isEstablished 会把其他 worker 的活跃连接误判为
+     *   死连接，错误清理 ws:device:{deviceId}，导致 APP 实际在线但后台
+     *   显示离线。
+     *
+     *   因此本方法改用 last_active 时间戳作为主要判据：
+     *   - last_active 超过阈值（180 秒，约 3 倍心跳超时）视为死连接；
+     *   - Swoole Table 中无该 fd 记录但 Redis 仍标记在线视为孤儿记录；
+     *   - 仅在确认为死连接时调用 unregisterDevice，且不再兜底清理
+     *     key:subscribe 和 device:key（订阅关系应持久保留，由
+     *     unregisterDevice 统一处理）。
      *
      * @return void
      */
@@ -677,29 +700,49 @@ class WebSocketServer
             return;
         }
 
-        $deadCount = 0;
-        $checked   = 0;
+        // 死连接判定阈值：180 秒（约 3 倍 heartbeat_idle_time=60s）
+        // 只有超过此阈值才认为是真正的死连接，避免误清理跨 worker 的活跃连接
+        $deadThreshold = 180;
+        $now           = time();
+        $deadCount     = 0;
+        $checked       = 0;
 
         foreach ($onlineFds as $fdStr) {
             $fd = (int)$fdStr;
             $checked++;
 
-            if (!$this->server->isEstablished($fd)) {
+            // 优先用 Swoole Table 的 last_active 判断（跨 worker 共享，可靠）
+            $lastActive = $this->connectionManager->getLastActive($fd);
+            $isDead     = false;
+
+            if ($lastActive === null) {
+                // Swoole Table 无记录：可能是进程重启后的孤儿 fd，或从未鉴权的连接
+                // 再用 isEstablished 兜底确认（仅对当前 worker 的 fd 可靠）
+                if (!$this->server->isEstablished($fd)) {
+                    $isDead = true;
+                }
+            } else {
+                // 有 last_active 记录：只有超过阈值才认为是死连接
+                // 不再使用 isEstablished 作为判据（跨 worker 不可靠）
+                if (($now - $lastActive) > $deadThreshold) {
+                    $isDead = true;
+                }
+            }
+
+            if ($isDead) {
                 $deadCount++;
+                // unregisterDevice 仅清理在线连接数据（ws:device / ws:fd:device / ws:online），
+                // 保留 key:subscribe 和 device:key 订阅关系
                 $this->connectionManager->unregisterDevice($fd);
 
+                // 兜底清理 ws:fd:device 映射（unregisterDevice 在内存表无记录时已处理，
+                // 此处二次确保不残留）
                 $deviceId = $redis->hGet('ws:fd:device', (string)$fd);
-                if ($deviceId) {
+                if ($deviceId !== false && $deviceId !== null) {
                     $redis->hDel('ws:fd:device', (string)$fd);
-                    $remaining = $redis->sCard("ws:device:{$deviceId}");
-                    if ($remaining == 0) {
-                        $keyValue = $redis->hGet('device:key', $deviceId);
-                        if ($keyValue) {
-                            $redis->sRem("key:subscribe:{$keyValue}", $deviceId);
-                        }
-                        $redis->hDel('device:key', $deviceId);
-                    }
                 }
+                // 注意：不再清理 key:subscribe:{keyValue} 和 device:key 哈希
+                // 订阅关系是持久的，APP 离线不应移除，否则推送时找不到订阅设备无法存离线消息
             }
 
             if ($checked >= 200) {

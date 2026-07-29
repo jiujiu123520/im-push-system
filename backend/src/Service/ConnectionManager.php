@@ -41,6 +41,7 @@ class ConnectionManager
             $this->table->column('key_value', Table::TYPE_STRING, 128);
             $this->table->column('push_key_id', Table::TYPE_INT, 8);
             $this->table->column('connect_at', Table::TYPE_INT, 8);
+            $this->table->column('last_active', Table::TYPE_INT, 8);
             $this->table->column('ip', Table::TYPE_STRING, 45);
             $this->table->column('fingerprint', Table::TYPE_STRING, 128);
             $this->table->create();
@@ -80,6 +81,7 @@ class ConnectionManager
                 'key_value'   => $keyValue,
                 'push_key_id' => $pushKeyId,
                 'connect_at'  => time(),
+                'last_active' => time(),
                 'ip'          => $ip,
                 'fingerprint' => $fingerprint,
             ]);
@@ -206,6 +208,45 @@ class ConnectionManager
     {
         $key = $this->redis->hGet('device:key', $deviceId);
         return $key !== null && $key !== false ? (string)$key : null;
+    }
+
+    /**
+     * 更新连接的最后活跃时间（写入 Swoole Table，跨 worker 共享）
+     *
+     * 用于僵尸连接巡检（cleanupDeadConnections）判断连接是否存活：
+     * Swoole 的 isEstablished 在跨 worker 调用时不可靠，因此改用
+     * last_active 时间戳 + 阈值来判断连接是否真的死亡。
+     *
+     * 应在 onMessage 的 auth/ping/pong 等事件中调用。
+     *
+     * @param int $fd 连接文件描述符
+     * @return void
+     */
+    public function updateLastActive(int $fd): void
+    {
+        if ($this->table === null) {
+            return;
+        }
+        // 仅更新 last_active 字段，避免覆盖其他字段
+        $this->table->set((string)$fd, ['last_active' => time()]);
+    }
+
+    /**
+     * 获取连接的最后活跃时间戳
+     *
+     * @param int $fd 连接文件描述符
+     * @return int|null 返回时间戳，无记录返回 null
+     */
+    public function getLastActive(int $fd): ?int
+    {
+        if ($this->table === null) {
+            return null;
+        }
+        $row = $this->table->get((string)$fd);
+        if ($row === false) {
+            return null;
+        }
+        return (int)($row['last_active'] ?? 0);
     }
 
     /**
