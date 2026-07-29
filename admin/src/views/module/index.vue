@@ -204,6 +204,7 @@
           </template>
           <template v-else-if="col.slot === 'platform'" #default="{ row }">
             <el-tag
+              v-if="row[col.prop]"
               :type="platformTagType(row[col.prop])"
               effect="plain"
               round
@@ -211,6 +212,12 @@
             >
               {{ platformLabel(row[col.prop]) }}
             </el-tag>
+            <span v-else style="color: #909399; font-size: 12px;">未知</span>
+          </template>
+          <!-- 设备模块：通用文本列（空值显示"未知"） -->
+          <template v-else-if="col.slot === 'deviceText'" #default="{ row }">
+            <span v-if="row[col.prop]" :title="String(row[col.prop])">{{ row[col.prop] }}</span>
+            <span v-else style="color: #909399; font-size: 12px;">未知</span>
           </template>
           <!-- 推送记录：目标类型 -->
           <template v-else-if="col.slot === 'targetType'" #default="{ row }">
@@ -731,7 +738,7 @@ interface ColumnConfig {
   slot?: 'status' | 'tag' | 'online' | 'platform'
         | 'targetType' | 'targetValue' | 'count' | 'email' | 'phone'
         | 'notifyEnabled' | 'notifyEmail' | 'notifyInterval'
-        | 'failReason' | 'elapsedMs'
+        | 'failReason' | 'elapsedMs' | 'deviceText'
 }
 
 // 各模块配置
@@ -804,11 +811,11 @@ const moduleConfigs: Record<string, {
     columns: [
       { prop: 'device_id', label: '设备ID', width: 220 },
       { prop: 'platform', label: '平台', width: 110, slot: 'platform' },
-      { prop: 'model', label: '型号' },
-      { prop: 'app_version', label: 'App版本', width: 100 },
+      { prop: 'model', label: '型号', slot: 'deviceText' },
+      { prop: 'app_version', label: 'App版本', width: 110, slot: 'deviceText' },
       { prop: 'online', label: '在线', width: 90, slot: 'online' },
       { prop: 'status', label: '状态', width: 90, slot: 'tag' },
-      { prop: 'last_active_at', label: '最后活跃', width: 170 }
+      { prop: 'last_active_at', label: '最后活跃', width: 170, slot: 'deviceText' }
     ],
     fields: [
       { prop: 'device_id', label: '设备ID', type: 'input', required: true },

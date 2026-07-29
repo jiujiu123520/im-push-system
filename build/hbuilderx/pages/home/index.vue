@@ -2678,6 +2678,7 @@ export default {
             let appVersion = ''
             let deviceModel = ''
             let osVersion = ''
+            let deviceName = ''
             // #ifdef APP-PLUS
             try {
                 const info = uni.getSystemInfoSync()
@@ -2685,6 +2686,8 @@ export default {
                 appVersion = info.appVersion || info.appWgtVersion || ''
                 deviceModel = info.model || ''
                 osVersion = (info.system || '') + (info.platform ? ' (' + info.platform + ')' : '')
+                // 设备名称：优先使用设备型号，其次用 deviceId 前缀
+                deviceName = info.model || (this.deviceId ? this.deviceId.substring(0, 16) : '')
             } catch (e) {
                 console.warn('获取设备信息失败', e)
             }
@@ -2693,6 +2696,9 @@ export default {
             // 构造 WebSocket URL，附加设备信息参数（服务端会写入 devices 表）
             let url = this.wsUrl + '/ws/client?key=' + encodeURIComponent(this.form.key)
                 + '&device_id=' + encodeURIComponent(this.deviceId)
+            if (deviceName) {
+                url += '&device_name=' + encodeURIComponent(deviceName)
+            }
             if (deviceModel) {
                 url += '&model=' + encodeURIComponent(deviceModel)
             }

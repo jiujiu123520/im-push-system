@@ -70,12 +70,15 @@ class DeviceService
             // 更新已有设备（仅当新值非空时才覆盖，避免旧 APP 未上报时清空字段）
             Database::execute(
                 'UPDATE devices
-                 SET user_id = ?, device_name = ?, device_model = ?, os_version = ?,
+                 SET user_id = ?,
+                     device_name = IF(? = "", device_name, ?),
+                     device_model = IF(? = "", device_model, ?),
+                     os_version = IF(? = "", os_version, ?),
                      platform = IF(? = "", platform, ?),
                      app_version = IF(? = "", app_version, ?),
                      ip = ?, ua = ?, fingerprint = ?, status = 1, last_connect_at = NOW(), last_active_at = NOW()
                  WHERE id = ?',
-                [$userId, $deviceName, $model, $osVersion, $platform, $platform, $appVersion, $appVersion, $ip, $ua, $fingerprint, $existing['id']]
+                [$userId, $deviceName, $deviceName, $model, $model, $osVersion, $osVersion, $platform, $platform, $appVersion, $appVersion, $ip, $ua, $fingerprint, $existing['id']]
             );
             $device = Database::fetch('SELECT * FROM devices WHERE id = ?', [$existing['id']]);
         }
