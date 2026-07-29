@@ -2994,6 +2994,17 @@ export default {
             } catch (e) {
                 console.warn('连接验证 ping 发送失败', e)
             }
+            // 鉴权成功后自动拉取历史消息，确保离线期间的消息不丢失
+            // 延迟 500ms 执行，避免与 WS 离线消息回放同时进行造成 UI 抖动
+            setTimeout(() => {
+                this.refreshData(true).then((newCount) => {
+                    if (newCount > 0) {
+                        console.log('[Refresh] 鉴权后同步到 ' + newCount + ' 条历史消息')
+                    }
+                }).catch((e) => {
+                    console.warn('[Refresh] 鉴权后同步失败', e)
+                })
+            }, 500)
         },
         closeSocket() {
             if (this._authTimer) {

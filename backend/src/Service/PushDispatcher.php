@@ -110,8 +110,9 @@ class PushDispatcher
             $this->logPush("[pushToDevice·{$ctx}] 设备离线，已存离线 device_id={$deviceId} msg_id={$msgId}");
             $reason = '设备离线，APP未连接或已断开（消息已存为离线，设备重连后可拉取）';
             return [
-                'success_count' => 0,
-                'fail_count'    => 1,
+                'success_count'  => 0,
+                'fail_count'     => 1,
+                'stored_offline' => true,  // 标记：消息已存离线，非真正失败
                 'detail'        => [
                     [
                         'device_id' => $deviceId,
@@ -139,14 +140,16 @@ class PushDispatcher
         $message['message_id'] = $message['message_id'] ?? uniqid('msg_', true);
 
         $result = [
-            'success_count' => 0,
-            'fail_count'    => 0,
+            'success_count'  => 0,
+            'fail_count'     => 0,
+            'stored_offline' => false,
             'detail'        => [],
             'fail_detail'   => [],
             'fail_reason'   => '',
         ];
 
         $failReasons = [];
+        $anyStoredOffline = false;
         foreach ($deviceIds as $deviceId) {
             $deviceId = trim((string)$deviceId);
             if ($deviceId === '') {
@@ -156,6 +159,9 @@ class PushDispatcher
             $result['success_count'] += $r['success_count'];
             $result['fail_count']    += $r['fail_count'];
             $result['detail']         = array_merge($result['detail'], $r['detail']);
+            if (!empty($r['stored_offline'])) {
+                $anyStoredOffline = true;
+            }
             if (!empty($r['fail_detail'])) {
                 $result['fail_detail'] = array_merge($result['fail_detail'], $r['fail_detail']);
             }
@@ -163,6 +169,7 @@ class PushDispatcher
                 $failReasons[$r['fail_reason']] = ($failReasons[$r['fail_reason']] ?? 0) + 1;
             }
         }
+        $result['stored_offline'] = $anyStoredOffline;
         $result['fail_reason'] = $this->buildFailReasonSummary($failReasons);
 
         return $result;
@@ -198,6 +205,7 @@ class PushDispatcher
                 return [
                     'success_count' => 0,
                     'fail_count'    => 0,
+                    'stored_offline' => false,
                     'detail'        => [
                         [
                             'key'     => $keyValue,
@@ -216,8 +224,9 @@ class PushDispatcher
             $this->logPush("[pushByKey] 所有设备离线，已存离线 key={$keyValue} devices=" . count($deviceIds) . " msg_id={$message['message_id']}");
             $reason = '所有设备离线（共' . count($deviceIds) . '台），APP未连接或已断开，消息已存为离线';
             return [
-                'success_count' => 0,
-                'fail_count'    => count($deviceIds),
+                'success_count'  => 0,
+                'fail_count'     => count($deviceIds),
+                'stored_offline' => true,  // 标记：消息已存离线，非真正失败
                 'detail'        => [
                     [
                         'key'     => $keyValue,

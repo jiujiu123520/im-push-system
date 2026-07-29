@@ -123,18 +123,23 @@ class ApiPushController
         } else {
             // key 维度推送
             $result = [
-                'success_count' => 0,
-                'fail_count'    => 0,
+                'success_count'  => 0,
+                'fail_count'     => 0,
+                'stored_offline' => false,
                 'detail'        => [],
                 'fail_detail'   => [],
                 'fail_reason'   => '',
             ];
             $failReasons = [];
+            $anyStoredOffline = false;
             foreach ($targets as $key) {
                 $r = $dispatcher->pushByKey($key, $message);
                 $result['success_count'] += $r['success_count'];
                 $result['fail_count']    += $r['fail_count'];
                 $result['detail']         = array_merge($result['detail'], $r['detail']);
+                if (!empty($r['stored_offline'])) {
+                    $anyStoredOffline = true;
+                }
                 if (!empty($r['fail_detail'])) {
                     $result['fail_detail'] = array_merge($result['fail_detail'], $r['fail_detail']);
                 }
@@ -142,18 +147,22 @@ class ApiPushController
                     $failReasons[$r['fail_reason']] = ($failReasons[$r['fail_reason']] ?? 0) + 1;
                 }
             }
+            $result['stored_offline'] = $anyStoredOffline;
             $result['fail_reason'] = $this->buildFailReasonSummary($failReasons);
         }
 
         $elapsedMs = (int)((microtime(true) - $startTime) * 1000);
 
-        // 派生推送状态：0=失败 1=成功 2=部分成功
+        // 派生推送状态：0=失败 1=成功 2=部分成功 3=进行中 4=已存离线
         $successCount = (int)$result['success_count'];
         $failCount    = (int)$result['fail_count'];
+        $storedOffline = !empty($result['stored_offline']);
         if ($successCount > 0 && $failCount === 0) {
             $status = 1;
         } elseif ($successCount > 0 && $failCount > 0) {
             $status = 2;
+        } elseif ($storedOffline) {
+            $status = 4;  // APP 离线但消息已存离线，等待重连后推送
         } else {
             $status = 0;
         }

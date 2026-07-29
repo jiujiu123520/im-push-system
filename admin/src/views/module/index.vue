@@ -81,6 +81,7 @@
           <el-option label="成功" :value="1" />
           <el-option label="部分成功" :value="2" />
           <el-option label="进行中" :value="3" />
+          <el-option label="已存离线" :value="4" />
         </template>
         <template v-else>
           <el-option label="启用" :value="1" />
@@ -123,7 +124,7 @@
           show-overflow-tooltip
         >
           <template v-if="col.slot === 'status'" #default="{ row }">
-            <!-- 推送记录：status 0=失败 1=成功 2=部分成功 3=进行中 -->
+            <!-- 推送记录：status 0=失败 1=成功 2=部分成功 3=进行中 4=已存离线 -->
             <template v-if="currentModule === 'push-logs'">
               <el-tag
                 v-if="row.status === 1"
@@ -160,6 +161,15 @@
                 size="small"
               >
                 进行中
+              </el-tag>
+              <el-tag
+                v-else-if="row.status === 4"
+                type="info"
+                effect="dark"
+                round
+                size="small"
+              >
+                已存离线
               </el-tag>
               <el-tag v-else type="info" effect="plain" round size="small">
                 未知
@@ -1498,7 +1508,7 @@ async function viewPushLogDetail(row: Record<string, any>) {
 
 // 推送状态标签
 function pushStatusLabel(status: number) {
-  const map: Record<number, string> = { 0: '失败', 1: '成功', 2: '部分成功', 3: '进行中' }
+  const map: Record<number, string> = { 0: '失败', 1: '成功', 2: '部分成功', 3: '进行中', 4: '已存离线' }
   return map[status] || '未知'
 }
 function pushStatusType(status: number): 'success' | 'danger' | 'warning' | 'primary' | 'info' {
@@ -1506,7 +1516,8 @@ function pushStatusType(status: number): 'success' | 'danger' | 'warning' | 'pri
     0: 'danger',
     1: 'success',
     2: 'warning',
-    3: 'primary'
+    3: 'primary',
+    4: 'info'
   }
   return map[status] || 'info'
 }

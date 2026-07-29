@@ -148,13 +148,16 @@ class TestPushController
 
         $elapsedMs = (int)((microtime(true) - $startTime) * 1000);
 
-        // 派生推送状态：0=失败 1=成功 2=部分成功
+        // 派生推送状态：0=失败 1=成功 2=部分成功 3=进行中 4=已存离线
         $successCount = (int)$result['success_count'];
         $failCount    = (int)$result['fail_count'];
+        $storedOffline = !empty($result['stored_offline']);
         if ($successCount > 0 && $failCount === 0) {
             $status = 1;
         } elseif ($successCount > 0 && $failCount > 0) {
             $status = 2;
+        } elseif ($storedOffline) {
+            $status = 4;
         } else {
             $status = 0;
         }
@@ -757,6 +760,7 @@ class TestPushController
             $details = [];
             $failDetail = [];
             $failReasons = [];
+            $anyStoredOffline = false;
             foreach ($keyValues as $kv) {
                 $r = $dispatcher->pushByKey($kv, $message);
                 $totalSuccess += $r['success_count'];
@@ -766,6 +770,9 @@ class TestPushController
                     'success' => $r['success_count'],
                     'fail' => $r['fail_count'],
                 ];
+                if (!empty($r['stored_offline'])) {
+                    $anyStoredOffline = true;
+                }
                 if (!empty($r['fail_detail'])) {
                     $failDetail = array_merge($failDetail, $r['fail_detail']);
                 }
@@ -774,8 +781,9 @@ class TestPushController
                 }
             }
             $result = [
-                'success_count' => $totalSuccess,
-                'fail_count'    => $totalFail,
+                'success_count'  => $totalSuccess,
+                'fail_count'     => $totalFail,
+                'stored_offline' => $anyStoredOffline,
                 'detail'        => $details,
                 'fail_detail'   => $failDetail,
                 'fail_reason'   => $this->buildFailReasonSummary($failReasons),
@@ -792,6 +800,7 @@ class TestPushController
             $details = [];
             $failDetail = [];
             $failReasons = [];
+            $anyStoredOffline = false;
 
             foreach ($keys as $keyRow) {
                 $keyValue = (string)$keyRow['key_value'];
@@ -803,6 +812,9 @@ class TestPushController
                     'success' => $r['success_count'],
                     'fail' => $r['fail_count'],
                 ];
+                if (!empty($r['stored_offline'])) {
+                    $anyStoredOffline = true;
+                }
                 if (!empty($r['fail_detail'])) {
                     $failDetail = array_merge($failDetail, $r['fail_detail']);
                 }
@@ -812,8 +824,9 @@ class TestPushController
             }
 
             $result = [
-                'success_count' => $totalSuccess,
-                'fail_count'    => $totalFail,
+                'success_count'  => $totalSuccess,
+                'fail_count'     => $totalFail,
+                'stored_offline' => $anyStoredOffline,
                 'detail'        => $details,
                 'fail_detail'   => $failDetail,
                 'fail_reason'   => $this->buildFailReasonSummary($failReasons),
@@ -822,13 +835,16 @@ class TestPushController
 
         $elapsedMs = (int)((microtime(true) - $startTime) * 1000);
 
-        // 派生推送状态
+        // 派生推送状态：0=失败 1=成功 2=部分成功 3=进行中 4=已存离线
         $spSuccess = (int)$result['success_count'];
         $spFail    = (int)$result['fail_count'];
+        $spStoredOffline = !empty($result['stored_offline']);
         if ($spSuccess > 0 && $spFail === 0) {
             $spStatus = 1;
         } elseif ($spSuccess > 0 && $spFail > 0) {
             $spStatus = 2;
+        } elseif ($spStoredOffline) {
+            $spStatus = 4;
         } else {
             $spStatus = 0;
         }

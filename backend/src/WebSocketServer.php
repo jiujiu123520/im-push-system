@@ -804,9 +804,34 @@ class WebSocketServer
     {
         try {
             $messages = $this->pushDispatcher->getOfflineMessages($deviceId);
+            if (empty($messages)) {
+                return;
+            }
+            // 检查连接是否仍可用
+            $established = $server->isEstablished($fd);
+            if (!$established) {
+                // 连接已断开，把消息重新放回离线队列，避免丢失
+                foreach ($messages as $message) {
+                    $this->pushDispatcher->storeOfflineMessage($deviceId, $message);
+                }
+                $this->logToFile("[replayOfflineMessages] fd={$fd} 已断开，" . count($messages) . " 条离线消息重新入队 device_id={$deviceId}");
+                return;
+            }
+            $pushed = 0;
+            $failed = 0;
             foreach ($messages as $message) {
                 $payload = $this->pack(0, 'offline_message', $message);
-                $server->push($fd, $payload);
+                $result = $server->push($fd, $payload);
+                if ($result) {
+                    $pushed++;
+                } else {
+                    // push 失败，把消息重新放回离线队列尾部，避免永久丢失
+                    $this->pushDispatcher->storeOfflineMessage($deviceId, $message);
+                    $failed++;
+                }
+            }
+            if ($failed > 0) {
+                $this->logToFile("[replayOfflineMessages] fd={$fd} device_id={$deviceId} 推送 {$pushed} 条成功，{$failed} 条失败已重新入队");
             }
         } catch (\Throwable $e) {
             echo "[WS] 离线消息回放异常：{$e->getMessage()}\n";

@@ -104,6 +104,11 @@ class ConnectionManager
     /**
      * 注销设备连接
      *
+     * 注意：仅清理在线连接相关数据（ws:device / ws:fd:device / ws:online / Swoole Table），
+     * 不清理 key:subscribe 和 device:key 映射 —— 这两者是"设备订阅关系"，应持久保留，
+     * 用于 APP 离线时存离线消息、APP 重连时识别已绑定设备。
+     * 若此处清理 key:subscribe，会导致后续推送找不到订阅设备、无法存离线消息。
+     *
      * @param int $fd 连接文件描述符
      * @return array|null 返回被注销的设备信息，不存在则返回 null
      */
@@ -111,7 +116,13 @@ class ConnectionManager
     {
         $info = $this->getDeviceInfo($fd);
         if ($info === null) {
-            // 内存表中无记录，仅从在线集合移除
+            // 内存表中无记录，尝试通过 ws:fd:device 反查 deviceId 兜底清理
+            $deviceId = $this->redis->hGet('ws:fd:device', (string)$fd);
+            if ($deviceId !== false && $deviceId !== null) {
+                $deviceId = (string)$deviceId;
+                $this->redis->sRem("ws:device:{$deviceId}", (string)$fd);
+                $this->redis->hDel('ws:fd:device', (string)$fd);
+            }
             $this->redis->sRem('ws:online', (string)$fd);
             return null;
         }
@@ -124,17 +135,14 @@ class ConnectionManager
             $this->table->del((string)$fd);
         }
 
-        // 从 device_id -> fd 集合移除
+        // 从 device_id -> fd 集合移除（仅清理在线 fd 映射）
         $this->redis->sRem("ws:device:{$deviceId}", (string)$fd);
 
         // 从 fd -> device_id 映射移除
         $this->redis->hDel('ws:fd:device', (string)$fd);
 
-        // 若该设备已无任何在线 fd，则从 key 订阅集合和 device:key 哈希中移除
-        if ($this->redis->sCard("ws:device:{$deviceId}") == 0) {
-            $this->redis->sRem("key:subscribe:{$keyValue}", $deviceId);
-            $this->redis->hDel('device:key', $deviceId);
-        }
+        // 保留 key:subscribe:{keyValue} 和 device:key 哈希
+        // —— 订阅关系是持久的，APP 离线不应移除，否则推送时找不到订阅设备无法存离线消息
 
         // 从在线集合移除
         $this->redis->sRem('ws:online', (string)$fd);
