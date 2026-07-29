@@ -1848,6 +1848,9 @@ export default {
         },
         showNotification(title, content) {
             // #ifdef APP-PLUS
+            const notifTitle = title || '新消息'
+            const notifContent = content || ''
+
             try {
                 const main = plus.android.runtimeMainActivity()
                 const Context = plus.android.importClass('android.content.Context')
@@ -1859,153 +1862,258 @@ export default {
                 const channelId = 'push_messages'
                 const notificationId = Math.floor(Math.random() * 100000) + 1
 
-                // 检查通知权限
-                const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
+                // ========== 1. 检查通知权限 ==========
+                let nm
+                try {
+                    nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
+                } catch (e) {
+                    console.error('[Notify] 获取 NotificationManager 失败', e)
+                    this.fallbackNotify(notifTitle, notifContent, '获取系统通知服务失败')
+                    return false
+                }
+
                 try {
                     if (nm.areNotificationsEnabled() === false) {
-                        console.warn('通知权限未开启，推送消息无法显示通知栏')
+                        console.warn('[Notify] 通知权限未开启（全局禁用）')
+                        uni.showToast({
+                            title: '通知权限未开启',
+                            icon: 'none',
+                            duration: 2500
+                        })
                         this.requestNotificationPermission()
                         return false
                     }
-                } catch (e) {}
+                } catch (e) {
+                    console.warn('[Notify] 检查全局通知权限失败', e)
+                    // 无法检测，继续尝试走流程
+                }
 
-                // 创建通知渠道
-                if (Build.VERSION.SDK_INT >= 26) {
-                    const channel = nm.getNotificationChannel(channelId)
-                    if (channel === null || channel === undefined) {
-                        const NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
-                        const importance = NotificationManager.IMPORTANCE_HIGH
-                        const mChannel = new NotificationChannel(channelId, '消息推送', importance)
-                        mChannel.enableLights(true)
-                        mChannel.enableVibration(true)
-                        mChannel.setShowBadge(true)
-                        mChannel.setDescription('推送消息通知（锁屏可见）')
-                        // 锁屏完全可见
-                        mChannel.setLockscreenVisibility(1)  // VISIBILITY_PUBLIC
-                        // 绕过勿扰模式
-                        try { mChannel.setBypassDnd(true) } catch (e) {}
-                        // 灯光颜色（绿色）
-                        try { mChannel.setLightColor(0xFF00FF00) } catch (e) {}
-                        // 振动模式：震动 200ms 停 200ms
-                        try {
-                            const VibratorHelper = plus.android.importClass('android.os.VibrationEffect')
-                            // 简单设置振动模式
-                            mChannel.setVibrationPattern([0, 200, 200, 200])
-                        } catch (e) {}
-                        nm.createNotificationChannel(mChannel)
-                        console.log('消息推送通知渠道已创建（锁屏可见）')
+                // Android 13+ 额外检查 POST_NOTIFICATIONS 运行时权限
+                if (Build.VERSION.SDK_INT >= 33) {
+                    try {
+                        const Manifest = plus.android.importClass('android.Manifest')
+                        const PermissionCompat = plus.android.importClass('androidx.core.content.ContextCompat')
+                        const PackageManager = plus.android.importClass('android.content.pm.PackageManager')
+                        const hasPerm = PermissionCompat.checkSelfPermission(main, Manifest.permission.POST_NOTIFICATIONS)
+                        if (hasPerm !== PackageManager.PERMISSION_GRANTED) {
+                            console.warn('[Notify] POST_NOTIFICATIONS 运行时权限未授予')
+                            uni.showToast({
+                                title: '请授予通知权限（设置中开启）',
+                                icon: 'none',
+                                duration: 2500
+                            })
+                            this.requestNotificationPermission()
+                            return false
+                        }
+                    } catch (e) {
+                        console.warn('[Notify] 检查 POST_NOTIFICATIONS 权限失败', e)
                     }
                 }
 
-                const launchIntent = main.getPackageManager().getLaunchIntentForPackage(main.getPackageName())
-                launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                const contentIntent = PendingIntent.getActivity(
-                    main, notificationId, launchIntent,
-                    Build.VERSION.SDK_INT >= 31 ? 0x04000000 | 0x08000000 : 0x04000000
-                )
+                // ========== 2. 创建通知渠道 ==========
+                if (Build.VERSION.SDK_INT >= 26) {
+                    try {
+                        const NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
+                        let channel = nm.getNotificationChannel(channelId)
+                        if (channel === null || channel === undefined) {
+                            const importance = NotificationManager.IMPORTANCE_HIGH
+                            const mChannel = new NotificationChannel(channelId, '消息推送', importance)
+                            mChannel.enableLights(true)
+                            mChannel.enableVibration(true)
+                            mChannel.setShowBadge(true)
+                            mChannel.setDescription('推送消息通知（锁屏可见）')
+                            mChannel.setLockscreenVisibility(1)
+                            try { mChannel.setBypassDnd(true) } catch (_) {}
+                            try { mChannel.setLightColor(0xFF00FF00) } catch (_) {}
+                            try { mChannel.setVibrationPattern([0, 200, 200, 200]) } catch (_) {}
+                            nm.createNotificationChannel(mChannel)
+                            console.log('[Notify] 消息推送通知渠道已创建')
+                        } else {
+                            // 渠道已存在：额外检查渠道是否被用户手动禁用
+                            // IMPORTANCE_NONE = 0 表示用户关闭了该渠道
+                            const channelImportance = channel.getImportance()
+                            if (channelImportance === 0) {
+                                console.warn('[Notify] 通知渠道"消息推送"被用户禁用')
+                                uni.showToast({
+                                    title: '通知渠道被关闭，请在设置中开启',
+                                    icon: 'none',
+                                    duration: 2500
+                                })
+                                this.openNotificationSettings()
+                                return false
+                            }
+                        }
+                    } catch (e) {
+                        console.error('[Notify] 创建通知渠道失败', e)
+                    }
+                }
 
-                // 尝试 NotificationCompat，失败回退到原生 Notification.Builder
-                let builder
+                // ========== 3. 创建点击 Intent ==========
+                let contentIntent = null
+                try {
+                    const launchIntent = main.getPackageManager().getLaunchIntentForPackage(main.getPackageName())
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    const flags = Build.VERSION.SDK_INT >= 31 ? 0x04000000 | 0x08000000 : 0x04000000
+                    contentIntent = PendingIntent.getActivity(main, notificationId, launchIntent, flags)
+                } catch (e) {
+                    console.error('[Notify] 创建 PendingIntent 失败', e)
+                    // PendingIntent 不致命，继续
+                }
+
+                // ========== 4. 获取小图标 ==========
+                let smallIcon = 0
+                try {
+                    smallIcon = this.getNotificationSmallIcon(main)
+                    if (!smallIcon || smallIcon <= 0) {
+                        console.warn('[Notify] 图标资源无效(' + smallIcon + ')，使用默认值')
+                        smallIcon = 17301651  // android.R.drawable.ic_dialog_info
+                    }
+                } catch (e) {
+                    console.warn('[Notify] 获取小图标失败，使用默认', e)
+                    smallIcon = 17301651
+                }
+
+                // ========== 5. 构建 Notification ==========
+                let builder = null
                 let useCompat = false
                 try {
                     const NotificationCompat = plus.android.importClass('androidx.core.app.NotificationCompat')
                     builder = new NotificationCompat.Builder(main, channelId)
                     useCompat = true
                 } catch (e) {
-                    console.log('NotificationCompat 不可用，使用原生 Notification.Builder')
-                    const Notification = plus.android.importClass('android.app.Notification')
-                    builder = new Notification.Builder(main, channelId)
+                    try {
+                        const Notification = plus.android.importClass('android.app.Notification')
+                        builder = new Notification.Builder(main, channelId)
+                    } catch (e2) {
+                        console.error('[Notify] 两种 Builder 都创建失败', e, e2)
+                        this.fallbackNotify(notifTitle, notifContent, '无法创建通知构建器')
+                        return false
+                    }
                 }
 
-                builder.setContentTitle(title || '新消息')
-                builder.setContentText(content || '')
-                builder.setSmallIcon(this.getNotificationSmallIcon(main))
-                builder.setContentIntent(contentIntent)
-                builder.setAutoCancel(true)
-                // Ticker：状态栏首次显示时的滚动文本
-                try { builder.setTicker('收到推送：' + (title || '新消息')) } catch (e) {}
-                // 时间戳
                 try {
-                    const JavaSystem = plus.android.importClass('java.lang.System')
-                    builder.setWhen(JavaSystem.currentTimeMillis())
-                    try { builder.setShowWhen(true) } catch (e) {}
-                } catch (e) {}
+                    builder.setContentTitle(notifTitle)
+                    builder.setContentText(notifContent)
+                    builder.setSmallIcon(smallIcon)
+                    if (contentIntent !== null) {
+                        builder.setContentIntent(contentIntent)
+                    }
+                    builder.setAutoCancel(true)
 
-                try {
+                    try { builder.setTicker('收到推送：' + notifTitle) } catch (_) {}
+
+                    try {
+                        const JavaSystem = plus.android.importClass('java.lang.System')
+                        builder.setWhen(JavaSystem.currentTimeMillis())
+                        try { builder.setShowWhen(true) } catch (_) {}
+                    } catch (_) {}
+
                     if (useCompat) {
-                        builder.setPriority(2)  // PRIORITY_MAX
-                        builder.setDefaults(-1)  // DEFAULT_ALL
-                        builder.setVisibility(1)  // VISIBILITY_PUBLIC
-                        // 分类为消息，锁屏界面会优先显示
-                        try { builder.setCategory('msg') } catch (e) {}  // CATEGORY_MESSAGE
-                        // 锁屏可见性（再次强调）
-                        try { builder.setVisibility(1) } catch (e) {}
+                        try { builder.setPriority(2) } catch (_) {}
+                        try { builder.setDefaults(-1) } catch (_) {}
+                        try { builder.setVisibility(1) } catch (_) {}
+                        try { builder.setCategory('msg') } catch (_) {}
                     } else {
-                        if (Build.VERSION.SDK_INT >= 16) {
-                            builder.setPriority(2)
-                        }
-                        if (Build.VERSION.SDK_INT < 21) {
-                            builder.setDefaults(-1)
-                        }
-                        // 原生 Builder 也设置 category
+                        if (Build.VERSION.SDK_INT >= 16) { try { builder.setPriority(2) } catch (_) {} }
+                        if (Build.VERSION.SDK_INT < 21) { try { builder.setDefaults(-1) } catch (_) {} }
                         if (Build.VERSION.SDK_INT >= 21) {
-                            try { builder.setCategory('msg') } catch (e) {}
-                            try { builder.setVisibility(1) } catch (e) {}
+                            try { builder.setCategory('msg') } catch (_) {}
+                            try { builder.setVisibility(1) } catch (_) {}
                         }
                     }
-                } catch (e) {}
 
-                // 设置全屏 Intent（Android 10 以下可弹出到锁屏上方，Android 10+ 受限但小米可能支持）
-                // USE_FULL_SCREEN_INTENT 权限已申请
-                if (Build.VERSION.SDK_INT >= 28) {
-                    try {
-                        const fullScreenPendingIntent = PendingIntent.getActivity(
-                            main, notificationId + 10000, launchIntent,
-                            Build.VERSION.SDK_INT >= 31 ? 0x04000000 | 0x08000000 : 0x04000000
-                        )
-                        builder.setFullScreenIntent(fullScreenPendingIntent, true)
-                    } catch (e) {
-                        console.warn('设置全屏 Intent 失败', e)
+                    // 全屏 Intent（锁屏优先显示）
+                    if (Build.VERSION.SDK_INT >= 28 && contentIntent !== null) {
+                        try {
+                            const fsFlags = Build.VERSION.SDK_INT >= 31 ? 0x04000000 | 0x08000000 : 0x04000000
+                            const fullScreenPendingIntent = PendingIntent.getActivity(main, notificationId + 10000, main.getPackageManager().getLaunchIntentForPackage(main.getPackageName()), fsFlags)
+                            builder.setFullScreenIntent(fullScreenPendingIntent, true)
+                        } catch (_) {}
                     }
+
+                    // 大文本
+                    if (notifContent && notifContent.length > 50) {
+                        try {
+                            if (useCompat) {
+                                const BigTextStyle = plus.android.importClass('androidx.core.app.NotificationCompat$BigTextStyle')
+                                const bigText = new BigTextStyle()
+                                bigText.bigText(notifContent)
+                                bigText.setBigContentTitle(notifTitle)
+                                builder.setStyle(bigText)
+                            } else {
+                                const BigTextStyle = plus.android.importClass('android.app.Notification$BigTextStyle')
+                                const bigText = new BigTextStyle()
+                                bigText.bigText(notifContent)
+                                bigText.setBigContentTitle(notifTitle)
+                                builder.setStyle(bigText)
+                            }
+                        } catch (_) {}
+                    }
+                } catch (e) {
+                    console.error('[Notify] 设置 Builder 属性失败', e)
                 }
 
-                // 大文本支持
-                if (content && content.length > 50) {
-                    try {
-                        if (useCompat) {
-                            const BigTextStyle = plus.android.importClass('androidx.core.app.NotificationCompat$BigTextStyle')
-                            const bigText = new BigTextStyle()
-                            bigText.bigText(content)
-                            bigText.setBigContentTitle(title)
-                            builder.setStyle(bigText)
-                        } else {
-                            const BigTextStyle = plus.android.importClass('android.app.Notification$BigTextStyle')
-                            const bigText = new BigTextStyle()
-                            bigText.bigText(content)
-                            bigText.setBigContentTitle(title)
-                            builder.setStyle(bigText)
-                        }
-                    } catch (e) {
-                        console.warn('BigTextStyle 不支持', e)
-                    }
+                // ========== 6. 构建并显示通知 ==========
+                let notification = null
+                try {
+                    notification = builder.build()
+                } catch (e) {
+                    console.error('[Notify] builder.build() 构建通知失败', e)
+                    this.fallbackNotify(notifTitle, notifContent, '构建通知失败')
+                    return false
                 }
 
-                const notification = builder.build()
-                nm.notify(notificationId, notification)
-                console.log('推送消息通知已显示，id=' + notificationId)
-
-                return true
+                try {
+                    nm.notify(notificationId, notification)
+                    console.log('[Notify] 推送消息通知已显示 id=' + notificationId + ' title=' + notifTitle.substring(0, 20))
+                    return true
+                } catch (e) {
+                    console.error('[Notify] nm.notify() 显示通知失败', e)
+                    this.fallbackNotify(notifTitle, notifContent, '系统拒绝显示通知')
+                    return false
+                }
             } catch (e) {
-                console.error('显示通知失败', e)
+                console.error('[Notify] showNotification 顶层异常', e)
+                try {
+                    uni.showToast({
+                        title: '通知栏未显示（消息已保存到列表）',
+                        icon: 'none',
+                        duration: 2000
+                    })
+                } catch (_) {}
                 return false
             }
             // #endif
+
             // #ifndef APP-PLUS
             if (uni.showNotification) {
-                uni.showNotification({ title, content })
+                try { uni.showNotification({ title, content }) } catch (_) {}
             }
             return true
             // #endif
+        },
+
+        // 通知栏显示失败的兜底方案：震动+Toast+提示音（保证用户至少感知到消息）
+        fallbackNotify(title, content, reason) {
+            try {
+                console.warn('[Notify] 进入 fallback 通知方案: ' + (reason || '未知原因'))
+                uni.showToast({
+                    title: (title || '新消息') + (reason ? '（' + reason + '）' : ''),
+                    icon: 'none',
+                    duration: 2500
+                })
+                // 触发震动
+                try {
+                    if (uni.vibrateShort) { uni.vibrateShort({ type: 'heavy' }) }
+                    else if (uni.vibrateLong) { uni.vibrateLong() }
+                } catch (_) {}
+                // 尝试 Web Notification API（部分环境支持）
+                try {
+                    if (typeof Notification !== 'undefined') {
+                        new Notification(title || '新消息', { body: content || '' })
+                    }
+                } catch (_) {}
+            } catch (_) {}
         },
         requestNotificationPermission() {
             // #ifdef APP-PLUS
