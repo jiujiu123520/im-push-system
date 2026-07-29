@@ -134,7 +134,13 @@ class WebSocketServer
     private function configure(): void
     {
         $this->server->set([
-            'worker_num'             => swoole_cpu_num(),
+            // 推送系统使用单 worker，彻底消除跨 worker push 的 503 错误
+            // Swoole 多 worker 模型下，fd 按 hash 分配到固定 worker，
+            // processQueue 在 Worker 0 中消费队列，对其他 worker 的 fd 调用 push()
+            // 会因 session 状态检查返回 err_code=503（SW_ERROR_WEBSOCKET_BAD_REQUEST）
+            // 单 worker 可管理数万 WebSocket 长连接，对推送场景完全够用
+            // 如需扩展并发，可用 Task Worker 处理异步任务或多实例部署
+            'worker_num'             => 1,
             'task_worker_num'        => 4,
             'daemonize'              => false,
             'log_file'               => BASE_PATH . '/runtime/logs/websocket_server.log',
