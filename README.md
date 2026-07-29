@@ -512,6 +512,21 @@ cat /var/log/push-ssl-renew.log
 cd /www/push-system && bash backend/deploy/check-version.sh
 ```
 
+## Swoole 推送错误码参考
+
+推送失败时，后台推送记录的"失败原因"和日志中会携带 `err_code`，对应 Swoole 底层错误码：
+
+| 错误码 | 常量 | 含义 | 处理方式 |
+|--------|------|------|----------|
+| 0 | — | 无错误码但 push 返回 false | 疑似 push 时连接刚被关闭（时序竞态），无需处理 |
+| 503 | `SW_ERROR_WEBSOCKET_BAD_REQUEST` | fd 存在但 WebSocket 状态非 ACTIVE（未完成握手或正在关闭） | **自动清理**僵尸连接，下次推送不再投递到此 fd |
+| 1001 | `SW_ERROR_SESSION_NOT_EXIST` | 连接不存在或已关闭 | **自动清理**连接映射 |
+| 1002 | `SW_ERROR_PACKAGE_LENGTH_TOO_LARGE` | 数据包超过 max_packet_size（默认 2MB） | 检查推送内容大小，缩减消息体 |
+| 1003 | `SW_ERROR_SEND_BUFFER_FULL` | 发送缓冲区已满，客户端接收过慢 | 检查客户端网络状况，无需清理连接 |
+| 1202 | `SW_ERROR_WEBSOCKET_BAD_HOST` | 连接不存在（跨 worker 场景） | **自动清理**连接映射 |
+
+> 标注"自动清理"的错误码会触发 `cleanupDeadConnection`，从 Redis 在线映射中移除该 fd，避免后续推送继续投递失败。其他错误码（1002/1003）属于临时问题，不清理连接映射。
+
 ## 故障排查
 
 ### APP 掉线频繁
