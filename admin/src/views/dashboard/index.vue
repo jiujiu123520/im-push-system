@@ -173,7 +173,8 @@ import {
   Bell as BellIcon,
   Key as KeyIcon,
   User as UserIcon,
-  Monitor as MonitorIcon
+  Monitor as MonitorIcon,
+  Link as LinkIcon
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
@@ -253,6 +254,14 @@ const statCards = computed(() => {
       trend: overview.value.today_new_devices > 0 ? 5.2 : 0,
       icon: markRaw(CellphoneIcon),
       iconBg: 'bg-primary'
+    },
+    {
+      title: '在线连接',
+      value: overview.value.online_connections || 0,
+      unit: '个',
+      trend: 0,
+      icon: markRaw(LinkIcon),
+      iconBg: 'bg-purple'
     },
     {
       title: '今日推送量',

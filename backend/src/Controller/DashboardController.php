@@ -49,12 +49,21 @@ class DashboardController
         $redis = Redis::getInstance();
 
         // 1. 在线设备数（从 Redis 实时统计）
-        // 使用 device:key 哈希统计在线设备数（每个在线设备有一条记录）
+        // 注意：device:key 是"订阅关系"（设备离线时不清理，用于存离线消息），
+        // 不能用 hLen('device:key') 统计在线设备数，否则会把历史离线设备都算上。
+        // 正确方式：遍历 ws:fd:device（fd → device_id 映射），对 device_id 去重计数；
+        // 同时把在线连接数（fd 数）一并返回给前端展示。
         $onlineDevices = 0;
+        $onlineConnections = 0;
         try {
-            $onlineDevices = (int)$redis->hLen('device:key');
+            $fdToDevice = $redis->hGetAll('ws:fd:device');
+            if (is_array($fdToDevice)) {
+                $onlineConnections = count($fdToDevice);
+                $uniqueDevices = array_values(array_unique(array_map('strval', $fdToDevice)));
+                $onlineDevices = count($uniqueDevices);
+            }
         } catch (\Throwable $e) {
-            // Redis 不可用时降级到数据库查询
+            // Redis 不可用时降级到数据库查询（仅做近似估算，因为 status 不实时）
             $onlineDevicesRow = Database::fetch("SELECT COUNT(*) as cnt FROM devices WHERE status = 1");
             $onlineDevices = (int)($onlineDevicesRow['cnt'] ?? 0);
         }
@@ -107,6 +116,7 @@ class DashboardController
 
         return [
             'online_devices'    => $onlineDevices,
+            'online_connections'=> $onlineConnections,
             'today_push'        => $todayPush,
             'yesterday_push'    => $yesterdayPush,
             'active_keys'       => $activeKeys,
