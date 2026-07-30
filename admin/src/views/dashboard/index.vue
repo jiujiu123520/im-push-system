@@ -185,7 +185,8 @@ import {
   getKeyDistributionApi,
   getDevicePlatformApi,
   getRecentPushApi,
-  type RecentPushItem
+  type RecentPushItem,
+  type DashboardOverview
 } from '@/api/dashboard'
 import TestPushDialog from './TestPushDialog.vue'
 
@@ -227,8 +228,9 @@ const greeting = computed(() => {
 })
 
 // 概览数据
-const overview = ref({
+const overview = ref<DashboardOverview>({
   online_devices: 0,
+  online_connections: 0,
   today_push: 0,
   yesterday_push: 0,
   active_keys: 0,

@@ -3,6 +3,7 @@ import { get } from '@/utils/request'
 // 仪表盘概览数据
 export interface DashboardOverview {
   online_devices: number
+  online_connections?: number
   today_push: number
   yesterday_push: number
   active_keys: number
