@@ -278,9 +278,10 @@ class WebSocketServer
     {
         $fd = $request->fd;
 
-        // 获取客户端 IP
+        // 获取客户端 IP（优先读代理转发头，修复反向代理下取到 127.0.0.1 的问题）
         $clientInfo = $server->getClientInfo($fd);
-        $ip = is_array($clientInfo) ? (string)($clientInfo['remote_ip'] ?? '') : '';
+        $remoteIp = is_array($clientInfo) ? (string)($clientInfo['remote_ip'] ?? '') : '';
+        $ip = $this->resolveClientIp($request, $remoteIp);
         $ua = (string)($request->header['user-agent'] ?? '');
 
         // 支持 query 参数鉴权（向后兼容）
@@ -472,6 +473,12 @@ class WebSocketServer
                 'ip'          => $ip,
                 'fingerprint' => $fingerprint,
             ]);
+            // 记录连接/重连历史（写 Redis，60 天保留）
+            try {
+                $this->recordDeviceConnect($deviceId, $keyValue, $ip);
+            } catch (\Throwable $e) {
+                $this->logToFile("[WS] 记录设备连接历史失败 device_id={$deviceId} error={$e->getMessage()}");
+            }
             $this->logToFile("[WS] ConnectionManager 注册成功 fd={$fd} device_id={$deviceId}");
         } catch (\Throwable $e) {
             $this->logToFile("[WS] ConnectionManager 注册失败 fd={$fd} error={$e->getMessage()}");
@@ -647,6 +654,7 @@ class WebSocketServer
             if ($info !== null) {
                 $deviceId   = $info['device_id'];
                 $pushKeyId  = (int)$info['push_key_id'];
+                $disconnectIp = $info['ip'] ?? '';
 
                 // 检查该设备是否还有其他在线连接
                 $remainingFds = $this->connectionManager->getFdsByDevice($deviceId);
@@ -654,20 +662,38 @@ class WebSocketServer
                     // 无其他连接，更新设备状态为离线
                     $this->deviceService->updateStatus($deviceId, $pushKeyId, 0);
 
+                    // 记录掉线历史 + 在线时长（写 Redis）
+                    $disconnectHistory = null;
+                    try {
+                        $disconnectHistory = $this->recordDeviceDisconnect($deviceId, $disconnectIp);
+                    } catch (\Throwable $e) {
+                        $this->logToFile("[WS] 记录设备掉线历史失败 device_id={$deviceId} error={$e->getMessage()}");
+                    }
+
                     // 获取设备详情用于通知
                     $deviceInfo = $this->deviceService->getDeviceByKey($deviceId, $pushKeyId);
+
+                    // 构造通知数据（包含真实 IP、历史时间、在线时长）
+                    $notifyData = [
+                        'device_id'     => $deviceId,
+                        'device_name'   => $deviceInfo['device_name'] ?? '',
+                        'ip'            => $disconnectIp !== '' ? $disconnectIp : (string)($deviceInfo['ip'] ?? ''),
+                        'device_model'  => $deviceInfo['device_model'] ?? '',
+                        'os_version'    => $deviceInfo['os_version'] ?? '',
+                    ];
+                    if (is_array($disconnectHistory)) {
+                        $notifyData['online_duration']      = (int)($disconnectHistory['online_duration'] ?? 0);
+                        $notifyData['connected_at']         = (int)($disconnectHistory['connected_at'] ?? 0);
+                        $notifyData['last_reconnect_at']    = (int)($disconnectHistory['last_reconnect_at'] ?? 0);
+                        $notifyData['prev_last_offline_at'] = (int)($disconnectHistory['prev_last_offline_at'] ?? 0);
+                        $notifyData['last_offline_at']      = (int)($disconnectHistory['last_offline_at'] ?? time());
+                    }
 
                     // 触发设备掉线邮箱通知
                     $this->offlineNotifier->notify(
                         $deviceId,
                         $pushKeyId,
-                        [
-                            'device_id'     => $deviceId,
-                            'device_name'   => $deviceInfo['device_name'] ?? '',
-                            'ip'            => $deviceInfo['ip'] ?? '',
-                            'device_model'  => $deviceInfo['device_model'] ?? '',
-                            'os_version'    => $deviceInfo['os_version'] ?? '',
-                        ]
+                        $notifyData
                     );
                 }
             }
@@ -1100,5 +1126,149 @@ class WebSocketServer
         }
         $time = date('Y-m-d H:i:s');
         @file_put_contents($logFile, "[{$time}] {$message}\n", FILE_APPEND);
+    }
+
+    /**
+     * 解析真实客户端 IP（修复反向代理下拿到 127.0.0.1 的问题）
+     *
+     * 优先级：X-Forwarded-For（取第一个非内网IP） > X-Real-IP > remote_ip
+     *
+     * @param \Swoole\Http\Request $request
+     * @param string $remoteIp  TCP 层远端 IP
+     * @return string
+     */
+    private function resolveClientIp($request, string $remoteIp): string
+    {
+        $headers = $request->header ?? [];
+
+        // X-Forwarded-For: client, proxy1, proxy2
+        if (!empty($headers['x-forwarded-for'])) {
+            $parts = array_map('trim', explode(',', (string)$headers['x-forwarded-for']));
+            foreach ($parts as $p) {
+                if ($p === '' || $p === null) {
+                    continue;
+                }
+                // 过滤掉明显的内网/回环地址，取第一个真实公网/外部 IP
+                if (!in_array($p, ['127.0.0.1', '::1', 'localhost', 'unknown'], true)
+                    && strpos($p, '10.') !== 0
+                    && strpos($p, '192.168.') !== 0
+                    && !preg_match('#^172\.(1[6-9]|2\d|3[01])\.#', $p)) {
+                    return $p;
+                }
+            }
+            // 全部是内网地址也回退取第一个（至少不是 127.0.0.1）
+            if (!empty($parts[0]) && $parts[0] !== '') {
+                return $parts[0];
+            }
+        }
+
+        if (!empty($headers['x-real-ip'])) {
+            $real = trim((string)$headers['x-real-ip']);
+            if ($real !== '' && $real !== 'unknown') {
+                return $real;
+            }
+        }
+
+        return $remoteIp;
+    }
+
+    /**
+     * 在设备成功鉴权后，写入连接时间、重连时间、读回上次掉线时间
+     *
+     * @param string $deviceId
+     * @param string $keyValue
+     * @param string $ip
+     * @return array{connected_at:int,last_reconnect_at:int,last_offline_at:int,last_offline_ip:string}
+     */
+    private function recordDeviceConnect(string $deviceId, string $keyValue, string $ip): array
+    {
+        $redis = Redis::getInstance();
+        $now = time();
+
+        $historyKey = "device:history:{$deviceId}";
+
+        // 读历史
+        $prevOfflineAt = (int)$redis->hGet($historyKey, 'last_offline_at');
+        $prevOfflineIp = (string)$redis->hGet($historyKey, 'last_offline_ip');
+
+        // 本次连接：如果之前存在 last_offline_at，说明是"重连"
+        $lastReconnectAt = 0;
+        $connectedAt = (int)$redis->hGet($historyKey, 'connected_at');
+        if ($connectedAt <= 0) {
+            $connectedAt = $now;
+        }
+        if ($prevOfflineAt > 0) {
+            $lastReconnectAt = $now;
+        }
+
+        $redis->hMSet($historyKey, [
+            'connected_at'      => (string)$connectedAt,
+            'last_connect_at'   => (string)$now,
+            'last_reconnect_at' => (string)$lastReconnectAt,
+            'last_offline_at'   => '0',   // 连接建立后清空掉线时间（下一次掉线时再写）
+            'last_connect_ip'   => $ip,
+            'current_ip'        => $ip,
+            'key_value'         => $keyValue,
+        ]);
+        // 保留 60 天
+        $redis->expire($historyKey, 86400 * 60);
+
+        return [
+            'connected_at'      => $connectedAt,
+            'last_reconnect_at' => $lastReconnectAt,
+            'last_offline_at'   => $prevOfflineAt,
+            'last_offline_ip'   => $prevOfflineIp,
+        ];
+    }
+
+    /**
+     * 在设备最后一个连接关闭时，记录掉线时间 + IP，并计算本次在线时长
+     *
+     * @param string $deviceId
+     * @param string $ip
+     * @return array{last_offline_at:int,online_duration:int,connected_at:int,last_reconnect_at:int,prev_last_offline_at:int}
+     */
+    public function recordDeviceDisconnect(string $deviceId, string $ip): array
+    {
+        $redis = Redis::getInstance();
+        $now = time();
+
+        $historyKey = "device:history:{$deviceId}";
+
+        $connectedAt      = (int)$redis->hGet($historyKey, 'connected_at');
+        $lastReconnectAt  = (int)$redis->hGet($historyKey, 'last_reconnect_at');
+        $prevLastOffline  = (int)$redis->hGet($historyKey, 'last_offline_at_prev');
+
+        // 在线时长：优先从重连开始算（如果有重连），否则从 connected_at 算
+        if ($lastReconnectAt > 0) {
+            $onlineDuration = $now - $lastReconnectAt;
+        } elseif ($connectedAt > 0) {
+            $onlineDuration = $now - $connectedAt;
+        } else {
+            $onlineDuration = 0;
+        }
+        if ($onlineDuration < 0) {
+            $onlineDuration = 0;
+        }
+
+        $prevOfflineAt = (int)$redis->hGet($historyKey, 'last_offline_at');
+        if ($prevOfflineAt > 0) {
+            $redis->hSet($historyKey, 'last_offline_at_prev', (string)$prevOfflineAt);
+        }
+
+        $redis->hMSet($historyKey, [
+            'last_offline_at' => (string)$now,
+            'last_offline_ip' => $ip,
+            'online_duration' => (string)$onlineDuration,
+        ]);
+        $redis->expire($historyKey, 86400 * 60);
+
+        return [
+            'last_offline_at'       => $now,
+            'online_duration'       => $onlineDuration,
+            'connected_at'          => $connectedAt,
+            'last_reconnect_at'     => $lastReconnectAt,
+            'prev_last_offline_at'  => $prevLastOffline > 0 ? $prevLastOffline : $prevOfflineAt,
+        ];
     }
 }

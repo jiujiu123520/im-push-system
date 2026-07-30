@@ -100,7 +100,19 @@ class MailService
         $ip         = $deviceInfo['ip'] ?? '未知';
         $model      = $deviceInfo['device_model'] ?? '未知';
         $osVersion  = $deviceInfo['os_version'] ?? '未知';
-        $offlineAt  = date('Y-m-d H:i:s');
+
+        // 从 $deviceInfo 读取 WebSocketServer 传入的历史数据（时间戳秒）
+        $lastOfflineAt       = (int)($deviceInfo['last_offline_at'] ?? 0);
+        $prevLastOfflineAt   = (int)($deviceInfo['prev_last_offline_at'] ?? 0);
+        $lastReconnectAt     = (int)($deviceInfo['last_reconnect_at'] ?? 0);
+        $connectedAt         = (int)($deviceInfo['connected_at'] ?? 0);
+        $onlineDuration      = (int)($deviceInfo['online_duration'] ?? 0);
+
+        $offlineAt = $lastOfflineAt > 0 ? date('Y-m-d H:i:s', $lastOfflineAt) : date('Y-m-d H:i:s');
+        $prevOfflineAtStr = $prevLastOfflineAt > 0 ? date('Y-m-d H:i:s', $prevLastOfflineAt) : '—';
+        $lastReconnectStr = $lastReconnectAt > 0 ? date('Y-m-d H:i:s', $lastReconnectAt) : '—';
+        $connectedAtStr   = $connectedAt > 0 ? date('Y-m-d H:i:s', $connectedAt) : '—';
+        $onlineDurationStr = self::formatDuration($onlineDuration);
 
         $subject = "[设备掉线通知] {$deviceName} 已离线";
 
@@ -121,9 +133,12 @@ class MailService
         .info-item { background: #f8fafc; padding: 12px; border-radius: 8px; }
         .info-label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
         .info-value { font-size: 14px; color: #1e293b; font-weight: 500; word-break: break-all; }
+        .info-item.span-2 { grid-column: span 2; }
         .footer { padding: 16px 24px; background: #f8fafc; border-top: 1px solid #e2e8f0; }
         .footer p { margin: 0; font-size: 12px; color: #94a3b8; text-align: center; }
         .warning { color: #ef4444; font-weight: 600; }
+        .success { color: #10b981; font-weight: 600; }
+        .primary { color: #3b82f6; font-weight: 600; }
     </style>
 </head>
 <body>
@@ -154,15 +169,31 @@ class MailService
                     <div class="info-value warning">{$offlineAt}</div>
                 </div>
                 <div class="info-item">
-                    <div class="info-label">IP 地址</div>
-                    <div class="info-value">{$ip}</div>
+                    <div class="info-label">IP 地址（真实）</div>
+                    <div class="info-value primary">{$ip}</div>
                 </div>
                 <div class="info-item">
                     <div class="info-label">设备型号</div>
                     <div class="info-value">{$model}</div>
                 </div>
-                <div class="info-item" style="grid-column: span 2;">
-                    <div class="info-label">操作系统</div>
+                <div class="info-item">
+                    <div class="info-label">首次连接时间</div>
+                    <div class="info-value">{$connectedAtStr}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">最近重连时间</div>
+                    <div class="info-value">{$lastReconnectStr}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">本次在线时长</div>
+                    <div class="info-value success">{$onlineDurationStr}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">上次掉线时间</div>
+                    <div class="info-value">{$prevOfflineAtStr}</div>
+                </div>
+                <div class="info-item span-2">
+                    <div class="info-label">操作系统 / 版本</div>
                     <div class="info-value">{$osVersion}</div>
                 </div>
             </div>
@@ -176,6 +207,38 @@ class MailService
 HTML;
 
         return self::send($emails, $subject, $body);
+    }
+
+    /**
+     * 把秒数格式化为人类可读的"X天 X小时 X分 X秒"
+     *
+     * @param int $seconds
+     * @return string
+     */
+    private static function formatDuration(int $seconds): string
+    {
+        if ($seconds <= 0) {
+            return '—';
+        }
+        $days = floor($seconds / 86400);
+        $hours = floor(($seconds % 86400) / 3600);
+        $mins = floor(($seconds % 3600) / 60);
+        $secs = $seconds % 60;
+
+        $parts = [];
+        if ($days > 0) {
+            $parts[] = "{$days}天";
+        }
+        if ($hours > 0) {
+            $parts[] = "{$hours}小时";
+        }
+        if ($mins > 0) {
+            $parts[] = "{$mins}分";
+        }
+        if ($secs > 0 || empty($parts)) {
+            $parts[] = "{$secs}秒";
+        }
+        return implode(' ', $parts);
     }
 
     /**
