@@ -1679,7 +1679,7 @@ async function saveSection(section: 'server' | 'push' | 'captcha' | 'security') 
         {
           confirmButtonText: '我知道了',
           type: 'success',
-          appendTo: 'body'
+          center: true
         }
       )
     } else {

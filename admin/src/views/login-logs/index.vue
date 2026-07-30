@@ -112,7 +112,7 @@ async function handleBlacklist(row: any) {
         confirmButtonText: '确定拉黑',
         cancelButtonText: '取消',
         type: 'warning',
-        appendTo: 'body'
+        center: true
       }
     )
     await createBlacklistApi({

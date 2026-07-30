@@ -267,6 +267,7 @@ if ($runWs) {
         $router->get('/admin/push-logs',          [\App\Controller\MessageController::class, 'pushLogs']);
         $router->get('/admin/push-logs/export',   [\App\Controller\MessageController::class, 'exportPushLogs']);
         $router->get('/admin/push-logs/{id}',     [\App\Controller\MessageController::class, 'pushLogDetail']);
+        $router->delete('/admin/push-logs/{id}',  [\App\Controller\MessageController::class, 'deletePushLog']);
 
         // ============================================================
         // 测试调试推送（管理员鉴权）

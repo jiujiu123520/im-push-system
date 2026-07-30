@@ -728,7 +728,7 @@ import {
   Refresh as RefreshIcon,
   SwitchButton as SwitchButtonIcon
 } from '@element-plus/icons-vue'
-import { exportPushLogsApi, getPushLogListApi, sendPushApi, retryPushApi, getPushLogDetailApi } from '@/api/push'
+import { exportPushLogsApi, getPushLogListApi, sendPushApi, retryPushApi, getPushLogDetailApi, deletePushLogApi } from '@/api/push'
 import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi } from '@/api/key'
 import { getDeviceListApi, deleteDeviceApi, toggleDeviceStatusApi, kickDeviceApi } from '@/api/device'
 import {
@@ -1524,7 +1524,7 @@ async function handleDelete(row: Record<string, any>) {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
       type: 'warning',
-      appendTo: 'body'
+      center: true
     })
     const mod = currentModule.value
     if (mod === 'users') {
@@ -1537,6 +1537,8 @@ async function handleDelete(row: Record<string, any>) {
       await deleteAdminApi(row.id)
     } else if (mod === 'devices') {
       await deleteDeviceApi(row.id)
+    } else if (mod === 'push-logs') {
+      await deletePushLogApi(row.id)
     } else {
       allData = allData.filter((item) => item.id !== row.id)
     }
@@ -1603,7 +1605,7 @@ async function retryPushLog(row: Record<string, any>) {
         confirmButtonText: '确认推送',
         cancelButtonText: '取消',
         type: 'warning',
-        appendTo: 'body'
+        center: true
       }
     )
     retryPushLoading.value = true
@@ -1629,7 +1631,7 @@ async function handleToggleDeviceStatus(row: Record<string, any>) {
         confirmButtonText: action,
         cancelButtonText: '取消',
         type: next === 2 ? 'warning' : 'success',
-        appendTo: 'body'
+        center: true
       }
     )
     await toggleDeviceStatusApi(row.id, next)
@@ -1651,7 +1653,7 @@ async function handleKickDevice(row: Record<string, any>) {
         confirmButtonText: '踢出',
         cancelButtonText: '取消',
         type: 'warning',
-        appendTo: 'body'
+        center: true
       }
     )
     kickingDeviceId.value = row.id
@@ -1676,7 +1678,7 @@ async function handleClearAll() {
         cancelButtonText: '取消',
         type: 'error',
         confirmButtonClass: 'el-button--danger',
-        appendTo: 'body'
+        center: true
       }
     )
     const mod = currentModule.value
@@ -1713,6 +1715,17 @@ async function handleClearAll() {
         }
       }
       ElMessage.success('已清空可删除的Key')
+    } else if (mod === 'push-logs') {
+      // 推送记录：逐条删除
+      const items = tableData.value
+      for (const item of items) {
+        try {
+          await deletePushLogApi(item.id)
+        } catch {
+          // 跳过删除失败的
+        }
+      }
+      ElMessage.success('已清空当前页的推送记录')
     } else {
       // 用户等模拟数据模块：直接清空本地数据
       allData = []

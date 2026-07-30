@@ -205,6 +205,23 @@ class MessageService
     }
 
     /**
+     * 删除单条推送日志
+     *
+     * @param int $id 日志ID
+     * @return bool 成功返回 true
+     * @throws \Exception
+     */
+    public function deletePushLog(int $id): bool
+    {
+        $stmt = Database::pdo()->prepare('DELETE FROM push_logs WHERE id = ?');
+        $stmt->execute([$id]);
+        if ($stmt->rowCount() === 0) {
+            throw new \Exception('推送日志不存在');
+        }
+        return true;
+    }
+
+    /**
      * 清理过期推送日志（默认保留 7 天）
      *
      * 使用低频触发策略：每次列表查询时调用，但仅在距离上次清理超过 6 小时时真正执行 DELETE
