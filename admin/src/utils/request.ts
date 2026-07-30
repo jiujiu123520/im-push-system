@@ -22,12 +22,17 @@ const service: AxiosInstance = axios.create({
   headers: { 'Content-Type': 'application/json;charset=utf-8' }
 })
 
-// 是否正在刷新 token，避免重复弹框
-let isReloginShown = false
+// 是否已触发重新登录（永久锁，防止并发 401 反复弹框 / 重复跳转）
+// 触发一次后本页生命周期内不再重复执行，直到用户刷新页面重新登录
+let isReloginTriggered = false
 
 // 请求拦截器
 service.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    // 已触发重登：阻断后续所有请求（避免继续携带失效 token、避免 NProgress 卡死）
+    if (isReloginTriggered) {
+      return Promise.reject(new Error('正在重新登录'))
+    }
     NProgress.start()
     const token = getToken()
     if (token && config.headers) {
@@ -58,7 +63,7 @@ service.interceptors.response.use(
 
     // 业务码处理：code === 0 表示成功，其余均为失败
     if (res.code !== 0) {
-      // 401: token 失效 / 未登录 — 静默处理，由 handleRelogin 统一弹框
+      // 401: token 失效 / 未登录 — 由 handleRelogin 统一处理
       if (res.code === 401) {
         handleRelogin()
         return Promise.reject(new Error(res.message || '登录已失效'))
@@ -104,26 +109,42 @@ service.interceptors.response.use(
 
 // 处理重新登录
 function handleRelogin() {
-  if (isReloginShown) return
-  isReloginShown = true
+  // 单例锁：一旦触发永远不再重复执行
+  if (isReloginTriggered) return
+  isReloginTriggered = true
+
+  // 1. 立即关闭 NProgress，避免进度条残留导致页面"卡着不能输入"
+  NProgress.done()
+  // 2. 立即关闭所有已打开的 Element Plus 消息 / 弹框（防止卡在弹框下不能输入）
+  try {
+    ElMessage.closeAll()
+    ElMessageBox.close()
+  } catch {}
+  // 3. 立即清除 Token
+  removeToken()
+
+  // 4. 弹框提示用户（唯一一次），之后立即跳转；取消也直接跳转
   ElMessageBox.confirm('登录状态已失效，请重新登录', '提示', {
     confirmButtonText: '重新登录',
     cancelButtonText: '取消',
-    type: 'warning'
+    type: 'warning',
+    closeOnClickModal: false,
+    closeOnPressEscape: false
   })
     .then(() => {
-      // 直接清除 token 并跳转，避免动态导入 user store 的循环依赖警告
-      removeToken()
-      location.href = '/#/login'
+      // 使用 router.replace 而非 location.href，避免全量刷新时的重复跳转
+      // 这里延迟一帧执行，确保 ElMessageBox 完全关闭
+      setTimeout(() => {
+        location.href = '/#/login'
+      }, 50)
     })
     .catch(() => {
-      // 用户点"取消"也清除 Token 并跳转登录页，避免死循环
-      removeToken()
-      location.href = '/#/login'
+      setTimeout(() => {
+        location.href = '/#/login'
+      }, 50)
     })
-    .finally(() => {
-      isReloginShown = false
-    })
+  // ⚠ 重要：不再 reset isReloginTriggered 为 false
+  // 之前的 finally 重置后，并发 401 触发第二次弹框 = 表现为"登录两次"
 }
 
 // 封装请求方法

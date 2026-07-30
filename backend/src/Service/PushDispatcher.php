@@ -387,7 +387,7 @@ class PushDispatcher
             //   修复策略：移除 isEstablished 前置拦截；先通过 ConnectionManager 的
             //   Swoole Table（跨 Worker 共享）读取 last_active 过滤长时间死连接，
             //   再直接调用 server->push()，由 Swoole 内核做真实投递并返回结果。
-            $deadThreshold = 180;  // 与 cleanupDeadConnections 保持一致：3 倍心跳超时
+            $deadThreshold = 600;  // 与 heartbeat_idle_time 一致，Android Doze 模式下需容忍 9-15 分钟维护窗口
             $now = time();
             $cm = $this->connectionManager;
 

@@ -155,12 +155,16 @@ class WebSocketServer
             'send_buffer_size'       => 1048576,  // 1MB 单连接发送缓冲区
             // 鉴权超时定时器依赖,允许毫秒级 Timer
             'enable_coroutine'       => true,
-            // Swoole 内置心跳检测：120 秒无数据则关闭连接
-            // APP 端 10 秒发一次 ping，但锁屏后 JS 引擎被冻结、AlarmManager 在 Doze
-            // 模式下可能被延迟到维护窗口（2-9 分钟），60 秒太短会误杀正在 Doze 的设备。
-            // 120 秒阈值允许 AlarmManager（15 秒间隔）在 Doze 维护窗口内至少触发 1-2 次
-            'heartbeat_idle_time'      => 120,
-            'heartbeat_check_interval' => 30,
+            // Swoole 内置心跳检测：600 秒（10 分钟）无数据则关闭连接
+            // ⚠ Android Doze 深度休眠模式的致命限制：
+            //   即使使用 setExactAndAllowWhileIdle + RTC_WAKEUP，
+            //   系统仍会把闹钟节流到"维护窗口"才触发，间隔通常为 9-15 分钟！
+            //   因此必须把心跳阈值设为 >10 分钟，否则每次锁屏后 Doze 没打开维护窗口
+            //   时，服务端就会掐断连接 → 表现为"APP一锁屏就掉线"
+            // 10 分钟阈值允许标准 Doze 维护窗口（约 9 分钟一次）至少触发 1 次心跳/重连，
+            // 配合前端 15 秒 AlarmManager 备用心跳，锁屏稳定性可大幅提升
+            'heartbeat_idle_time'      => 600,
+            'heartbeat_check_interval' => 60,
         ]);
     }
 
@@ -708,9 +712,10 @@ class WebSocketServer
             return;
         }
 
-        // 死连接判定阈值：180 秒（约 3 倍 heartbeat_idle_time=60s）
-        // 只有超过此阈值才认为是真正的死连接，避免误清理跨 worker 的活跃连接
-        $deadThreshold = 180;
+        // 死连接判定阈值：600 秒（= heartbeat_idle_time，与 Swoole 内置心跳保持一致）
+        // Android Doze 模式下闹钟节流到 9-15 分钟一次，必须与 heartbeat_idle_time=600 同步提升，
+        // 否则 Swoole 还没断，cleanupDeadConnections 先把在线映射清理了，导致推送失败
+        $deadThreshold = 600;
         $now           = time();
         $deadCount     = 0;
         $checked       = 0;
