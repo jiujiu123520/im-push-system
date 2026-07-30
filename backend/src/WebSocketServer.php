@@ -754,6 +754,8 @@ class WebSocketServer
                 if ($deviceId !== false && $deviceId !== null) {
                     $redis->hDel('ws:fd:device', (string)$fd);
                 }
+                // 兜底清理连接详情
+                $redis->del("ws:conn:{$fd}");
                 // 注意：不再清理 key:subscribe:{keyValue} 和 device:key 哈希
                 // 订阅关系是持久的，APP 离线不应移除，否则推送时找不到订阅设备无法存离线消息
             }

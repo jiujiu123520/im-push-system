@@ -104,6 +104,12 @@ export const asyncRoutes: RouteRecordRaw[] = [
         name: 'Devices',
         component: ModuleView,
         meta: { title: '设备管理', icon: 'Cellphone', cache: true, module: 'devices' }
+      },
+      {
+        path: 'zombie',
+        name: 'ZombieConnections',
+        component: ModuleView,
+        meta: { title: '僵尸连接', icon: 'Warning', cache: true, module: 'zombie-connections' }
       }
     ]
   },

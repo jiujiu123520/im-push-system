@@ -73,6 +73,7 @@ class ConnectionManager
     {
         $ip = $deviceInfo['ip'] ?? '';
         $fingerprint = $deviceInfo['fingerprint'] ?? '';
+        $now = time();
 
         // 写入 Swoole 内存表
         if ($this->table !== null) {
@@ -80,8 +81,8 @@ class ConnectionManager
                 'device_id'   => $deviceId,
                 'key_value'   => $keyValue,
                 'push_key_id' => $pushKeyId,
-                'connect_at'  => time(),
-                'last_active' => time(),
+                'connect_at'  => $now,
+                'last_active' => $now,
                 'ip'          => $ip,
                 'fingerprint' => $fingerprint,
             ]);
@@ -101,6 +102,16 @@ class ConnectionManager
 
         // Redis：在线 fd 集合
         $this->redis->sAdd('ws:online', (string)$fd);
+
+        // Redis：连接详情（供后台 HTTP 进程读取，跨进程共享）
+        $this->redis->hMSet("ws:conn:{$fd}", [
+            'device_id'   => $deviceId,
+            'key_value'   => $keyValue,
+            'push_key_id' => (string)$pushKeyId,
+            'connect_at'  => (string)$now,
+            'last_active' => (string)$now,
+            'ip'          => $ip,
+        ]);
     }
 
     /**
@@ -126,6 +137,7 @@ class ConnectionManager
                 $this->redis->hDel('ws:fd:device', (string)$fd);
             }
             $this->redis->sRem('ws:online', (string)$fd);
+            $this->redis->del("ws:conn:{$fd}");
             return null;
         }
 
@@ -148,6 +160,9 @@ class ConnectionManager
 
         // 从在线集合移除
         $this->redis->sRem('ws:online', (string)$fd);
+
+        // 删除连接详情
+        $this->redis->del("ws:conn:{$fd}");
 
         return $info;
     }
@@ -224,11 +239,13 @@ class ConnectionManager
      */
     public function updateLastActive(int $fd): void
     {
-        if ($this->table === null) {
-            return;
+        $now = time();
+        if ($this->table !== null) {
+            // 仅更新 last_active 字段，避免覆盖其他字段
+            $this->table->set((string)$fd, ['last_active' => $now]);
         }
-        // 仅更新 last_active 字段，避免覆盖其他字段
-        $this->table->set((string)$fd, ['last_active' => time()]);
+        // 同步到 Redis（供后台 HTTP 进程读取，跨进程共享）
+        $this->redis->hSet("ws:conn:{$fd}", 'last_active', (string)$now);
     }
 
     /**
@@ -371,6 +388,7 @@ class ConnectionManager
             $this->redis->sRem("ws:device:{$deviceId}", (string)$fd);
             $this->redis->hDel('ws:fd:device', (string)$fd);
             $this->redis->sRem('ws:online', (string)$fd);
+            $this->redis->del("ws:conn:{$fd}");
 
             // 从内存表删除
             if ($this->table !== null) {
@@ -413,5 +431,101 @@ class ConnectionManager
             }
         }
         return $result;
+    }
+
+    /**
+     * 获取所有在线连接列表（含连接详情，从 Redis 读取，跨进程可用）
+     *
+     * @return array<array{fd: int, device_id: string, key_value: string, push_key_id: int, connect_at: int, last_active: int, ip: string}>
+     */
+    public function getAllConnections(): array
+    {
+        $fds = $this->redis->sMembers('ws:online');
+        if (empty($fds)) {
+            return [];
+        }
+
+        $result = [];
+        $now = time();
+        foreach ($fds as $fdStr) {
+            $fd = (int)$fdStr;
+            $conn = $this->redis->hGetAll("ws:conn:{$fd}");
+            if (empty($conn)) {
+                // ws:conn 不存在但 ws:online 有记录：孤儿 fd
+                $deviceId = (string)($this->redis->hGet('ws:fd:device', $fdStr) ?: '');
+                $conn = [
+                    'device_id'   => $deviceId,
+                    'key_value'   => '',
+                    'push_key_id' => '0',
+                    'connect_at'  => '0',
+                    'last_active' => '0',
+                    'ip'          => '',
+                ];
+            }
+            $lastActive = (int)($conn['last_active'] ?? 0);
+            $result[] = [
+                'fd'          => $fd,
+                'device_id'   => (string)($conn['device_id'] ?? ''),
+                'key_value'   => (string)($conn['key_value'] ?? ''),
+                'push_key_id' => (int)($conn['push_key_id'] ?? 0),
+                'connect_at'  => (int)($conn['connect_at'] ?? 0),
+                'last_active' => $lastActive,
+                'idle_seconds' => $lastActive > 0 ? ($now - $lastActive) : -1,
+                'ip'          => (string)($conn['ip'] ?? ''),
+            ];
+        }
+        // 按 idle_seconds 降序（最久未活跃的排前面）
+        usort($result, fn($a, $b) => $b['idle_seconds'] <=> $a['idle_seconds']);
+        return $result;
+    }
+
+    /**
+     * 获取僵尸连接列表
+     *
+     * 僵尸连接定义：last_active 超过阈值（默认 600 秒 = 10 分钟），
+     * 或 ws:conn 不存在但 ws:online 仍有记录的孤儿 fd。
+     *
+     * @param int $threshold 僵尸判定阈值（秒）
+     * @return array 僵尸连接列表
+     */
+    public function getZombieConnections(int $threshold = 600): array
+    {
+        $all = $this->getAllConnections();
+        return array_values(array_filter($all, fn($c) => $c['idle_seconds'] < 0 || $c['idle_seconds'] > $threshold));
+    }
+
+    /**
+     * 强制移除连接（后台手动清理僵尸连接用）
+     *
+     * 清理 Redis 中的在线标记和连接详情，以及 Swoole Table（如果可用）。
+     * 注意：此方法不会调用 $server->disconnect()（HTTP 进程无 $server 引用），
+     * 仅清理 Redis 数据层。Swoole 内置心跳会在 heartbeat_idle_time 后自动断开 TCP。
+     *
+     * @param int $fd 连接文件描述符
+     * @return bool 是否成功移除
+     */
+    public function forceRemoveConnection(int $fd): bool
+    {
+        $existed = $this->redis->sIsMember('ws:online', (string)$fd);
+        if (!$existed) {
+            return false;
+        }
+
+        // 获取 device_id 用于清理 ws:device 集合
+        $deviceId = (string)($this->redis->hGet('ws:fd:device', (string)$fd) ?: '');
+        if ($deviceId !== '') {
+            $this->redis->sRem("ws:device:{$deviceId}", (string)$fd);
+        }
+
+        $this->redis->hDel('ws:fd:device', (string)$fd);
+        $this->redis->sRem('ws:online', (string)$fd);
+        $this->redis->del("ws:conn:{$fd}");
+
+        // Swoole Table（仅在 WebSocket 进程中可用）
+        if ($this->table !== null) {
+            $this->table->del((string)$fd);
+        }
+
+        return true;
     }
 }

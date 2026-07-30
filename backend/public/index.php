@@ -243,6 +243,14 @@ if ($runWs) {
         $router->delete('/admin/devices/{id}',          [\App\Controller\DeviceController::class, 'destroy']);
 
         // ============================================================
+        // 僵尸连接管理（管理员鉴权）
+        // ============================================================
+        $router->get('/admin/connections',                       [\App\Controller\ZombieConnectionController::class, 'all']);
+        $router->get('/admin/zombie-connections',                [\App\Controller\ZombieConnectionController::class, 'index']);
+        $router->post('/admin/zombie-connections/cleanup',       [\App\Controller\ZombieConnectionController::class, 'cleanup']);
+        $router->delete('/admin/zombie-connections/{fd}',        [\App\Controller\ZombieConnectionController::class, 'delete']);
+
+        // ============================================================
         // 黑名单管理（管理员鉴权）
         // ============================================================
         $router->get('/admin/blacklist',          [\App\Controller\BlacklistController::class, 'index']);

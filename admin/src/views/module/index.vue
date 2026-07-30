@@ -22,7 +22,7 @@
           </template>
         </el-dropdown>
         <el-button
-          v-if="currentModule === 'users' || currentModule === 'admins' || currentModule === 'keys'"
+          v-if="currentModule === 'users' || currentModule === 'admins' || currentModule === 'keys' || currentModule === 'push-logs'"
           type="danger"
           plain
           :icon="DeleteIcon"
@@ -31,7 +31,16 @@
           一键清空
         </el-button>
         <el-button
-          v-if="currentModule !== 'devices'"
+          v-if="currentModule === 'zombie-connections'"
+          type="danger"
+          plain
+          :icon="DeleteIcon"
+          @click="handleClearAll"
+        >
+          一键清理僵尸
+        </el-button>
+        <el-button
+          v-if="currentModule !== 'devices' && currentModule !== 'zombie-connections'"
           type="primary"
           :icon="PlusIcon"
           @click="openDialog()"
@@ -42,7 +51,7 @@
     </div>
 
     <!-- 搜索栏 -->
-    <div class="search-bar">
+    <div class="search-bar" v-if="currentModule !== 'zombie-connections'">
       <el-input
         v-model="query.keyword"
         placeholder="搜索关键词"
@@ -271,6 +280,13 @@
             </span>
             <span v-else style="color: #909399;">-</span>
           </template>
+          <!-- 僵尸连接：空闲时长 -->
+          <template v-else-if="col.slot === 'idleSeconds'" #default="{ row }">
+            <el-tag v-if="row.idle_seconds != null && row.idle_seconds >= 0" type="danger" effect="light" size="small">
+              {{ row.idle_seconds < 60 ? row.idle_seconds + ' 秒' : row.idle_seconds < 3600 ? Math.floor(row.idle_seconds / 60) + ' 分' + (row.idle_seconds % 60) + ' 秒' : Math.floor(row.idle_seconds / 3600) + ' 时' + Math.floor((row.idle_seconds % 3600) / 60) + ' 分' }}
+            </el-tag>
+            <el-tag v-else type="info" effect="light" size="small">未知</el-tag>
+          </template>
           <!-- 用户：邮箱 -->
           <template v-else-if="col.slot === 'email'" #default="{ row }">
             <div v-if="row.email" style="display: flex; align-items: center; gap: 4px;">
@@ -371,6 +387,7 @@
           currentModule === 'users' ? 280 :
           currentModule === 'devices' ? 280 :
           currentModule === 'keys' ? 200 :
+          currentModule === 'zombie-connections' ? 100 :
           180
         )" fixed="right">
           <template #default="{ row }">
@@ -397,7 +414,7 @@
             </template>
             <!-- 其他模块：编辑/禁用 + 删除 -->
             <template v-else>
-              <el-button v-if="currentModule !== 'devices'" text type="primary" :icon="EditIcon" @click="openDialog(row)">编辑</el-button>
+              <el-button v-if="currentModule !== 'devices' && currentModule !== 'zombie-connections'" text type="primary" :icon="EditIcon" @click="openDialog(row)">编辑</el-button>
               <el-button
                 v-if="currentModule === 'devices' && row.online === 1"
                 text type="warning"
@@ -422,7 +439,7 @@
         </el-table-column>
       </el-table>
 
-      <div class="pagination-wrapper">
+      <div class="pagination-wrapper" v-if="currentModule !== 'zombie-connections'">
         <el-pagination
           v-model:current-page="query.page"
           v-model:page-size="query.pageSize"
@@ -729,6 +746,7 @@ import {
   SwitchButton as SwitchButtonIcon
 } from '@element-plus/icons-vue'
 import { exportPushLogsApi, getPushLogListApi, sendPushApi, retryPushApi, getPushLogDetailApi, deletePushLogApi } from '@/api/push'
+import { getZombieConnectionsApi, deleteZombieConnectionApi, cleanupZombieConnectionsApi } from '@/api/connection'
 import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi } from '@/api/key'
 import { getDeviceListApi, deleteDeviceApi, toggleDeviceStatusApi, kickDeviceApi } from '@/api/device'
 import {
@@ -764,6 +782,7 @@ interface ColumnConfig {
         | 'targetType' | 'targetValue' | 'count' | 'email' | 'phone'
         | 'notifyEnabled' | 'notifyEmail' | 'notifyInterval'
         | 'failReason' | 'elapsedMs' | 'deviceText'
+        | 'idleSeconds'
 }
 
 // 各模块配置
@@ -1034,6 +1053,20 @@ const moduleConfigs: Record<string, {
       status: 1,
       createdAt: '2026-07-01 10:00:00'
     })
+  },
+  'zombie-connections': {
+    title: '僵尸连接',
+    columns: [
+      { prop: 'fd', label: 'FD', width: 100 },
+      { prop: 'device_id', label: '设备ID', width: 220, slot: 'deviceText' },
+      { prop: 'key_value', label: '推送Key', width: 180, slot: 'deviceText' },
+      { prop: 'ip', label: 'IP地址', width: 140, slot: 'deviceText' },
+      { prop: 'connect_at', label: '连接时间', width: 170 },
+      { prop: 'last_active', label: '最后活跃', width: 170 },
+      { prop: 'idle_seconds', label: '空闲时长', width: 120, slot: 'idleSeconds' }
+    ],
+    fields: [],
+    mockRow: () => ({})
   }
 }
 
@@ -1231,6 +1264,15 @@ async function fetchData() {
         }
         return { ...row, status }
       })
+      total.value = res.data?.total || 0
+    } else if (mod === 'zombie-connections') {
+      const res = await getZombieConnectionsApi()
+      const rawList = res.data?.list || []
+      tableData.value = rawList.map((row: any) => ({
+        ...row,
+        connect_at: row.connect_at > 0 ? new Date(row.connect_at * 1000).toLocaleString('zh-CN') : '未知',
+        last_active: row.last_active > 0 ? new Date(row.last_active * 1000).toLocaleString('zh-CN') : '未知',
+      }))
       total.value = res.data?.total || 0
     } else {
       await new Promise((r) => setTimeout(r, 300))
@@ -1539,6 +1581,8 @@ async function handleDelete(row: Record<string, any>) {
       await deleteDeviceApi(row.id)
     } else if (mod === 'push-logs') {
       await deletePushLogApi(row.id)
+    } else if (mod === 'zombie-connections') {
+      await deleteZombieConnectionApi(row.fd)
     } else {
       allData = allData.filter((item) => item.id !== row.id)
     }
@@ -1726,6 +1770,9 @@ async function handleClearAll() {
         }
       }
       ElMessage.success('已清空当前页的推送记录')
+    } else if (mod === 'zombie-connections') {
+      const res = await cleanupZombieConnectionsApi()
+      ElMessage.success(`已清理 ${res.data?.removed || 0} 个僵尸连接`)
     } else {
       // 用户等模拟数据模块：直接清空本地数据
       allData = []
