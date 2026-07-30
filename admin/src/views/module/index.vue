@@ -560,6 +560,9 @@
         <el-tag type="info" effect="plain" round>订阅总数：{{ subscriberTotal }}</el-tag>
         <el-tag type="success" effect="plain" round>在线：{{ subscriberOnlineCount }}</el-tag>
         <el-tag type="danger" effect="plain" round>僵尸订阅（设备已删除）：{{ subscriberZombieCount }}</el-tag>
+        <el-tag v-if="subscriberMappingMissingCount > 0" type="warning" effect="plain" round>
+          订阅关系丢失：{{ subscriberMappingMissingCount }}（可点"修复"恢复）
+        </el-tag>
         <el-button type="primary" plain size="small" :icon="RefreshIcon" @click="refreshSubscriberList" :loading="subscriberLoading">刷新</el-button>
       </div>
       <el-table
@@ -582,22 +585,69 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="在线" width="80">
+        <el-table-column label="在线" width="90">
           <template #default="{ row }">
             <el-tag :type="row.online === 1 ? 'success' : 'info'" effect="plain" round size="small">
               {{ row.online === 1 ? `在线(${row.fd_count})` : '离线' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="90">
+        <el-table-column label="映射状态" width="220">
           <template #default="{ row }">
-            <el-tag v-if="row.exists_in_db === 0" type="danger" effect="light" round size="small">僵尸订阅</el-tag>
-            <el-tag v-else :type="row.status === 1 ? 'success' : 'warning'" effect="plain" round size="small">
-              {{ row.status === 1 ? '启用' : '禁用' }}
-            </el-tag>
+            <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+              <el-tag
+                v-if="row.source_status === 'zombie' || row.exists_in_db === 0"
+                type="danger"
+                effect="light"
+                round
+                size="small"
+              >僵尸订阅</el-tag>
+              <el-tag
+                v-else-if="row.source_status === 'mapping_missing'"
+                type="warning"
+                effect="light"
+                round
+                size="small"
+              >订阅关系丢失</el-tag>
+              <el-tag
+                v-else-if="row.source_status === 'partial'"
+                type="info"
+                effect="plain"
+                round
+                size="small"
+              >映射不完整</el-tag>
+              <el-tag
+                v-else
+                type="success"
+                effect="plain"
+                round
+                size="small"
+              >正常</el-tag>
+              <el-dropdown
+                v-if="row.sources && row.sources.length"
+                trigger="click"
+                @command="() => {}"
+              >
+                <el-tag type="info" effect="plain" round size="small" style="margin-left: 2px; cursor: pointer;">
+                  来源
+                  <el-icon class="el-icon--right"><ArrowDownIcon /></el-icon>
+                </el-tag>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item
+                      v-for="s in (row.sources as string[])"
+                      :key="s"
+                      disabled
+                    >
+                      {{ s }}
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="platform" label="平台" width="90">
+        <el-table-column prop="platform" label="平台" width="85">
           <template #default="{ row }">
             <el-tag v-if="row.platform" :type="platformTagType(row.platform)" effect="plain" round size="small">
               {{ platformLabel(row.platform) }}
@@ -605,7 +655,7 @@
             <span v-else style="color: #909399; font-size: 12px;">未知</span>
           </template>
         </el-table-column>
-        <el-table-column prop="device_name" label="设备名" width="140">
+        <el-table-column prop="device_name" label="设备名" width="130">
           <template #default="{ row }">
             <span v-if="row.device_name" style="font-size: 13px;">{{ row.device_name }}</span>
             <span v-else style="color: #909399; font-size: 12px;">未知</span>
@@ -617,27 +667,37 @@
             <span v-else style="color: #909399; font-size: 12px;">未知</span>
           </template>
         </el-table-column>
-        <el-table-column prop="app_version" label="APP版本" width="100">
+        <el-table-column prop="app_version" label="APP版本" width="95">
           <template #default="{ row }">
             <span v-if="row.app_version" style="font-size: 13px;">{{ row.app_version }}</span>
             <span v-else style="color: #909399; font-size: 12px;">未知</span>
           </template>
         </el-table-column>
-        <el-table-column prop="ip" label="IP" width="140">
+        <el-table-column prop="ip" label="IP" width="130">
           <template #default="{ row }">
             <span v-if="row.ip" style="font-family: monospace; font-size: 12px;">{{ row.ip }}</span>
             <span v-else style="color: #909399; font-size: 12px;">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="last_active_at" label="最后活跃" width="170">
+        <el-table-column prop="last_active_at" label="最后活跃" width="160">
           <template #default="{ row }">
             <span v-if="row.last_active_at" style="font-size: 12px;">{{ row.last_active_at }}</span>
             <span v-else-if="row.last_connect_at" style="font-size: 12px;">{{ row.last_connect_at }}</span>
             <span v-else style="color: #909399; font-size: 12px;">未知</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="110" fixed="right" align="center">
+        <el-table-column label="操作" width="150" fixed="right" align="center">
           <template #default="{ row }">
+            <el-button
+              v-if="row.source_status === 'mapping_missing'"
+              type="primary"
+              plain
+              size="small"
+              :icon="SwitchButtonIcon"
+              @click="handleRepairSubscriber(row)"
+            >
+              修复
+            </el-button>
             <el-button
               type="danger"
               text
@@ -884,7 +944,7 @@ import {
 } from '@element-plus/icons-vue'
 import { exportPushLogsApi, getPushLogListApi, sendPushApi, retryPushApi, getPushLogDetailApi, deletePushLogApi } from '@/api/push'
 import { getZombieConnectionsApi, deleteZombieConnectionApi, cleanupZombieConnectionsApi } from '@/api/connection'
-import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi, getKeySubscribersApi, removeKeySubscriberApi } from '@/api/key'
+import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi, getKeySubscribersApi, removeKeySubscriberApi, repairKeySubscriberApi } from '@/api/key'
 import { getDeviceListApi, deleteDeviceApi, toggleDeviceStatusApi, kickDeviceApi } from '@/api/device'
 import {
   getBlacklistApi,
@@ -1288,6 +1348,9 @@ const subscriberDialogKey = ref<{ id: number; key_value: string; name: string } 
 const subscriberTotal = computed(() => subscriberList.value.length)
 const subscriberOnlineCount = computed(() => subscriberList.value.filter((s) => s.online === 1).length)
 const subscriberZombieCount = computed(() => subscriberList.value.filter((s) => s.exists_in_db === 0).length)
+const subscriberMappingMissingCount = computed(() =>
+  subscriberList.value.filter((s) => s.source_status === 'mapping_missing').length
+)
 
 async function openSubscriberDialog(row: Record<string, any>) {
   const keyId = row.id
@@ -1312,6 +1375,20 @@ async function refreshSubscriberList() {
     subscriberList.value = []
   } finally {
     subscriberLoading.value = false
+  }
+}
+async function handleRepairSubscriber(row: Record<string, any>) {
+  const keyId = subscriberDialogKey.value?.id
+  if (!keyId) return
+  try {
+    const res = await repairKeySubscriberApi(keyId, row.device_id)
+    const a = (res.data as any)?.added_to_sub_set || 0
+    const b = (res.data as any)?.updated_device_key || 0
+    ElMessage.success(`订阅关系已修复：集合 +${a}，哈希 +${b}。重新连接 APP 即可生效`)
+    await refreshSubscriberList()
+    await fetchData()
+  } catch (e) {
+    ElMessage.error('修复失败')
   }
 }
 async function handleDeleteSubscriber(row: Record<string, any>) {

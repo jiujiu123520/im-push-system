@@ -59,3 +59,11 @@ export function removeKeySubscriberApi(id: number, deviceId: string) {
     `/admin/keys/${id}/subscribers/${encodeURIComponent(deviceId)}`
   )
 }
+
+export function repairKeySubscriberApi(id: number, deviceId: string) {
+  return put<{
+    repaired: boolean
+    added_to_sub_set: number
+    updated_device_key: number
+  }>(`/admin/keys/${id}/subscribers/${encodeURIComponent(deviceId)}/repair`, {})
+}

@@ -128,6 +128,12 @@ class PushKeyController
     /**
      * 获取某个 Key 的订阅设备列表（含在线状态和设备详情）
      * 路由：GET /admin/keys/{id}/subscribers
+     *
+     * 候选设备来自三方并集：
+     *   1) Redis key:subscribe:{keyValue} 集合            —— 正常的订阅关系
+     *   2) devices 表 WHERE push_key_id = id 的所有记录 —— 防止 Redis 键丢失/key_value 不匹配导致漏显示
+     *   3) Redis device:key 哈希中 value = keyValue 的键 —— 设备端声明的归属（双向映射交叉校验）
+     * 并对每个设备标注它出现在哪些来源，方便用户识别"僵尸订阅/订阅丢失"。
      */
     public function subscribers(array $context, array $params)
     {
@@ -154,68 +160,154 @@ class PushKeyController
         $keyValue = (string)($key['key_value'] ?? '');
         $redis = \App\Service\Redis::getInstance();
 
-        // 从 key:subscribe 获取订阅的 device_id 集合
-        $deviceIds = $redis->sMembers("key:subscribe:{$keyValue}");
-        if (!is_array($deviceIds) || empty($deviceIds)) {
-            return Response::success([
-                'key_info' => $key,
-                'list' => [],
-                'total' => 0,
-                'online_count' => 0,
-            ]);
+        // ====== 1) 从 Redis key:subscribe 集合取订阅的 device_id ======
+        $redisIds = [];
+        if ($keyValue !== '') {
+            $tmp = $redis->sMembers("key:subscribe:{$keyValue}");
+            if (is_array($tmp)) {
+                foreach ($tmp as $v) {
+                    $v = (string)$v;
+                    if ($v !== '') {
+                        $redisIds[$v] = true;
+                    }
+                }
+            }
         }
 
-        // 从 devices 表批量查询设备详情
-        $placeholders = implode(',', array_fill(0, count($deviceIds), '?'));
+        // ====== 2) 从 devices 表 WHERE push_key_id = id 的所有登记记录 ======
         $dbDeviceRows = Database::fetchAll(
             "SELECT id, device_id, device_name, device_model, os_version, platform, app_version,
                     ip, status, last_connect_at, last_active_at, user_id, push_key_id
-             FROM devices WHERE push_key_id = ? AND device_id IN ({$placeholders})",
-            array_merge([$id], $deviceIds)
+             FROM devices WHERE push_key_id = ?",
+            [$id]
         );
-
-        // 建立 device_id -> 行信息 的索引
         $deviceMap = [];
+        $dbIds = [];
         foreach ($dbDeviceRows as $row) {
-            $deviceMap[(string)$row['device_id']] = $row;
+            $did = (string)$row['device_id'];
+            if ($did === '') {
+                continue;
+            }
+            $deviceMap[$did] = $row;
+            $dbIds[$did] = true;
+        }
+
+        // ====== 3) 从 device:key 哈希中筛 value === keyValue 的设备（反向校验） ======
+        $deviceKeyHashIds = [];
+        if ($keyValue !== '') {
+            // 兼容大小写不敏感的 key_value 差异（Redis 大小写敏感但客户端可能发送不一致）
+            $kvLower = strtolower($keyValue);
+            $allDeviceKey = $redis->hGetAll('device:key');
+            if (is_array($allDeviceKey)) {
+                foreach ($allDeviceKey as $did => $v) {
+                    $did = (string)$did;
+                    $v = (string)$v;
+                    if ($did !== '' && $v !== '' && strtolower($v) === $kvLower) {
+                        $deviceKeyHashIds[$did] = true;
+                    }
+                }
+            }
+        }
+
+        // ====== 合并三方 device_id ======
+        $allDeviceIds = array_unique(array_merge(
+            array_keys($redisIds),
+            array_keys($dbIds),
+            array_keys($deviceKeyHashIds)
+        ));
+
+        if (empty($allDeviceIds)) {
+            return Response::success([
+                'key_info'       => $key,
+                'list'           => [],
+                'total'          => 0,
+                'online_count'   => 0,
+                // 调试统计：帮助快速定位"为什么全是 0"
+                '_debug'         => [
+                    'key_value'             => $keyValue,
+                    'redis_subscribe_count' => count($redisIds),
+                    'db_device_count'       => count($dbIds),
+                    'device_key_hash_count' => count($deviceKeyHashIds),
+                ],
+            ]);
         }
 
         // 逐个组装返回
         $list = [];
         $onlineCount = 0;
-        foreach ($deviceIds as $deviceId) {
+        foreach ($allDeviceIds as $deviceId) {
             $deviceId = (string)$deviceId;
+            if ($deviceId === '') {
+                continue;
+            }
+
             $fdCount = (int)$redis->sCard('ws:device:' . $deviceId);
             $isOnline = $fdCount > 0;
             if ($isOnline) {
                 $onlineCount++;
             }
 
+            $inRedis        = isset($redisIds[$deviceId]);
+            $inDb           = isset($dbIds[$deviceId]);
+            $inDeviceKey    = isset($deviceKeyHashIds[$deviceId]);
+
+            // 来源 tag：哪些映射来源认定它属于这个 Key
+            $sources = [];
+            if ($inRedis)        $sources[] = 'key:subscribe';
+            if ($inDeviceKey)    $sources[] = 'device:key';
+            if ($inDb)           $sources[] = 'devices表';
+            if (empty($sources)) $sources[] = 'unknown';
+
             $dbRow = $deviceMap[$deviceId] ?? null;
+
+            // exists_in_db = 1 是"存在于 devices 表"，0 是"只有 Redis 映射，设备记录被删了"=僵尸订阅
+            // source_status：normal / mapping_missing（有 DB 无 Redis=订阅关系丢失）/ zombie（只有 Redis，设备记录被删）/ partial
+            if ($inDb && $inRedis && $inDeviceKey) {
+                $sourceStatus = 'normal';
+            } elseif ($inDb && !$inRedis) {
+                $sourceStatus = 'mapping_missing'; // 最常见：DB 有设备但 Redis 订阅集合漏了
+            } elseif (!$inDb && ($inRedis || $inDeviceKey)) {
+                $sourceStatus = 'zombie'; // 僵尸订阅
+            } else {
+                $sourceStatus = 'partial';
+            }
+
             $list[] = [
-                'device_id'     => $deviceId,
-                'fd_count'      => $fdCount,
-                'online'        => $isOnline ? 1 : 0,
-                'exists_in_db'  => $dbRow !== null ? 1 : 0,  // 是否还存在于 devices 表（1=存在,0=僵尸订阅）
-                'device_name'   => (string)($dbRow['device_name'] ?? ''),
-                'device_model'  => (string)($dbRow['device_model'] ?? ''),
-                'platform'      => (string)($dbRow['platform'] ?? ''),
-                'os_version'    => (string)($dbRow['os_version'] ?? ''),
-                'app_version'   => (string)($dbRow['app_version'] ?? ''),
-                'ip'            => (string)($dbRow['ip'] ?? ''),
-                'status'        => (int)($dbRow['status'] ?? 0),
+                'device_id'        => $deviceId,
+                'fd_count'         => $fdCount,
+                'online'           => $isOnline ? 1 : 0,
+                'exists_in_db'     => $inDb ? 1 : 0,
+                'in_redis_sub'     => $inRedis ? 1 : 0,
+                'in_device_key'    => $inDeviceKey ? 1 : 0,
+                'sources'          => $sources,
+                'source_status'    => $sourceStatus,
+                'device_name'      => (string)($dbRow['device_name'] ?? ''),
+                'device_model'     => (string)($dbRow['device_model'] ?? ''),
+                'platform'         => (string)($dbRow['platform'] ?? ''),
+                'os_version'       => (string)($dbRow['os_version'] ?? ''),
+                'app_version'      => (string)($dbRow['app_version'] ?? ''),
+                'ip'               => (string)($dbRow['ip'] ?? ''),
+                'status'           => (int)($dbRow['status'] ?? 0),
                 'last_connect_at'  => $dbRow['last_connect_at'] ?? null,
                 'last_active_at'   => $dbRow['last_active_at'] ?? null,
-                'user_id'       => (int)($dbRow['user_id'] ?? 0),
-                'db_device_id'  => (int)($dbRow['id'] ?? 0),
+                'user_id'          => (int)($dbRow['user_id'] ?? 0),
+                'db_device_id'     => (int)($dbRow['id'] ?? 0),
             ];
         }
 
-        // 在线的排前面，然后是僵尸订阅，最后是离线的
-        usort($list, function ($a, $b) {
+        // 排序：在线 > 订阅丢失(mapping_missing，要优先修) > 存在DB > 僵尸订阅 > 离线
+        $statusRank = [
+            'mapping_missing' => 0,
+            'normal'          => 1,
+            'partial'         => 2,
+            'zombie'          => 3,
+        ];
+        usort($list, function ($a, $b) use ($statusRank) {
             if ($a['online'] !== $b['online']) return $b['online'] <=> $a['online'];
-            if ($a['exists_in_db'] !== $b['exists_in_db']) return $b['exists_in_db'] <=> $a['exists_in_db'];
-            return 0;
+            $ar = $statusRank[$a['source_status']] ?? 9;
+            $br = $statusRank[$b['source_status']] ?? 9;
+            if ($ar !== $br) return $ar <=> $br;
+            return $b['exists_in_db'] <=> $a['exists_in_db'];
         });
 
         return Response::success([
@@ -223,12 +315,24 @@ class PushKeyController
             'list'         => $list,
             'total'        => count($list),
             'online_count' => $onlineCount,
+            '_debug'       => [
+                'key_value'             => $keyValue,
+                'redis_subscribe_count' => count($redisIds),
+                'db_device_count'       => count($dbIds),
+                'device_key_hash_count' => count($deviceKeyHashIds),
+            ],
         ]);
     }
 
     /**
      * 从某个 Key 中移除一个订阅设备（同时断开在线连接 + 清理订阅关系）
      * 路由：DELETE /admin/keys/{id}/subscribers/{device_id}
+     *
+     * 支持各种不完整的映射状态：
+     *   - 只有 key:subscribe 集合
+     *   - 只有 device:key 哈希（含大小写不匹配）
+     *   - 只有 devices 表记录（无 Redis 映射，mapping_missing 的反例）
+     * 删除时全部清理。
      */
     public function removeSubscriber(array $context, array $params)
     {
@@ -256,17 +360,42 @@ class PushKeyController
 
         $redis = \App\Service\Redis::getInstance();
 
-        // 检查订阅关系
-        if ((int)$redis->sIsMember("key:subscribe:{$keyValue}", $deviceId) === 0) {
-            Response::fail($context['response'], '此设备未订阅该 Key', Response::CODE_NOT_FOUND, 404);
+        // ===== 检查：key:subscribe / device:key(含大小写不匹配) / devices 表 任一存在即允许删除 =====
+        $inSubscribe = $keyValue !== '' ? (int)$redis->sIsMember("key:subscribe:{$keyValue}", $deviceId) > 0 : false;
+        $kvLower = $keyValue !== '' ? strtolower($keyValue) : '';
+        $deviceKeyValue = (string)$redis->hGet('device:key', $deviceId);
+        $inDeviceKey = ($deviceKeyValue !== '' && $deviceKeyValue !== null)
+            && ($kvLower !== '' && strtolower($deviceKeyValue) === $kvLower);
+
+        $dbCount = (int)(Database::fetch(
+            'SELECT COUNT(*) AS c FROM devices WHERE push_key_id = ? AND device_id = ? LIMIT 1',
+            [$id, $deviceId]
+        )['c'] ?? 0);
+        $inDb = $dbCount > 0;
+
+        if (!$inSubscribe && !$inDeviceKey && !$inDb) {
+            Response::fail($context['response'], '此设备未订阅该 Key（三个来源均无记录）', Response::CODE_NOT_FOUND, 404);
             return false;
         }
 
-        // 1. 清理订阅关系（双向）
-        $redis->sRem("key:subscribe:{$keyValue}", $deviceId);
-        $redis->hDel('device:key', $deviceId);
+        $removedSubscribe = 0;
+        $removedDeviceKey = 0;
+        $removedDb = 0;
 
-        // 2. 如果设备在线，踢下线（发送 disconnect 命令到 WebSocket 命令队列）
+        // 1. 清理 key:subscribe（含大小写不匹配的 key_value——如果 device:key 里存的是其它大小写版本，也要把那个集合里的删掉）
+        if ($keyValue !== '') {
+            $removedSubscribe += (int)$redis->sRem("key:subscribe:{$keyValue}", $deviceId);
+        }
+        if ($deviceKeyValue !== '' && $deviceKeyValue !== $keyValue) {
+            $removedSubscribe += (int)$redis->sRem("key:subscribe:{$deviceKeyValue}", $deviceId);
+        }
+
+        // 2. 清理 device:key 哈希
+        if ($deviceKeyValue !== '') {
+            $removedDeviceKey += (int)$redis->hDel('device:key', $deviceId);
+        }
+
+        // 3. 如果设备在线，踢下线
         $fds = $redis->sMembers('ws:device:' . $deviceId);
         $fdCount = is_array($fds) ? count($fds) : 0;
         if ($fdCount > 0) {
@@ -279,7 +408,6 @@ class PushKeyController
             ];
             $redis->lPush('ws:queue:cmd', json_encode($cmd, JSON_UNESCAPED_UNICODE));
 
-            // 清理在线映射
             foreach ($fds as $fd) {
                 $redis->sRem("ws:device:{$deviceId}", (string)$fd);
                 $redis->hDel('ws:fd:device', (string)$fd);
@@ -288,20 +416,83 @@ class PushKeyController
             }
         }
 
-        // 3. 将 devices 表中该设备标记为离线（避免下次启动还显示在线）
+        // 4. 清理 devices 表中的该设备记录（用户点"删除订阅设备"就是要彻底删除该订阅关系，保留设备行没意义）
         try {
-            Database::execute(
-                'UPDATE devices SET last_active_at = NOW() WHERE push_key_id = ? AND device_id = ? LIMIT 1',
+            $del = Database::execute(
+                'DELETE FROM devices WHERE push_key_id = ? AND device_id = ? LIMIT 1',
                 [$id, $deviceId]
             );
+            $removedDb = is_numeric($del) ? (int)$del : 0;
         } catch (\Throwable $e) {
-            // 忽略 devices 表异常（订阅关系已清理即可）
+            $removedDb = 0;
         }
 
         return Response::success([
-            'removed'        => true,
-            'disconnected'   => $fdCount > 0 ? $fdCount : 0,
-        ], "已移除设备 {$deviceId}（断开连接 {$fdCount} 个）");
+            'removed'              => true,
+            'disconnected'         => $fdCount,
+            'redis_subscribe_rm'   => $removedSubscribe,
+            'redis_device_key_rm'  => $removedDeviceKey,
+            'db_rows_removed'      => $removedDb,
+        ], "设备 {$deviceId} 已移除（断开连接 {$fdCount} 个，集合 {$removedSubscribe}，哈希 {$removedDeviceKey}，表 {$removedDb} 行）");
+    }
+
+    /**
+     * 修复单个设备的订阅映射
+     * 路由：PUT /admin/keys/{id}/subscribers/{device_id}/repair
+     *
+     * 针对 mapping_missing（devices 表有，但 Redis key:subscribe/device:key 缺失）：
+     *   把设备补回 key:subscribe:{keyValue} 集合 + 写入 device:key 哈希
+     * 针对 zombie（只有 Redis 映射，devices 表没记录）：
+     *   保持现状（提示用户删除即可），不会凭空造 DB 行。
+     */
+    public function repairSubscriber(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $id = (int)($params['id'] ?? 0);
+        $deviceId = (string)($params['device_id'] ?? '');
+        if ($id <= 0 || $deviceId === '') {
+            Response::fail($context['response'], '参数错误', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        $key = Database::fetch(
+            'SELECT id, key_value, name FROM push_keys WHERE id = ? LIMIT 1',
+            [$id]
+        );
+        if ($key === false) {
+            Response::fail($context['response'], 'Key 不存在', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+        $keyValue = (string)($key['key_value'] ?? '');
+        if ($keyValue === '') {
+            Response::fail($context['response'], 'Key 的 key_value 为空，无法修复', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        $dbRow = Database::fetch(
+            'SELECT device_id FROM devices WHERE push_key_id = ? AND device_id = ? LIMIT 1',
+            [$id, $deviceId]
+        );
+        if ($dbRow === false) {
+            Response::fail($context['response'], 'devices 表中不存在此设备（僵尸订阅不能修复，只能删除）', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        $redis = \App\Service\Redis::getInstance();
+        $addedSet  = (int)$redis->sAdd("key:subscribe:{$keyValue}", $deviceId);
+        $oldHashVal = (string)$redis->hGet('device:key', $deviceId);
+        $redis->hSet('device:key', $deviceId, $keyValue);
+        $updatedHash = ($oldHashVal === $keyValue) ? 0 : 1;
+
+        return Response::success([
+            'repaired'           => true,
+            'added_to_sub_set'   => $addedSet,
+            'updated_device_key' => $updatedHash,
+        ], "订阅关系已修复：加入集合 {$addedSet} 项，更新 device:key {$updatedHash} 项");
     }
 
     public function create(array $context, array $params)
