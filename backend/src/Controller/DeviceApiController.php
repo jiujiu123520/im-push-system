@@ -46,12 +46,33 @@ class DeviceApiController
 
         $pushKey  = (string)($get['push_key'] ?? '');
         $deviceId = (string)($get['device_id'] ?? '');
-        $limit    = (int)($get['limit'] ?? 50);
+        // 游标分页（推荐，移动端无限滚动）：limit + before_id
+        $limit    = (int)($get['limit'] ?? 0);
         $beforeId = (int)($get['before_id'] ?? 0);
+        // 页码分页（兼容）：page + page_size
+        $page     = (int)($get['page'] ?? 0);
+        $pageSize = (int)($get['page_size'] ?? 0);
 
         if ($pushKey === '' || $deviceId === '') {
             Response::fail($response, 'push_key 和 device_id 不能为空', Response::CODE_BAD_REQUEST, 400);
             return false;
+        }
+
+        // 默认每页 20 条，上限 100 条
+        if ($page > 0) {
+            // 页码分页优先
+            $page = max(1, $page);
+            if ($pageSize <= 0) {
+                $pageSize = 20;
+            }
+            $pageSize = max(1, min(100, $pageSize));
+            $limit = $pageSize;
+        } else {
+            // 游标分页或无参数：默认 limit=20
+            if ($limit <= 0) {
+                $limit = 20;
+            }
+            $limit = max(1, min(100, $limit));
         }
 
         // 校验 push_key 有效性并获取 push_key_id（用于归属校验）
@@ -76,10 +97,66 @@ class DeviceApiController
 
         $pushKeyId = (int)$keyRow['id'];
 
+        // 如果是页码分页，转换为 before_id
+        if ($page > 0) {
+            $offset = ($page - 1) * $pageSize;
+            // 查第 offset 条的 id 作为游标（因为是 ORDER BY id DESC，offset=0 是最新的）
+            try {
+                $whereOff  = ' WHERE device_id = ? AND push_key_id = ?';
+                $stmtOff = Database::pdo()->prepare(
+                    "SELECT id FROM messages {$whereOff} ORDER BY id DESC LIMIT 1 OFFSET {$offset}"
+                );
+                $stmtOff->execute([$deviceId, $pushKeyId]);
+                $row = $stmtOff->fetch(\PDO::FETCH_ASSOC);
+                if ($row) {
+                    $beforeId = (int)$row['id'] + 1; // +1 让 id < beforeId 包含该条
+                } else {
+                    // 超出范围，直接返回空
+                    $svc = new MessageService();
+                    $total = $svc->countByDevice($deviceId, $pushKeyId);
+                    return Response::success([
+                        'list'           => [],
+                        'total'          => $total,
+                        'page'           => $page,
+                        'page_size'      => $pageSize,
+                        'total_pages'    => (int)ceil($total / max(1, $pageSize)),
+                        'has_more'       => false,
+                        'next_before_id' => 0,
+                    ], 'ok');
+                }
+            } catch (\Throwable $e) {
+                error_log('[DeviceApi] messages 分页游标计算失败: ' . $e->getMessage());
+            }
+        }
+
         // 查询设备历史消息
         $service = new MessageService();
         $result  = $service->listByDevice($deviceId, $pushKeyId, $limit, $beforeId);
 
-        return Response::success($result, 'ok');
+        // 计算下一页游标：取本页最后一条（最旧）的 id - 1
+        $list = $result['list'];
+        $nextBeforeId = 0;
+        if (!empty($list)) {
+            $lastIdx = count($list) - 1;
+            $lastId  = (int)($list[$lastIdx]['id'] ?? 0);
+            $nextBeforeId = max(0, $lastId - 1);
+        }
+
+        $total = (int)($result['total'] ?? 0);
+        $responseData = [
+            'list'           => $list,
+            'total'          => $total,
+            'has_more'       => (bool)($result['has_more'] ?? false),
+            'next_before_id' => $nextBeforeId,
+            'limit'          => $limit,
+            'before_id'      => $beforeId,
+        ];
+        if ($page > 0) {
+            $responseData['page']        = $page;
+            $responseData['page_size']   = $pageSize;
+            $responseData['total_pages'] = (int)ceil($total / max(1, $pageSize));
+        }
+
+        return Response::success($responseData, 'ok');
     }
 }

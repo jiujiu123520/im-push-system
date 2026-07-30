@@ -413,6 +413,26 @@ class MessageService
         ];
     }
 
+    /**
+     * 统计设备在指定 push_key 下的消息总数（不含 beforeId 过滤）。
+     *
+     * @param string $deviceId
+     * @param int    $pushKeyId
+     * @return int
+     */
+    public function countByDevice(string $deviceId, int $pushKeyId = 0): int
+    {
+        $countSql = "SELECT COUNT(*) FROM messages WHERE device_id = ?";
+        $args = [$deviceId];
+        if ($pushKeyId > 0) {
+            $countSql .= ' AND push_key_id = ?';
+            $args[] = $pushKeyId;
+        }
+        $stmt = Database::pdo()->prepare($countSql);
+        $stmt->execute($args);
+        return (int)$stmt->fetchColumn();
+    }
+
     /** 查询全部消息（不分页，用于导出） */
     private function fetchAllMessages(string $keyword = ''): array
     {

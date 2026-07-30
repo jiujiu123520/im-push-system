@@ -83,13 +83,36 @@ class MessageStore(private val storageDir: File) {
         }
     }
 
-    /** 追加一条消息，并落盘 */
+    /** 追加一条消息，并落盘（按 [PushMessage.id] 去重） */
     suspend fun add(message: PushMessage) {
-        mutex.withLock {
-            val updated = (_messages.value + message).takeLast(maxMessages)
-            _messages.value = updated
-            persist(updated)
+        merge(listOf(message))
+    }
+
+    /**
+     * 批量合并消息（用于服务端历史同步）。
+     *
+     * 按 [PushMessage.id] 去重，保留已存在的本地消息（receivedAt 不会被服务端历史覆盖）。
+     * 按 timestamp 升序整体排序后截断到 [maxMessages]。
+     *
+     * @return 实际新加入的消息条数（不含去重跳过的）
+     */
+    suspend fun merge(newMessages: List<PushMessage>): Int = mutex.withLock {
+        if (newMessages.isEmpty()) return@withLock 0
+        val existing = _messages.value.associateBy { it.id }
+        var added = 0
+        val merged = existing.values.toMutableList()
+        for (m in newMessages) {
+            if (m.id !in existing) {
+                merged.add(m)
+                added++
+            }
         }
+        if (added > 0) {
+            val sorted = merged.sortedBy { it.timestamp }.takeLast(maxMessages)
+            _messages.value = sorted
+            persist(sorted)
+        }
+        added
     }
 
     /** 清空所有消息 */
