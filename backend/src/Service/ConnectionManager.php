@@ -94,6 +94,19 @@ class ConnectionManager
         // Redis：device_id -> key_value 哈希
         $this->redis->hSet('device:key', $deviceId, $keyValue);
 
+        // 兜底：大小写不敏感重放一次，避免客户端发送的 key_value 与数据库里的大小写不一致导致
+        //       查询 subscribers 时"设备在线但订阅集合里找不到"。
+        //       （集合 sAdd 是幂等的，集合里写一份大小写不敏感的备份成本极低；hSet 也幂等。）
+        $kvLower = strtolower($keyValue);
+        if ($kvLower !== $keyValue) {
+            $this->redis->sAdd("key:subscribe:{$kvLower}", $deviceId);
+        }
+        // hSet device:key 也强制覆写一次为标准 key_value（修正历史错乱的映射值）
+        $existing = $this->redis->hGet('device:key', $deviceId);
+        if ($existing === false || $existing === null || (string)$existing !== $keyValue) {
+            $this->redis->hSet('device:key', $deviceId, $keyValue);
+        }
+
         // Redis：device_id -> fd 集合
         $this->redis->sAdd("ws:device:{$deviceId}", (string)$fd);
 

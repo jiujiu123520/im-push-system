@@ -158,6 +158,7 @@ class PushKeyController
         }
 
         $keyValue = (string)($key['key_value'] ?? '');
+        $pushKeyId = (int)($key['id'] ?? 0);
         $redis = \App\Service\Redis::getInstance();
 
         // ====== 1) 从 Redis key:subscribe 集合取订阅的 device_id ======
@@ -179,7 +180,7 @@ class PushKeyController
             "SELECT id, device_id, device_name, device_model, os_version, platform, app_version,
                     ip, status, last_connect_at, last_active_at, user_id, push_key_id
              FROM devices WHERE push_key_id = ?",
-            [$id]
+            [$pushKeyId]
         );
         $deviceMap = [];
         $dbIds = [];
@@ -209,11 +210,66 @@ class PushKeyController
             }
         }
 
-        // ====== 合并三方 device_id ======
+        // ====== 4) 从当前 ws:conn:* 连接详情中反查 push_key_id = ? 的在线会话设备
+        //         （最硬的一手兜底：WebSocket 进程的 registerDevice 只要执行过，
+        //          ws:conn:* 就一定有记录，哪怕三方映射都乱套了也能识别。）
+        $wsConnIds = [];
+        $wsConnDeviceInfo = [];
+        try {
+            $onlineFds = $redis->sMembers('ws:online');
+            if (is_array($onlineFds)) {
+                foreach ($onlineFds as $fd) {
+                    $fd = (string)$fd;
+                    if ($fd === '') continue;
+                    $connInfo = $redis->hGetAll("ws:conn:{$fd}");
+                    if (!is_array($connInfo)) continue;
+                    $connPushKeyId = (int)($connInfo['push_key_id'] ?? 0);
+                    $connKeyValue = (string)($connInfo['key_value'] ?? '');
+                    if ($connPushKeyId <= 0) {
+                        // 退化匹配：老数据没有 push_key_id 字段时按 key_value 匹配
+                        if ($keyValue !== '' && $connKeyValue !== ''
+                            && strtolower($connKeyValue) === strtolower($keyValue)) {
+                            $connPushKeyId = $pushKeyId;
+                        }
+                    }
+                    if ($connPushKeyId !== $pushKeyId) continue;
+                    $did = (string)($connInfo['device_id'] ?? '');
+                    if ($did === '') continue;
+                    $wsConnIds[$did] = true;
+                    if (!isset($wsConnDeviceInfo[$did])) {
+                        $wsConnDeviceInfo[$did] = [
+                            'ip'               => (string)($connInfo['ip'] ?? ''),
+                            'last_connect_at'  => isset($connInfo['connect_at']) ? date('Y-m-d H:i:s', (int)$connInfo['connect_at']) : null,
+                            'fd_count'         => 1,
+                        ];
+                    } else {
+                        $wsConnDeviceInfo[$did]['fd_count'] += 1;
+                        // 保留连接时间最早 / IP 最后一次非空
+                        if (!empty($connInfo['ip']) && $wsConnDeviceInfo[$did]['ip'] === '') {
+                            $wsConnDeviceInfo[$did]['ip'] = (string)$connInfo['ip'];
+                        }
+                        if (isset($connInfo['connect_at'])) {
+                            $connTs = (int)$connInfo['connect_at'];
+                            $earliestTs = $wsConnDeviceInfo[$did]['last_connect_at']
+                                ? (strtotime($wsConnDeviceInfo[$did]['last_connect_at']) ?: PHP_INT_MAX)
+                                : PHP_INT_MAX;
+                            if ($connTs < $earliestTs) {
+                                $wsConnDeviceInfo[$did]['last_connect_at'] = date('Y-m-d H:i:s', $connTs);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('[PushKey] subscribers 扫描 ws:conn:* 异常: ' . $e->getMessage());
+        }
+
+        // ====== 合并四方 device_id ======
         $allDeviceIds = array_unique(array_merge(
             array_keys($redisIds),
             array_keys($dbIds),
-            array_keys($deviceKeyHashIds)
+            array_keys($deviceKeyHashIds),
+            array_keys($wsConnIds)
         ));
 
         if (empty($allDeviceIds)) {
@@ -224,10 +280,12 @@ class PushKeyController
                 'online_count'   => 0,
                 // 调试统计：帮助快速定位"为什么全是 0"
                 '_debug'         => [
-                    'key_value'             => $keyValue,
-                    'redis_subscribe_count' => count($redisIds),
-                    'db_device_count'       => count($dbIds),
-                    'device_key_hash_count' => count($deviceKeyHashIds),
+                    'key_value'                  => $keyValue,
+                    'redis_subscribe_count'      => count($redisIds),
+                    'db_device_count'            => count($dbIds),
+                    'device_key_hash_count'      => count($deviceKeyHashIds),
+                    'ws_online_conn_match_count' => count($wsConnIds),
+                    'ws_online_total_fd'         => is_array($redis->sMembers('ws:online')) ? count($redis->sMembers('ws:online')) : 0,
                 ],
             ]);
         }
@@ -241,7 +299,12 @@ class PushKeyController
                 continue;
             }
 
-            $fdCount = (int)$redis->sCard('ws:device:' . $deviceId);
+            $wsConnInfo = $wsConnDeviceInfo[$deviceId] ?? null;
+            $fdCount = (int)($wsConnInfo['fd_count'] ?? 0);
+            // 兜底：ws:device:{} 集合（如果 wsConnInfo 没捕捉到，但集合里确实有 fd，那也认为在线）
+            if ($fdCount <= 0) {
+                $fdCount = (int)$redis->sCard('ws:device:' . $deviceId);
+            }
             $isOnline = $fdCount > 0;
             if ($isOnline) {
                 $onlineCount++;
@@ -250,27 +313,43 @@ class PushKeyController
             $inRedis        = isset($redisIds[$deviceId]);
             $inDb           = isset($dbIds[$deviceId]);
             $inDeviceKey    = isset($deviceKeyHashIds[$deviceId]);
+            $inWsConn       = isset($wsConnIds[$deviceId]);
 
             // 来源 tag：哪些映射来源认定它属于这个 Key
             $sources = [];
             if ($inRedis)        $sources[] = 'key:subscribe';
             if ($inDeviceKey)    $sources[] = 'device:key';
             if ($inDb)           $sources[] = 'devices表';
+            if ($inWsConn)       $sources[] = '在线会话';
             if (empty($sources)) $sources[] = 'unknown';
 
             $dbRow = $deviceMap[$deviceId] ?? null;
 
+            // 如果 DB 没记录但 ws:conn 在线会话有记录，就把 IP / 连接时间填回来
+            $fallbackIp = (string)($wsConnInfo['ip'] ?? '');
+            $fallbackConnectAt = $wsConnInfo['last_connect_at'] ?? null;
+
             // exists_in_db = 1 是"存在于 devices 表"，0 是"只有 Redis 映射，设备记录被删了"=僵尸订阅
-            // source_status：normal / mapping_missing（有 DB 无 Redis=订阅关系丢失）/ zombie（只有 Redis，设备记录被删）/ partial
+            // source_status：
+            //   normal                 = DB + Redis 集合 + device:key 三方齐全
+            //   mapping_missing        = 有 DB/在线会话，但 Redis 订阅集合缺失（推送发不到，最常见需要修复）
+            //   online_mapping_missing = 在线会话存在（一定有设备），但集合 + device:key 都没有
+            //   zombie                 = 只有 Redis 映射，DB/会话都没记录
+            //   partial                = 其它不完整组合
             if ($inDb && $inRedis && $inDeviceKey) {
                 $sourceStatus = 'normal';
-            } elseif ($inDb && !$inRedis) {
-                $sourceStatus = 'mapping_missing'; // 最常见：DB 有设备但 Redis 订阅集合漏了
-            } elseif (!$inDb && ($inRedis || $inDeviceKey)) {
-                $sourceStatus = 'zombie'; // 僵尸订阅
+            } elseif (($inDb || $inWsConn) && !$inRedis) {
+                // 有设备登记 / 有在线连接，但 key:subscribe 没它 → 推送肯定漏发
+                $sourceStatus = 'mapping_missing';
+            } elseif (!$inDb && ($inRedis || $inDeviceKey) && !$inWsConn) {
+                $sourceStatus = 'zombie';
             } else {
                 $sourceStatus = 'partial';
             }
+
+            $ip = (string)($dbRow['ip'] ?? '');
+            if ($ip === '' && $fallbackIp !== '') $ip = $fallbackIp;
+            $lastConnectAt = $dbRow['last_connect_at'] ?? $fallbackConnectAt;
 
             $list[] = [
                 'device_id'        => $deviceId,
@@ -279,6 +358,7 @@ class PushKeyController
                 'exists_in_db'     => $inDb ? 1 : 0,
                 'in_redis_sub'     => $inRedis ? 1 : 0,
                 'in_device_key'    => $inDeviceKey ? 1 : 0,
+                'in_ws_conn'       => $inWsConn ? 1 : 0,
                 'sources'          => $sources,
                 'source_status'    => $sourceStatus,
                 'device_name'      => (string)($dbRow['device_name'] ?? ''),
@@ -286,10 +366,10 @@ class PushKeyController
                 'platform'         => (string)($dbRow['platform'] ?? ''),
                 'os_version'       => (string)($dbRow['os_version'] ?? ''),
                 'app_version'      => (string)($dbRow['app_version'] ?? ''),
-                'ip'               => (string)($dbRow['ip'] ?? ''),
-                'status'           => (int)($dbRow['status'] ?? 0),
-                'last_connect_at'  => $dbRow['last_connect_at'] ?? null,
-                'last_active_at'   => $dbRow['last_active_at'] ?? null,
+                'ip'               => $ip,
+                'status'           => (int)($dbRow['status'] ?? ($isOnline ? 1 : 0)),
+                'last_connect_at'  => $lastConnectAt,
+                'last_active_at'   => $dbRow['last_active_at'] ?? $lastConnectAt,
                 'user_id'          => (int)($dbRow['user_id'] ?? 0),
                 'db_device_id'     => (int)($dbRow['id'] ?? 0),
             ];
@@ -316,10 +396,12 @@ class PushKeyController
             'total'        => count($list),
             'online_count' => $onlineCount,
             '_debug'       => [
-                'key_value'             => $keyValue,
-                'redis_subscribe_count' => count($redisIds),
-                'db_device_count'       => count($dbIds),
-                'device_key_hash_count' => count($deviceKeyHashIds),
+                'key_value'                  => $keyValue,
+                'redis_subscribe_count'      => count($redisIds),
+                'db_device_count'            => count($dbIds),
+                'device_key_hash_count'      => count($deviceKeyHashIds),
+                'ws_online_conn_match_count' => count($wsConnIds),
+                'ws_online_total_fd'         => is_array($redis->sMembers('ws:online')) ? count($redis->sMembers('ws:online')) : 0,
             ],
         ]);
     }

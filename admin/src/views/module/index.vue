@@ -565,6 +565,29 @@
         </el-tag>
         <el-button type="primary" plain size="small" :icon="RefreshIcon" @click="refreshSubscriberList" :loading="subscriberLoading">刷新</el-button>
       </div>
+
+      <!-- 空数据时显示各来源计数（帮助定位"为什么明细全0"） -->
+      <el-alert
+        v-if="subscriberList.length === 0 && !subscriberLoading && subscriberDebug"
+        :title="`明细未命中任何设备，当前各来源计数：${formatSubscriberDebug(subscriberDebug)}`"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-top: 10px;"
+      >
+        <template #default>
+          <div style="font-size: 12px; line-height: 1.8;">
+            <div>① Redis订阅集合（key:subscribe:xxx）= <b>{{ subscriberDebug.redis_subscribe_count ?? 0 }}</b> 台</div>
+            <div>② devices表登记（WHERE push_key_id = 当前Key）= <b>{{ subscriberDebug.db_device_count ?? 0 }}</b> 台</div>
+            <div>③ device:key 反向映射哈希 = <b>{{ subscriberDebug.device_key_hash_count ?? 0 }}</b> 台</div>
+            <div>④ 在线会话（ws:conn:* 中 push_key_id 匹配）= <b>{{ subscriberDebug.ws_online_conn_match_count ?? 0 }}</b> 台（全局在线连接共 {{ subscriberDebug.ws_online_total_fd ?? 0 }} 个 FD）</div>
+            <div>Key_value 查的是：<code style="background:#f4f4f5;padding:1px 4px;border-radius:3px;">{{ subscriberDebug.key_value }}</code></div>
+            <div style="margin-top: 4px; color: #909399;">
+              如果 ④>0 说明设备确实在线，但前 ①②③ 四处映射乱套了；请让 APP 重新连一次 WebSocket 即可自动修复。
+            </div>
+          </div>
+        </template>
+      </el-alert>
       <el-table
         v-loading="subscriberLoading"
         :data="subscriberList"
@@ -1345,6 +1368,7 @@ const subscriberDialogVisible = ref(false)
 const subscriberLoading = ref(false)
 const subscriberList = ref<any[]>([])
 const subscriberDialogKey = ref<{ id: number; key_value: string; name: string } | null>(null)
+const subscriberDebug = ref<Record<string, any> | null>(null)
 const subscriberTotal = computed(() => subscriberList.value.length)
 const subscriberOnlineCount = computed(() => subscriberList.value.filter((s) => s.online === 1).length)
 const subscriberZombieCount = computed(() => subscriberList.value.filter((s) => s.exists_in_db === 0).length)
@@ -1367,9 +1391,11 @@ async function refreshSubscriberList() {
   const keyId = subscriberDialogKey.value?.id
   if (!keyId) return
   subscriberLoading.value = true
+  subscriberDebug.value = null
   try {
     const res = await getKeySubscribersApi(keyId)
     subscriberList.value = res.data?.list || []
+    subscriberDebug.value = (res.data as any)?._debug || null
   } catch (e) {
     ElMessage.error('加载订阅设备列表失败')
     subscriberList.value = []
@@ -1420,6 +1446,17 @@ async function handleDeleteSubscriber(row: Record<string, any>) {
   } catch (e) {
     ElMessage.error('移除失败')
   }
+}
+
+function formatSubscriberDebug(d: Record<string, any> | null): string {
+  if (!d) return ''
+  const parts = [
+    `订阅集合 ${d.redis_subscribe_count ?? 0}`,
+    `devices表 ${d.db_device_count ?? 0}`,
+    `device:key ${d.device_key_hash_count ?? 0}`,
+    `在线会话匹配 ${d.ws_online_conn_match_count ?? 0}/${d.ws_online_total_fd ?? 0}`,
+  ]
+  return parts.join(' / ')
 }
 const passwordRules: FormRules = {
   password: [
