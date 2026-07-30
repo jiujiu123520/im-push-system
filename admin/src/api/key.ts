@@ -42,3 +42,20 @@ export function getKeyStatsApi(id: number) {
     `/admin/keys/${id}/stats`
   )
 }
+
+// 获取某个 Key 的订阅设备列表
+export function getKeySubscribersApi(id: number) {
+  return get<{
+    key_info: { id: number; key_value: string; name: string }
+    list: any[]
+    total: number
+    online_count: number
+  }>(`/admin/keys/${id}/subscribers`)
+}
+
+// 从 Key 中移除订阅设备
+export function removeKeySubscriberApi(id: number, deviceId: string) {
+  return del<{ removed: boolean; disconnected: number }>(
+    `/admin/keys/${id}/subscribers/${encodeURIComponent(deviceId)}`
+  )
+}

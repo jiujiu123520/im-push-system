@@ -221,6 +221,8 @@ if ($runWs) {
         $router->put('/admin/keys/{id}',          [\App\Controller\PushKeyController::class, 'update']);
         $router->delete('/admin/keys/{id}',       [\App\Controller\PushKeyController::class, 'delete']);
         $router->put('/admin/keys/{id}/status',   [\App\Controller\PushKeyController::class, 'updateStatus']);
+        $router->get('/admin/keys/{id}/subscribers',                 [\App\Controller\PushKeyController::class, 'subscribers']);
+        $router->delete('/admin/keys/{id}/subscribers/{device_id}',  [\App\Controller\PushKeyController::class, 'removeSubscriber']);
 
         // ============================================================
         // API Key 管理（管理员鉴权）

@@ -50,6 +50,44 @@ class PushKeyController
         // 尝试追加通知字段（如果表中存在）
         $list = $this->appendNotifyFields($list);
 
+        // 追加订阅统计：总订阅数 + 当前在线订阅数（从 Redis 读取）
+        try {
+            $redis = \App\Service\Redis::getInstance();
+            foreach ($list as &$row) {
+                $keyValue = (string)($row['key_value'] ?? '');
+                if ($keyValue !== '') {
+                    // 订阅总数（key:subscribe:{} 集合的元素数，持久订阅关系）
+                    $subscribedTotal = (int)$redis->sCard("key:subscribe:{$keyValue}");
+                    $row['subscribed_total'] = $subscribedTotal;
+
+                    // 在线订阅数：遍历订阅设备，检查每个 device_id 是否有在线 fd（ws:device:{} 集合）
+                    $onlineCount = 0;
+                    if ($subscribedTotal > 0) {
+                        $deviceIds = $redis->sMembers("key:subscribe:{$keyValue}");
+                        if (is_array($deviceIds)) {
+                            foreach ($deviceIds as $deviceId) {
+                                if ((int)$redis->sCard('ws:device:' . $deviceId) > 0) {
+                                    $onlineCount++;
+                                }
+                            }
+                        }
+                    }
+                    $row['online_count'] = $onlineCount;
+                } else {
+                    $row['subscribed_total'] = 0;
+                    $row['online_count'] = 0;
+                }
+            }
+            unset($row);
+        } catch (\Throwable $e) {
+            // Redis 异常时兜底给 0
+            foreach ($list as &$row) {
+                $row['subscribed_total'] = 0;
+                $row['online_count'] = 0;
+            }
+            unset($row);
+        }
+
         $total = (int)(Database::fetch(
             "SELECT COUNT(*) AS total FROM push_keys{$where}",
             $sqlParams
@@ -85,6 +123,185 @@ class PushKeyController
         }
 
         return $key;
+    }
+
+    /**
+     * 获取某个 Key 的订阅设备列表（含在线状态和设备详情）
+     * 路由：GET /admin/keys/{id}/subscribers
+     */
+    public function subscribers(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $id = (int)($params['id'] ?? 0);
+        if ($id <= 0) {
+            Response::fail($context['response'], '无效的 ID', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        $key = Database::fetch(
+            'SELECT id, key_value, name FROM push_keys WHERE id = ? LIMIT 1',
+            [$id]
+        );
+        if ($key === false) {
+            Response::fail($context['response'], 'Key 不存在', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+
+        $keyValue = (string)($key['key_value'] ?? '');
+        $redis = \App\Service\Redis::getInstance();
+
+        // 从 key:subscribe 获取订阅的 device_id 集合
+        $deviceIds = $redis->sMembers("key:subscribe:{$keyValue}");
+        if (!is_array($deviceIds) || empty($deviceIds)) {
+            return Response::success([
+                'key_info' => $key,
+                'list' => [],
+                'total' => 0,
+                'online_count' => 0,
+            ]);
+        }
+
+        // 从 devices 表批量查询设备详情
+        $placeholders = implode(',', array_fill(0, count($deviceIds), '?'));
+        $dbDeviceRows = Database::fetchAll(
+            "SELECT id, device_id, device_name, device_model, os_version, platform, app_version,
+                    ip, status, last_connect_at, last_active_at, user_id, push_key_id
+             FROM devices WHERE push_key_id = ? AND device_id IN ({$placeholders})",
+            array_merge([$id], $deviceIds)
+        );
+
+        // 建立 device_id -> 行信息 的索引
+        $deviceMap = [];
+        foreach ($dbDeviceRows as $row) {
+            $deviceMap[(string)$row['device_id']] = $row;
+        }
+
+        // 逐个组装返回
+        $list = [];
+        $onlineCount = 0;
+        foreach ($deviceIds as $deviceId) {
+            $deviceId = (string)$deviceId;
+            $fdCount = (int)$redis->sCard('ws:device:' . $deviceId);
+            $isOnline = $fdCount > 0;
+            if ($isOnline) {
+                $onlineCount++;
+            }
+
+            $dbRow = $deviceMap[$deviceId] ?? null;
+            $list[] = [
+                'device_id'     => $deviceId,
+                'fd_count'      => $fdCount,
+                'online'        => $isOnline ? 1 : 0,
+                'exists_in_db'  => $dbRow !== null ? 1 : 0,  // 是否还存在于 devices 表（1=存在,0=僵尸订阅）
+                'device_name'   => (string)($dbRow['device_name'] ?? ''),
+                'device_model'  => (string)($dbRow['device_model'] ?? ''),
+                'platform'      => (string)($dbRow['platform'] ?? ''),
+                'os_version'    => (string)($dbRow['os_version'] ?? ''),
+                'app_version'   => (string)($dbRow['app_version'] ?? ''),
+                'ip'            => (string)($dbRow['ip'] ?? ''),
+                'status'        => (int)($dbRow['status'] ?? 0),
+                'last_connect_at'  => $dbRow['last_connect_at'] ?? null,
+                'last_active_at'   => $dbRow['last_active_at'] ?? null,
+                'user_id'       => (int)($dbRow['user_id'] ?? 0),
+                'db_device_id'  => (int)($dbRow['id'] ?? 0),
+            ];
+        }
+
+        // 在线的排前面，然后是僵尸订阅，最后是离线的
+        usort($list, function ($a, $b) {
+            if ($a['online'] !== $b['online']) return $b['online'] <=> $a['online'];
+            if ($a['exists_in_db'] !== $b['exists_in_db']) return $b['exists_in_db'] <=> $a['exists_in_db'];
+            return 0;
+        });
+
+        return Response::success([
+            'key_info'     => $key,
+            'list'         => $list,
+            'total'        => count($list),
+            'online_count' => $onlineCount,
+        ]);
+    }
+
+    /**
+     * 从某个 Key 中移除一个订阅设备（同时断开在线连接 + 清理订阅关系）
+     * 路由：DELETE /admin/keys/{id}/subscribers/{device_id}
+     */
+    public function removeSubscriber(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $id = (int)($params['id'] ?? 0);
+        $deviceId = (string)($params['device_id'] ?? '');
+        if ($id <= 0 || $deviceId === '') {
+            Response::fail($context['response'], '参数错误', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        $key = Database::fetch(
+            'SELECT id, key_value, name FROM push_keys WHERE id = ? LIMIT 1',
+            [$id]
+        );
+        if ($key === false) {
+            Response::fail($context['response'], 'Key 不存在', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+        $keyValue = (string)($key['key_value'] ?? '');
+
+        $redis = \App\Service\Redis::getInstance();
+
+        // 检查订阅关系
+        if ((int)$redis->sIsMember("key:subscribe:{$keyValue}", $deviceId) === 0) {
+            Response::fail($context['response'], '此设备未订阅该 Key', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+
+        // 1. 清理订阅关系（双向）
+        $redis->sRem("key:subscribe:{$keyValue}", $deviceId);
+        $redis->hDel('device:key', $deviceId);
+
+        // 2. 如果设备在线，踢下线（发送 disconnect 命令到 WebSocket 命令队列）
+        $fds = $redis->sMembers('ws:device:' . $deviceId);
+        $fdCount = is_array($fds) ? count($fds) : 0;
+        if ($fdCount > 0) {
+            $cmd = [
+                'action'     => 'disconnect',
+                'device_id'  => $deviceId,
+                'fds'        => array_map('intval', $fds),
+                'reason'     => 'removed from key subscribers',
+                'created_at' => time(),
+            ];
+            $redis->lPush('ws:queue:cmd', json_encode($cmd, JSON_UNESCAPED_UNICODE));
+
+            // 清理在线映射
+            foreach ($fds as $fd) {
+                $redis->sRem("ws:device:{$deviceId}", (string)$fd);
+                $redis->hDel('ws:fd:device', (string)$fd);
+                $redis->sRem('ws:online', (string)$fd);
+                $redis->del("ws:conn:{$fd}");
+            }
+        }
+
+        // 3. 将 devices 表中该设备标记为离线（避免下次启动还显示在线）
+        try {
+            Database::execute(
+                'UPDATE devices SET last_active_at = NOW() WHERE push_key_id = ? AND device_id = ? LIMIT 1',
+                [$id, $deviceId]
+            );
+        } catch (\Throwable $e) {
+            // 忽略 devices 表异常（订阅关系已清理即可）
+        }
+
+        return Response::success([
+            'removed'        => true,
+            'disconnected'   => $fdCount > 0 ? $fdCount : 0,
+        ], "已移除设备 {$deviceId}（断开连接 {$fdCount} 个）");
     }
 
     public function create(array $context, array $params)

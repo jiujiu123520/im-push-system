@@ -340,6 +340,36 @@
             </span>
             <span v-else style="color: #909399;">默认 5 分钟</span>
           </template>
+          <!-- Key：订阅数（点击弹出明细） -->
+          <template v-else-if="col.prop === 'subscribed_total' && currentModule === 'keys'" #default="{ row }">
+            <el-tag
+              v-if="row.subscribed_total > 0"
+              type="primary"
+              effect="plain"
+              round
+              size="small"
+              class="clickable-tag"
+              @click="openSubscriberDialog(row)"
+            >
+              {{ row.subscribed_total }}
+            </el-tag>
+            <span v-else style="color: #909399;">0</span>
+          </template>
+          <!-- Key：在线设备数（点击弹出明细） -->
+          <template v-else-if="col.prop === 'online_count' && currentModule === 'keys'" #default="{ row }">
+            <el-tag
+              v-if="row.online_count > 0"
+              type="success"
+              effect="plain"
+              round
+              size="small"
+              class="clickable-tag"
+              @click="openSubscriberDialog(row)"
+            >
+              {{ row.online_count }}
+            </el-tag>
+            <span v-else style="color: #909399;">0</span>
+          </template>
           <template v-else-if="col.prop === 'key_value'" #default="{ row }">
             <div style="display: flex; align-items: center; gap: 4px;">
               <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ row[col.prop] }}</span>
@@ -516,6 +546,113 @@
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="handleSubmit">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 订阅设备明细弹窗 -->
+    <el-dialog
+      v-model="subscriberDialogVisible"
+      :title="`${subscriberDialogKey?.name || ''} · 订阅设备明细`"
+      width="960px"
+      destroy-on-close
+    >
+      <div class="subscriber-stats">
+        <el-tag type="info" effect="plain" round>订阅总数：{{ subscriberTotal }}</el-tag>
+        <el-tag type="success" effect="plain" round>在线：{{ subscriberOnlineCount }}</el-tag>
+        <el-tag type="danger" effect="plain" round>僵尸订阅（设备已删除）：{{ subscriberZombieCount }}</el-tag>
+        <el-button type="primary" plain size="small" :icon="RefreshIcon" @click="refreshSubscriberList" :loading="subscriberLoading">刷新</el-button>
+      </div>
+      <el-table
+        v-loading="subscriberLoading"
+        :data="subscriberList"
+        stripe
+        border
+        size="small"
+        max-height="520"
+        style="margin-top: 12px;"
+      >
+        <el-table-column type="index" label="#" width="50" align="center" />
+        <el-table-column prop="device_id" label="设备ID" min-width="200">
+          <template #default="{ row }">
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 12px;">{{ row.device_id }}</span>
+              <el-button text type="primary" size="small" @click="copyToClipboard(row.device_id)">
+                <el-icon><CopyDocumentIcon /></el-icon>
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="在线" width="80">
+          <template #default="{ row }">
+            <el-tag :type="row.online === 1 ? 'success' : 'info'" effect="plain" round size="small">
+              {{ row.online === 1 ? `在线(${row.fd_count})` : '离线' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag v-if="row.exists_in_db === 0" type="danger" effect="light" round size="small">僵尸订阅</el-tag>
+            <el-tag v-else :type="row.status === 1 ? 'success' : 'warning'" effect="plain" round size="small">
+              {{ row.status === 1 ? '启用' : '禁用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="platform" label="平台" width="90">
+          <template #default="{ row }">
+            <el-tag v-if="row.platform" :type="platformTagType(row.platform)" effect="plain" round size="small">
+              {{ platformLabel(row.platform) }}
+            </el-tag>
+            <span v-else style="color: #909399; font-size: 12px;">未知</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="device_name" label="设备名" width="140">
+          <template #default="{ row }">
+            <span v-if="row.device_name" style="font-size: 13px;">{{ row.device_name }}</span>
+            <span v-else style="color: #909399; font-size: 12px;">未知</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="device_model" label="型号" min-width="120">
+          <template #default="{ row }">
+            <span v-if="row.device_model" style="font-size: 13px;">{{ row.device_model }}</span>
+            <span v-else style="color: #909399; font-size: 12px;">未知</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="app_version" label="APP版本" width="100">
+          <template #default="{ row }">
+            <span v-if="row.app_version" style="font-size: 13px;">{{ row.app_version }}</span>
+            <span v-else style="color: #909399; font-size: 12px;">未知</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="ip" label="IP" width="140">
+          <template #default="{ row }">
+            <span v-if="row.ip" style="font-family: monospace; font-size: 12px;">{{ row.ip }}</span>
+            <span v-else style="color: #909399; font-size: 12px;">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="last_active_at" label="最后活跃" width="170">
+          <template #default="{ row }">
+            <span v-if="row.last_active_at" style="font-size: 12px;">{{ row.last_active_at }}</span>
+            <span v-else-if="row.last_connect_at" style="font-size: 12px;">{{ row.last_connect_at }}</span>
+            <span v-else style="color: #909399; font-size: 12px;">未知</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="110" fixed="right" align="center">
+          <template #default="{ row }">
+            <el-button
+              type="danger"
+              text
+              size="small"
+              :icon="DeleteIcon"
+              @click="handleDeleteSubscriber(row)"
+            >
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <template #footer>
+        <el-button @click="subscriberDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 
@@ -747,7 +884,7 @@ import {
 } from '@element-plus/icons-vue'
 import { exportPushLogsApi, getPushLogListApi, sendPushApi, retryPushApi, getPushLogDetailApi, deletePushLogApi } from '@/api/push'
 import { getZombieConnectionsApi, deleteZombieConnectionApi, cleanupZombieConnectionsApi } from '@/api/connection'
-import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi } from '@/api/key'
+import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi, getKeySubscribersApi, removeKeySubscriberApi } from '@/api/key'
 import { getDeviceListApi, deleteDeviceApi, toggleDeviceStatusApi, kickDeviceApi } from '@/api/device'
 import {
   getBlacklistApi,
@@ -823,6 +960,8 @@ const moduleConfigs: Record<string, {
     columns: [
       { prop: 'key_value', label: 'AppKey', width: 220 },
       { prop: 'name', label: '名称', width: 160 },
+      { prop: 'subscribed_total', label: '订阅数', width: 120 },
+      { prop: 'online_count', label: '在线设备', width: 110 },
       { prop: 'max_devices', label: '最大设备数', width: 110 },
       { prop: 'notify_enabled', label: '掉线通知', width: 100, slot: 'notifyEnabled' },
       { prop: 'notify_email', label: '通知邮箱', width: 220, slot: 'notifyEmail' },
@@ -1140,6 +1279,71 @@ const passwordForm = reactive<{ id: number | null; password: string }>({
   id: null,
   password: ''
 })
+
+// 订阅设备明细弹窗
+const subscriberDialogVisible = ref(false)
+const subscriberLoading = ref(false)
+const subscriberList = ref<any[]>([])
+const subscriberDialogKey = ref<{ id: number; key_value: string; name: string } | null>(null)
+const subscriberTotal = computed(() => subscriberList.value.length)
+const subscriberOnlineCount = computed(() => subscriberList.value.filter((s) => s.online === 1).length)
+const subscriberZombieCount = computed(() => subscriberList.value.filter((s) => s.exists_in_db === 0).length)
+
+async function openSubscriberDialog(row: Record<string, any>) {
+  const keyId = row.id
+  if (!keyId || !row.key_value) return
+  subscriberDialogKey.value = {
+    id: keyId,
+    key_value: row.key_value,
+    name: row.name || row.key_value,
+  }
+  subscriberDialogVisible.value = true
+  await refreshSubscriberList()
+}
+async function refreshSubscriberList() {
+  const keyId = subscriberDialogKey.value?.id
+  if (!keyId) return
+  subscriberLoading.value = true
+  try {
+    const res = await getKeySubscribersApi(keyId)
+    subscriberList.value = res.data?.list || []
+  } catch (e) {
+    ElMessage.error('加载订阅设备列表失败')
+    subscriberList.value = []
+  } finally {
+    subscriberLoading.value = false
+  }
+}
+async function handleDeleteSubscriber(row: Record<string, any>) {
+  const keyId = subscriberDialogKey.value?.id
+  if (!keyId) return
+  try {
+    await ElMessageBox.confirm(
+      `确定要从该 Key 中移除设备「${row.device_id}」吗？\n\n如果此设备当前在线，将被强制断开连接，且订阅关系清除（除非重新鉴权，否则不再接收此 Key 的推送）。`,
+      '移除订阅设备',
+      {
+        confirmButtonText: '移除',
+        cancelButtonText: '取消',
+        type: 'warning',
+        center: true,
+      }
+    )
+  } catch {
+    return
+  }
+  try {
+    const res = await removeKeySubscriberApi(keyId, row.device_id)
+    const disconnected = res.data?.disconnected || 0
+    ElMessage.success(disconnected > 0
+      ? `已移除并断开 ${disconnected} 个连接`
+      : `已移除订阅关系`
+    )
+    await refreshSubscriberList()
+    await fetchData()  // 刷新 Key 列表的订阅数/在线数显示
+  } catch (e) {
+    ElMessage.error('移除失败')
+  }
+}
 const passwordRules: FormRules = {
   password: [
     { required: true, message: '请输入新密码', trigger: 'blur' },
@@ -1848,6 +2052,29 @@ async function handleExport(format: string) {
 .header-actions {
   display: flex;
   align-items: center;
+}
+
+// 订阅设备明细
+.subscriber-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  background: #f7f8fa;
+  border-radius: 6px;
+  padding: 10px 14px;
+}
+
+// 可点击的 tag（订阅数、在线设备数）
+.clickable-tag {
+  cursor: pointer;
+  transition: all 0.2s;
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(64, 158, 255, 0.2);
+    filter: brightness(1.08);
+  }
 }
 
 .field-tip {
