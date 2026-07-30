@@ -1416,8 +1416,13 @@ async function refreshSubscriberList() {
     const res = await getKeySubscribersApi(keyId)
     // eslint-disable-next-line no-console
     console.log('[subscriber API raw response]', res)
-    subscriberList.value = res.data?.list || []
-    subscriberDebug.value = (res.data as any)?._debug || {
+    // 兼容双层嵌套的旧版后端响应: res.data 可能是 {code,message,data:{list,...}} 或直接 {list,...}
+    const rawData = res.data as any
+    const actualData = rawData?.data?.list !== undefined
+      ? rawData.data  // 旧版双层嵌套
+      : rawData       // 新版正确结构
+    subscriberList.value = actualData?.list || []
+    subscriberDebug.value = actualData?._debug || {
       __raw_response: res,
       note: '后端未返回 _debug 字段，请查看浏览器 Network 面板的原始响应',
     }

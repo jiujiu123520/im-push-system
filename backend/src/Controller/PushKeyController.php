@@ -309,7 +309,7 @@ class PushKeyController
         ));
 
         if (empty($allDeviceIds)) {
-            return Response::success([
+            return [
                 'key_info'       => $key,
                 'list'           => [],
                 'total'          => 0,
@@ -329,7 +329,7 @@ class PushKeyController
                         ? "⚠️ Redis sCard={$redisSetCount} 但 sMembers 返回空，集合可能已损坏或连接异常"
                         : '',
                 ],
-            ]);
+            ];
         }
 
         // 逐个组装返回
@@ -432,7 +432,7 @@ class PushKeyController
             return $b['exists_in_db'] <=> $a['exists_in_db'];
         });
 
-        return Response::success([
+        return [
             'key_info'     => $key,
             'list'         => $list,
             'total'        => count($list),
@@ -448,7 +448,7 @@ class PushKeyController
                 'ws_online_conn_match_count' => count($wsConnIds),
                 'ws_online_total_fd'         => is_array($redis->sMembers('ws:online')) ? count($redis->sMembers('ws:online')) : 0,
             ],
-        ]);
+        ];
     }
 
     /**
@@ -554,13 +554,14 @@ class PushKeyController
             $removedDb = 0;
         }
 
-        return Response::success([
+        return [
             'removed'              => true,
             'disconnected'         => $fdCount,
             'redis_subscribe_rm'   => $removedSubscribe,
             'redis_device_key_rm'  => $removedDeviceKey,
             'db_rows_removed'      => $removedDb,
-        ], "设备 {$deviceId} 已移除（断开连接 {$fdCount} 个，集合 {$removedSubscribe}，哈希 {$removedDeviceKey}，表 {$removedDb} 行）");
+            'message'              => "设备 {$deviceId} 已移除（断开连接 {$fdCount} 个，集合 {$removedSubscribe}，哈希 {$removedDeviceKey}，表 {$removedDb} 行）",
+        ];
     }
 
     /**
@@ -615,11 +616,12 @@ class PushKeyController
         $redis->hSet('device:key', $deviceId, $keyValue);
         $updatedHash = ($oldHashVal === $keyValue) ? 0 : 1;
 
-        return Response::success([
+        return [
             'repaired'           => true,
             'added_to_sub_set'   => $addedSet,
             'updated_device_key' => $updatedHash,
-        ], "订阅关系已修复：加入集合 {$addedSet} 项，更新 device:key {$updatedHash} 项");
+            'message'            => "订阅关系已修复：加入集合 {$addedSet} 项，更新 device:key {$updatedHash} 项",
+        ];
     }
 
     public function create(array $context, array $params)
