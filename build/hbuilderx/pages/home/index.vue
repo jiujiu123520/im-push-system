@@ -63,6 +63,8 @@
                     :key="'msg-list-' + messages.length"
                     enhanced
                     show-scrollbar
+                    :lower-threshold="80"
+                    @scrolltolower="loadMoreMessages"
                 >
                     <view v-for="(msg) in messages" :key="msg.id" class="message-item">
                 <view class="message-header">
@@ -75,6 +77,13 @@
                     <text v-if="msg.is_synced" class="message-synced-tag">已同步</text>
                 </view>
             </view>
+                    <!-- 底部加载状态 -->
+                    <view v-if="loadingMore" class="load-more-tip">
+                        <text class="load-more-text">加载中...</text>
+                    </view>
+                    <view v-else-if="!hasMore && messages.length > 0" class="load-more-tip">
+                        <text class="load-more-text">没有更多消息了</text>
+                    </view>
                 </scroll-view>
                 <view v-else class="empty-state">
                     <text class="empty-icon">📭</text>
@@ -484,6 +493,10 @@ export default {
             bindDeviceIdInput: '',
             messages: [],
             scrollTop: 0,
+            // 分页状态
+            loadingMore: false,           // 是否正在加载更多
+            hasMore: true,                // 是否还有更多历史消息
+            oldestDbId: 0,                // 当前列表中最早的数据库消息ID（用于 before_id 游标）
             todayCount: 0,
             totalCount: 0,
             deviceId: '',
@@ -761,6 +774,8 @@ export default {
                         }
                         const data = res.data.data || {}
                         const list = data.list || []
+                        // 刷新时重置分页状态
+                        this.hasMore = data.has_more !== false
                         // 合并去重
                         const existingIds = new Set(this.messages.map(m => m.message_id || m.id))
                         const newMsgs = []
@@ -770,6 +785,7 @@ export default {
                             newMsgs.push({
                                 id: msgId,
                                 message_id: item.message_id,
+                                db_id: item.id,
                                 title: item.title || '消息推送',
                                 content: item.content || '',
                                 time: new Date(item.created_at.replace(/-/g, '/')).getTime() || Date.now(),
@@ -778,15 +794,14 @@ export default {
                         })
                         if (newMsgs.length > 0) {
                             this.messages = [...this.messages, ...newMsgs].sort((a, b) => (b.time || 0) - (a.time || 0))
-                            if (this.messages.length > 100) {
-                                this.messages = this.messages.slice(0, 100)
-                            }
                             this.saveMessages()
                             this.updateStats()
                             console.log('[Refresh] 新增', newMsgs.length, '条消息')
                         } else {
                             console.log('[Refresh] 已是最新')
                         }
+                        // 更新游标：取当前列表中最小的 db_id
+                        this.updateOldestDbId()
                         this.markRefreshed()
                         resolve(newMsgs.length)
                     },
@@ -1316,6 +1331,8 @@ export default {
                         id: msg.id || (msg.time || Date.now()) + '_' + idx
                     }))
                     this.updateStats()
+                    // 恢复分页游标
+                    this.updateOldestDbId()
                 }
             } catch (e) {
                 console.error('加载消息失败', e)
@@ -1323,10 +1340,89 @@ export default {
         },
         saveMessages() {
             try {
-                uni.setStorageSync('push_messages', JSON.stringify(this.messages.slice(0, 100)))
+                // 本地最多保留 500 条（分页加载的历史消息）
+                uni.setStorageSync('push_messages', JSON.stringify(this.messages.slice(0, 500)))
             } catch (e) {
                 console.error('保存消息失败', e)
             }
+        },
+        // 更新游标：取当前列表中最小的 db_id（即最早的消息）
+        updateOldestDbId() {
+            let minId = 0
+            for (const msg of this.messages) {
+                if (msg.db_id && (minId === 0 || msg.db_id < minId)) {
+                    minId = msg.db_id
+                }
+            }
+            this.oldestDbId = minId
+        },
+        // 上拉加载更多历史消息
+        loadMoreMessages() {
+            if (this.loadingMore || !this.hasMore) return
+            if (!this.oldestDbId) {
+                this.hasMore = false
+                return
+            }
+            const pushKey = this.form.key || uni.getStorageSync('push_key') || ''
+            const deviceId = this.deviceId || ''
+            if (!pushKey || !deviceId) return
+
+            this.loadingMore = true
+            const serverUrl = (this.form.serverUrl || APP_CONFIG.server_url || '').replace(/\/+$/, '')
+            const url = serverUrl + '/api/device/messages?push_key='
+                + encodeURIComponent(pushKey)
+                + '&device_id=' + encodeURIComponent(deviceId)
+                + '&limit=50'
+                + '&before_id=' + this.oldestDbId
+
+            uni.request({
+                url: url,
+                method: 'GET',
+                timeout: 10000,
+                success: (res) => {
+                    if (res.statusCode !== 200 || !res.data || res.data.code !== 0) {
+                        console.warn('[LoadMore] 加载失败:', res.data?.message || res.statusCode)
+                        return
+                    }
+                    const data = res.data.data || {}
+                    const list = data.list || []
+                    this.hasMore = data.has_more !== false
+
+                    if (list.length === 0) {
+                        this.hasMore = false
+                        return
+                    }
+                    // 合并去重
+                    const existingIds = new Set(this.messages.map(m => m.message_id || m.id))
+                    const newMsgs = []
+                    list.forEach((item) => {
+                        const msgId = item.message_id || ('db_' + item.id)
+                        if (existingIds.has(msgId)) return
+                        newMsgs.push({
+                            id: msgId,
+                            message_id: item.message_id,
+                            db_id: item.id,
+                            title: item.title || '消息推送',
+                            content: item.content || '',
+                            time: new Date(item.created_at.replace(/-/g, '/')).getTime() || Date.now(),
+                            is_synced: true
+                        })
+                    })
+                    if (newMsgs.length > 0) {
+                        // 追加到列表末尾（历史消息时间更早）
+                        this.messages = [...this.messages, ...newMsgs].sort((a, b) => (b.time || 0) - (a.time || 0))
+                        this.saveMessages()
+                        this.updateOldestDbId()
+                        console.log('[LoadMore] 加载了', newMsgs.length, '条历史消息')
+                    }
+                },
+                fail: (err) => {
+                    console.error('[LoadMore] 请求失败', err)
+                },
+                complete: () => {
+                    this.loadingMore = false
+                }
+            })
         },
         // ============== 前台服务保活 ==============
         getNotificationSmallIcon(main) {
@@ -2533,20 +2629,20 @@ export default {
                         newMsgs.push({
                             id: msgId,
                             message_id: item.message_id,
+                            db_id: item.id,
                             title: item.title || '消息推送',
                             content: item.content || '',
                             time: new Date(item.created_at.replace(/-/g, '/')).getTime() || Date.now(),
                             is_synced: true
                         })
                     })
+                    // 设置分页状态
+                    this.hasMore = data.has_more !== false
                     if (newMsgs.length > 0) {
                         // 合并并按时间倒序排序
                         this.messages = [...this.messages, ...newMsgs].sort((a, b) => (b.time || 0) - (a.time || 0))
-                        // 限制最多 100 条
-                        if (this.messages.length > 100) {
-                            this.messages = this.messages.slice(0, 100)
-                        }
                         this.saveMessages()
+                        this.updateOldestDbId()
                         this.updateStats()
                         console.log('[Sync] 同步完成，新增', newMsgs.length, '条历史消息')
                         uni.showToast({
@@ -3425,9 +3521,9 @@ export default {
             // 2. 创建新数组引用，强制触发视图更新（解决 scroll-view 不刷新问题）
             this.messages = [newMsg, ...this.messages]
 
-            // 3. 限制最多 100 条
-            if (this.messages.length > 100) {
-                this.messages = this.messages.slice(0, 100)
+            // 3. 限制本地最多 500 条（分页加载的历史消息）
+            if (this.messages.length > 500) {
+                this.messages = this.messages.slice(0, 500)
             }
 
             // 4. 更新统计
@@ -3485,6 +3581,8 @@ export default {
                 success: (res) => {
                     if (res.confirm) {
                         this.messages = []
+                        this.hasMore = true
+                        this.oldestDbId = 0
                         this.saveMessages()
                         uni.showToast({ title: '已清空', icon: 'success' })
                     }
@@ -3816,6 +3914,16 @@ export default {
     border-radius: 8px;
 }
 
+.load-more-tip {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 16px 0;
+}
+.load-more-text {
+    font-size: 13px;
+    color: #909399;
+}
 .empty-state {
     display: flex;
     flex-direction: column;

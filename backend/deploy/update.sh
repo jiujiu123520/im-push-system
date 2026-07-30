@@ -512,8 +512,18 @@ else
     git clean -fd -e 'composer.lock' -e 'package-lock.json' -e 'backend/composer.lock' -e 'admin/package-lock.json' 2>/dev/null || true
     # 2. 强制 fetch 最新远程引用
     git fetch --force --all
-    # 3. 硬重置到远程 main 分支
-    git reset --hard origin/main
+    # 3. 确定远端分支（优先 main，回退 master）
+    if [[ -z "${REMOTE_BRANCH}" ]]; then
+        if git rev-parse --verify origin/main >/dev/null 2>&1; then
+            REMOTE_BRANCH="main"
+        elif git rev-parse --verify origin/master >/dev/null 2>&1; then
+            REMOTE_BRANCH="master"
+        else
+            REMOTE_BRANCH="main"
+        fi
+    fi
+    # 硬重置到远程分支
+    git reset --hard "origin/${REMOTE_BRANCH}"
     # 4. 输出当前 commit 信息（便于追溯）
     info "当前 commit: $(git log -1 --pretty=format:'%h %s (%an, %ad)' --date=short)"
 
@@ -600,25 +610,23 @@ else
             warn "标准构建失败（可能是 TypeScript 类型检查不通过），降级为直接 vite build（跳过类型检查）..."
             if npx vite build; then
                 warn "前端已构建完成（跳过了类型检查）。建议开发时运行 npm run type-check 排查类型问题。"
+                mark_done "step2b_frontend_build"
             else
                 # vite build 也失败，属于真正的构建错误，但仍不阻断后端更新
                 error "前端构建失败！后端更新将继续，但管理后台可能仍是旧版本。"
                 error "请手动检查: cd ${PROJECT_DIR}/admin && npm run build"
                 cd "${PROJECT_DIR}"
-                # 注意：这里不 mark_done，下次 --resume 会重试前端构建
-                # 但后端步骤已标记完成，不会重复执行
+                # 不 mark_done，下次 --resume 会重试前端构建
             fi
         else
             info "前端构建完成。"
+            mark_done "step2b_frontend_build"
         fi
         cd "${PROJECT_DIR}"
     else
         warn "未找到 admin 目录，跳过前端构建。"
+        mark_done "step2b_frontend_build"
     fi
-
-    # 即使前端构建失败也标记完成（避免 --resume 时重复 npm install）
-    # 后端更新不受影响，前端可在修复后手动重新构建
-    mark_done "step2b_frontend_build"
 fi
 
 # ============================================================
@@ -742,10 +750,17 @@ else
 
     cd "${PROJECT_DIR}"
 
-    # 1. 设置 build、app、.gradle 目录权限（BuildWorker 以 www-data 用户运行）
+    # 1. 设置 build、app、.gradle 目录权限（BuildWorker 以 web 用户运行）
     info "设置 build/app 目录权限..."
+    # 检测 web 用户（Debian/Ubuntu=www-data, CentOS/RHEL/Alpine=nginx, Arch=http）
+    WEB_USER="www-data"
+    if id -u nginx >/dev/null 2>&1; then
+        WEB_USER="nginx"
+    elif id -u http >/dev/null 2>&1; then
+        WEB_USER="http"
+    fi
     sudo mkdir -p "${PROJECT_DIR}/build/logs" "${PROJECT_DIR}/.gradle"
-    sudo chown -R www-data:www-data "${PROJECT_DIR}/build" "${PROJECT_DIR}/app" "${PROJECT_DIR}/.gradle"
+    sudo chown -R "${WEB_USER}:${WEB_USER}" "${PROJECT_DIR}/build" "${PROJECT_DIR}/app" "${PROJECT_DIR}/.gradle"
     sudo chmod -R u+rw "${PROJECT_DIR}/build" "${PROJECT_DIR}/app"
 
     # 2. 删除 gradlew（强制使用全局 gradle，避免 wrapper 尝试下载 distribution 超时）

@@ -1529,7 +1529,7 @@ GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 EOF
     fi
-    info "数据库与用户创建完成（${MYSQL_IS_MARIADB:+MariaDB}${MYSQL_IS_MARIADB:-MySQL}）。"
+    info "数据库与用户创建完成（$([[ "${MYSQL_IS_MARIADB}" == "true" ]] && echo 'MariaDB' || echo 'MySQL')）。"
 fi
 
 # 启动 Redis
@@ -1606,6 +1606,10 @@ if [[ ! -f "${PROJECT_DIR}/backend/.env" ]]; then
     sed -i "s/^DB_PASS=.*/DB_PASS=${DB_PASS}/" "${PROJECT_DIR}/backend/.env"
     sed -i "s/^REDIS_HOST=.*/REDIS_HOST=${REDIS_HOST}/" "${PROJECT_DIR}/backend/.env"
     sed -i "s/^REDIS_PORT=.*/REDIS_PORT=${REDIS_PORT}/" "${PROJECT_DIR}/backend/.env"
+    # 如果安装时设置了 Redis 密码，写入 .env
+    if [[ -n "${REDIS_PASSWORD}" ]]; then
+        sed -i "s/^REDIS_PASSWORD=.*/REDIS_PASSWORD=${REDIS_PASSWORD}/" "${PROJECT_DIR}/backend/.env"
+    fi
     sed -i "s/^HTTP_PORT=.*/HTTP_PORT=${HTTP_PORT}/" "${PROJECT_DIR}/backend/.env"
     sed -i "s/^WEBSOCKET_PORT=.*/WEBSOCKET_PORT=${WEBSOCKET_PORT}/" "${PROJECT_DIR}/backend/.env"
     info "已生成随机 JWT_SECRET 与 AES_KEY 并写入 .env"
@@ -1861,7 +1865,10 @@ if [[ -d "${SYSTEMD_SRC}" ]]; then
         info "安装 systemd 服务: $(basename "${svc_file}")"
         DST_FILE="${SYSTEMD_DST}/$(basename "${svc_file}")"
         # 动态替换 User=/Group= 为当前发行版的 Web 用户（默认 www-data）
-        sed "s/^User=www-data$/User=${WEB_USER}/g; s/^Group=www-data$/Group=${WEB_USER}/g" \
+        # 同时替换硬编码的项目路径为实际 PROJECT_DIR
+        sed "s/^User=www-data$/User=${WEB_USER}/g; \
+s/^Group=www-data$/Group=${WEB_USER}/g; \
+s|/www/push-system|${PROJECT_DIR}|g" \
             "${svc_file}" > "$DST_FILE"
         # systemd < 227: 移除 cgroup 资源限制指令（MemoryMax/MemoryHigh/TasksMax/CPUQuota）
         # systemd < 230: 将 StartLimitIntervalSec 改为 StartLimitInterval（并移到 [Unit] 段）
@@ -1882,27 +1889,31 @@ fi
 NGINX_SRC="${PROJECT_DIR}/deploy/nginx/push.conf"
 NGINX_INSTALLED_PATH=""
 if [[ -f "${NGINX_SRC}" ]]; then
+    # 临时文件：替换硬编码路径为实际 PROJECT_DIR
+    NGINX_TMP=$(mktemp)
+    sed "s|/www/push-system|${PROJECT_DIR}|g" "${NGINX_SRC}" > "${NGINX_TMP}"
     # 根据发行版选择 Nginx 配置目录
     if [[ -d "/etc/nginx/sites-available" ]]; then
-        cp "${NGINX_SRC}" /etc/nginx/sites-available/push.conf
+        cp "${NGINX_TMP}" /etc/nginx/sites-available/push.conf
         ln -sf /etc/nginx/sites-available/push.conf /etc/nginx/sites-enabled/push.conf
         rm -f /etc/nginx/sites-enabled/default
         NGINX_INSTALLED_PATH="/etc/nginx/sites-available/push.conf"
     elif [[ -d "/etc/nginx/conf.d" ]]; then
-        cp "${NGINX_SRC}" /etc/nginx/conf.d/push.conf
+        cp "${NGINX_TMP}" /etc/nginx/conf.d/push.conf
         NGINX_INSTALLED_PATH="/etc/nginx/conf.d/push.conf"
     elif [[ -d "/etc/nginx/http.d" ]]; then
         # Alpine Linux
-        cp "${NGINX_SRC}" /etc/nginx/http.d/push.conf
+        cp "${NGINX_TMP}" /etc/nginx/http.d/push.conf
         NGINX_INSTALLED_PATH="/etc/nginx/http.d/push.conf"
     elif [[ -d "/etc/nginx/vhosts.d" ]]; then
         # openSUSE
-        cp "${NGINX_SRC}" /etc/nginx/vhosts.d/push.conf
+        cp "${NGINX_TMP}" /etc/nginx/vhosts.d/push.conf
         NGINX_INSTALLED_PATH="/etc/nginx/vhosts.d/push.conf"
     else
-        cp "${NGINX_SRC}" /etc/nginx/push.conf
+        cp "${NGINX_TMP}" /etc/nginx/push.conf
         NGINX_INSTALLED_PATH="/etc/nginx/push.conf"
     fi
+    rm -f "${NGINX_TMP}"
     info "Nginx 配置已安装到: ${NGINX_INSTALLED_PATH}"
     # 校验并重新加载/启动
     if nginx -t 2>&1; then
@@ -1975,8 +1986,8 @@ find "${PROJECT_DIR}/build" -type f -exec chmod 664 {} \; 2>/dev/null || true
 find "${PROJECT_DIR}/build" -type f -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
 # app 目录下的 .gradle / .properties 文件可读
 find "${PROJECT_DIR}/app" -type f \( -name "*.gradle" -o -name "*.properties" -o -name "*.gradle.kts" \) -exec chmod 644 {} \; 2>/dev/null || true
-# 保留 .sh 脚本的可执行权限
-find "${PROJECT_DIR}" -type f -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
+# 保留 .sh 脚本的可执行权限（仅扫描项目自有目录，避免遍历 node_modules/vendor/.git）
+find "${PROJECT_DIR}/deploy" "${PROJECT_DIR}/backend/bin" "${PROJECT_DIR}/build" -type f -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
 info "目录权限已设置（保留 .git 属主: ${PROJECT_OWNER}）。"
 
 # ============================================================
