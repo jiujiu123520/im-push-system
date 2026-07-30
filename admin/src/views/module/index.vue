@@ -566,25 +566,45 @@
         <el-button type="primary" plain size="small" :icon="RefreshIcon" @click="refreshSubscriberList" :loading="subscriberLoading">刷新</el-button>
       </div>
 
-      <!-- 空数据时显示各来源计数（帮助定位"为什么明细全0"） -->
+      <!-- 空数据时显示各来源计数 + 原始响应（帮助定位"为什么明细全0"） -->
       <el-alert
         v-if="subscriberList.length === 0 && !subscriberLoading && subscriberDebug"
-        :title="`明细未命中任何设备，当前各来源计数：${formatSubscriberDebug(subscriberDebug)}`"
         type="info"
         :closable="false"
         show-icon
         style="margin-top: 10px;"
       >
+        <template #title>
+          <span>明细未命中任何设备 · 诊断信息</span>
+        </template>
         <template #default>
           <div style="font-size: 12px; line-height: 1.8;">
-            <div>① Redis订阅集合（key:subscribe:xxx）= <b>{{ subscriberDebug.redis_subscribe_count ?? 0 }}</b> 台</div>
-            <div>② devices表登记（WHERE push_key_id = 当前Key）= <b>{{ subscriberDebug.db_device_count ?? 0 }}</b> 台</div>
-            <div>③ device:key 反向映射哈希 = <b>{{ subscriberDebug.device_key_hash_count ?? 0 }}</b> 台</div>
-            <div>④ 在线会话（ws:conn:* 中 push_key_id 匹配）= <b>{{ subscriberDebug.ws_online_conn_match_count ?? 0 }}</b> 台（全局在线连接共 {{ subscriberDebug.ws_online_total_fd ?? 0 }} 个 FD）</div>
-            <div>Key_value 查的是：<code style="background:#f4f4f5;padding:1px 4px;border-radius:3px;">{{ subscriberDebug.key_value }}</code></div>
-            <div style="margin-top: 4px; color: #909399;">
-              如果 ④>0 说明设备确实在线，但前 ①②③ 四处映射乱套了；请让 APP 重新连一次 WebSocket 即可自动修复。
-            </div>
+            <template v-if="subscriberDebug.__error">
+              <div style="color:#f56c6c;">请求失败：{{ subscriberDebug.__error }}</div>
+            </template>
+            <template v-else-if="subscriberDebug.note">
+              <div style="color:#e6a23c;">{{ subscriberDebug.note }}</div>
+            </template>
+            <template v-else>
+              <div>① Redis订阅集合 sCard（直接数）= <b style="color:#4099ff;">{{ subscriberDebug.redis_subscribe_scard ?? 0 }}</b> 条，sMembers 实际取到 = <b>{{ subscriberDebug.redis_subscribe_count ?? 0 }}</b> 台</div>
+              <div v-if="subscriberDebug.redis_subscribe_scard > 0 && subscriberDebug.redis_subscribe_count === 0" style="color:#f56c6c;">
+                ⚠️ 订阅集合存在但读取失败，可能 Redis 连接异常，已尝试 sScan 兜底
+              </div>
+              <div>② devices表登记（WHERE push_key_id={{ subscriberDebug.push_key_id ?? '-' }}）= <b>{{ subscriberDebug.db_device_count ?? 0 }}</b> 台</div>
+              <div>③ device:key 反向哈希（总 {{ subscriberDebug.device_key_hash_total ?? 0 }} 条，匹配当前Key = {{ subscriberDebug.device_key_hash_count ?? 0 }} 台）</div>
+              <div>④ 在线会话匹配（ws:conn:*）= <b>{{ subscriberDebug.ws_online_conn_match_count ?? 0 }}</b> 台（全局在线 FD：{{ subscriberDebug.ws_online_total_fd ?? 0 }}）</div>
+              <div>Key_value 查的是：<code style="background:#f4f4f5;padding:1px 4px;border-radius:3px;">{{ subscriberDebug.key_value }}</code></div>
+              <div v-if="subscriberDebug.note" style="color:#f56c6c;margin-top:4px;">{{ subscriberDebug.note }}</div>
+              <div style="margin-top: 6px; color: #909399;">
+                💡 如果 ② > 0 但 ① = 0，说明设备在 DB 里登记了但订阅集合丢了 → 点「修复」按钮即可恢复<br>
+                💡 如果 ④ > 0 但 ①②③ 都是 0 → 让 APP 重新连一次 WebSocket 会自动修复<br>
+                💡 如果 ① = sCard > 0 但 sMembers 取到 0 → Redis 连接异常，已自动用 sScan 兜底
+              </div>
+            </template>
+            <details style="margin-top:8px;">
+              <summary style="cursor:pointer;color:#409eff;">查看原始 API 响应 (JSON)</summary>
+              <pre style="max-height:200px;overflow:auto;background:#f4f4f5;padding:8px;border-radius:4px;margin-top:4px;font-size:11px;">{{ JSON.stringify(subscriberDebug.__raw_response || subscriberDebug, null, 2) }}</pre>
+            </details>
           </div>
         </template>
       </el-alert>
@@ -1394,11 +1414,19 @@ async function refreshSubscriberList() {
   subscriberDebug.value = null
   try {
     const res = await getKeySubscribersApi(keyId)
+    // eslint-disable-next-line no-console
+    console.log('[subscriber API raw response]', res)
     subscriberList.value = res.data?.list || []
-    subscriberDebug.value = (res.data as any)?._debug || null
+    subscriberDebug.value = (res.data as any)?._debug || {
+      __raw_response: res,
+      note: '后端未返回 _debug 字段，请查看浏览器 Network 面板的原始响应',
+    }
   } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[subscriber API error]', e)
     ElMessage.error('加载订阅设备列表失败')
     subscriberList.value = []
+    subscriberDebug.value = { __error: String(e) }
   } finally {
     subscriberLoading.value = false
   }

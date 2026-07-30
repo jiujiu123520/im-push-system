@@ -161,6 +161,18 @@ class PushKeyController
         $pushKeyId = (int)($key['id'] ?? 0);
         $redis = \App\Service\Redis::getInstance();
 
+        // ====== 0) 直接验证 Redis 状态（兜底诊断） ======
+        // 用 sCard 直接验证 key:subscribe 集合的真实元素数，避免 sMembers 返回空导致误判
+        $redisSetCount = 0;
+        if ($keyValue !== '') {
+            $redisSetCount = (int)$redis->sCard("key:subscribe:{$keyValue}");
+        }
+        // 用 hLen 验证 device:key 哈希的总数
+        $deviceKeyTotal = 0;
+        if ($redis->exists('device:key')) {
+            $deviceKeyTotal = (int)$redis->hLen('device:key');
+        }
+
         // ====== 1) 从 Redis key:subscribe 集合取订阅的 device_id ======
         $redisIds = [];
         if ($keyValue !== '') {
@@ -171,6 +183,30 @@ class PushKeyController
                     if ($v !== '') {
                         $redisIds[$v] = true;
                     }
+                }
+            }
+            // 兜底：如果 sMembers 返回空但 sCard > 0，尝试用 sScan 遍历（处理大集合或连接池差异）
+            if (empty($redisIds) && $redisSetCount > 0) {
+                $iterator = null;
+                $scanned = [];
+                do {
+                    $result = $redis->sScan("key:subscribe:{$keyValue}", $iterator, null, 500);
+                    if (is_array($result)) {
+                        $iterator = $result[0];
+                        $members = $result[1] ?? [];
+                        if (is_array($members)) {
+                            foreach ($members as $v) {
+                                $v = (string)$v;
+                                if ($v !== '') $scanned[$v] = true;
+                            }
+                        }
+                    } else {
+                        break;
+                    }
+                } while ($iterator > 0);
+                if (!empty($scanned)) {
+                    $redisIds = $scanned;
+                    error_log("[PushKey] subscribers sScan 兜底命中 " . count($redisIds) . " 台设备 (sCard={$redisSetCount})");
                 }
             }
         }
@@ -281,11 +317,17 @@ class PushKeyController
                 // 调试统计：帮助快速定位"为什么全是 0"
                 '_debug'         => [
                     'key_value'                  => $keyValue,
+                    'push_key_id'                => $pushKeyId,
                     'redis_subscribe_count'      => count($redisIds),
+                    'redis_subscribe_scard'      => $redisSetCount,
                     'db_device_count'            => count($dbIds),
                     'device_key_hash_count'      => count($deviceKeyHashIds),
+                    'device_key_hash_total'      => $deviceKeyTotal,
                     'ws_online_conn_match_count' => count($wsConnIds),
                     'ws_online_total_fd'         => is_array($redis->sMembers('ws:online')) ? count($redis->sMembers('ws:online')) : 0,
+                    'note'                       => $redisSetCount > 0 && count($redisIds) === 0
+                        ? "⚠️ Redis sCard={$redisSetCount} 但 sMembers 返回空，集合可能已损坏或连接异常"
+                        : '',
                 ],
             ]);
         }
@@ -397,9 +439,12 @@ class PushKeyController
             'online_count' => $onlineCount,
             '_debug'       => [
                 'key_value'                  => $keyValue,
+                'push_key_id'                => $pushKeyId,
                 'redis_subscribe_count'      => count($redisIds),
+                'redis_subscribe_scard'      => $redisSetCount,
                 'db_device_count'            => count($dbIds),
                 'device_key_hash_count'      => count($deviceKeyHashIds),
+                'device_key_hash_total'      => $deviceKeyTotal,
                 'ws_online_conn_match_count' => count($wsConnIds),
                 'ws_online_total_fd'         => is_array($redis->sMembers('ws:online')) ? count($redis->sMembers('ws:online')) : 0,
             ],
