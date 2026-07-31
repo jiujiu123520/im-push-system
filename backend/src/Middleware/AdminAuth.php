@@ -61,20 +61,34 @@ class AdminAuth
             return null;
         }
 
-        // 校验角色
-        $role = $payload['role'] ?? '';
-        if (!in_array($role, ['super_admin', 'admin'], true)) {
-            self::forbidden($response, '管理员角色无效');
-            return null;
+        // 校验并规范化角色（兜底策略：role 非法时不直接拒绝，而是按 admin_id 推断合法角色）
+        // 修复：老版本数据库 role 字段可能为 NULL 或 ''，若直接拒绝会导致
+        // /admin/info 返回 403，前端 getUserInfo 失败后陷入 redirect 死循环且侧边栏全空。
+        $roleRaw = isset($payload['role']) ? (string)$payload['role'] : '';
+        $roleRaw = trim($roleRaw);
+        $adminId = isset($payload['admin_id']) ? (int)$payload['admin_id'] : 0;
+        if (!in_array($roleRaw, ['super_admin', 'admin'], true)) {
+            if ($adminId === 1) {
+                $roleRaw = 'super_admin';
+            } elseif ($adminId > 0) {
+                $roleRaw = 'admin';
+            }
+            // 兜底后仍无效且 admin_id 也没提供 → 才拒绝
+            if (!in_array($roleRaw, ['super_admin', 'admin'], true)) {
+                self::forbidden($response, '管理员角色无效');
+                return null;
+            }
+            // 把规范化后的 role 写回 payload，方便上层使用
+            $payload['role'] = $roleRaw;
         }
 
-        if (!isset($payload['admin_id'])) {
+        if ($adminId <= 0) {
             self::unauthorized($response, '令牌缺少管理员标识');
             return null;
         }
 
         // 将 admin_id 与 jwt_payload 注入到请求上下文
-        $context['admin_id'] = (int)$payload['admin_id'];
+        $context['admin_id'] = $adminId;
         $context['jwt_payload'] = $payload;
 
         return $payload;

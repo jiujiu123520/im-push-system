@@ -49,7 +49,30 @@ export const useUserStore = defineStore('user', {
       }
       this.userInfo = info
       // 后端返回 role 字符串（super_admin/admin），转换为 roles 数组
-      this.roles = info.role ? [info.role] : ['admin']
+      // 兜底：如果后端 role 为空/null/未知值，至少降级为 'admin'，保证菜单不空白
+      const roleRaw = info.role as string | null | undefined
+      let normalizedRole: string
+      if (!roleRaw || typeof roleRaw !== 'string' || roleRaw.trim() === '') {
+        console.warn('[userStore] /admin/info 返回的 role 为空，兜底降级为 admin')
+        normalizedRole = 'admin'
+      } else {
+        normalizedRole = roleRaw.trim()
+        // 兼容历史数据库里可能出现的非标准值：'0'/'1'/'2' / 'root' / 'administrator'
+        const aliasMap: Record<string, string> = {
+          '0': 'admin',
+          '1': 'super_admin',
+          '2': 'admin',
+          root: 'super_admin',
+          administrator: 'super_admin'
+        }
+        if (aliasMap[normalizedRole]) normalizedRole = aliasMap[normalizedRole]
+        // 最后一次保险：只允许标准角色，其它一律兜底 admin
+        if (!['admin', 'super_admin'].includes(normalizedRole)) {
+          console.warn('[userStore] 未知 role=' + normalizedRole + '，兜底降级为 admin')
+          normalizedRole = 'admin'
+        }
+      }
+      this.roles = [normalizedRole]
       // 当前后端未提供细化权限，所有 admin 角色都拥有全部功能权限
       // TODO: 后端实现细化权限后，由 /admin/info 返回 permissions 数组
       this.permissions = ['*:*:*']

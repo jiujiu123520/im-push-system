@@ -116,11 +116,14 @@ class AdminService
         // 8. 登录成功，清除失败计数
         self::clearLoginFailure($failKey);
 
-        // 9. 签发带 role 的 JWT Token
+        // 9. 签发带 role 的 JWT Token（使用规范化后的 role，绝不用数据库原始 NULL/空串）
+        //    注意：必须在 formatAdminInfo 之后调用，或直接用 formatAdminInfo 里规范化的值，
+        //    防止 Admins 表 role=NULL 时签发"无效角色 Token"，导致 AdminAuth 鉴权 403=菜单空白。
+        $normalizedAdmin = self::formatAdminInfo($admin);
         $token = Jwt::issue([
-            'admin_id' => (int)$admin['id'],
-            'username' => $admin['username'],
-            'role'     => $admin['role'],
+            'admin_id' => $normalizedAdmin['id'],
+            'username' => $normalizedAdmin['username'],
+            'role'     => $normalizedAdmin['role'],
             'type'     => 'admin',
         ]);
 
@@ -128,7 +131,7 @@ class AdminService
             'success' => true,
             'message' => '登录成功',
             'token'   => $token,
-            'admin'   => self::formatAdminInfo($admin),
+            'admin'   => $normalizedAdmin,
         ];
     }
 
@@ -603,18 +606,38 @@ class AdminService
     }
 
     /**
-     * 格式化管理员信息（去掉敏感字段）
+     * 格式化管理员信息（去掉敏感字段，同时对 role/status 等关键字段做安全兜底）
+     *
+     * 兜底策略（关键，防止数据库 role 为空导致前端权限丢失=菜单空白）：
+     *   - id=1 永远是 super_admin（系统内置第一个超级管理员）
+     *   - 其它 id：role 为空/非法时兜底为 admin，至少能正常使用业务模块
+     *   - status 空时兜底为 1（启用）
      *
      * @param array $admin
      * @return array
      */
     private static function formatAdminInfo(array $admin): array
     {
+        $id = isset($admin['id']) ? (int)$admin['id'] : 0;
+
+        // role 兜底（前后端权限判定的核心字段，数据库写 NULL 时必须修正）
+        $role = isset($admin['role']) ? (string)$admin['role'] : '';
+        $role = trim($role);
+        if ($role === '' || !in_array($role, ['super_admin', 'admin'], true)) {
+            // id=1 兜底为 super_admin，其它管理员兜底为 admin
+            $role = $id === 1 ? 'super_admin' : 'admin';
+        }
+
+        $status = isset($admin['status']) ? (int)$admin['status'] : 1;
+        if ($status !== 0 && $status !== 1) {
+            $status = 1;
+        }
+
         return [
-            'id'         => (int)$admin['id'],
-            'username'   => $admin['username'],
-            'role'       => $admin['role'],
-            'status'     => (int)$admin['status'],
+            'id'         => $id,
+            'username'   => $admin['username'] ?? '',
+            'role'       => $role,
+            'status'     => $status,
             'created_at' => $admin['created_at'] ?? '',
             'updated_at' => $admin['updated_at'] ?? '',
         ];
