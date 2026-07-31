@@ -107,9 +107,15 @@
                 clearable
               />
               <div class="captcha-img" @click="refreshCaptcha" title="点击刷新">
-                <img v-if="captchaImage" :src="captchaImage" alt="验证码" />
+                <img
+                  v-if="captchaImage"
+                  :src="captchaImage"
+                  alt="验证码"
+                  @error="handleCaptchaImgError"
+                />
                 <span v-else class="captcha-placeholder">
-                  <el-icon><LoadingIcon /></el-icon>
+                  <el-icon v-if="captchaLoading"><LoadingIcon /></el-icon>
+                  <span v-else class="captcha-retry-tip">加载失败，点此重试</span>
                 </span>
               </div>
             </div>
@@ -165,6 +171,7 @@ const formRef = ref<FormInstance>()
 const captchaImage = ref('')
 const captchaToken = ref('')
 const captchaEnabled = ref(true) // 登录验证码开关（由后端 /captcha/image 返回的 loginEnabled 字段控制）
+const captchaLoading = ref(false) // 验证码加载中标志，加载失败后显示"点此重试"提示
 const loading = ref(false)
 
 const form = reactive<LoginParams & { remember: boolean }>({
@@ -185,25 +192,73 @@ const rules = computed<FormRules>(() => ({
 }))
 
 // 从后端获取图形验证码（返回 base64 图片 + token + loginEnabled 登录开关）
-async function fetchCaptcha() {
-  try {
-    const res = await getCaptchaApi()
-    // 登录验证码开关：后端 loginEnabled=false 时隐藏验证码输入框
-    captchaEnabled.value = res.data?.loginEnabled !== false
-    if (!captchaEnabled.value) {
-      // 验证码关闭，清空相关字段
-      captchaToken.value = ''
-      captchaImage.value = ''
-      form.captcha_token = ''
-      form.captcha_input = ''
+// 含 3 次自动重试 + 短超时（5s），失败时不弹框阻塞，用户仍可先输入账号密码
+const CAPTCHA_MAX_RETRY = 3
+const CAPTCHA_TIMEOUT = 5000
+// base64 编码后最小合法长度阈值：PNG/SVG 正常都 > 500 字符；
+// 空 PNG 编码后为 "data:image/png;base64," ≈ 22 字符，可据此过滤空图
+const CAPTCHA_MIN_LEN = 200
+
+async function fetchCaptchaWithRetry(): Promise<void> {
+  let lastErr: unknown = null
+  for (let attempt = 1; attempt <= CAPTCHA_MAX_RETRY; attempt++) {
+    try {
+      const res = await getCaptchaApi({ timeout: CAPTCHA_TIMEOUT })
+      // 登录验证码开关：后端 loginEnabled=false 时隐藏验证码输入框
+      captchaEnabled.value = res.data?.loginEnabled !== false
+      if (!captchaEnabled.value) {
+        captchaToken.value = ''
+        captchaImage.value = ''
+        form.captcha_token = ''
+        form.captcha_input = ''
+        return
+      }
+
+      const image = (res.data?.image as string) || ''
+      const token = (res.data?.token as string) || ''
+
+      // 过滤空图/非法长度
+      if (image === '' || image.length < CAPTCHA_MIN_LEN) {
+        throw new Error(`验证码图片数据异常，长度=${image.length}`)
+      }
+      if (token === '') {
+        throw new Error('验证码 token 为空')
+      }
+
+      captchaToken.value = token
+      captchaImage.value = image
+      form.captcha_token = token
       return
+    } catch (e) {
+      lastErr = e
+      // 最后一次重试不再等待
+      if (attempt < CAPTCHA_MAX_RETRY) {
+        await new Promise((r) => setTimeout(r, 300 * attempt))
+      }
     }
-    captchaToken.value = res.data?.token || ''
-    captchaImage.value = res.data?.image || ''
-    form.captcha_token = captchaToken.value
-  } catch {
-    ElMessage.error('获取验证码失败，请刷新页面重试')
   }
+
+  // 全部重试失败：清空数据但不阻塞输入框，用户可稍后点图刷新
+  captchaImage.value = ''
+  captchaToken.value = ''
+  form.captcha_token = ''
+  // 仅在控制台提示，不弹 ElMessage 避免首次打开就干扰用户输入
+  console.warn('[captcha] 验证码加载失败，点击图片区域可手动刷新：', lastErr)
+}
+
+async function fetchCaptcha() {
+  captchaLoading.value = true
+  try {
+    await fetchCaptchaWithRetry()
+  } finally {
+    captchaLoading.value = false
+  }
+}
+
+function handleCaptchaImgError() {
+  // img 标签加载失败（data URI 损坏或浏览器不支持格式），自动刷新
+  console.warn('[captcha] 图片渲染失败，自动刷新')
+  refreshCaptcha()
 }
 
 function refreshCaptcha() {
@@ -221,8 +276,12 @@ async function handleLogin() {
 
   // 验证码启用时确保已加载 token；关闭时跳过
   if (captchaEnabled.value && !form.captcha_token) {
-    ElMessage.error('验证码加载中，请稍后重试')
-    refreshCaptcha()
+    if (captchaLoading.value) {
+      ElMessage.error('验证码加载中，请稍后再试')
+    } else {
+      ElMessage.error('验证码加载失败，请点击验证码图片刷新后重试')
+      refreshCaptcha()
+    }
     return
   }
 
@@ -519,7 +578,21 @@ onMounted(() => {
       align-items: center;
       justify-content: center;
       color: $color-primary;
-      animation: rotate-slow 1s linear infinite;
+      font-size: 12px;
+      font-weight: 500;
+
+      .el-icon {
+        animation: rotate-slow 1s linear infinite;
+        font-size: 20px;
+      }
+
+      .captcha-retry-tip {
+        color: $color-primary;
+        font-size: 11px;
+        text-align: center;
+        padding: 0 6px;
+        line-height: 1.4;
+      }
     }
   }
 }

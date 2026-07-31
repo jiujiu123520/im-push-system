@@ -1,4 +1,5 @@
 import { post, get, put } from '@/utils/request'
+import type { AxiosRequestConfig } from 'axios'
 import type {
   LoginParams,
   LoginResult,
@@ -26,8 +27,13 @@ export function getUserInfoApi() {
 
 // 获取图形验证码（后端路由：GET /captcha/image，返回 {token, image, enabled}）
 // enabled=false 时验证码功能已关闭，前端应隐藏验证码输入框
-export function getCaptchaApi() {
-  return get<{ token: string; image: string; enabled: boolean; loginEnabled?: boolean; smsEnabled?: boolean; emailEnabled?: boolean }>('/captcha/image')
+// 支持通过 config 透传 timeout、signal 等 Axios 配置（用于短超时+重试机制）
+export function getCaptchaApi(config?: AxiosRequestConfig) {
+  return get<{ token: string; image: string; enabled: boolean; loginEnabled?: boolean; smsEnabled?: boolean; emailEnabled?: boolean }>(
+    '/captcha/image',
+    undefined,
+    config
+  )
 }
 
 // 修改密码（后端路由：PUT /admin/change-password）

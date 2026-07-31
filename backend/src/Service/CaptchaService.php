@@ -45,10 +45,11 @@ class CaptchaService
      * 返回：
      *   [
      *     "token" => "AES加密token（含验证码与过期时间）",
-     *     "image" => "data:image/png;base64,...."
+     *     "image" => "data:image/png;base64,...." 或 "data:image/svg+xml;base64,..."
      *   ]
      *
      * @return array
+     * @throws \RuntimeException 当 GD 和 SVG fallback 都失败时抛出
      */
     public static function generateImageCaptcha(): array
     {
@@ -70,15 +71,48 @@ class CaptchaService
         $token = Aes::encryptString($plain);
 
         // 4. token 存 Redis（key: captcha:image:{token}），5 分钟过期
-        //    Redis 值存加密后的 token，校验时解密比对
         Redis::setex(self::KEY_IMAGE . $token, self::IMAGE_TTL, $token);
 
-        // 5. 使用 intervention/image + GD 绘制图片
-        $image = self::drawImage($code);
+        // 5. 绘制图片：优先 GD(PNG)，失败时降级为 SVG
+        $dataUri = '';
+        $gdLastError = '';
+
+        if (extension_loaded('gd') && function_exists('imagecreatetruecolor')) {
+            try {
+                $pngBin = self::drawImage($code);
+                if ($pngBin !== '' && strlen($pngBin) > 100) {
+                    $dataUri = 'data:image/png;base64,' . base64_encode($pngBin);
+                } else {
+                    $gdLastError = 'GD 绘制返回空数据';
+                    self::log('captcha', "[CAPTCHA] drawImage 返回空PNG，长度=" . strlen($pngBin) . "，降级 SVG");
+                }
+            } catch (\Throwable $e) {
+                $gdLastError = 'GD 绘制异常：' . $e->getMessage();
+                self::log('captcha', "[CAPTCHA] drawImage 异常，降级 SVG：" . $e->getMessage());
+            }
+        } else {
+            $gdLastError = 'GD 扩展未安装或不可用';
+        }
+
+        // SVG fallback
+        if ($dataUri === '') {
+            try {
+                $svg = self::drawSvgCaptcha($code);
+                if ($svg !== '') {
+                    $dataUri = 'data:image/svg+xml;base64,' . base64_encode($svg);
+                }
+            } catch (\Throwable $e) {
+                self::log('captcha', "[CAPTCHA] SVG fallback 异常：" . $e->getMessage());
+            }
+        }
+
+        if ($dataUri === '') {
+            throw new \RuntimeException('图形验证码生成失败（GD：' . $gdLastError . '，SVG fallback 也失败）');
+        }
 
         return [
             'token' => $token,
-            'image' => 'data:image/png;base64,' . base64_encode($image),
+            'image' => $dataUri,
         ];
     }
 
@@ -269,18 +303,25 @@ class CaptchaService
      *
      * @param string $code 验证码
      * @return string PNG 二进制数据
+     * @throws \RuntimeException 当 GD 资源获取失败或编码为空时抛出
      */
     private static function drawImage(string $code): string
     {
         $width = 120;
         $height = 40;
 
+        if (!extension_loaded('gd') || !function_exists('imagecreatetruecolor')) {
+            throw new \RuntimeException('GD 扩展不可用');
+        }
+
         $manager = new ImageManager(['driver' => 'gd']);
         $img = $manager->canvas($width, $height, '#f5f7fa');
 
         // 通过 intervention 暴露的 GD 资源直接绘制（保证无字体文件依赖）
-        /** @var \GdImage $core */
         $core = $img->getCore();
+        if ($core === false || $core === null) {
+            throw new \RuntimeException('无法获取 GD 图像资源');
+        }
 
         // 绘制干扰线
         for ($i = 0; $i < 4; $i++) {
@@ -341,7 +382,78 @@ class CaptchaService
         $borderColor = imagecolorallocate($core, 200, 200, 200);
         imagerectangle($core, 0, 0, $width - 1, $height - 1, $borderColor);
 
-        return (string)$img->encode('png');
+        $png = (string)$img->encode('png');
+        if ($png === '' || strlen($png) < 100) {
+            throw new \RuntimeException('PNG 编码失败，返回数据长度=' . strlen($png));
+        }
+
+        return $png;
+    }
+
+    /**
+     * SVG 验证码 fallback（零外部依赖，纯字符串拼接）
+     *
+     * 当 GD 不可用 / intervention 异常 / PNG 编码为空时，
+     * 退化为生成一个带干扰线与噪点的 SVG 图形验证码。
+     *
+     * @param string $code 验证码
+     * @return string SVG 字符串
+     */
+    private static function drawSvgCaptcha(string $code): string
+    {
+        $width = 120;
+        $height = 40;
+
+        $colors = [
+            ['r' => 120, 'g' => 100, 'b' => 240],
+            ['r' => 80,  'g' => 150, 'b' => 240],
+            ['r' => 220, 'g' => 100, 'b' => 180],
+            ['r' => 60,  'g' => 60,  'b' => 80],
+            ['r' => 30,  'g' => 130, 'b' => 160],
+        ];
+
+        $lines = '';
+        for ($i = 0; $i < 4; $i++) {
+            $x1 = random_int(0, $width);
+            $y1 = random_int(0, $height);
+            $x2 = random_int(0, $width);
+            $y2 = random_int(0, $height);
+            $r = random_int(150, 210);
+            $g = random_int(150, 210);
+            $b = random_int(150, 210);
+            $lines .= "<line x1=\"{$x1}\" y1=\"{$y1}\" x2=\"{$x2}\" y2=\"{$y2}\" stroke=\"rgb({$r},{$g},{$b})\" stroke-width=\"1\" opacity=\"0.8\"/>\n";
+        }
+
+        $dots = '';
+        for ($i = 0; $i < 80; $i++) {
+            $x = random_int(0, $width);
+            $y = random_int(0, $height);
+            $r = random_int(60, 220);
+            $g = random_int(60, 220);
+            $b = random_int(60, 220);
+            $dots .= "<circle cx=\"{$x}\" cy=\"{$y}\" r=\"1\" fill=\"rgb({$r},{$g},{$b})\" opacity=\"0.7\"/>\n";
+        }
+
+        $chars = '';
+        $charCount = strlen($code);
+        $charSpacing = 25;
+        $startX = (int)(($width - $charCount * $charSpacing) / 2) + 5;
+        for ($i = 0; $i < $charCount; $i++) {
+            $colorIdx = random_int(0, count($colors) - 1);
+            $c = $colors[$colorIdx];
+            $x = $startX + $i * $charSpacing + random_int(-1, 1);
+            $y = random_int(22, 30);
+            $rot = random_int(-18, 18);
+            $ch = htmlspecialchars($code[$i], ENT_XML1 | ENT_QUOTES, 'UTF-8');
+            $chars .= "<text x=\"{$x}\" y=\"{$y}\" font-family=\"Arial, Helvetica, sans-serif\" font-size=\"20\" font-weight=\"700\" fill=\"rgb({$c['r']},{$c['g']},{$c['b']})\" transform=\"rotate({$rot} {$x} {$y})\">{$ch}</text>\n";
+        }
+
+        return <<<SVG
+<svg xmlns="http://www.w3.org/2000/svg" width="{$width}" height="{$height}" viewBox="0 0 {$width} {$height}">
+  <rect width="100%" height="100%" fill="#f5f7fa" rx="4"/>
+  <rect x="0.5" y="0.5" width="99%" height="99%" fill="none" stroke="#c8c8d0" stroke-width="1" rx="4"/>
+  {$lines}{$dots}{$chars}</svg>
+SVG;
     }
 
     /**
