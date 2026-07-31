@@ -693,8 +693,12 @@ EOF
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='audio_files'),1,0);"
         record_if_applied "010_domains_force_https.sql" \
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='domains' AND COLUMN_NAME='force_https'),1,0);"
+        record_if_applied "011_push_message_unlimited.sql" \
+            "SELECT IF(COLUMN_TYPE='text',1,0) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='messages' AND COLUMN_NAME='title' LIMIT 1;"
         record_if_applied "012_devices_extend.sql" \
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='devices' AND COLUMN_NAME='platform'),1,0);"
+        record_if_applied "013_push_logs_extend.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='push_logs' AND COLUMN_NAME='fail_reason'),1,0);"
 
         APPLIED_COUNT=0
         SKIPPED_COUNT=0
@@ -750,47 +754,159 @@ else
 
     cd "${PROJECT_DIR}"
 
-    # 1. 设置 build、app、.gradle 目录权限（BuildWorker 以 web 用户运行）
-    info "设置 build/app 目录权限..."
-    # 检测 web 用户（Debian/Ubuntu=www-data, CentOS/RHEL/Alpine=nginx, Arch=http）
+    # 0. 检测 web 用户（Debian/Ubuntu=www-data, CentOS/RHEL/Alpine=nginx, Arch=http）
     WEB_USER="www-data"
     if id -u nginx >/dev/null 2>&1; then
         WEB_USER="nginx"
     elif id -u http >/dev/null 2>&1; then
         WEB_USER="http"
     fi
-    sudo mkdir -p "${PROJECT_DIR}/build/logs" "${PROJECT_DIR}/.gradle"
-    sudo chown -R "${WEB_USER}:${WEB_USER}" "${PROJECT_DIR}/build" "${PROJECT_DIR}/app" "${PROJECT_DIR}/.gradle"
-    sudo chmod -R u+rw "${PROJECT_DIR}/build" "${PROJECT_DIR}/app"
 
-    # 2. 删除 gradlew（强制使用全局 gradle，避免 wrapper 尝试下载 distribution 超时）
+    # 1. 修复运行时目录权限（Web 用户需要写入 storage/runtime/build 等目录）
+    info "修复运行时目录权限 (Web 用户: ${WEB_USER})..."
+    sudo mkdir -p "${PROJECT_DIR}/backend/runtime/logs" "${PROJECT_DIR}/backend/storage" \
+                "${PROJECT_DIR}/build/logs" "${PROJECT_DIR}/build/output" \
+                "${PROJECT_DIR}/app/src/main/assets" "${PROJECT_DIR}/.gradle" 2>/dev/null || true
+    # 仅修改运行时目录，不破坏 .git / vendor / node_modules 权限
+    sudo chown -R "${WEB_USER}:${WEB_USER}" \
+        "${PROJECT_DIR}/backend/storage" \
+        "${PROJECT_DIR}/backend/runtime" \
+        "${PROJECT_DIR}/build" \
+        "${PROJECT_DIR}/app" \
+        "${PROJECT_DIR}/.gradle" \
+        2>/dev/null || true
+    # 权限位修正
+    sudo find "${PROJECT_DIR}/backend/storage" -type d -exec chmod 775 {} \; 2>/dev/null || true
+    sudo find "${PROJECT_DIR}/backend/runtime" -type d -exec chmod 775 {} \; 2>/dev/null || true
+    sudo find "${PROJECT_DIR}/backend/storage" -type f -exec chmod 664 {} \; 2>/dev/null || true
+    sudo find "${PROJECT_DIR}/backend/runtime" -type f -exec chmod 664 {} \; 2>/dev/null || true
+    sudo find "${PROJECT_DIR}/build" "${PROJECT_DIR}/backend/bin" -type f -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
+    # .env 文件让 Web 用户可读
+    if [[ -f "${PROJECT_DIR}/backend/.env" ]]; then
+        sudo chown "root:${WEB_USER}" "${PROJECT_DIR}/backend/.env" 2>/dev/null || true
+        sudo chmod 640 "${PROJECT_DIR}/backend/.env" 2>/dev/null || true
+    fi
+    info "运行时目录权限修复完成。"
+
+    # 2. 更新核心 systemd 服务文件（适配自定义 PROJECT_DIR 和 WEB_USER）
+    if command -v systemctl >/dev/null 2>&1; then
+        info "检查 systemd 服务文件..."
+        SYSTEMD_SRC="${PROJECT_DIR}/deploy/systemd"
+        SYSTEMD_DST="/etc/systemd/system"
+        SYSTEMD_VERSION=$(systemctl --version 2>/dev/null | head -n1 | awk '{print $2}' || echo 0)
+        if [[ -d "${SYSTEMD_SRC}" ]]; then
+            for svc_file in "${SYSTEMD_SRC}"/*.service; do
+                [[ -f "${svc_file}" ]] || continue
+                svc_name="$(basename "${svc_file}")"
+                DST_FILE="${SYSTEMD_DST}/${svc_name}"
+                # 检查是否需要更新：未安装 / 路径变化 / 用户变化
+                NEED_UPDATE=false
+                if [[ ! -f "${DST_FILE}" ]]; then
+                    NEED_UPDATE=true
+                    info "  ${svc_name}: 未安装，将创建"
+                else
+                    if grep -q "/www/push-system" "${DST_FILE}" 2>/dev/null && [[ "${PROJECT_DIR}" != "/www/push-system" ]]; then
+                        NEED_UPDATE=true
+                        info "  ${svc_name}: 项目路径变化，需更新"
+                    fi
+                    if grep -q "^User=www-data$" "${DST_FILE}" 2>/dev/null && [[ "${WEB_USER}" != "www-data" ]]; then
+                        NEED_UPDATE=true
+                        info "  ${svc_name}: 运行用户变化，需更新"
+                    fi
+                fi
+                if [[ "${NEED_UPDATE}" == "true" ]]; then
+                    info "  生成 ${svc_name} (用户=${WEB_USER}, 路径=${PROJECT_DIR})..."
+                    sudo sed "s/^User=www-data$/User=${WEB_USER}/g; \
+s/^Group=www-data$/Group=${WEB_USER}/g; \
+s|/www/push-system|${PROJECT_DIR}|g" \
+                        "${svc_file}" | sudo tee "$DST_FILE" >/dev/null
+                    # systemd < 227: 移除不支持的 cgroup 指令
+                    if [[ "$SYSTEMD_VERSION" -gt 0 && "$SYSTEMD_VERSION" -lt 227 ]]; then
+                        sudo sed -i '/^MemoryMax=/d; /^MemoryHigh=/d; /^TasksMax=/d; /^CPUQuota=/d' "$DST_FILE" 2>/dev/null || true
+                    fi
+                    # systemd < 230: StartLimitIntervalSec -> StartLimitInterval
+                    if [[ "$SYSTEMD_VERSION" -gt 0 && "$SYSTEMD_VERSION" -lt 230 ]]; then
+                        sudo sed -i 's/^StartLimitIntervalSec=/StartLimitInterval=/' "$DST_FILE" 2>/dev/null || true
+                    fi
+                fi
+            done
+            sudo systemctl daemon-reload 2>/dev/null || true
+            info "systemd 核心服务文件检查完成。"
+        fi
+
+        # 废弃的 BuildWorker 服务处理（APP 打包已迁移到 GitHub Actions）
+        if systemctl list-unit-files 2>/dev/null | grep -q 'push-build-worker'; then
+            info "检测到废弃的 push-build-worker 服务，停止并禁用（APP 打包已迁移到 GitHub Actions）..."
+            sudo systemctl stop push-build-worker 2>/dev/null || true
+            sudo systemctl disable push-build-worker 2>/dev/null || true
+            sudo rm -f "/etc/systemd/system/push-build-worker.service" 2>/dev/null || true
+            sudo systemctl daemon-reload 2>/dev/null || true
+        fi
+    fi
+
+    # 3. 修复 PHP 可执行路径（不同发行版 PHP 路径可能不同）
+    if command -v systemctl >/dev/null 2>&1; then
+        PHP_BIN_PATH="$(command -v php || echo /usr/bin/php)"
+        for svc in push-http push-websocket; do
+            SVC_FILE="/etc/systemd/system/${svc}.service"
+            if [[ -f "$SVC_FILE" ]]; then
+                # 提取当前服务中的 PHP 路径（注意：ExecStart=/usr/bin/php ...）
+                CURRENT_PHP_IN_SVC=$(grep '^ExecStart=' "$SVC_FILE" 2>/dev/null | sed -E 's/^ExecStart=([^ ]+) .*/\1/' || echo '')
+                if [[ -n "$CURRENT_PHP_IN_SVC" && "$CURRENT_PHP_IN_SVC" != "$PHP_BIN_PATH" ]]; then
+                    info "服务 ${svc} 中 PHP 路径 ${CURRENT_PHP_IN_SVC} 与实际 ${PHP_BIN_PATH} 不一致，更新..."
+                    sudo sed -i "s|^ExecStart=${CURRENT_PHP_IN_SVC} |ExecStart=${PHP_BIN_PATH} |" "$SVC_FILE"
+                    sudo systemctl daemon-reload 2>/dev/null || true
+                fi
+            fi
+        done
+    fi
+
+    # 4. 删除 gradlew（强制使用全局 gradle，避免 wrapper 尝试下载 distribution 超时）
     if [ -f "${PROJECT_DIR}/gradlew" ]; then
         info "移除 gradlew（使用全局 gradle 避免下载 distribution）..."
         rm -f "${PROJECT_DIR}/gradlew"
         rm -rf "${PROJECT_DIR}/gradle"
     fi
 
-    # 3. BuildWorker 服务处理
-    BUILD_WORKER_SERVICE="${PROJECT_DIR}/deploy/systemd/push-build-worker.service"
-    if [ -f "$BUILD_WORKER_SERVICE" ]; then
-        info "安装 push-build-worker systemd 服务..."
-        sudo mkdir -p "${PROJECT_DIR}/build/logs"
-        sudo cp "$BUILD_WORKER_SERVICE" /etc/systemd/system/
-        sudo systemctl daemon-reload
-        sudo systemctl enable push-build-worker 2>/dev/null || true
-        sudo systemctl restart push-build-worker
-        info "push-build-worker 已重启。"
-    else
-        # 旧版本残留的 BuildWorker 服务（已切换到 GitHub Actions 模式）
-        if systemctl list-unit-files | grep -q 'push-build-worker'; then
-            info "检测到旧版 BuildWorker 服务，已切换到 GitHub Actions 模式，停止旧服务..."
-            sudo systemctl stop push-build-worker 2>/dev/null || true
-            sudo systemctl disable push-build-worker 2>/dev/null || true
-            sudo rm -f /etc/systemd/system/push-build-worker.service 2>/dev/null || true
-            sudo systemctl daemon-reload 2>/dev/null || true
-            info "旧版 BuildWorker 服务已停止。"
-        else
-            info "BuildWorker 服务未配置（当前使用 GitHub Actions 模式），跳过。"
+    # 5. Nginx 配置检查（路径适配）
+    if command -v nginx >/dev/null 2>&1; then
+        NGINX_SRC="${PROJECT_DIR}/deploy/nginx/push.conf"
+        if [[ -f "${NGINX_SRC}" ]]; then
+            NGINX_DST=""
+            for dir in /etc/nginx/sites-available /etc/nginx/conf.d /etc/nginx/http.d /etc/nginx/vhosts.d /etc/nginx; do
+                if [[ -d "$dir" ]]; then
+                    if [[ -f "$dir/push.conf" ]]; then
+                        NGINX_DST="$dir/push.conf"
+                        break
+                    elif [[ -z "$NGINX_DST" ]]; then
+                        NGINX_DST="$dir/push.conf"
+                    fi
+                fi
+            done
+            if [[ -n "$NGINX_DST" ]]; then
+                NEED_NGINX_UPDATE=false
+                if grep -q "/www/push-system" "${NGINX_DST}" 2>/dev/null && [[ "${PROJECT_DIR}" != "/www/push-system" ]]; then
+                    NEED_NGINX_UPDATE=true
+                    info "Nginx 配置路径与实际项目路径不一致，将更新 (${NGINX_DST})"
+                fi
+                if [[ "${NEED_NGINX_UPDATE}" == "true" ]]; then
+                    NGINX_TMP=$(mktemp)
+                    sed "s|/www/push-system|${PROJECT_DIR}|g" "${NGINX_SRC}" > "${NGINX_TMP}"
+                    sudo cp "${NGINX_TMP}" "${NGINX_DST}"
+                    rm -f "${NGINX_TMP}"
+                    if [[ "${NGINX_DST}" == "/etc/nginx/sites-available/push.conf" ]]; then
+                        sudo ln -sf /etc/nginx/sites-available/push.conf /etc/nginx/sites-enabled/push.conf 2>/dev/null || true
+                        sudo rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+                    fi
+                    info "Nginx 配置已更新，测试语法..."
+                    if nginx -t 2>&1; then
+                        sudo systemctl reload nginx 2>/dev/null || sudo systemctl restart nginx 2>/dev/null || true
+                        info "Nginx 已重新加载。"
+                    else
+                        warn "Nginx 语法检查失败，请手动检查: ${NGINX_DST}"
+                    fi
+                fi
+            fi
         fi
     fi
 

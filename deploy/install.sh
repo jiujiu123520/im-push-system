@@ -1089,9 +1089,20 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
         phpize
 
         # 构造 configure 参数
-        # 注意：Swoole 6.x 的 openssl 选项是 --with-openssl-dir，不是 --enable-openssl
+        # 注意：Swoole 4.x/5.x 用 --enable-openssl，Swoole 6.x 用 --with-openssl-dir
+        # 为了兼容所有版本，先探测 OpenSSL 安装路径，同时传两个参数
         # cares/brotli/curl 根据系统环境动态决定
-        SWOOLE_CONFIGURE_OPTS="--enable-sockets=yes --enable-mysqlnd=yes --enable-swoole-curl=${SWOOLE_CURL_OPT} --enable-cares=no"
+        OPENSSL_DIR=""
+        if [[ -d /usr/include/openssl11 ]]; then
+            # CentOS 7 openssl11-devel 安装路径
+            OPENSSL_DIR="/usr/include/openssl11"
+        elif [[ -d /usr/include/openssl ]]; then
+            OPENSSL_DIR="/usr"
+        fi
+        SWOOLE_CONFIGURE_OPTS="--enable-sockets=yes --enable-mysqlnd=yes --enable-swoole-curl=${SWOOLE_CURL_OPT} --enable-cares=no --enable-openssl"
+        if [[ -n "$OPENSSL_DIR" ]]; then
+            SWOOLE_CONFIGURE_OPTS="${SWOOLE_CONFIGURE_OPTS} --with-openssl-dir=${OPENSSL_DIR}"
+        fi
 
         # 尝试 1：启用 brotli + openssl（完整功能）
         info "尝试编译 Swoole（启用 openssl + brotli）..."
@@ -1116,16 +1127,21 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
             fi
         fi
 
-        # 尝试 3：最小化编译（禁用所有可选功能，只保留核心 WebSocket/HTTP）
+        # 尝试 3：最小化编译（禁用所有可选功能，只保留核心 WebSocket/HTTP + OpenSSL）
         if [[ "$SWOOLE_BUILD_SUCCESS" != "true" ]]; then
             warn "禁用 brotli 也失败，尝试最小化编译..."
             make clean 2>/dev/null || true
             phpize --clean 2>/dev/null || true
             phpize
-            if ./configure --enable-sockets=no --enable-mysqlnd=yes --enable-swoole-curl=no --enable-cares=no --enable-brotli=no; then
+            # 最小化编译仍必须启用 OpenSSL，否则 HTTPS/SSL 功能会失败
+            MINIMAL_OPTS="--enable-sockets=no --enable-mysqlnd=yes --enable-swoole-curl=no --enable-cares=no --enable-brotli=no --enable-openssl"
+            if [[ -n "$OPENSSL_DIR" ]]; then
+                MINIMAL_OPTS="${MINIMAL_OPTS} --with-openssl-dir=${OPENSSL_DIR}"
+            fi
+            if ./configure $MINIMAL_OPTS; then
                 if make -j"$(nproc)" && make install; then
                     SWOOLE_BUILD_SUCCESS=true
-                    info "Swoole 源码编译安装成功（最小化模式，核心 WebSocket/HTTP 功能正常）"
+                    info "Swoole 源码编译安装成功（最小化模式，已启用 OpenSSL）"
                 fi
             fi
         fi
@@ -1133,18 +1149,18 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
         cd "${PROJECT_DIR}"
     fi
 
-    # 如果源码编译失败，尝试 pecl 安装（预答参数禁用 cares/brotli）
+    # 如果源码编译失败，尝试 pecl 安装（预答参数禁用 cares/brotli，启用 openssl）
     if [[ "$SWOOLE_BUILD_SUCCESS" != "true" ]]; then
-        warn "源码编译失败，尝试 pecl 安装 Swoole（禁用 cares/brotli）..."
-        # pecl 预答参数顺序（Swoole 6.x）：
+        warn "源码编译失败，尝试 pecl 安装 Swoole（启用 openssl，禁用 cares/brotli）..."
+        # pecl 预答参数顺序（Swoole 5.x/6.x）：
         # 1. enable sockets? [no] -> yes
-        # 2. openssl dir? [no] -> no
+        # 2. openssl dir? [no] -> /usr (启用 openssl)
         # 3. enable mysqlnd? [no] -> yes
         # 4. enable curl? [no] -> ${SWOOLE_CURL_OPT}
         # 5. enable cares? [no] -> no (避免 libcares 依赖)
         # 6. enable brotli? [yes] -> no (避免 libbrotli 依赖)
         # 7. brotli dir? [no] -> no
-        printf "yes\nno\nyes\n${SWOOLE_CURL_OPT}\nno\nno\nno\n" | pecl install swoole || {
+        printf "yes\n/usr\nyes\n${SWOOLE_CURL_OPT}\nno\nno\nno\n" | pecl install swoole || {
             warn "pecl 安装 Swoole 也失败"
         }
     fi
@@ -1685,6 +1701,16 @@ EOF
         "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='users' AND COLUMN_NAME='security_code_hash'),1,0);"
     record_if_applied "008_apk_distribution.sql" \
         "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='apk_distributions'),1,0);"
+    record_if_applied "009_audio_files.sql" \
+        "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='audio_files'),1,0);"
+    record_if_applied "010_domains_force_https.sql" \
+        "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='domains' AND COLUMN_NAME='force_https'),1,0);"
+    record_if_applied "011_push_message_unlimited.sql" \
+        "SELECT IF(COLUMN_TYPE='text',1,0) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='messages' AND COLUMN_NAME='title' LIMIT 1;"
+    record_if_applied "012_devices_extend.sql" \
+        "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='devices' AND COLUMN_NAME='platform'),1,0);"
+    record_if_applied "013_push_logs_extend.sql" \
+        "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='push_logs' AND COLUMN_NAME='fail_reason'),1,0);"
 
     APPLIED_COUNT=0
     SKIPPED_COUNT=0

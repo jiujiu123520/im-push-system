@@ -25,26 +25,33 @@
 
 ### 核心功能
 - **实时推送** - WebSocket 长连接，毫秒级消息送达
-- **Key 推送** - 一个 Key 多人订阅，支持单人/多人/批量推送
+- **Key 订阅推送** - 一个 Key 多人订阅，管理后台 Key 列表显示「订阅总数/在线设备数/最大设备数」实时统计，支持单人/多人/批量推送
 - **离线消息** - 设备离线时消息存储 Redis，上线自动补发
 - **双向心跳** - 服务端主动 ping + 客户端主动 ping，pong 携带时间戳、设备状态、在线连接数，支持 RTT 网络延迟计算
 - **僵尸连接巡检** - 每 30 秒检测 Redis 在线但实际已断开的连接并清理
 - **推送消息无字数限制** - title 字段 TEXT 类型、content 字段 MEDIUMTEXT 类型
+- **真实客户端 IP** - Nginx `X-Real-IP` 透传，设备记录的 IP 不再是 127.0.0.1，管理后台和订阅设备明细可直接查看公网/内网真实 IP
 
 ### APP 功能（HBuilderX uni-app 版本）
-- **消息推送** - 实时接收推送消息，统计卡片（今日/累计/设备ID），消息记录列表
+- **消息推送** - 实时接收推送消息，统计卡片（今日/累计/设备ID），**消息记录列表分页加载**（APP 端分页查询，避免大量消息卡顿）
 - **音频播放器** - 云端音频 + 本地音频双列表，支持列表循环/单曲循环/播放一次三种模式
 - **用户中心** - 用户信息卡片、连接信息（推送Key/服务器/RTT延迟/连接状态）、权限管理、设备信息、清除缓存、复制设备信息
-- **掉线提醒** - 掉线时 Toast 提醒 + 顶部橙色提醒条（显示上次掉线时间和重连进度），重连成功后显示离线时长
-- **锁屏保活** - 五层保活机制确保锁屏后连接不中断
+- **掉线提醒增强** - 掉线时 Toast + 顶部橙色提醒条，**显示上次掉线时间、累计在线时长、上次重连耗时、重连进度百分比**；重连成功后弹出 Toast 显示「本次离线时长 xx:xx:xx」
+- **锁屏保活** - 五层保活机制确保锁屏后连接不中断（前台服务 + WakeLock + AlarmManager 备用心跳 + WifiLock + 电池优化白名单）
 - **锁屏通知** - 推送消息在锁屏页面直接显示，支持全屏 Intent、CATEGORY_MESSAGE、VISIBILITY_PUBLIC
 - **通知栏媒体控制** - 通知栏显示播放器控件，支持上一首/播放暂停/下一首
 
+### 订阅设备管理（管理后台）
+- **订阅设备明细弹窗** - Key 列表点击「订阅设备」按钮查看明细弹窗，顶部统计卡片显示「订阅总数 / 在线数 / 僵尸订阅（设备已在 DB 删除但仍在 Redis 订阅中）」
+- **删除订阅设备** - 支持单个删除（列表操作栏按钮）；删除时同步移除 Redis 订阅映射、关闭对应 WebSocket 连接，Key 订阅数实时刷新
+- **搜索与筛选** - 按设备 ID 搜索、按在线状态（在线/离线）筛选、按平台筛选（Android/iOS/Web）、僵尸订阅一键清理
+- **设备维度字段** - 显示平台、APP 版本、设备品牌/型号/系统版本、**真实 IP 地址**、最后活跃时间（来自迁移 012 的扩展字段）
+
 ### 通知功能
-- **设备掉线通知** - 设备断开连接自动发送邮件通知
+- **设备掉线通知** - 设备断开连接自动发送邮件通知，邮件内容包含**掉线时间、累计在线时长、上次成功重连时间、设备 IP、平台、APP 版本**
 - **QQ 邮箱支持** - 支持 QQ 邮箱、QQ 企业邮箱等 SMTP 服务
 - **多邮箱推送** - 支持配置多个收件邮箱（逗号分隔）
-- **通知间隔控制** - 避免频繁通知，可自定义间隔时间
+- **通知间隔控制** - 避免频繁通知，可自定义间隔时间（Key 级别，默认 300 秒）
 
 ### 安全功能
 - **用户注册** - 用户可通过注册页自助注册账号（手机号/邮箱验证码）
@@ -71,7 +78,7 @@
 |------|------|------|
 | 后端 | PHP 8.2 + Swoole 5.x | WebSocket/HTTP 双服务 |
 | 数据库 | MySQL 8.0 | 数据持久化（utf8mb4） |
-| 缓存 | Redis 7.x | 连接映射、离线消息、通知间隔、构建队列 |
+| 缓存 | Redis 7.x | 连接映射、离线消息、通知间隔、在线计数 |
 | 反向代理 | Nginx | HTTP/WebSocket 反向代理，支持 IP/域名共存 |
 | 管理后台 | Vue3 + Element Plus + Vite + TypeScript | 响应式管理界面 |
 | Android APP | HBuilderX uni-app (Vue 3) + plus.android 原生 API | 主推版本 |
@@ -106,77 +113,127 @@ bash manage.sh
 | 11 | 卸载源码(保留环境) | 删除项目目录,保留运行环境 |
 | 12 | 完全卸载 | 彻底清除环境 + 源码 + 数据库 |
 
-### 一键部署
+### 一键部署（独立脚本推荐）
 
-#### Root 用户安装（推荐）
+#### 方式 0：独立一键脚本 quick-deploy.sh（安装/更新通用，**强烈推荐**）
 
-```bash
-# 方式1: 使用 gh.jasonzeng.dev 代理（国内服务器推荐，解决 GitHub 访问慢）
-curl -sSL https://gh.jasonzeng.dev/https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh -o /tmp/deploy.sh && sudo bash /tmp/deploy.sh
-
-# 方式2: 直连 GitHub（需能访问 GitHub）
-curl -sSL https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh -o /tmp/deploy.sh && sudo bash /tmp/deploy.sh
-
-# 方式3: 先克隆再部署
-git clone https://github.com/jiujiu123520/im-push-system.git
-cd im-push-system
-sudo bash deploy/deploy.sh
-```
-
-> 注意：`curl | bash` 管道模式下无法自动 sudo 提权，请使用 `curl -o /tmp/deploy.sh && sudo bash /tmp/deploy.sh` 方式。
-
-### 交互式安装
-
-部署脚本会自动询问安装组件：
+`quick-deploy.sh` 是完全自包含的独立脚本，无需提前克隆项目，**下载后可直接离线运行**，自动支持以下增强：
+- ✅ 6 种 Linux 发行版自动适配（Ubuntu/Debian/CentOS/RHEL/Alpine/openSUSE/Arch）
+- ✅ 国内服务器自动加速（GitHub 代理、Composer 阿里云镜像、npmmirror、CentOS 7 vault 源）
+- ✅ Swoole 编译 3 次降级（完整→禁 brotli→最小化）+ pecl 兜底
+- ✅ 断点续装（`--resume` 从失败步骤继续，`--restart` 强制重来）
+- ✅ 前端构建降级（类型检查失败自动降级到 vite build + NODE_OPTIONS 2048MB 内存）
+- ✅ 自定义项目目录（非 `/www/push-system`）自动替换所有 systemd/Nginx 路径
 
 ```bash
-sudo bash deploy/deploy.sh
-```
+# ====== 国内服务器（一键命令，自动使用 gh-proxy 代理）======
+curl -sSL https://gh.jasonzeng.dev/https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/deploy.sh -o /tmp/deploy.sh && sudo bash /tmp/deploy.sh --gh-proxy
 
-安装过程中会询问：
-1. **核心服务**（必选）：PHP 8.2 + Swoole + MySQL + Redis + Nginx + 管理后台
-2. **SSL 证书自动申请环境**：acme.sh + Let's Encrypt + 自动续费 cron
-3. **sudoers 权限配置**：允许 www-data 重启服务 / 部署 Nginx / 申请证书
-4. **uninstall**：卸载系统（环境/源码/完全卸载）
+# ====== 可直接下载 quick-deploy.sh 后离线运行（任意目录执行均可）======
+curl -sSL -o /tmp/quick-deploy.sh https://gh.jasonzeng.dev/https://raw.githubusercontent.com/jiujiu123520/im-push-system/main/deploy/quick-deploy.sh
+sudo bash /tmp/quick-deploy.sh --install --yes --gh-proxy
 
-> APP 打包已迁移到 GitHub Actions，无需在服务器安装 JDK/Android SDK/Gradle。
-
-### 自定义部署参数
-
-```bash
-sudo bash deploy/deploy.sh \
-  --project-dir=/www/push-system \
-  --db-pass=YourPassword@2024 \
+# ====== 自定义项目目录 + 自定义参数 ======
+sudo bash /tmp/quick-deploy.sh \
+  --project-dir=/data/my-push-system \
+  --db-pass=YourStrongPassword@2024 \
   --http-port=9501 \
   --ws-port=9502 \
-  --gh-proxy
+  --gh-proxy --yes
 ```
 
-### 日常更新（默认 Y 确认）
-
-安装完成后，日常代码更新使用更新脚本即可：
+#### 方式 1：先克隆再部署（开发场景）
 
 ```bash
-cd /www/push-system
-bash backend/deploy/update.sh
+git clone https://github.com/jiujiu123520/im-push-system.git
+cd im-push-system
+# 国内服务器建议加 --gh-proxy
+sudo bash deploy/quick-deploy.sh --install --yes --gh-proxy
 ```
 
-> 更新脚本默认回车即开始更新（输入 n 才取消），自动拉取代码、安装依赖、执行数据库迁移、构建前端、重启服务。
-> 如涉及端口变更或服务配置修改，需使用 `sudo systemctl restart push-http push-websocket`。
+> 注意：`curl | bash` 管道模式下无法自动 sudo 提权，请使用 `curl -o /tmp/*.sh && sudo bash /tmp/*.sh` 方式。
 
-### 安装流程（9 步）
+> ⚠️ **架构变更说明**：APP 打包已迁移到 **GitHub Actions 云端构建**（见 `.github/workflows/build-apk.yml`），**无需在服务器安装 JDK/Android SDK/Gradle**。原服务器端 BuildWorker 服务已废弃，部署脚本检测到旧服务会自动停止并卸载。
 
-| 步骤 | 内容 | 必选 |
+### 部署脚本参数说明（quick-deploy.sh / backend/deploy/update.sh）
+
+| 参数 | 说明 | 示例 |
 |------|------|------|
-| [1/9] | 安装系统依赖（PHP 8.2 + Swoole + MySQL + Redis + Nginx） | 是 |
-| [2/9] | 创建项目目录与数据库 | 是 |
-| [3/9] | 复制项目代码并执行迁移 | 是 |
-| [4/9] | 安装后端依赖（composer install） | 是 |
-| [5/9] | 构建管理后台（npm install && npm run build） | 是 |
-| [6/9] | 配置 systemd 服务与 Nginx | 是 |
-| [7/9] | 启动服务 | 是 |
-| [8/9] | 安装 SSL 证书环境（acme.sh + 自动续费 cron） | 可选 |
-| [9/9] | 配置 sudoers 权限 | 可选 |
+| `--install` | 首次安装模式（触发完整 9 步 install.sh） | `--install` |
+| `--yes` / `-y` | 跳过所有确认提示（默认回车即继续） | `--yes` |
+| `--gh-proxy` | 启用 GitHub 国内加速代理（gh.jasonzeng.dev），国内服务器必加 | `--gh-proxy` |
+| `--project-dir=PATH` | 自定义项目安装目录（默认 `/www/push-system`），自动替换 systemd/Nginx 路径 | `--project-dir=/data/apps/push` |
+| `--http-port=PORT` | 自定义 HTTP API 端口（默认 9501） | `--http-port=8080` |
+| `--ws-port=PORT` | 自定义 WebSocket 端口（默认 9502） | `--ws-port=8081` |
+| `--db-pass=PASSWORD` | 自定义 MySQL im_push 用户密码（默认随机生成） | `--db-pass=Pass@2024` |
+| `--db-root-pass=PASSWORD` | 自定义 MySQL root 临时密码 | `--db-root-pass=Root@2024` |
+| `--skip-build` | 跳过前端构建和后端依赖安装（仅拉代码+迁移+重启，快速小版本更新） | `--skip-build` |
+| `--skip-frontend` | 仅跳过前端构建 | `--skip-frontend` |
+| `--force-update` | 强制 git pull 覆盖本地修改（放弃本地所有变更） | `--force-update` |
+| `--resume` | 断点续装：从上次失败步骤继续（backend/deploy/update.sh 专用，记录于 `.update-progress`） | `--resume` |
+| `--restart` | 清除断点续装进度，强制从头开始更新 | `--restart` |
+| `--no-resume` | 本次更新不使用断点，不影响进度文件 | `--no-resume` |
+| `--verbose` / `--debug` | 显示详细执行日志 | `--verbose` |
+
+完整示例：
+```bash
+# 国内服务器，首次安装，所有参数自定义，无需交互
+sudo bash /tmp/quick-deploy.sh --install --yes --gh-proxy \
+  --project-dir=/data/my-push \
+  --http-port=8080 --ws-port=8081 \
+  --db-pass='MyStrongPass@2024'
+
+# 日常快速更新：跳过构建，强制覆盖本地修改，无需确认
+cd /www/push-system
+bash backend/deploy/update.sh --yes --skip-build --force-update
+
+# 更新失败后断点续装
+bash backend/deploy/update.sh --resume --verbose
+```
+
+### 日常更新（3 种方式任选）
+
+安装完成后，日常代码更新使用以下任意方式即可：
+
+```bash
+# ====== 方式 1：增量更新脚本（推荐，支持断点续装）======
+cd /www/push-system
+bash backend/deploy/update.sh
+# 或国内服务器加速 + 跳过确认
+bash backend/deploy/update.sh --yes --gh-proxy
+
+# ====== 方式 2：独立 quick-deploy.sh 更新模式（无需 cd 到项目目录）======
+sudo bash /tmp/quick-deploy.sh --yes --gh-proxy --project-dir=/www/push-system
+
+# ====== 方式 3：交互式菜单（可视化操作）======
+cd /www/push-system && bash manage.sh   # 选 2 更新代码
+```
+
+> 更新脚本默认回车即开始更新（输入 n 才取消），自动：
+> 1. 备份后端 + Git 快照
+> 2. 拉取最新代码（支持 `--force-update` 覆盖本地）
+> 3. Composer/npm 依赖安装（国内镜像）
+> 4. 前端构建（类型检查失败自动降级 vite build + 2G 内存限制）
+> 5. 数据库迁移（001-013，失败有详细 SQL 报错）
+> 6. 修复运行时权限（仅 storage/runtime/build 目录，不破坏 .git）
+> 7. 更新 systemd/Nginx 配置（适配自定义项目目录和 PHP 路径）
+> 8. 重启 HTTP/WebSocket/Nginx 服务
+
+### 安装流程（9 步 = 7 步核心 + 2 步可选）
+
+`deploy/install.sh` 首次安装步骤：
+
+| 步骤 | 内容 | 必选 | 失败自动处理 |
+|------|------|------|-------------|
+| [1/9] | 检测发行版 → 安装系统依赖（PHP 8.2 + Swoole 5.x + MySQL 8.0 + Redis 7 + Nginx） | 是 | Swoole 3 次编译降级（完整→禁 brotli→最小化+OpenSSL），再失败走 pecl 兜底；CentOS 7 自动切 vault 源 + openssl11 + devtoolset-11 |
+| [2/9] | 创建项目目录与 MySQL 数据库 | 是 | MySQL 初次启动失败自动移除 ib_logfile 重建；密码随机生成或使用 `--db-pass` |
+| [3/9] | 克隆代码或复制本地代码 | 是 | 自动 Git 代理、HTTPS 凭证缓存 |
+| [4/9] | 后端依赖安装（Composer） | 是 | 国内阿里云镜像；自动关闭 audit 阻断 |
+| [5/9] | 构建管理后台（npm install + npm run build） | 是 | npmmirror 镜像；NODE_OPTIONS=--max-old-space-size=2048；vue-tsc 失败自动降级 vite build |
+| [6/9] | 配置 systemd 服务（push-http / push-websocket）与 Nginx | 是 | 自动检测 Web 用户（www-data/nginx/http）；动态替换 User/Group/项目路径；systemd < 227 移除 cgroup 限制 |
+| [7/9] | 启动服务并通过端口验证 | 是 | 启动失败自动抓取 journalctl 最后 30 行报错；Nginx 语法失败自动修复 |
+| [8/9] | 安装 SSL 证书环境（acme.sh + 自动续费 cron 每天 3 点检查） | 可选 | — |
+| [9/9] | 配置 sudoers 权限（允许 Web 用户重启服务/Nginx/证书申请） | 可选 | — |
 
 ## APP 打包
 
@@ -319,8 +376,12 @@ im-push-system/
 │   │   └── Router.php        # 路由器
 │   ├── config/               # 配置文件（database/redis/github）
 │   ├── database/
-│   │   ├── migrations/       # 数据库迁移（001-011）
+│   │   ├── migrations/       # 数据库迁移（001-013）
 │   │   └── seeders/          # 种子数据
+│   ├── deploy/               # 后端运维脚本（更新/版本检查/回滚）
+│   │   ├── update.sh         # 增量更新（断点续装 7 步，日常更新用）
+│   │   ├── check-version.sh  # 本地与云端版本对比
+│   │   └── rollback.sh       # 回滚工具
 │   ├── public/               # 入口文件
 │   └── .env.example          # 环境变量示例
 ├── admin/                    # 管理后台
@@ -339,8 +400,8 @@ im-push-system/
 │   │   ├── router/           # 路由配置
 │   │   └── stores/           # 状态管理
 │   └── vite.config.ts        # Vite 构建配置
-├── build/                    # APP 构建脚本
-│   ├── hbuilderx/            # HBuilderX uni-app 源码（主推版本）
+├── build/                    # APP 构建相关
+│   ├── hbuilderx/            # HBuilderX uni-app 源码（**主推版本**）
 │   │   ├── pages/
 │   │   │   ├── index/        # 登录页
 │   │   │   └── home/         # 主页面（消息/音频/用户中心三 Tab）
@@ -349,25 +410,23 @@ im-push-system/
 │   │   ├── config.js         # 配置注入（构建时生成）
 │   │   ├── manifest.json     # APP 配置（权限、图标、模块）
 │   │   └── pages.json        # 页面路由
-│   ├── app/                  # Kotlin 原生 APP 源码（旧版本）
 │   ├── build_apk.sh          # APK 打包脚本（GitHub Actions 调用）
 │   ├── build_hbuilderx.sh    # HBuilderX 项目生成脚本
 │   ├── inject_config.sh      # 配置注入脚本
-│   ├── generate_keystore.sh  # 签名生成脚本
-│   └── queue/                # 构建队列管理
+│   └── generate_keystore.sh  # 签名生成脚本
 ├── .github/workflows/        # GitHub Actions 工作流
-│   └── build-apk.yml         # APP 构建 workflow
+│   └── build-apk.yml         # APK 云端构建 workflow（JDK 17 / Android SDK 34 / Gradle 8.7）
 ├── deploy/                   # 部署脚本
-│   ├── deploy.sh             # 一键部署（国内服务器）
-│   ├── install.sh            # 安装脚本
-│   ├── update.sh             # 更新脚本
-│   ├── rollback.sh           # 回滚脚本
-│   ├── uninstall.sh          # 卸载脚本
-│   ├── manage.sh             # 交互式管理菜单
-│   ├── nginx/                # Nginx 配置
-│   ├── systemd/              # systemd 服务文件
+│   ├── deploy.sh             # 一键部署入口（国内服务器推荐，自动路由到 quick-deploy.sh）
+│   ├── quick-deploy.sh       # 独立一键脚本（安装/更新通用，**推荐**）
+│   ├── install.sh            # 首次安装脚本（9 步跨发行版安装，Swoole 3 次降级编译）
+│   ├── update.sh             # 更新脚本（顶层转发）
+│   ├── rollback.sh           # 代码回滚（到上次更新或指定 commit）
+│   ├── uninstall.sh          # 卸载脚本（环境/源码/完全卸载三种模式）
+│   ├── nginx/                # Nginx 配置模板（IP/域名共存，HTTP/WebSocket 反向代理）
+│   ├── systemd/              # systemd 服务文件（push-http / push-websocket）
 │   └── apk/                  # APK 分发脚本
-└── manage.sh                 # 交互式管理菜单入口
+└── manage.sh                 # 交互式管理菜单（项目根目录入口）
 ```
 
 ## API 接口
@@ -480,52 +539,92 @@ https://your-domain.com/api/apk-distribution/download/{token}
 ## 常用运维命令
 
 ```bash
+# ==================== 服务状态与日志 ====================
 # 查看服务状态（HTTP + WebSocket）
 sudo systemctl status push-http push-websocket
 
 # 查看实时日志
-sudo journalctl -u push-websocket -f          # WebSocket 推送服务
+sudo journalctl -u push-websocket -f          # WebSocket 推送服务（-n 50 显示最后 50 行）
 sudo journalctl -u push-http -f               # HTTP API 服务
+# 查看 WebSocket 调试日志（含 ping/pong、设备状态、RTT）
+sudo tail -50 /www/push-system/backend/runtime/logs/ws_debug.log
 
 # 重启服务
 sudo systemctl restart push-http push-websocket
 
-# 更新代码（默认回车即开始更新）
+# ==================== 代码更新（3 种方式） ====================
+# 方式1：增量更新 + 断点续装（推荐，日常使用）
 cd /www/push-system && bash backend/deploy/update.sh
+# 或国内加速 + 跳过确认 + 详细日志
+bash backend/deploy/update.sh --yes --gh-proxy --verbose
+# 跳过构建（仅更新代码+迁移+重启，小版本秒更）
+bash backend/deploy/update.sh --yes --skip-build
+# 更新失败后断点续装
+bash backend/deploy/update.sh --resume
 
-# 回滚代码
+# 方式2：独立一键脚本（无需 cd）
+sudo bash /tmp/quick-deploy.sh --yes --gh-proxy --project-dir=/www/push-system
+
+# 方式3：交互式管理菜单
+cd /www/push-system && bash manage.sh   # 选 2 更新代码 / 选 9 回滚代码
+
+# ==================== 版本检查与回滚 ====================
+# 检查服务器与云端版本是否一致（对比 commit hash、迁移数、构建时间）
+cd /www/push-system && bash backend/deploy/check-version.sh
+# 强制远端检查 + 显示完整 commit 信息
+bash backend/deploy/check-version.sh --verbose
+
+# 回滚到上次更新前（自动使用 .git-update-timestamp 备份快照）
 cd /www/push-system && bash deploy/rollback.sh
+# 或回滚到指定 commit
+bash deploy/rollback.sh <commit_hash>
 
-# 交互式管理菜单
-cd /www/push-system && bash manage.sh
-
-# 查看 WebSocket 调试日志（含 ping/pong、设备状态）
-sudo tail -50 /www/push-system/backend/runtime/logs/ws_debug.log
-
+# ==================== 日志与数据 ====================
 # 查看 APP 构建日志（替换 <build_id>）
 cat /www/push-system/build/logs/<build_id>.log
 
 # 查看 SSL 证书自动续费日志
 cat /var/log/push-ssl-renew.log
 
-# 检查服务器与云端版本是否一致
-cd /www/push-system && bash backend/deploy/check-version.sh
+# 查看推送失败统计（查询 push_logs.fail_reason 扩展字段）
+cd /www/push-system/backend && php -r "
+\$pdo = new PDO('mysql:host=127.0.0.1;dbname=im_push', 'im_push', getenv('DB_PASS'));
+\$stmt = \$pdo->query('SELECT fail_reason, COUNT(*) as cnt FROM push_logs WHERE fail_reason IS NOT NULL GROUP BY fail_reason ORDER BY cnt DESC LIMIT 10');
+while (\$row = \$stmt->fetch(PDO::FETCH_ASSOC)) echo \$row['fail_reason'].': '.\$row['cnt'].'次'.PHP_EOL;
+"
 ```
 
 ## Swoole 推送错误码参考
 
-推送失败时，后台推送记录的"失败原因"和日志中会携带 `err_code`，对应 Swoole 底层错误码：
+推送失败时，**错误详细信息已持久化到 `push_logs.fail_reason` 字段**（迁移 013），后台推送记录页可直接查看。同时 `push_logs.payload_size` 字段记录了消息体大小，便于排查超过 `max_packet_size` 的大消息。`err_code` 与 Swoole 底层错误码对应：
 
-| 错误码 | 常量 | 含义 | 处理方式 |
-|--------|------|------|----------|
-| 0 | — | 无错误码但 push 返回 false | 疑似 push 时连接刚被关闭（时序竞态），无需处理 |
-| 503 | `SW_ERROR_WEBSOCKET_BAD_REQUEST` | fd 存在但 WebSocket 状态非 ACTIVE（未完成握手或正在关闭） | **自动清理**僵尸连接，下次推送不再投递到此 fd |
-| 1001 | `SW_ERROR_SESSION_NOT_EXIST` | 连接不存在或已关闭 | **自动清理**连接映射 |
-| 1002 | `SW_ERROR_PACKAGE_LENGTH_TOO_LARGE` | 数据包超过 max_packet_size（默认 2MB） | 检查推送内容大小，缩减消息体 |
-| 1003 | `SW_ERROR_SEND_BUFFER_FULL` | 发送缓冲区已满，客户端接收过慢 | 检查客户端网络状况，无需清理连接 |
-| 1202 | `SW_ERROR_WEBSOCKET_BAD_HOST` | 连接不存在（跨 worker 场景） | **自动清理**连接映射 |
+| 错误码 | 常量 | 含义 | push_logs.fail_reason 常见格式 | 处理方式 |
+|--------|------|------|-------------------------------|----------|
+| 0 | — | 无错误码但 push 返回 false | `push returned false (fd={fd}, code=0)` | 疑似 push 时连接刚被关闭（时序竞态），无需处理，下次自动跳过 |
+| 503 | `SW_ERROR_WEBSOCKET_BAD_REQUEST` | fd 存在但 WebSocket 状态非 ACTIVE（未完成握手或正在关闭） | `push failed: Swoole error 503 (SW_ERROR_WEBSOCKET_BAD_REQUEST)` | **自动清理**僵尸连接，下次推送不再投递到此 fd |
+| 1001 | `SW_ERROR_SESSION_NOT_EXIST` | 连接不存在或已关闭 | `push failed: Swoole error 1001 (SW_ERROR_SESSION_NOT_EXIST)` | **自动清理**连接映射 |
+| 1002 | `SW_ERROR_PACKAGE_LENGTH_TOO_LARGE` | 数据包超过 max_packet_size（默认 2MB） | `message too large: {size} bytes, max={max} bytes` | 检查 `push_logs.payload_size`，缩减标题/内容长度或分条发送 |
+| 1003 | `SW_ERROR_SEND_BUFFER_FULL` | 发送缓冲区已满，客户端接收过慢 | `send buffer full (client slow), size={size}` | 检查客户端网络状况（弱网/断网），无需清理连接，客户端恢复后可继续发送 |
+| 1202 | `SW_ERROR_WEBSOCKET_BAD_HOST` | 连接不存在（跨 worker 场景） | `push failed: Swoole error 1202 (SW_ERROR_WEBSOCKET_BAD_HOST)` | **自动清理**连接映射 |
 
-> 标注"自动清理"的错误码会触发 `cleanupDeadConnection`，从 Redis 在线映射中移除该 fd，避免后续推送继续投递失败。其他错误码（1002/1003）属于临时问题，不清理连接映射。
+> 标注"自动清理"的错误码会触发 `cleanupDeadConnection`：从 Redis 在线映射中移除该 fd + 清理设备订阅关系，避免后续推送继续投递失败。其他错误码（1002/1003）属于临时问题，不清理连接映射。
+
+## 设备信息字段说明（迁移 012 扩展）
+
+`devices` 表扩展了设备属性字段，管理后台设备列表和订阅设备明细弹窗中可见：
+
+| 字段 | 说明 | 示例值 |
+|------|------|--------|
+| `platform` | 平台类型（Android/iOS/Web/H5/Unknown） | `Android`、`iOS`、`Web` |
+| `app_version` | APP 版本号（版本名 + 版本码） | `2.1.0 (21000)` |
+| `device_brand` | 设备品牌 | `Xiaomi`、`HUAWEI`、`Apple` |
+| `device_model` | 设备型号 | `23049RAD8C`（小米 13）、`iPhone15,2` |
+| `system_version` | 系统版本 | `Android 14 (API 34)`、`iOS 17.4` |
+| `manufacturer` | 设备制造商 | `Xiaomi`、`Huawei`、`Apple` |
+| `last_ip` | 最后连接的真实客户端 IP（Nginx `X-Real-IP` 透传，不再是 127.0.0.1） | `203.0.113.42` |
+| `last_ua` | 最后连接的客户端 User-Agent | `okhttp/4.11.0`、`Mozilla/5.0 ...` |
+
+> 真实客户端 IP 依赖 Nginx 配置中 `proxy_set_header X-Real-IP $remote_addr`（部署脚本已自动配置）。直接暴露 Swoole 端口时 IP 字段回退为对端 TCP 连接 IP。
 
 ## 故障排查
 
@@ -591,6 +690,8 @@ cd /www/push-system/backend && php -r "new PDO('mysql:host=127.0.0.1', 'im_push'
 | 009 | `009_audio_files.sql` | 音频文件表 |
 | 010 | `010_domains_force_https.sql` | 域名强制 HTTPS |
 | 011 | `011_push_message_unlimited.sql` | 推送消息无字数限制（TEXT/MEDIUMTEXT） |
+| 012 | `012_devices_extend.sql` | 设备表扩展字段（platform/app_version/device_brand/device_model/system_version/manufacturer 等设备信息） |
+| 013 | `013_push_logs_extend.sql` | 推送日志扩展字段（fail_reason 失败原因、payload_size 消息体大小，配合 Swoole 错误码排查推送失败） |
 
 ## 默认账号
 
