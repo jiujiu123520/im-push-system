@@ -108,6 +108,22 @@ step()  { echo -e "\n${COLOR_BLUE}===== $1 =====${COLOR_RESET}"; }
 # ------------------------------------------------------------
 # 断点续装：进度文件 & 辅助函数
 # ------------------------------------------------------------
+# 如果通过 sudo 执行，记录真实调用用户的 UID/GID，结束时 chown 回原用户
+# 避免 .git/ 目录文件被 root 写入后再次执行「git fetch」 报 Permission denied
+ORIGINAL_UID=""
+ORIGINAL_GID=""
+if [[ -n "${SUDO_UID}" && -n "${SUDO_GID}" && "${EUID}" == "0" ]]; then
+    ORIGINAL_UID="${SUDO_UID}"
+    ORIGINAL_GID="${SUDO_GID}"
+fi
+
+# 清理/恢复项目目录所有者（成功/失败路径均通过 trap EXIT 调用）
+restore_owner() {
+    if [[ -n "${ORIGINAL_UID}" && -n "${ORIGINAL_GID}" && -d "${PROJECT_DIR}" ]]; then
+        chown -R "${ORIGINAL_UID}:${ORIGINAL_GID}" "${PROJECT_DIR}" 2>/dev/null || true
+    fi
+}
+trap restore_owner EXIT
 # 清除进度记录
 clear_progress() {
     rm -f "${PROGRESS_FILE}"
