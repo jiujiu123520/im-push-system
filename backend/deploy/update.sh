@@ -118,9 +118,27 @@ if [[ -n "${SUDO_UID}" && -n "${SUDO_GID}" && "${EUID}" == "0" ]]; then
 fi
 
 # 清理/恢复项目目录所有者（成功/失败路径均通过 trap EXIT 调用）
+# 注意：.env / storage / runtime 必须保持 www-data 可读/写，不能改回普通用户，
+# 否则 push-http 以 www-data 启动时读取 .env 600 权限失败直接崩。
 restore_owner() {
     if [[ -n "${ORIGINAL_UID}" && -n "${ORIGINAL_GID}" && -d "${PROJECT_DIR}" ]]; then
+        # 先按默认恢复
         chown -R "${ORIGINAL_UID}:${ORIGINAL_GID}" "${PROJECT_DIR}" 2>/dev/null || true
+        # 再把服务必需文件改回 www-data
+        if command -v id >/dev/null 2>&1 && id -u www-data >/dev/null 2>&1; then
+            local WWW_UID_GID
+            WWW_UID_GID="$(id -u www-data):$(id -g www-data)"
+            # .env（600 权限，仅 owner 可读）
+            [[ -f "${PROJECT_DIR}/backend/.env" ]] && \
+                chown "${WWW_UID_GID}" "${PROJECT_DIR}/backend/.env" 2>/dev/null || true
+            [[ -f "${PROJECT_DIR}/deploy/.env" ]] && \
+                chown "${WWW_UID_GID}" "${PROJECT_DIR}/deploy/.env" 2>/dev/null || true
+            # storage/runtime（运行时目录）
+            for d in backend/storage backend/runtime backend/logs; do
+                [[ -d "${PROJECT_DIR}/${d}" ]] && \
+                    chown -R "${WWW_UID_GID}" "${PROJECT_DIR}/${d}" 2>/dev/null || true
+            done
+        fi
     fi
 }
 trap restore_owner EXIT
