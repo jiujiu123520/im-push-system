@@ -2,13 +2,14 @@
 # ============================================================
 # 上传 APK 到蓝奏云（up.woozooo.com）
 #
-# 蓝奏云( up.woozooo.com / lanzou.com ) 没有官方开放 API，本脚本
-# 模拟浏览器完整上传 + 建分享链接流程。
-#
-# 完整流程：
-#   Step 1: GET  https://up.woozooo.com/mydisk.php     -> 拿 ve(CSRF) + folder_id_f(上传文件夹)
-#   Step 2: POST https://up.woozooo.com/html5up.php   -> multipart 上传 apk 文件
-#   Step 3: POST https://up.woozooo.com/share.php      -> 创建分享链接(随机4位密码)
+# 本脚本基于 真实免费号( up.woozooo.com ) 实测流程：
+#   Step 1: GET  https://up.woozooo.com/mydisk.php?item=files&action=index
+#           -> 拿 反CSRF vei + 用户 uid (doupload.php?uid=xxx)
+#   Step 2: POST https://up.woozooo.com/html5up.php
+#           -> multipart 上传 apk, 字段名 upload_file
+#   Step 3: POST https://up.woozooo.com/doupload.php?uid=<uid>  task=22
+#           -> 创建分享链接, 返回 密码 pwd + 短链 f_id + 分享子域名 is_newd
+#   最终下载链接: {is_newd}/{f_id}  , 提取码: pwd
 #
 # 用法: upload-to-lanzou.sh <apk_path> <app_name> <cookie>
 #
@@ -17,12 +18,12 @@
 #   失败: {"success":false,"message":"错误原因"}
 #
 # 注意:
-#   1. 蓝奏云免费版单文件大小限制 100MB（超过必须升级会员）
+#   1. 蓝奏云免费版单文件大小限制 100MB（超过必须升级会员），本脚本硬校验 100MB
 #   2. Cookie 在浏览器开发者工具抓取，抓 up.woozooo.com 请求下的整条 Cookie 字符串
-#      典型至少要包含: ylogin=xxx; phpdisk_info=xxx;
+#      典型至少要包含: ylogin=xxx; ylogins=xxx; PHPSESSID=xxx; phpdisk_info=xxx; uag=xxx
 #   3. APK 扩展直接可传，不需伪装 zip
-#   4. PHP 的 shell_exec 会丢弃 stderr，这里把 curl 的错误写到 stderr 会丢，
-#      所以 curl -f 失败时用 HTTP 码 + body 文本检测，不用 2>&1 混写
+#   4. 蓝奏云免费号 taoc 提示: 非会员不支持手机端分享 apk 文件(电脑端支持)
+#      若用户在手机端打开分享页被拦截, 建议切阿里云 OSS/腾讯云 COS 托管
 # ============================================================
 
 set -u
@@ -58,17 +59,15 @@ fail() { output_json "false" "$1"; }
 
 FILE_SIZE=$(stat -c%s "$APK_PATH" 2>/dev/null || stat -f%z "$APK_PATH" 2>/dev/null || echo 0)
 [[ "$FILE_SIZE" -eq 0 ]] && fail "APK 文件为空"
-# 蓝奏云免费版 100MB；即使是会员也先按 2GB 上限保护
-MAX_BYTES=$(( 2 * 1024 * 1024 * 1024 ))
-if [[ "$FILE_SIZE" -gt "$MAX_BYTES" ]]; then
-    fail "文件超过 2GB 上限（当前: $(( FILE_SIZE / 1024 / 1024 ))MB），请压缩或改用自托管"
-fi
-if [[ "$FILE_SIZE" -gt 104857600 ]]; then
-    fail "文件超过 100MB（蓝奏云免费版限制，当前: $(( FILE_SIZE / 1024 / 1024 ))MB）；升级会员后可传更大"
+
+# 蓝奏云免费版 单文件 100MB 上限 (html5uploader3.js: fileSingleSizeLimit=upsizeb=104857600)
+FREE_LIMIT=$(( 100 * 1024 * 1024 ))
+if [[ "$FILE_SIZE" -gt "$FREE_LIMIT" ]]; then
+    fail "文件超过蓝奏云免费版 100MB 上限（当前: $(( FILE_SIZE / 1024 / 1024 ))MB）；升级会员或改用阿里云 OSS"
 fi
 
 command -v curl >/dev/null 2>&1 || fail "未安装 curl，请先 apt-get install curl"
-command -v sed >/dev/null 2>&1  || fail "未安装 sed"
+command -v sed  >/dev/null 2>&1 || fail "未安装 sed"
 
 # 安全文件名：APP 名只保留字母数字和常用安全字符
 SAFE_APP_NAME=$(printf '%s' "$APP_NAME" | sed 's/[^A-Za-z0-9._-]//g; s/^[.-]*//; s/[.-]*$//')
@@ -76,60 +75,49 @@ SAFE_APP_NAME=$(printf '%s' "$APP_NAME" | sed 's/[^A-Za-z0-9._-]//g; s/^[.-]*//;
 VER=$(date +%Y%m%d%H%M%S)
 UPLOAD_FILENAME="${SAFE_APP_NAME}-${VER}.apk"
 
-# ---------- Step 1: 取 CSRF (ve) + folder_id ----------
-DISK_HTML=$(curl -sS -k --max-time 15 \
+# ============================================================
+# Step 1: GET mydisk.php 取 vei (反CSRF) + uid
+# ============================================================
+DISK_HTML=$(curl -sS -k --max-time 20 \
     -H "User-Agent: $UA" \
     -H "Referer: $BASE_URL/mydisk.php" \
     -b "$COOKIE" \
     "$BASE_URL/mydisk.php?item=files&action=index" 2>/dev/null || echo "")
 
-[[ -z "$DISK_HTML" ]] && fail "无法访问蓝奏云控制台 (mydisk.php 请求为空，检查网络/域名)"
+[[ -z "$DISK_HTML" ]] && fail "无法访问蓝奏云控制台 (mydisk.php 请求为空，检查网络/域名/Cookie)"
 
 # ---------- 登录态 / 账号问题 明确检测 ----------
 # 蓝奏云在各种异常时会先返回 <script>alert("提示");location.href="..."</script>
 # 这里把常见异常提前识别出来，给出中文明确提示，而不是让用户猜。
 if grep -qE '<script[^>]*>.*alert\(' <<<"$DISK_HTML"; then
-    # 提取 alert(...) 里的中文提示
     ALERT_MSG=$(grep -oE 'alert\(["\x27][^"\x27]*["\x27]\)' <<<"$DISK_HTML" \
         | head -1 | sed -E "s/alert\([\"']([^\"']*)[\"']\)/\1/")
     [[ -n "$ALERT_MSG" ]] && fail "蓝奏云返回提示：${ALERT_MSG}。请先登录 up.woozooo.com 网页端处理后再重新获取 Cookie"
 fi
 
-# 验证登录态：未登录时页面一般出现 "登录"/"password" 表单，没 ve 也没 folder_id_f
-if ! grep -qE '(name=["'"'"']?ve["'"'"']?|ve\s*[:=]\s*["'"'"'])' <<<"$DISK_HTML" \
-    && ! grep -q 'folder_id_f' <<<"$DISK_HTML"; then
-    if grep -qiE 'login|登录|password|请登录|立即登录' <<<"$DISK_HTML"; then
-        fail "蓝奏云 Cookie 已失效（跳转到登录页），请在浏览器重新登录并复制新 Cookie"
-    fi
+# 未登录特征：出现 登录/请登录/password/立即登录
+if grep -qiE '请登录|立即登录|login.*password|password.*action.*login' <<<"$DISK_HTML"; then
+    fail "蓝奏云 Cookie 已失效（返回登录页），请在浏览器重新登录 up.woozooo.com 后抓取完整 Cookie 填入"
 fi
 
-# 取 CSRF: name="ve" value="xxxxx"
-VE=$(grep -oE 'name=["'"'"']?ve["'"'"']?[^>]*value=["'"'"'][^"'"'"']*["'"'"']' <<<"$DISK_HTML" \
-    | head -1 | sed -E 's/.*value=["'"'"']([^"'"'"']*)["'"'"'].*/\1/')
-
-# folder_id_f：通常是 <input type="hidden" name="folder_id_f" value="数字">
-FOLDER_ID=$(grep -oE 'name=["'"'"']?folder_id_f["'"'"']?[^>]*value=["'"'"'][0-9]*["'"'"']' <<<"$DISK_HTML" \
-    | head -1 | sed -E 's/.*value=["'"'"']([0-9]*)["'"'"'].*/\1/')
-[[ -z "$FOLDER_ID" ]] && FOLDER="0" || FOLDER="$FOLDER_ID"
-
-if [[ -z "$VE" ]]; then
-    # 兜底：有的版本在 JS 里写 ve: "xx"
-    VE=$(grep -oE 've\s*[:=]\s*["'"'"'][A-Za-z0-9_-]{10,}["'"'"']' <<<"$DISK_HTML" \
-        | head -1 | sed -E "s/.*[\"']([A-Za-z0-9_-]{10,})[\"'].*/\1/")
+# ---------- 取 vei: 反 CSRF 令牌（AJAX 里写 'vei':'WV0EVABSBgoEBgJSCFI='）----------
+VEI=$(grep -oE "'vei'\s*:\s*['\"][A-Za-z0-9_\-+=/]{10,}['\"]" <<<"$DISK_HTML" \
+    | head -1 | sed -E "s/.*vei[\"']?\s*:\s*[\"']([A-Za-z0-9_\-+=/]{10,})[\"'].*/\1/")
+if [[ -z "$VEI" ]]; then
+    # 兜底：<input type="hidden" name="vei" value="xxx"> （某些版本）
+    VEI=$(grep -oE 'name=["\x27]?vei["\x27]?[^>]*value=["\x27][A-Za-z0-9_\-+=/]{10,}["\x27]' <<<"$DISK_HTML" \
+        | head -1 | sed -E 's/.*value=["\x27]([A-Za-z0-9_\-+=/]{10,})["\x27].*/\1/')
 fi
-[[ -z "$VE" ]] && fail "无法解析蓝奏云反 CSRF 参数 (ve)，请检查 Cookie 是否为 up.woozooo.com 域名下完整 Cookie"
+[[ -z "$VEI" ]] && fail "无法解析蓝奏云反 CSRF 参数 (vei)，请检查 Cookie 是否完整且账号已登录"
 
-# ---------- Step 2: 上传 ----------
-# 蓝奏云 html5up.php 接受字段：
-#   task         固定 1
-#   ve           反 CSRF
-#   id           folder_id_f
-#   name         文件名
-#   chunk        分片索引 0
-#   chunks       总分片数 1
-#   uploadedSize 已上传大小（和 size 一样，不分片）
-#   size         总大小（字节）
-#   file         multipart 文件
+# ---------- 取 uid: 用户 ID（AJAX url 里写 '/doupload.php?uid=1132484'）----------
+UID=$(grep -oE '/doupload\.php\?uid=[0-9]+' <<<"$DISK_HTML" \
+    | head -1 | sed -E 's/.*uid=([0-9]+).*/\1/')
+[[ -z "$UID" ]] && fail "无法解析蓝奏云用户 uid (doupload.php?uid=xxx)，请检查 Cookie 是否有效"
+
+# ============================================================
+# Step 2: POST html5up.php 上传 APK (字段名 upload_file, 不是 file!)
+# ============================================================
 UPLOAD_BODY=$(curl -sS -k --max-time 600 \
     -H "User-Agent: $UA" \
     -H "Referer: $BASE_URL/mydisk.php" \
@@ -137,81 +125,127 @@ UPLOAD_BODY=$(curl -sS -k --max-time 600 \
     -H "Accept: application/json, text/javascript, */*; q=0.01" \
     -b "$COOKIE" \
     -X POST \
-    -F "task=1" \
-    -F "ve=$VE" \
-    -F "id=$FOLDER" \
-    -F "name=$UPLOAD_FILENAME" \
-    -F "chunk=0" \
-    -F "chunks=1" \
-    -F "uploadedSize=$FILE_SIZE" \
-    -F "size=$FILE_SIZE" \
-    -F "folder_id=$FOLDER" \
-    -F "folder_id_f=$FOLDER" \
-    -F "file=@${APK_PATH};filename=${UPLOAD_FILENAME};type=application/octet-stream" \
+    --form-string "task=1" \
+    --form-string "vie=2" \
+    --form-string "ve=2" \
+    --form-string "folder_id=-1" \
+    --form-string "id=-1" \
+    --form-string "name=${UPLOAD_FILENAME}" \
+    -F "upload_file=@${APK_PATH};filename=${UPLOAD_FILENAME};type=application/octet-stream" \
     "$BASE_URL/html5up.php" 2>/dev/null || echo "")
 
-[[ -z "$UPLOAD_BODY" ]] && fail "上传请求失败 (html5up.php 无响应)，请检查网络和文件大小"
+[[ -z "$UPLOAD_BODY" ]] && fail "上传请求失败 (html5up.php 无响应)，请检查网络/文件大小（100MB限制）"
 
-# 上传返回典型 JSON：
-#   成功: {"zt":1,"info":"上传成功","text":"","id":1234567,"name":"xxx.apk"}
-#   失败: {"zt":0,"info":"错误描述"} 或 错误 HTML
+# ---------- 上传返回解析 ----------
+# 成功示例:
+# {
+#   "zt":1,
+#   "info":"上传成功",
+#   "text":[{
+#     "icon":"apk",
+#     "id":"304172609",
+#     "f_id":"iyDbH402g24j",
+#     "name_all":"lanzou_test-xxx.apk",
+#     "size":"5.0 M",
+#     "is_newd":"https://xiaogangpao.lanzout.com"
+#   }]
+# }
+# 失败示例:
+#   {"zt":0,"info":"不能上传.bin格式的文件","text":null}  <- 扩展名不在白名单
+#   {"zt":9,...}  <- 未登录, 需要刷新登录
 Z_STATUS=$(grep -oE '"zt"\s*:\s*[0-9]+' <<<"$UPLOAD_BODY" | head -1 | sed -E 's/.*:\s*//')
 Z_INFO=$(  grep -oE '"info"\s*:\s*"[^"]*"'   <<<"$UPLOAD_BODY" | head -1 | sed -E 's/.*:"([^"]*)".*/\1/')
-Z_ID=$(    grep -oE '"id"\s*:\s*[0-9]+'      <<<"$UPLOAD_BODY" | head -1 | sed -E 's/.*:\s*//')
 
 if [[ -z "$Z_STATUS" ]]; then
-    # 非 JSON 返回，很可能是登录失效或被拦截
-    if grep -qiE 'login|登录|password' <<<"$UPLOAD_BODY"; then
+    # 非 JSON，典型是要求登录/被风控
+    if grep -qiE 'login|登录|password|请登录|立即登录' <<<"$UPLOAD_BODY"; then
         fail "蓝奏云 Cookie 已失效（上传接口要求登录），请在浏览器重新登录并复制新 Cookie"
     fi
-    # 打印前 120 字符便于排查
-    PREVIEW=$(printf '%.120s' "$UPLOAD_BODY" | sed 's/\\/\\\\/g; s/"/\\"/g')
-    fail "上传返回格式异常，不是 JSON（可能接口变更）：$PREVIEW"
+    PREVIEW=$(printf '%.200s' "$UPLOAD_BODY" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    fail "上传返回异常，不是 JSON（可能接口变更/风控）：$PREVIEW"
+fi
+
+if [[ "$Z_STATUS" == "9" ]]; then
+    fail "蓝奏云 Cookie 已失效（上传返回 zt=9 no login），请重新抓取 Cookie"
 fi
 
 if [[ "$Z_STATUS" != "1" ]]; then
-    [[ -z "$Z_INFO" ]] && Z_INFO="上传失败"
+    [[ -z "$Z_INFO" ]] && Z_INFO="上传失败(zt=$Z_STATUS)"
     fail "$Z_INFO"
 fi
 
-[[ -z "$Z_ID" ]] && fail "上传成功但未获取到文件 id (蓝奏云接口返回缺失)"
+# 取文件 ID（创建分享时用的 file_id=xxx, 是长整型 id 304172609，不是短链 f_id）
+Z_ID=$(grep -oE '"id"\s*:\s*"[0-9]+"' <<<"$UPLOAD_BODY" | head -1 | sed -E 's/.*:"([0-9]+)".*/\1/')
+[[ -z "$Z_ID" ]] && Z_ID=$(grep -oE '"id"\s*:\s*[0-9]+' <<<"$UPLOAD_BODY" | head -1 | sed -E 's/.*:\s*([0-9]+).*/\1/')
+[[ -z "$Z_ID" ]] && fail "上传成功但未解析到文件 id，请检查蓝奏云接口返回格式"
 
-# ---------- Step 3: 创建分享链接 & 随机 4 位密码 ----------
+# 兜底: 上传成功直接拿到的短链/域名（如果 step3 创建分享失败时直接用）
+UPLOAD_F_ID=$(grep -oE '"f_id"\s*:\s*"[A-Za-z0-9]+"' <<<"$UPLOAD_BODY" | head -1 | sed -E 's/.*:"([A-Za-z0-9]+)".*/\1/')
+UPLOAD_DOMAIN=$(grep -oE '"is_newd"\s*:\s*"https?://[^"]+"' <<<"$UPLOAD_BODY" | head -1 | sed -E 's/.*:"(https?:\/\/[^"]+)".*/\1/')
+
+# ============================================================
+# Step 3: POST doupload.php?uid=<uid>  task=22  创建分享
+# ============================================================
+# 免费号随机 4 位提取码（蓝奏云返回 info.pwd= 下一次它实际用的码，不一定等于传进去的）
 PASS=$(head -c 4 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n' | head -c 4)
 [[ -z "$PASS" ]] && PASS=$(tr -dc 'a-zA-Z0-9' </dev/urandom 2>/dev/null | head -c 4 || echo "qwer")
 
-# share.php 创建分享：POST action=share&file_id=XX&pwd=1（=带密码）&name_desc=&des=
-SHARE_RESP=$(curl -sS -k --max-time 15 \
+SHARE_RESP=$(curl -sS -k --max-time 20 \
     -H "User-Agent: $UA" \
     -H "Referer: $BASE_URL/mydisk.php" \
     -H "X-Requested-With: XMLHttpRequest" \
     -H "Accept: application/json, text/javascript, */*; q=0.01" \
     -b "$COOKIE" \
     -X POST \
-    --data-urlencode "action=share" \
+    --data-urlencode "task=22" \
     --data-urlencode "file_id=$Z_ID" \
     --data-urlencode "pwd=$PASS" \
     --data-urlencode "name_desc=" \
     --data-urlencode "des=" \
-    --data-urlencode "ve=$VE" \
-    "$BASE_URL/share.php" 2>/dev/null || echo "")
+    --data-urlencode "vei=$VEI" \
+    "$BASE_URL/doupload.php?uid=$UID" 2>/dev/null || echo "")
 
-# 返回样例：{"zt":1,"info":"分享地址：https:\/\/wwi.lanzoup.com\/ixxxx","pwd":"qwer","url":"https:\/\/..."}
-SHARE_ZT=$(  grep -oE '"zt"\s*:\s*[0-9]+' <<<"$SHARE_RESP" | head -1 | sed -E 's/.*:\s*//')
-SHARE_URL=$( grep -oE '"url"\s*:\s*"[^"]*"'  <<<"$SHARE_RESP" | head -1 | sed -E 's/.*:"([^"]*)".*/\1/')
-SHARE_INFO=$(grep -oE '"info"\s*:\s*"[^"]*"' <<<"$SHARE_RESP" | head -1 | sed -E 's/.*:"([^"]*)".*/\1/')
-SHARE_PWD=$( grep -oE '"pwd"\s*:\s*"[^"]*"'  <<<"$SHARE_RESP" | head -1 | sed -E 's/.*:"([^"]*)".*/\1/')
+# ---------- 解析分享返回 ----------
+# 成功示例:
+# {
+#   "zt":1,
+#   "info":{
+#     "pwd":"8jcb",
+#     "onof":"0",
+#     "f_id":"iyDbH402g24j",
+#     "taoc":"非会员不支持手机分享apk文件（电脑支持）...",
+#     "is_newd":"https://xiaogangpao.lanzout.com"
+#   }
+# }
+# 失败示例 (仅会员):
+#   {"zt":null,"info":"此功能仅会员使用（个人中心-会员个性化）","text":null,"dat":null}
+SHARE_ZT=$(grep -oE '"zt"\s*:\s*[0-9]+' <<<"$SHARE_RESP" | head -1 | sed -E 's/.*:\s*//')
+SHARE_PWD=$( grep -oE '"pwd"\s*:\s*"[A-Za-z0-9]+"' <<<"$SHARE_RESP" | head -1 | sed -E 's/.*:"([A-Za-z0-9]+)".*/\1/')
+SHARE_FID=$( grep -oE '"f_id"\s*:\s*"[A-Za-z0-9]+"' <<<"$SHARE_RESP" | head -1 | sed -E 's/.*:"([A-Za-z0-9]+)".*/\1/')
+SHARE_DOM=$( grep -oE '"is_newd"\s*:\s*"https?://[^"]+"' <<<"$SHARE_RESP" | head -1 | sed -E 's/.*:"(https?:\/\/[^"]+)".*/\1/')
+SHARE_INFO_STR=$(grep -oE '"info"\s*:\s*"[^"]*"' <<<"$SHARE_RESP" | head -1 | sed -E 's/.*:"([^"]*)".*/\1/')
+# taoc 字段只在输出日志里保留，不用解析给前端
 
-if [[ -n "$SHARE_URL" ]]; then
-    output_json "true" "上传蓝奏云成功" "$SHARE_URL" "${SHARE_PWD:-$PASS}"
+if [[ "$SHARE_ZT" == "1" && -n "$SHARE_FID" && -n "$SHARE_DOM" ]]; then
+    SHARE_URL="${SHARE_DOM%/}/${SHARE_FID}"
+    FINAL_PWD="${SHARE_PWD:-$PASS}"
+    output_json "true" "上传蓝奏云成功" "$SHARE_URL" "$FINAL_PWD"
 fi
 
-# 兜底：info 字段里可能写了 分享地址：https://xxx
-FALLBACK_URL=$(grep -oE 'https?://[A-Za-z0-9./_-]+' <<<"$SHARE_INFO" | head -1 || echo "")
-if [[ -n "$FALLBACK_URL" ]]; then
-    output_json "true" "上传蓝奏云成功（分享地址从 info 中提取）" "$FALLBACK_URL" "$PASS"
+# ---------- Step3 失败时的兜底：用 Step2 直接拿到的 f_id + is_newd ----------
+# 典型 case: task=22 返回非会员/其他错误，但文件本身已经上传成功并分配了短链
+if [[ -n "$UPLOAD_F_ID" && -n "$UPLOAD_DOMAIN" ]]; then
+    FALLBACK_URL="${UPLOAD_DOMAIN%/}/${UPLOAD_F_ID}"
+    output_json "true" \
+        "文件已上传并生成链接（自动创建带密码分享失败$([ -n "$SHARE_INFO_STR" ] && echo ": ${SHARE_INFO_STR}")；已退回无密码公开链接）" \
+        "$FALLBACK_URL" ""
 fi
 
-# 分享接口失败也不影响文件本身——告诉用户手动去后台设置分享
-MSG="文件已上传成功(蓝奏云文件ID=$Z_ID)，但自动创建分享链接失败。请登录 up.woozooo.com 后台 -> 找到该文件 -> 右键「分享」手动获取链接和密码"
-output_json "true" "$MSG" "" ""
+# ---------- 终极兜底：告诉用户手动去后台分享 ----------
+WARN_MSG="文件已上传成功（蓝奏云文件ID=$Z_ID"
+[ -n "$UPLOAD_F_ID" ] && WARN_MSG="$WARN_MSG，短链f_id=$UPLOAD_F_ID"
+[ -n "$UPLOAD_DOMAIN" ] && WARN_MSG="$WARN_MSG，分享域名=$UPLOAD_DOMAIN"
+WARN_MSG="$WARN_MSG），但自动创建分享链接失败"
+[ -n "$SHARE_INFO_STR" ] && WARN_MSG="$WARN_MSG：$SHARE_INFO_STR"
+WARN_MSG="$WARN_MSG。请登录 up.woozooo.com 后台 → 找到该文件 → 点右侧三个点「分享」手动获取链接和密码"
+output_json "true" "$WARN_MSG" "" ""
