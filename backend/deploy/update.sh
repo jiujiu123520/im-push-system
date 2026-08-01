@@ -40,6 +40,42 @@
 set -e
 
 # ------------------------------------------------------------
+# 跨系统：依赖检查（bash/mysql/client）
+# ------------------------------------------------------------
+_need_cmd() { command -v "$1" >/dev/null 2>&1; }
+_distro_install_hint() {
+  local pkg="$1"
+  if _need_cmd apt-get; then echo "  Debian/Ubuntu: sudo apt-get install -y $pkg"
+  elif _need_cmd apk; then echo "  Alpine:        apk add --no-cache $pkg"
+  elif _need_cmd yum; then echo "  CentOS/RHEL:   sudo yum install -y $pkg"
+  elif _need_cmd dnf; then echo "  Rocky/Fedora:  sudo dnf install -y $pkg"
+  elif _need_cmd brew; then echo "  macOS:         brew install $pkg"
+  elif _need_cmd pacman; then echo "  Arch:          sudo pacman -S --noconfirm $pkg"
+  else echo "  请使用系统包管理器安装: $pkg"; fi
+}
+assert_deps() {
+  local miss=()
+  _need_cmd bash  || miss+=(bash)
+  _need_cmd mysql || miss+=(mysql-client)
+  _need_cmd git   || miss+=(git)
+  _need_cmd curl  || miss+=(curl)
+  if [[ ${#miss[@]} -gt 0 ]]; then
+    echo "[ERROR] update.sh 缺少依赖：${miss[*]}" >&2
+    local p
+    for p in "${miss[@]}"; do _distro_install_hint "$p" >&2; done
+    exit 1
+  fi
+  if ! _need_cmd python3; then
+    echo "[WARN] 未检测到 python3，小飞机网盘上传脚本将降级使用 grep/sed 解析 JSON，Alpine/BSD 环境可能失效。推荐安装 python3。" >&2
+    _distro_install_hint "python3" >&2
+  fi
+  if ! _need_cmd systemctl; then
+    echo "[WARN] 当前环境未检测到 systemctl（Docker 容器 / macOS），服务重启步骤将改为提示手动执行 bin/start.sh / bin/stop.sh。" >&2
+  fi
+}
+assert_deps
+
+# ------------------------------------------------------------
 # 项目目录（从环境变量读取或使用默认值）
 # ------------------------------------------------------------
 PROJECT_DIR="${PROJECT_DIR:-/www/push-system}"
@@ -758,6 +794,8 @@ EOF
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='apk_download_logs'),1,0);"
         record_if_applied "015_apk_distribution_feijii.sql" \
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='apk_distributions' AND COLUMN_NAME='feijipan_url'),1,0);"
+        record_if_applied "016_apk_feijii_direct_url.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='apk_distributions' AND COLUMN_NAME='feijipan_fetch_count'),1,0);"
 
         APPLIED_COUNT=0
         SKIPPED_COUNT=0

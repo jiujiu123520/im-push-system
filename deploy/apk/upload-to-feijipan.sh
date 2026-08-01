@@ -22,6 +22,56 @@
 set -u
 set -o pipefail
 
+# ============================================================
+# 跨系统：依赖检查 & 发行版识别（apt/apk/yum/brew/pacman）
+# ============================================================
+_need_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+_distro_install_hint() {
+  local pkg="$1"
+  if _need_cmd apt-get; then
+    echo "  Debian/Ubuntu:  sudo apt-get update && sudo apt-get install -y $pkg"
+  elif _need_cmd apk; then
+    echo "  Alpine:         apk add --no-cache $pkg"
+  elif _need_cmd yum; then
+    echo "  CentOS/RHEL:     sudo yum install -y $pkg"
+  elif _need_cmd dnf; then
+    echo "  Rocky/Fedora:    sudo dnf install -y $pkg"
+  elif _need_cmd brew; then
+    echo "  macOS:           brew install $pkg"
+  elif _need_cmd pacman; then
+    echo "  Arch:            sudo pacman -S --noconfirm $pkg"
+  else
+    echo "  请使用系统包管理器安装: $pkg"
+  fi
+}
+
+assert_dependencies() {
+  local missing=()
+  _need_cmd bash  || missing+=("bash (>=4.0，当前脚本依赖 bash 语法)")
+  _need_cmd curl  || missing+=("curl")
+  if ! _need_cmd python3; then
+    echo "[WARN] upload-to-feijipan: 未检测到 python3，将使用 grep/sed 正则兜底解析 JSON（推荐安装 python3 以提高 Alpine/BSD 兼容性）" >&2
+    _distro_install_hint "python3" >&2
+  fi
+  # BusyBox 工具链告警（Alpine 默认 BusyBox grep/sed 扩展正则与 GNU 行为不一致）
+  if _need_cmd apk && ! _need_cmd python3; then
+    echo "[WARN] Alpine 环境检测到 BusyBox grep/sed，扩展正则可能失效。请先执行：apk add --no-cache python3 curl bash" >&2
+  fi
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "[ERROR] upload-to-feijipan 缺失以下必需依赖，请先安装后重试：" >&2
+    local m base_pkg
+    for m in "${missing[@]}"; do
+      echo "  - $m" >&2
+      base_pkg="${m%% *}"
+      _distro_install_hint "$base_pkg" >&2
+    done
+    exit 1
+  fi
+}
+
+assert_dependencies
+
 APK_PATH="${1:-}"
 APP_NAME="${2:-app}"
 APP_TOKEN="${3:-${FEEJII_APP_TOKEN:-}}"
@@ -56,8 +106,6 @@ fail() { output_json "false" "$1"; }
 
 FILE_SIZE=$(stat -c%s "$APK_PATH" 2>/dev/null || stat -f%z "$APK_PATH" 2>/dev/null || echo 0)
 [[ "$FILE_SIZE" -eq 0 ]] && fail "APK 文件为空"
-
-command -v curl >/dev/null 2>&1 || fail "未安装 curl，请先 apt-get install curl"
 
 # 安全文件名
 SAFE_APP_NAME=$(printf '%s' "$APP_NAME" | sed 's/[^A-Za-z0-9._-]//g; s/^[.-]*//; s/[.-]*$//')
@@ -102,8 +150,8 @@ TOKEN_RESP=$(curl -sS --max-time 30 \
 # 解析返回 JSON
 # 成功示例：{"code":0,"msg":"success","data":{"uploadUrl":"https://xxx","key":"xxx","credential":"xxx","fileId":12345,...}}
 # 失败示例：{"code":401,"msg":"appToken 无效"}
-RESP_CODE=$(echo "$TOKEN_RESP" | grep -oE '"code"\s*:\s*-?[0-9]+' | head -1 | sed -E 's/.*:\s*(-?[0-9]+)/\1/')
-RESP_MSG=$( echo "$TOKEN_RESP" | grep -oE '"msg"\s*:\s*"[^"]*"'  | head -1 | sed -E 's/.*:"([^"]*)".*/\1/')
+RESP_CODE=$(extract_json_field "code" "$TOKEN_RESP")
+RESP_MSG=$(extract_json_field  "msg"  "$TOKEN_RESP")
 
 if [[ -z "$RESP_CODE" ]]; then
     PREVIEW=$(printf '%.200s' "$TOKEN_RESP" | sed 's/\\/\\\\/g; s/"/\\"/g')
@@ -114,28 +162,85 @@ if [[ "$RESP_CODE" != "0" ]]; then
     fail "获取上传凭证失败（code=$RESP_CODE）：${RESP_MSG:-未知错误}"
 fi
 
-# 提取 data 里的字段（支持多种写法，兼容返回）
+# 通用 JSON 字段提取（顶层或 data 子对象都尝试）
+#   主路径：python3 json.loads（BusyBox/BSD grep/sed 下不会抽风）
+#   兜底：grep/sed 扩展正则（GNU 环境常用）
 extract_json_field() {
     local field="$1"
     local json="$2"
-    # 优先 "field":"value" 字符串
+    [[ -z "$json" ]] && { echo ""; return; }
+
+    # ---- 主路径：python3（优先，跨系统行为一致）----
+    if _need_cmd python3; then
+        # 通过临时文件把 json 传给 python3（避免 heredoc + stdin + 命令行参数三者混用的坑）
+        local _tmp="/tmp/feijii_json_$$"
+        printf '%s' "$json" > "$_tmp" 2>/dev/null
+        python3 - "$field" "$_tmp" <<'PYEOF' 2>/dev/null || true
+import sys, json, os
+f = sys.argv[1]
+path = sys.argv[2] if len(sys.argv) > 2 else ''
+raw = ''
+if path and os.path.exists(path):
+    try:
+        with open(path, 'r', encoding='utf-8', errors='replace') as fh:
+            raw = fh.read()
+    except Exception:
+        raw = ''
+if not raw:
+    try:
+        raw = sys.stdin.read()
+    except Exception:
+        raw = ''
+if not raw:
+    print(''); sys.exit(0)
+
+def lookup(d):
+    if isinstance(d, dict):
+        if f in d: return d[f]
+        if 'data' in d and isinstance(d['data'], dict) and f in d['data']:
+            return d['data'][f]
+    return None
+v = None
+try:
+    top = json.loads(raw)
+    v = lookup(top)
+except Exception:
+    v = None
+# 某些接口 data 是一个字符串化的 JSON，再试一次
+if v is None:
+    try:
+        top = json.loads(raw)
+        if isinstance(top, dict) and isinstance(top.get('data'), str):
+            try:
+                nested = json.loads(top['data'])
+                if isinstance(nested, dict) and f in nested: v = nested[f]
+            except Exception:
+                pass
+    except Exception:
+        pass
+if v is None:
+    print('')
+elif isinstance(v, bool):
+    print('true' if v else 'false')
+else:
+    print(str(v))
+PYEOF
+        [[ -f "$_tmp" ]] && rm -f "$_tmp" 2>/dev/null
+        return
+    fi
+
+    # ---- 兜底：老的 grep -oE 正则（GNU Linux 默认环境）----
     local v
     v=$(echo "$json" | grep -oE "\"$field\"\s*:\s*\"[^\"]*\"" | head -1 | sed -E "s/.*:\"([^\"]*)\".*/\1/")
-    if [[ -n "$v" ]]; then echo "$v"; return; fi
-    # 其次 "field":number
+    [[ -n "$v" ]] && { echo "$v"; return; }
     v=$(echo "$json" | grep -oE "\"$field\"\s*:\s*-?[0-9]+" | head -1 | sed -E 's/.*:\s*(-?[0-9]+).*/\1/')
     echo "$v"
 }
 
-# 小飞机 getUpToken 通常把 data 作为一个子 JSON 块，这里尝试剥一层
-DATA_BLOB=$(echo "$TOKEN_RESP" | sed -E 's/.*"data"\s*:\s*(\{.*\})[[:space:]]*$/\1/')
-if [[ -z "$DATA_BLOB" || "$DATA_BLOB" == "$TOKEN_RESP" ]]; then
-    DATA_BLOB="$TOKEN_RESP"
-fi
-
-UPLOAD_URL=$(extract_json_field "uploadUrl" "$DATA_BLOB")
-S3_KEY=$(extract_json_field "key" "$DATA_BLOB")
-FILE_ID=$(extract_json_field "fileId" "$DATA_BLOB")
+# 提取 getUpToken 响应 data 字段（顶层 / data 子对象都兼容，extract_json_field 内部已处理）
+UPLOAD_URL=$(extract_json_field "uploadUrl" "$TOKEN_RESP")
+S3_KEY=$(extract_json_field "key" "$TOKEN_RESP")
+FILE_ID=$(extract_json_field "fileId" "$TOKEN_RESP")
 
 [[ -z "$UPLOAD_URL" ]] && fail "上传凭证缺少 uploadUrl（返回：${RESP_MSG:-结构未识别}）"
 [[ -z "$FILE_ID" ]]    && fail "上传凭证缺少 fileId"
@@ -169,16 +274,15 @@ SHARE_RESP=$(curl -sS --max-time 30 \
     -H "Referer: https://www.feejii.com/" \
     "$SHARE_URL" 2>/dev/null || echo "")
 
-SHARE_CODE=$(echo "$SHARE_RESP" | grep -oE '"code"\s*:\s*-?[0-9]+' | head -1 | sed -E 's/.*:\s*(-?[0-9]+)/\1/')
-SHARE_MSG=$( echo "$SHARE_RESP" | grep -oE '"msg"\s*:\s*"[^"]*"'  | head -1 | sed -E 's/.*:"([^"]*)".*/\1/')
+SHARE_CODE=$(extract_json_field "code" "$SHARE_RESP")
+SHARE_MSG=$(extract_json_field  "msg"  "$SHARE_RESP")
 
-# 分享返回 data 块
-SHARE_DATA=$(echo "$SHARE_RESP" | sed -E 's/.*"data"\s*:\s*(\{.*\})[[:space:]]*$/\1/')
-[[ -z "$SHARE_DATA" || "$SHARE_DATA" == "$SHARE_RESP" ]] && SHARE_DATA="$SHARE_RESP"
-
-FINAL_URL=$(extract_json_field "url" "$SHARE_DATA")
-[[ -z "$FINAL_URL" ]] && FINAL_URL=$(extract_json_field "shortUrl" "$SHARE_DATA")
-[[ -z "$FINAL_URL" ]] && FINAL_URL=$(extract_json_field "shareUrl" "$SHARE_DATA")
+# 提取分享 URL（extract_json_field 内部会去 data 子对象里找，多个字段名依次尝试）
+FINAL_URL=""
+for k in url shortUrl shareUrl downloadUrl; do
+    v=$(extract_json_field "$k" "$SHARE_RESP")
+    if [[ -n "$v" && "$v" == http* ]]; then FINAL_URL="$v"; break; fi
+done
 
 if [[ "$SHARE_CODE" == "0" && -n "$FINAL_URL" ]]; then
     output_json "true" "上传小飞机网盘成功" "$FINAL_URL" "$FILE_ID"

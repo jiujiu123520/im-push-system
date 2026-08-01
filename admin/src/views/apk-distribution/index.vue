@@ -269,6 +269,51 @@
               placeholder="设备 DevCode，从抓包请求 URL 参数中获取"
               clearable
             />
+
+            <!-- 抓包向导折叠面板 -->
+            <el-collapse class="guide-collapse">
+              <el-collapse-item title="💡 如何获取小飞机 AppToken / UUID / DevCode（3 步搞定）" name="guide">
+                <ol class="guide-steps">
+                  <li>
+                    <div class="guide-step-title">第 1 步：用 Chrome / Edge 打开小飞机官网并登录</div>
+                    <div class="guide-step-desc">
+                      访问 <a href="https://www.feejii.com" target="_blank" rel="noopener" class="guide-link">feejii.com</a>，
+                      用你注册的手机号 / 账号密码正常登录。
+                    </div>
+                  </li>
+                  <li>
+                    <div class="guide-step-title">第 2 步：打开开发者工具并随便点一个 API 请求</div>
+                    <div class="guide-step-desc">
+                      按 <el-tag size="small" round class="kbd">F12</el-tag> 或右键 &rarr;「检查」打开 DevTools &rarr;
+                      切换到 <el-tag size="small" round effect="plain" type="success">Network（网络）</el-tag> 面板 &rarr;
+                      筛选 <el-tag size="small" round effect="plain" type="warning">Fetch/XHR</el-tag> &rarr;
+                      回到网页点一下「文件列表」或按 <el-tag size="small" round class="kbd">F5</el-tag> 刷新页面 &rarr;
+                      在左侧请求列表里<strong>随便点任意一个</strong>（比如 <code>/app/user/info</code>）。
+                    </div>
+                  </li>
+                  <li>
+                    <div class="guide-step-title">第 3 步：复制 3 个参数，粘贴到上方三个输入框</div>
+                    <div class="guide-step-desc">
+                      在请求详情的「Headers &rarr; Query String Parameters」区域，复制下面 3 个值：
+                      <ul class="guide-params">
+                        <li><code>appToken</code> &rarr; 粘贴到上方「<strong>小飞机网盘 AppToken</strong>」</li>
+                        <li><code>uuid</code>     &rarr; 粘贴到上方「<strong>小飞机网盘 UUID</strong>」</li>
+                        <li><code>devCode</code>  &rarr; 粘贴到上方「<strong>小飞机网盘 DevCode</strong>」</li>
+                      </ul>
+                      <el-alert
+                        type="info"
+                        :closable="false"
+                        show-icon
+                        title="三项必须来自同一个登录会话。修改密码 / 换设备登录 / 退出账号后，必须重新抓取一次。"
+                        size="small"
+                        style="margin-top: 8px"
+                      />
+                    </div>
+                  </li>
+                </ol>
+              </el-collapse-item>
+            </el-collapse>
+
             <div class="credentials-actions">
               <el-button
                 size="small"
@@ -1562,5 +1607,84 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+// ===== 小飞机抓包向导 =====
+.guide-collapse {
+  margin: 14px 0 10px;
+  border: 1px solid var(--border-light);
+  border-radius: $radius-sm;
+  overflow: hidden;
+
+  :deep(.el-collapse-item__header) {
+    padding-left: 14px;
+    padding-right: 14px;
+    font-weight: 600;
+    color: var(--text-regular);
+    background: var(--bg-page);
+    border-bottom: none;
+    height: 44px;
+    line-height: 44px;
+  }
+  :deep(.el-collapse-item__wrap) {
+    border-top: 1px solid var(--border-light);
+  }
+  :deep(.el-collapse-item__content) {
+    padding: 14px 18px 18px;
+  }
+}
+
+.guide-steps {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+
+  > li::marker {
+    color: $color-primary;
+    font-weight: 800;
+    font-size: 15px;
+  }
+}
+
+.guide-step-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.guide-step-desc {
+  font-size: 13px;
+  color: var(--text-regular);
+  line-height: 1.75;
+}
+
+.guide-link {
+  color: $color-primary;
+  text-decoration: none;
+  font-weight: 500;
+  &:hover { text-decoration: underline; }
+}
+
+.kbd {
+  font-family: $font-family-mono;
+  letter-spacing: 0.2px;
+}
+
+.guide-params {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--text-regular);
+  font-size: 13px;
+  line-height: 1.9;
+  code {
+    background: var(--bg-page);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: $color-primary;
+    font-family: $font-family-mono;
+  }
 }
 </style>

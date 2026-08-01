@@ -232,18 +232,60 @@ class ApkDistributionController
             return false;
         }
 
+        $record  = $fileInfo['record'];
         $apkPath = $fileInfo['path'];
-        $filename = $fileInfo['filename'];
+        $filename= $fileInfo['filename'];
+        $apkSize = @filesize($apkPath);
+        $distributionId = (int)($record['id'] ?? 0);
 
+        // ===== 统计：先计数 + 写日志（保证「先统计、后跳转/发送」，307 跳转绝不丢数）=====
         $ip = AdminAuth::getClientIp($context);
         $ua = (string)($context['header']['user-agent'] ?? $context['server']['http_user_agent'] ?? '');
         $referer = (string)($context['header']['referer'] ?? $context['server']['http_referer'] ?? '');
         ApkDistributionService::incrementDownloadCount($token, $ip, $ua, $referer);
 
+        // ===== 分支 A：小飞机直链 307（优先走缓存 → 懒解析 → 再失败就回退）=====
+        if ($distributionId > 0 && !empty($record['feijipan_url'])) {
+            $cache = ApkDistributionService::getCachedFeijiiDirectUrl($distributionId);
+            $directUrl = '';
+            if ($cache['hit']) {
+                $directUrl = $cache['url'];
+            } else {
+                $parsed = ApkDistributionService::resolveFeijiiDirectUrl((string)$record['feijipan_url']);
+                if ($parsed !== '') {
+                    ApkDistributionService::saveCachedFeijiiDirectUrl($distributionId, $parsed);
+                    $directUrl = $parsed;
+                }
+            }
+            if ($directUrl !== '') {
+                // 用 307 跳转（部分安卓浏览器对 302 APK 下载拦截更严，307 兼容性更好）
+                $response->status(307);
+                $response->header('Location', $directUrl);
+                $response->header('Access-Control-Allow-Origin', '*');
+                $response->header('Cache-Control', 'no-cache, no-store, must-revalidate');
+                $response->header('Pragma', 'no-cache');
+                $response->header('Expires', '0');
+                // Swoole Response：直接 end 结束；FPM/原生 PHP 兜底用 header()
+                if (method_exists($response, 'end')) {
+                    $response->end('');
+                } else {
+                    if (!headers_sent()) {
+                        header('HTTP/1.1 307 Temporary Redirect', true, 307);
+                        header('Location: ' . $directUrl);
+                    }
+                }
+                return false;
+            }
+            // 解析失败：不阻塞，回退到「分支 B：自托管 sendfile」
+        }
+
+        // ===== 分支 B：自托管下载（服务器直出）=====
         $response->status(200);
         $response->header('Content-Type', 'application/vnd.android.package-archive');
         $response->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
-        $response->header('Content-Length', (string)filesize($apkPath));
+        if ($apkSize !== false && $apkSize > 0) {
+            $response->header('Content-Length', (string)$apkSize);
+        }
         $response->header('Access-Control-Allow-Origin', '*');
         $response->header('Cache-Control', 'no-cache');
         $response->sendfile($apkPath);

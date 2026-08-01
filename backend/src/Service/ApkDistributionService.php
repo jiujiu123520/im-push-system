@@ -19,6 +19,136 @@ class ApkDistributionService
     /** 分页每页条数 */
     private const PAGE_SIZE = 10;
 
+    /** 小飞机直链默认缓存有效期（秒）：2 小时。sign 参数通常 24h 过期，保守一点留 2h。 */
+    private const FEEJII_DIRECT_TTL = 7200;
+
+    /**
+     * 小飞机直链缓存命中判断 + 更新 DB
+     * 返回 [ 'hit' => bool, 'url' => string ]   hit=true 时可以直接 302
+     */
+    public static function getCachedFeijiiDirectUrl(int $id): array
+    {
+        $row = Database::fetch(
+            'SELECT id, feijipan_url, feijipan_direct_url, feijipan_direct_expires
+             FROM apk_distributions WHERE id = ? LIMIT 1',
+            [$id]
+        );
+        if ($row === false || empty($row['feijipan_url'] ?? '')) {
+            return ['hit' => false, 'url' => ''];
+        }
+        $directUrl = (string)($row['feijipan_direct_url'] ?? '');
+        $expiresStr = $row['feijipan_direct_expires'] ?? null;
+        if ($directUrl !== '' && $expiresStr !== null) {
+            $expiresAt = strtotime((string)$expiresStr);
+            if ($expiresAt !== false && $expiresAt > time() + 60) {
+                return ['hit' => true, 'url' => $directUrl];
+            }
+        }
+        return ['hit' => false, 'url' => ''];
+    }
+
+    /**
+     * 保存解析到的直链到缓存
+     */
+    public static function saveCachedFeijiiDirectUrl(int $id, string $directUrl, int $ttl = self::FEEJII_DIRECT_TTL): void
+    {
+        if ($directUrl === '') return;
+        $expires = date('Y-m-d H:i:s', time() + $ttl);
+        try {
+            Database::execute(
+                'UPDATE apk_distributions
+                    SET feijipan_direct_url = ?,
+                        feijipan_direct_expires = ?,
+                        feijipan_fetch_count = feijipan_fetch_count + 1,
+                        updated_at = NOW()
+                  WHERE id = ?',
+                [$directUrl, $expires, $id]
+            );
+        } catch (\Throwable $e) {}
+    }
+
+    /**
+     * 请求小飞机分享页 HTML，用多层正则/meta 提取真实下载直链。
+     * 兜底：解析失败返回 ''，由调用方决定是否回退到跳分享页。
+     */
+    public static function resolveFeijiiDirectUrl(string $shareUrl): string
+    {
+        $shareUrl = trim($shareUrl);
+        if ($shareUrl === '' || !str_starts_with($shareUrl, 'http')) return '';
+
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $shareUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,  // 分享页可能 301/302 跳转
+            CURLOPT_MAXREDIRS      => 5,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_CONNECTTIMEOUT => 8,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_USERAGENT      => 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+            CURLOPT_HTTPHEADER     => [
+                'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8',
+            ],
+        ]);
+        $html = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($html === false || $httpCode < 200 || $httpCode >= 400) return '';
+        if (!is_string($html)) return '';
+
+        $candidates = [];
+
+        // ---------- Pattern 1: 页面直接声明下载按钮/链接 ----------
+        if (preg_match_all('/<a[^>]+(?:id|class)="[^"]*(?:down|download|getfile)[^"]*"[^>]+href="(https?:\/\/[^"]+)"/i', $html, $m)) {
+            foreach ($m[1] as $u) {
+                $decoded = html_entity_decode($u, ENT_QUOTES, 'UTF-8');
+                if (preg_match('/\.(apk|zip|rar|7z|tar\.gz|tgz|exe|dmg|ipa|msi|pkg|deb)(?:$|\?|#)/i', $decoded)) {
+                    $candidates[] = $decoded;
+                }
+            }
+        }
+
+        // ---------- Pattern 2: JS 内声明变量 ----------
+        // const DOWNLOAD_URL = "https://..."; var fileUrl = 'https://...'; share_url = "https://..."
+        if (preg_match_all('/(?:DOWNLOAD_URL|download[_\-]?url|file[_\-]?url|share[_\-]?url|real[_\-]?url|cdn[_\-]?url)\s*[:=]\s*["\'](https?:\/\/[^"\']+)["\']/i', $html, $m)) {
+            foreach ($m[1] as $u) $candidates[] = $u;
+        }
+
+        // ---------- Pattern 3: meta property (og:audio / og:video / og:file) ----------
+        // <meta property="og:video:url" content="https://...">
+        // <meta content="https://..." property="og:audio">
+        if (preg_match_all('/<meta\s+(?:property|name)="og:(?:video|audio|file|download)(?::url)?"\s+content="(https?:\/\/[^"]+)"/i', $html, $m)) {
+            foreach ($m[1] as $u) $candidates[] = html_entity_decode($u, ENT_QUOTES, 'UTF-8');
+        }
+        if (preg_match_all('/<meta\s+content="(https?:\/\/[^"]+)"\s+(?:property|name)="og:(?:video|audio|file|download)(?::url)?"/i', $html, $m)) {
+            foreach ($m[1] as $u) $candidates[] = html_entity_decode($u, ENT_QUOTES, 'UTF-8');
+        }
+
+        // ---------- Pattern 4: 通用：任何带 sign/exp/token 参数的 https CDN URL（小飞机直链特征） ----------
+        // 形如 https://cdnX.feejii.com/v1/file/xxx?sign=yyy&expire=zzz
+        // 或     https://*.feejii.com/*?AWSAccessKeyId=...&Signature=...  (S3 签名)
+        // 或     https://*.aliyuncs.com/*?Expires=...&OSSAccessKeyId=...&Signature=...  (OSS)
+        if (preg_match_all('/https?:\/\/[a-zA-Z0-9.\-]+\/[^"\'<>?#\s]+\?(?:[^"\'<>#\s]*(?:sign|expir|expire|token|AWSAccessKeyId|OSSAccessKeyId|Signature|X-Amz-Credential|X-Amz-Signature)=[^"\'<>#\s]*)+/i', $html, $m)) {
+            foreach ($m[0] as $u) $candidates[] = html_entity_decode($u, ENT_QUOTES, 'UTF-8');
+        }
+
+        // ---------- Pattern 5: 小飞机常见的 JS 跳转 / window.location ----------
+        // window.location.href = "https://..."; location.replace("https://...")
+        // location.href = "https://cdn..."
+        if (preg_match_all('/(?:window\.location(?:\.href)?|location\.(?:href|replace))\s*[=.]\s*\(?\s*["\'](https?:\/\/[^"\']+)["\']/i', $html, $m)) {
+            foreach ($m[1] as $u) $candidates[] = $u;
+        }
+
+        // ---------- 命中优先级：长度长的优先（直链通常更长、带签名参数） ----------
+        $candidates = array_values(array_filter(array_unique($candidates)));
+        if (empty($candidates)) return '';
+        usort($candidates, fn($a, $b) => strlen($b) <=> strlen($a));
+        return $candidates[0];
+    }
+
     /**
      * 构建成功后自动创建分发记录
      */
