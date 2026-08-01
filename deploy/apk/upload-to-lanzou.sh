@@ -63,7 +63,7 @@ trap cleanup EXIT
 
 # 获取上传信息（需要登录态）
 UPLOAD_INFO=$(curl -s -b "$COOKIE" \
-    "https://up.lanzou.com/fileup.php?action=info" 2>/dev/null || echo "")
+    "https://up.woozooo.com/fileup.php?action=info" 2>/dev/null || echo "")
 
 if [[ -z "$UPLOAD_INFO" ]]; then
     output_json "false" "获取上传信息失败，Cookie 可能已过期"
@@ -81,7 +81,7 @@ fi
 # 获取上传服务器
 SERVER=$(echo "$UPLOAD_INFO" | grep -o '"server":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
 if [[ -z "$SERVER" ]]; then
-    SERVER="https://up.lanzou.com"
+    SERVER="https://up.woozooo.com"
 fi
 
 # 上传文件
@@ -114,7 +114,7 @@ sleep 2
 FILE_INFO=$(curl -s \
     -b "$COOKIE" \
     -X POST \
-    "https://up.lanzou.com/fileinfo.php" \
+    "https://up.woozooo.com/fileinfo.php" \
     -d "fids[]=${FILE_ID}" \
     2>/dev/null || echo "")
 

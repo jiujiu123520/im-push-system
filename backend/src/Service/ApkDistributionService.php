@@ -531,7 +531,7 @@ class ApkDistributionService
         }
 
         // 请求蓝奏云个人网盘页面，检查是否已登录
-        $url = 'https://up.lanzou.com/mydisk.php';
+        $url = 'https://up.woozooo.com/mydisk.php';
         $ch = curl_init();
         curl_setopt_array($ch, [
             CURLOPT_URL => $url,
