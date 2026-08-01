@@ -12,7 +12,7 @@ use App\Service\Response;
  *
  * 管理构建完成后 APK 的分发记录，支持三种分发方式：
  *  1. 自托管下载（服务器直接提供下载）
- *  2. 蓝奏云上传
+ *  2. 小飞机网盘上传（feejii.com）
  *  3. 自定义脚本上传
  *
  * 路由：
@@ -21,9 +21,9 @@ use App\Service\Response;
  *   GET  /admin/apk-distribution/config      获取分发配置
  *   PUT  /admin/apk-distribution/config       保存分发配置
  *   POST /admin/apk-distribution/upload       本地上传 APK 文件
- *   POST /admin/apk-distribution/validate-cookie  验证蓝奏云 Cookie
+ *   POST /admin/apk-distribution/validate-credentials  验证小飞机网盘凭证
  *   GET  /admin/apk-distribution/{id}/stats   下载统计数据
- *   POST /admin/apk-distribution/{id}/lanzou  上传到蓝奏云
+ *   POST /admin/apk-distribution/{id}/feijipan 上传到小飞机网盘
  *   POST /admin/apk-distribution/{id}/custom  执行自定义上传
  *   DELETE /admin/apk-distribution/{id}       删除分发记录
  *
@@ -33,10 +33,6 @@ use App\Service\Response;
  */
 class ApkDistributionController
 {
-    /**
-     * 分发记录列表（分页10条）
-     * GET /admin/apk-distribution
-     */
     public function index(array $context, array $params = [])
     {
         $payload = AdminAuth::authenticate($context);
@@ -50,10 +46,6 @@ class ApkDistributionController
         return ApkDistributionService::getList($page, $keyword);
     }
 
-    /**
-     * 分发记录详情
-     * GET /admin/apk-distribution/{id}
-     */
     public function show(array $context, array $params = [])
     {
         $payload = AdminAuth::authenticate($context);
@@ -70,10 +62,6 @@ class ApkDistributionController
         return $detail;
     }
 
-    /**
-     * 获取分发配置
-     * GET /admin/apk-distribution/config
-     */
     public function getConfig(array $context, array $params = [])
     {
         $payload = AdminAuth::authenticate($context);
@@ -84,10 +72,6 @@ class ApkDistributionController
         return ApkDistributionService::getConfig();
     }
 
-    /**
-     * 保存分发配置
-     * PUT /admin/apk-distribution/config
-     */
     public function saveConfig(array $context, array $params = [])
     {
         $payload = AdminAuth::authenticate($context);
@@ -105,12 +89,12 @@ class ApkDistributionController
     }
 
     /**
-     * 验证蓝奏云 Cookie 是否有效
-     * POST /admin/apk-distribution/validate-cookie
+     * 验证小飞机网盘凭证
+     * POST /admin/apk-distribution/validate-credentials
      *
-     * 请求体：{ "cookie": "蓝奏云 Cookie 字符串" }
+     * 请求体：{ "app_token": "...", "uuid": "...", "dev_code": "..." }
      */
-    public function validateCookie(array $context, array $params = [])
+    public function validateCredentials(array $context, array $params = [])
     {
         $payload = AdminAuth::authenticate($context);
         if ($payload === null) {
@@ -118,24 +102,21 @@ class ApkDistributionController
         }
 
         $body = self::parseJsonBody($context);
-        $cookie = (string)($body['cookie'] ?? '');
-        if ($cookie === '') {
-            Response::fail($context['response'], 'Cookie 不能为空', Response::CODE_BAD_REQUEST, 400);
+        $appToken = (string)($body['app_token'] ?? $body['feijii_app_token'] ?? '');
+        $uuid     = (string)($body['uuid'] ?? $body['feijii_uuid'] ?? '');
+        $devCode  = (string)($body['dev_code'] ?? $body['feijii_dev_code'] ?? '');
+
+        if ($appToken === '' || $uuid === '' || $devCode === '') {
+            Response::fail($context['response'], 'AppToken、UUID、DevCode 三项均不能为空', Response::CODE_BAD_REQUEST, 400);
             return false;
         }
 
-        return ApkDistributionService::validateLanzouCookie($cookie);
+        return ApkDistributionService::validateFeijiiCredentials($appToken, $uuid, $devCode);
     }
 
     /**
      * 本地上传 APK 文件
      * POST /admin/apk-distribution/upload
-     *
-     * 表单字段：
-     *   file         APK 文件（multipart）
-     *   app_name     应用名称
-     *   package_name 包名
-     *   version_name 版本名
      */
     public function uploadApk(array $context, array $params = [])
     {
@@ -171,10 +152,6 @@ class ApkDistributionController
         return $result;
     }
 
-    /**
-     * 获取下载统计数据
-     * GET /admin/apk-distribution/{id}/stats
-     */
     public function downloadStats(array $context, array $params = [])
     {
         $payload = AdminAuth::authenticate($context);
@@ -192,10 +169,10 @@ class ApkDistributionController
     }
 
     /**
-     * 上传到蓝奏云
-     * POST /admin/apk-distribution/{id}/lanzou
+     * 上传到小飞机网盘
+     * POST /admin/apk-distribution/{id}/feijipan
      */
-    public function uploadLanzou(array $context, array $params = [])
+    public function uploadFeijipan(array $context, array $params = [])
     {
         $payload = AdminAuth::authenticate($context);
         if ($payload === null) {
@@ -203,7 +180,7 @@ class ApkDistributionController
         }
 
         $id = (int)($params['id'] ?? 0);
-        $result = ApkDistributionService::uploadToLanzou($id);
+        $result = ApkDistributionService::uploadToFeijii($id);
         if (!$result['success']) {
             Response::fail($context['response'], $result['message'], Response::CODE_ERROR);
             return false;
@@ -211,10 +188,6 @@ class ApkDistributionController
         return $result;
     }
 
-    /**
-     * 执行自定义上传
-     * POST /admin/apk-distribution/{id}/custom
-     */
     public function uploadCustom(array $context, array $params = [])
     {
         $payload = AdminAuth::authenticate($context);
@@ -231,10 +204,6 @@ class ApkDistributionController
         return $result;
     }
 
-    /**
-     * 删除分发记录
-     * DELETE /admin/apk-distribution/{id}
-     */
     public function delete(array $context, array $params = [])
     {
         $payload = AdminAuth::authenticate($context);
@@ -251,14 +220,6 @@ class ApkDistributionController
         return ['message' => '删除成功'];
     }
 
-    /**
-     * 公开下载 APK（无需鉴权，通过 token 验证）
-     * GET /api/apk-distribution/download/{token}
-     *
-     * @param array $context
-     * @param array $params
-     * @return false
-     */
     public static function downloadByToken(array $context, array $params = [])
     {
         $token = (string)($params['token'] ?? '');
@@ -274,7 +235,6 @@ class ApkDistributionController
         $apkPath = $fileInfo['path'];
         $filename = $fileInfo['filename'];
 
-        // 递增下载计数并记录下载日志（失败不影响下载）
         $ip = AdminAuth::getClientIp($context);
         $ua = (string)($context['header']['user-agent'] ?? $context['server']['http_user_agent'] ?? '');
         $referer = (string)($context['header']['referer'] ?? $context['server']['http_referer'] ?? '');
@@ -291,12 +251,6 @@ class ApkDistributionController
         return false;
     }
 
-    /**
-     * 公开获取 APK 信息（无需鉴权，通过 token 验证）
-     * GET /api/apk-distribution/info/{token}
-     *
-     * 返回 APK 基本信息（不含敏感字段），用于下载页面展示。
-     */
     public static function infoByToken(array $context, array $params = [])
     {
         $token = (string)($params['token'] ?? '');
@@ -307,7 +261,6 @@ class ApkDistributionController
             return false;
         }
 
-        // 格式化大小
         $apkSize = (int)($record['apk_size'] ?? 0);
         $sizeText = '';
         if ($apkSize < 1024) {
@@ -332,12 +285,6 @@ class ApkDistributionController
         ];
     }
 
-    /**
-     * 解析 JSON 请求体
-     *
-     * @param array $context
-     * @return array
-     */
     private static function parseJsonBody(array $context): array
     {
         $raw = $context['raw'] ?? '';

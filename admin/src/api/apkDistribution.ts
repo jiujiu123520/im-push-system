@@ -12,8 +12,8 @@ export interface ApkDistributionRecord {
   md5: string
   download_token: string
   self_hosted_url: string
-  lanzou_url: string
-  lanzou_password: string
+  feijipan_url: string
+  feijipan_share_id: string
   custom_url: string
   upload_status: string
   upload_message: string
@@ -25,7 +25,9 @@ export interface ApkDistributionRecord {
 
 export interface ApkDistributionConfig {
   enabled: boolean
-  lanzou_cookie: string
+  feijii_app_token: string
+  feijii_uuid: string
+  feijii_dev_code: string
   custom_script: string
   base_url: string
 }
@@ -37,10 +39,11 @@ export interface PageResult<T> {
   page_size: number
 }
 
-/** Cookie 验证结果 */
-export interface CookieValidateResult {
+/** 凭证验证结果 */
+export interface CredentialsValidateResult {
   valid: boolean
   message: string
+  user_info: any
 }
 
 /** 下载日志记录 */
@@ -81,8 +84,8 @@ export function saveDistributionConfigApi(data: ApkDistributionConfig) {
   return put('/admin/apk-distribution/config', data)
 }
 
-export function uploadToLanzouApi(id: number) {
-  return post(`/admin/apk-distribution/${id}/lanzou`)
+export function uploadToFeijiiApi(id: number) {
+  return post(`/admin/apk-distribution/${id}/feijipan`)
 }
 
 export function uploadCustomApi(id: number) {
@@ -93,9 +96,13 @@ export function deleteDistributionApi(id: number) {
   return del(`/admin/apk-distribution/${id}`)
 }
 
-/** 验证蓝奏云 Cookie 是否有效 */
-export function validateLanzouCookieApi(cookie: string) {
-  return post<CookieValidateResult>('/admin/apk-distribution/validate-cookie', { cookie })
+/** 验证小飞机网盘凭证是否有效 */
+export function validateFeijiiCredentialsApi(data: {
+  app_token: string
+  uuid: string
+  dev_code: string
+}) {
+  return post<CredentialsValidateResult>('/admin/apk-distribution/validate-credentials', data)
 }
 
 /** 本地上传 APK 文件（大文件 200MB，请求超时放宽到 10 分钟） */

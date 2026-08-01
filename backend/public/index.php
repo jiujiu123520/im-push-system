@@ -111,10 +111,10 @@ if ($runWs) {
         $router->put('/admin/apk-distribution/config', [\App\Controller\ApkDistributionController::class, 'saveConfig']);
         // 静态路由必须在 {id} 之前注册，避免被 {id} 捕获
         $router->post('/admin/apk-distribution/upload', [\App\Controller\ApkDistributionController::class, 'uploadApk']);
-        $router->post('/admin/apk-distribution/validate-cookie', [\App\Controller\ApkDistributionController::class, 'validateCookie']);
+        $router->post('/admin/apk-distribution/validate-credentials', [\App\Controller\ApkDistributionController::class, 'validateCredentials']);
         $router->get('/admin/apk-distribution/{id}', [\App\Controller\ApkDistributionController::class, 'show']);
         $router->get('/admin/apk-distribution/{id}/stats', [\App\Controller\ApkDistributionController::class, 'downloadStats']);
-        $router->post('/admin/apk-distribution/{id}/lanzou', [\App\Controller\ApkDistributionController::class, 'uploadLanzou']);
+        $router->post('/admin/apk-distribution/{id}/feijipan', [\App\Controller\ApkDistributionController::class, 'uploadFeijipan']);
         $router->post('/admin/apk-distribution/{id}/custom', [\App\Controller\ApkDistributionController::class, 'uploadCustom']);
         $router->delete('/admin/apk-distribution/{id}', [\App\Controller\ApkDistributionController::class, 'delete']);
 

@@ -12,7 +12,7 @@
           <h2 class="hero-title">
             <span class="title-gradient">APK 分发管理</span>
           </h2>
-          <p class="hero-sub">管理 APK 安装包分发，支持蓝奏云、自定义上传与二维码扫码下载</p>
+          <p class="hero-sub">管理 APK 安装包分发，支持小飞机网盘、自定义上传与二维码扫码下载</p>
         </div>
         <div class="hero-actions">
           <el-input
@@ -125,19 +125,19 @@
         <el-table-column label="下载链接" min-width="200">
           <template #default="{ row }">
             <div class="links-cell">
-              <div v-if="row.lanzou_url" class="link-row">
-                <el-icon class="link-icon lanzou"><LinkIcon /></el-icon>
-                <a :href="row.lanzou_url" target="_blank" rel="noopener" class="link-text">
-                  蓝奏云下载
+              <div v-if="row.feijipan_url" class="link-row">
+                <el-icon class="link-icon feijipan"><LinkIcon /></el-icon>
+                <a :href="row.feijipan_url" target="_blank" rel="noopener" class="link-text">
+                  小飞机下载
                 </a>
                 <el-tag
-                  v-if="row.lanzou_password"
+                  v-if="row.feijipan_share_id"
                   type="warning"
                   size="small"
                   effect="plain"
                   class="pwd-tag"
                 >
-                  密码: {{ row.lanzou_password }}
+                  ID: {{ row.feijipan_share_id }}
                 </el-tag>
               </div>
               <div v-if="row.custom_url" class="link-row">
@@ -146,7 +146,7 @@
                   自定义下载
                 </a>
               </div>
-              <span v-if="!row.lanzou_url && !row.custom_url" class="link-empty">-</span>
+              <span v-if="!row.feijipan_url && !row.custom_url" class="link-empty">-</span>
             </div>
           </template>
         </el-table-column>
@@ -174,15 +174,15 @@
               二维码
             </el-button>
             <el-button
-              v-if="!row.lanzou_url"
+              v-if="!row.feijipan_url"
               link
               type="warning"
               :icon="UploadIcon"
-              :loading="uploadingId === row.id && uploadType === 'lanzou'"
+              :loading="uploadingId === row.id && uploadType === 'feijipan'"
               :disabled="row.upload_status === 'uploading'"
-              @click="handleUploadLanzou(row as ApkDistributionRecord)"
+              @click="handleUploadFeijipan(row as ApkDistributionRecord)"
             >
-              上传蓝奏云
+              上传小飞机
             </el-button>
             <el-button
               v-if="!row.custom_url"
@@ -247,35 +247,50 @@
             <div class="form-tip">构建成功后自动生成分发记录</div>
           </el-form-item>
 
-          <el-form-item label="蓝奏云 Cookie">
+          <el-form-item label="小飞机网盘 AppToken">
             <el-input
-              v-model="config.lanzou_cookie"
-              type="textarea"
-              :rows="4"
-              placeholder="从浏览器开发者工具获取"
+              v-model="config.feijii_app_token"
+              placeholder="登录 feejii.com 后从抓包请求 URL 参数中获取"
+              clearable
             />
-            <div class="cookie-actions">
+          </el-form-item>
+
+          <el-form-item label="小飞机网盘 UUID">
+            <el-input
+              v-model="config.feijii_uuid"
+              placeholder="设备 UUID，从抓包请求 URL 参数中获取"
+              clearable
+            />
+          </el-form-item>
+
+          <el-form-item label="小飞机网盘 DevCode">
+            <el-input
+              v-model="config.feijii_dev_code"
+              placeholder="设备 DevCode，从抓包请求 URL 参数中获取"
+              clearable
+            />
+            <div class="credentials-actions">
               <el-button
                 size="small"
                 type="primary"
                 plain
-                :loading="cookieValidating"
+                :loading="credentialsValidating"
                 :icon="CircleCheckIcon"
-                @click="handleValidateCookie"
+                @click="handleValidateCredentials"
               >
-                验证 Cookie
+                验证凭证
               </el-button>
               <el-tag
-                v-if="cookieValidateResult !== null"
-                :type="cookieValidateResult.valid ? 'success' : 'danger'"
+                v-if="credentialsValidateResult !== null"
+                :type="credentialsValidateResult.valid ? 'success' : 'danger'"
                 size="small"
                 effect="light"
                 round
               >
-                {{ cookieValidateResult.message }}
+                {{ credentialsValidateResult.message }}
               </el-tag>
             </div>
-            <div class="form-tip">登录蓝奏云后，从浏览器开发者工具 Network 中复制 Cookie</div>
+            <div class="form-tip">三项参数均从登录后的请求 URL 中提取（appToken、uuid、devCode），三者必须来自同一会话</div>
           </el-form-item>
 
           <el-form-item label="自定义上传脚本路径">
@@ -503,15 +518,15 @@ import {
   getDistributionListApi,
   getDistributionConfigApi,
   saveDistributionConfigApi,
-  uploadToLanzouApi,
+  uploadToFeijiiApi,
   uploadCustomApi,
   deleteDistributionApi,
-  validateLanzouCookieApi,
+  validateFeijiiCredentialsApi,
   uploadApkApi,
   getDownloadStatsApi,
   type ApkDistributionRecord,
   type ApkDistributionConfig,
-  type CookieValidateResult,
+  type CredentialsValidateResult,
   type DownloadStats
 } from '@/api/apkDistribution'
 
@@ -613,17 +628,17 @@ function handleDownload(row: ApkDistributionRecord) {
 
 // ---- 上传操作 ----
 const uploadingId = ref<number | null>(null)
-const uploadType = ref<'lanzou' | 'custom' | ''>('')
+const uploadType = ref<'feijipan' | 'custom' | ''>('')
 
-async function handleUploadLanzou(row: ApkDistributionRecord) {
+async function handleUploadFeijipan(row: ApkDistributionRecord) {
   uploadingId.value = row.id
-  uploadType.value = 'lanzou'
+  uploadType.value = 'feijipan'
   try {
-    await uploadToLanzouApi(row.id)
-    ElMessage.success('已上传至蓝奏云')
+    await uploadToFeijiiApi(row.id)
+    ElMessage.success('已上传至小飞机网盘')
     await fetchData()
   } catch (err: any) {
-    ElMessage.error(err?.message || '上传蓝奏云失败')
+    ElMessage.error(err?.message || '上传小飞机网盘失败')
   } finally {
     uploadingId.value = null
     uploadType.value = ''
@@ -666,7 +681,9 @@ const configLoading = ref(false)
 const configSaving = ref(false)
 const config = reactive<ApkDistributionConfig>({
   enabled: false,
-  lanzou_cookie: '',
+  feijii_app_token: '',
+  feijii_uuid: '',
+  feijii_dev_code: '',
   custom_script: '',
   base_url: ''
 })
@@ -679,7 +696,9 @@ async function openSettingsDrawer() {
     const data: any = res.data
     if (data) {
       config.enabled = !!data.enabled
-      config.lanzou_cookie = data.lanzou_cookie || ''
+      config.feijii_app_token = data.feijii_app_token || ''
+      config.feijii_uuid = data.feijii_uuid || ''
+      config.feijii_dev_code = data.feijii_dev_code || ''
       config.custom_script = data.custom_script || ''
       config.base_url = data.base_url || ''
     }
@@ -695,7 +714,9 @@ async function saveConfig() {
   try {
     await saveDistributionConfigApi({
       enabled: config.enabled,
-      lanzou_cookie: config.lanzou_cookie,
+      feijii_app_token: config.feijii_app_token,
+      feijii_uuid: config.feijii_uuid,
+      feijii_dev_code: config.feijii_dev_code,
       custom_script: config.custom_script,
       base_url: config.base_url
     })
@@ -708,37 +729,45 @@ async function saveConfig() {
   }
 }
 
-// ---- Cookie 验证 ----
-const cookieValidating = ref(false)
-const cookieValidateResult = ref<CookieValidateResult | null>(null)
+// ---- 凭证验证（小飞机网盘） ----
+const credentialsValidating = ref(false)
+const credentialsValidateResult = ref<CredentialsValidateResult | null>(null)
 
-async function handleValidateCookie() {
-  const cookie = (config.lanzou_cookie || '').trim()
-  if (!cookie) {
-    ElMessage.warning('请先填写蓝奏云 Cookie')
+async function handleValidateCredentials() {
+  const appToken = (config.feijii_app_token || '').trim()
+  const uuid = (config.feijii_uuid || '').trim()
+  const devCode = (config.feijii_dev_code || '').trim()
+  if (!appToken || !uuid || !devCode) {
+    ElMessage.warning('请先填写 AppToken、UUID、DevCode 三项')
     return
   }
-  cookieValidating.value = true
-  cookieValidateResult.value = null
+  credentialsValidating.value = true
+  credentialsValidateResult.value = null
   try {
-    const res = await validateLanzouCookieApi(cookie)
+    const res = await validateFeijiiCredentialsApi({
+      app_token: appToken,
+      uuid,
+      dev_code: devCode
+    })
     const data: any = res.data
-    cookieValidateResult.value = {
+    credentialsValidateResult.value = {
       valid: !!data?.valid,
-      message: data?.message || '验证完成'
+      message: data?.message || '验证完成',
+      user_info: data?.user_info ?? null
     }
     if (data?.valid) {
-      ElMessage.success(data?.message || 'Cookie 有效')
+      ElMessage.success(data?.message || '凭证有效')
     } else {
-      ElMessage.warning(data?.message || 'Cookie 无效')
+      ElMessage.warning(data?.message || '凭证无效')
     }
   } catch (err: any) {
-    cookieValidateResult.value = {
+    credentialsValidateResult.value = {
       valid: false,
-      message: err?.message || '验证失败'
+      message: err?.message || '验证失败',
+      user_info: null
     }
   } finally {
-    cookieValidating.value = false
+    credentialsValidating.value = false
   }
 }
 
@@ -1132,8 +1161,8 @@ onMounted(() => {
     font-size: 14px;
     flex-shrink: 0;
 
-    &.lanzou {
-      color: #ff9500;
+    &.feijipan {
+      color: #6c5ce7;
     }
     &.custom {
       color: $color-primary;
@@ -1390,8 +1419,8 @@ onMounted(() => {
   }
 }
 
-// ===== Cookie 验证操作区 =====
-.cookie-actions {
+// ===== 凭证验证操作区（小飞机网盘） =====
+.credentials-actions {
   display: flex;
   align-items: center;
   gap: 10px;

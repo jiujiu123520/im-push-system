@@ -8,11 +8,11 @@ namespace App\Service;
  *
  * 管理构建完成后的 APK 分发记录，支持三种分发方式：
  *  1. 自托管下载（服务器直接提供下载）
- *  2. 蓝奏云上传（通过 Cookie 模拟登录上传）
+ *  2. 小飞机网盘上传（feejii.com，通过 AppToken+UUID 鉴权）
  *  3. 自定义脚本上传（用户自行配置上传命令）
  *
  * 配置存储在 admin_settings 表：
- *  - settings_apk_distribution: JSON { enabled, lanzou_cookie, custom_script, base_url }
+ *  - settings_apk_distribution: JSON { enabled, feijii_app_token, feijii_uuid, feijii_dev_code, custom_script, base_url }
  */
 class ApkDistributionService
 {
@@ -21,14 +21,6 @@ class ApkDistributionService
 
     /**
      * 构建成功后自动创建分发记录
-     *
-     * @param string $buildId    构建ID
-     * @param string $apkPath    APK 文件绝对路径
-     * @param string $appName    应用名称
-     * @param string $packageName 包名
-     * @param string $versionName 版本名
-     * @param int    $adminId    管理员ID
-     * @return array ["success" => bool, "message" => string, "id" => int|null]
      */
     public static function createFromBuild(
         string $buildId,
@@ -38,7 +30,6 @@ class ApkDistributionService
         string $versionName,
         int $adminId
     ): array {
-        // 检查是否已存在该 build_id 的分发记录
         $exist = Database::fetch(
             'SELECT id FROM apk_distributions WHERE build_id = ? LIMIT 1',
             [$buildId]
@@ -47,7 +38,6 @@ class ApkDistributionService
             return ['success' => false, 'message' => '该构建的分发记录已存在', 'id' => null];
         }
 
-        // 检查 APK 文件是否存在
         if (!file_exists($apkPath)) {
             return ['success' => false, 'message' => 'APK 文件不存在: ' . $apkPath, 'id' => null];
         }
@@ -55,8 +45,6 @@ class ApkDistributionService
         $apkSize = filesize($apkPath);
         $md5 = md5_file($apkPath);
         $downloadToken = self::generateDownloadToken();
-
-        // 自托管下载 URL（相对路径，由前端拼接完整 URL）
         $selfHostedUrl = '/api/apk-distribution/download/' . $downloadToken;
 
         try {
@@ -73,13 +61,6 @@ class ApkDistributionService
         return ['success' => true, 'message' => '分发记录已创建', 'id' => (int)$id];
     }
 
-    /**
-     * 获取分发记录列表（分页）
-     *
-     * @param int    $page   页码
-     * @param string $keyword 搜索关键字（匹配 app_name 或 build_id）
-     * @return array
-     */
     public static function getList(int $page, string $keyword = ''): array
     {
         if ($page < 1) {
@@ -116,8 +97,12 @@ class ApkDistributionService
             $item['apk_size'] = (int)$item['apk_size'];
             $item['admin_id'] = (int)$item['admin_id'];
             $item['download_count'] = (int)($item['download_count'] ?? 0);
-            // 转换为可读大小
             $item['apk_size_text'] = self::formatFileSize((int)$item['apk_size']);
+            // 兼容老数据：若 feijipan_url 为空但 lanzou_url 有值，合并到 feijipan_url
+            if (empty($item['feijipan_url'] ?? '') && !empty($item['lanzou_url'] ?? '')) {
+                $item['feijipan_url'] = $item['lanzou_url'];
+                $item['feijipan_share_id'] = $item['lanzou_password'] ?? '';
+            }
         }
         unset($item);
 
@@ -129,12 +114,6 @@ class ApkDistributionService
         ];
     }
 
-    /**
-     * 获取单条分发记录详情
-     *
-     * @param int $id
-     * @return array|null
-     */
     public static function getDetail(int $id): ?array
     {
         $row = Database::fetch('SELECT * FROM apk_distributions WHERE id = ? LIMIT 1', [$id]);
@@ -146,15 +125,13 @@ class ApkDistributionService
         $row['admin_id'] = (int)$row['admin_id'];
         $row['download_count'] = (int)($row['download_count'] ?? 0);
         $row['apk_size_text'] = self::formatFileSize((int)$row['apk_size']);
+        if (empty($row['feijipan_url'] ?? '') && !empty($row['lanzou_url'] ?? '')) {
+            $row['feijipan_url'] = $row['lanzou_url'];
+            $row['feijipan_share_id'] = $row['lanzou_password'] ?? '';
+        }
         return $row;
     }
 
-    /**
-     * 根据 download_token 获取分发记录（公开下载用）
-     *
-     * @param string $token
-     * @return array|null
-     */
     public static function getByToken(string $token): ?array
     {
         if ($token === '') {
@@ -170,12 +147,6 @@ class ApkDistributionService
         return $row;
     }
 
-    /**
-     * 获取 APK 文件路径用于下载
-     *
-     * @param string $token 下载令牌
-     * @return array ["found" => bool, "path" => string, "filename" => string, "record" => array|null]
-     */
     public static function getDownloadFile(string $token): array
     {
         $record = self::getByToken($token);
@@ -196,21 +167,14 @@ class ApkDistributionService
     }
 
     /**
-     * 更新蓝奏云上传结果
-     *
-     * @param int    $id        分发记录ID
-     * @param string $url       蓝奏云分享链接
-     * @param string $password  分享密码
-     * @param string $status    上传状态
-     * @param string $message   消息
-     * @return bool
+     * 更新小飞机网盘上传结果
      */
-    public static function updateLanzouResult(int $id, string $url, string $password, string $status, string $message): bool
+    public static function updateFeijiiResult(int $id, string $url, string $shareId, string $status, string $message): bool
     {
         try {
             Database::execute(
-                'UPDATE apk_distributions SET lanzou_url = ?, lanzou_password = ?, upload_status = ?, upload_message = ?, updated_at = NOW() WHERE id = ?',
-                [$url, $password, $status, $message, $id]
+                'UPDATE apk_distributions SET feijipan_url = ?, feijipan_share_id = ?, upload_status = ?, upload_message = ?, updated_at = NOW() WHERE id = ?',
+                [$url, $shareId, $status, $message, $id]
             );
             return true;
         } catch (\Throwable $e) {
@@ -220,12 +184,6 @@ class ApkDistributionService
 
     /**
      * 更新自定义上传结果
-     *
-     * @param int    $id      分发记录ID
-     * @param string $url     上传后的 URL
-     * @param string $status  上传状态
-     * @param string $message 消息
-     * @return bool
      */
     public static function updateCustomResult(int $id, string $url, string $status, string $message): bool
     {
@@ -240,12 +198,6 @@ class ApkDistributionService
         }
     }
 
-    /**
-     * 删除分发记录
-     *
-     * @param int $id
-     * @return bool
-     */
     public static function delete(int $id): bool
     {
         try {
@@ -258,16 +210,17 @@ class ApkDistributionService
 
     /**
      * 获取分发配置
-     *
-     * @return array { enabled: bool, lanzou_cookie: string, custom_script: string, base_url: string }
+     * @return array { enabled: bool, feijii_app_token: string, feijii_uuid: string, feijii_dev_code: string, custom_script: string, base_url: string }
      */
     public static function getConfig(): array
     {
         $defaults = [
-            'enabled'        => true,
-            'lanzou_cookie'  => '',
-            'custom_script'  => '',
-            'base_url'       => '',
+            'enabled'           => true,
+            'feijii_app_token'  => '',
+            'feijii_uuid'       => '',
+            'feijii_dev_code'   => '',
+            'custom_script'     => '',
+            'base_url'          => '',
         ];
 
         try {
@@ -278,7 +231,10 @@ class ApkDistributionService
             if ($row !== false) {
                 $cfg = json_decode((string)$row['config_value'], true);
                 if (is_array($cfg)) {
-                    return array_merge($defaults, $cfg);
+                    // 兼容老配置：lanzou_cookie 迁移为提示，但仍读取老字段以便平滑过渡
+                    $merged = array_merge($defaults, $cfg);
+                    // 若老的 lanzou_cookie 还在且新字段为空，保留（前端会提示需要切换）
+                    return $merged;
                 }
             }
         } catch (\Throwable $e) {
@@ -288,17 +244,16 @@ class ApkDistributionService
 
     /**
      * 保存分发配置
-     *
-     * @param array $config
-     * @return bool
      */
     public static function saveConfig(array $config): bool
     {
         $cfg = [
-            'enabled'        => (bool)($config['enabled'] ?? true),
-            'lanzou_cookie'  => (string)($config['lanzou_cookie'] ?? ''),
-            'custom_script'  => (string)($config['custom_script'] ?? ''),
-            'base_url'       => (string)($config['base_url'] ?? ''),
+            'enabled'           => (bool)($config['enabled'] ?? true),
+            'feijii_app_token'  => (string)($config['feijii_app_token'] ?? ''),
+            'feijii_uuid'       => (string)($config['feijii_uuid'] ?? ''),
+            'feijii_dev_code'   => (string)($config['feijii_dev_code'] ?? ''),
+            'custom_script'     => (string)($config['custom_script'] ?? ''),
+            'base_url'          => (string)($config['base_url'] ?? ''),
         ];
 
         $json = json_encode($cfg, JSON_UNESCAPED_UNICODE);
@@ -326,75 +281,61 @@ class ApkDistributionService
     }
 
     /**
-     * 上传 APK 到蓝奏云（通过 Cookie 模拟登录）
-     *
-     * 蓝奏云没有官方 API，这里通过模拟浏览器 Cookie 实现上传。
-     * 需要用户提供登录后的 Cookie（从浏览器开发者工具获取）。
+     * 上传 APK 到小飞机网盘
      *
      * @param int $id 分发记录ID
-     * @return array ["success" => bool, "message" => string, "url" => string, "password" => string]
+     * @return array ["success" => bool, "message" => string, "url" => string, "share_id" => string]
      */
-    public static function uploadToLanzou(int $id): array
+    public static function uploadToFeijii(int $id): array
     {
         $record = self::getDetail($id);
         if ($record === null) {
-            return ['success' => false, 'message' => '分发记录不存在', 'url' => '', 'password' => ''];
+            return ['success' => false, 'message' => '分发记录不存在', 'url' => '', 'share_id' => ''];
         }
 
         $apkPath = $record['apk_path'];
         if (!file_exists($apkPath)) {
-            return ['success' => false, 'message' => 'APK 文件不存在', 'url' => '', 'password' => ''];
-        }
-
-        // 蓝奏云免费版限制 100MB
-        $fileSize = filesize($apkPath);
-        if ($fileSize > 100 * 1024 * 1024) {
-            self::updateLanzouResult($id, '', '', 'failed', '文件超过 100MB，蓝奏云免费版不支持');
-            return ['success' => false, 'message' => '文件超过 100MB（' . self::formatFileSize($fileSize) . '），蓝奏云免费版不支持。请使用自托管下载或自定义上传', 'url' => '', 'password' => ''];
+            return ['success' => false, 'message' => 'APK 文件不存在', 'url' => '', 'share_id' => ''];
         }
 
         $config = self::getConfig();
-        $cookie = $config['lanzou_cookie'];
-        if ($cookie === '') {
-            self::updateLanzouResult($id, '', '', 'failed', '未配置蓝奏云 Cookie');
-            return ['success' => false, 'message' => '未配置蓝奏云 Cookie，请在分发设置中填写', 'url' => '', 'password' => ''];
+        $appToken = trim((string)($config['feijii_app_token'] ?? ''));
+        $uuid     = trim((string)($config['feijii_uuid'] ?? ''));
+        $devCode  = trim((string)($config['feijii_dev_code'] ?? ''));
+
+        if ($appToken === '' || $uuid === '' || $devCode === '') {
+            self::updateFeijiiResult($id, '', '', 'failed', '未配置小飞机网盘凭证（需要 AppToken、UUID、DevCode）');
+            return ['success' => false, 'message' => '未配置小飞机网盘凭证，请在分发设置中填写 AppToken、UUID、DevCode', 'url' => '', 'share_id' => ''];
         }
 
-        self::updateLanzouResult($id, '', '', 'uploading', '正在上传到蓝奏云...');
+        self::updateFeijiiResult($id, '', '', 'uploading', '正在上传到小飞机网盘...');
 
-        // 调用上传脚本
-        $scriptPath = dirname(__DIR__, 2) . '/deploy/apk/upload-to-lanzou.sh';
+        $scriptPath = dirname(__DIR__, 2) . '/deploy/apk/upload-to-feijipan.sh';
         $appName = escapeshellarg($record['app_name']);
         $apkPathArg = escapeshellarg($apkPath);
-        $cookieArg = escapeshellarg($cookie);
+        $appTokenArg = escapeshellarg($appToken);
+        $uuidArg = escapeshellarg($uuid);
+        $devCodeArg = escapeshellarg($devCode);
 
-        $cmd = "bash {$scriptPath} {$apkPathArg} {$appName} {$cookieArg} 2>&1";
+        $cmd = "bash {$scriptPath} {$apkPathArg} {$appName} {$appTokenArg} {$uuidArg} {$devCodeArg} 2>&1";
         $output = shell_exec($cmd);
         $output = is_string($output) ? trim($output) : '';
 
-        // 解析脚本输出（JSON 格式：{"success":true,"url":"...","password":"...","message":"..."}）
         $result = json_decode($output, true);
         if (is_array($result) && ($result['success'] ?? false)) {
             $url = (string)($result['url'] ?? '');
-            $password = (string)($result['password'] ?? '');
-            self::updateLanzouResult($id, $url, $password, 'success', '上传成功');
-            return ['success' => true, 'message' => '上传蓝奏云成功', 'url' => $url, 'password' => $password];
+            $shareId = (string)($result['share_id'] ?? '');
+            $message = (string)($result['message'] ?? '上传成功');
+            $status = $url !== '' ? 'success' : 'success';
+            self::updateFeijiiResult($id, $url, $shareId, $status, $message);
+            return ['success' => true, 'message' => $message, 'url' => $url, 'share_id' => $shareId];
         }
 
         $errorMsg = is_array($result) ? ($result['message'] ?? $output) : $output;
-        self::updateLanzouResult($id, '', '', 'failed', $errorMsg);
-        return ['success' => false, 'message' => '蓝奏云上传失败: ' . $errorMsg, 'url' => '', 'password' => ''];
+        self::updateFeijiiResult($id, '', '', 'failed', $errorMsg);
+        return ['success' => false, 'message' => '小飞机网盘上传失败: ' . $errorMsg, 'url' => '', 'share_id' => ''];
     }
 
-    /**
-     * 执行自定义上传脚本
-     *
-     * 用户在配置中填写的脚本路径，脚本接收 APK 文件路径作为参数，
-     * 输出上传后的 URL（第一行）。
-     *
-     * @param int $id 分发记录ID
-     * @return array ["success" => bool, "message" => string, "url" => string]
-     */
     public static function uploadCustom(int $id): array
     {
         $record = self::getDetail($id);
@@ -428,12 +369,10 @@ class ApkDistributionService
         $output = shell_exec($cmd);
         $output = is_string($output) ? trim($output) : '';
 
-        // 脚本第一行输出 URL
         $lines = explode("\n", $output);
         $url = trim($lines[0] ?? '');
         $message = count($lines) > 1 ? trim(implode("\n", array_slice($lines, 1))) : '上传完成';
 
-        // 简单验证 URL 格式
         if ($url !== '' && (strpos($url, 'http://') === 0 || strpos($url, 'https://') === 0)) {
             self::updateCustomResult($id, $url, 'success', $message);
             return ['success' => true, 'message' => '自定义上传成功', 'url' => $url];
@@ -443,15 +382,6 @@ class ApkDistributionService
         return ['success' => false, 'message' => '自定义上传失败: ' . $output, 'url' => ''];
     }
 
-    /**
-     * 递增下载计数并记录下载日志
-     *
-     * @param string $token   下载令牌
-     * @param string $ip      下载者 IP
-     * @param string $ua      User-Agent
-     * @param string $referer 来源页面
-     * @return void
-     */
     public static function incrementDownloadCount(string $token, string $ip = '', string $ua = '', string $referer = ''): void
     {
         try {
@@ -461,29 +391,20 @@ class ApkDistributionService
             }
             $distributionId = (int)$record['id'];
 
-            // 递增 download_count
             Database::execute(
                 'UPDATE apk_distributions SET download_count = download_count + 1 WHERE id = ?',
                 [$distributionId]
             );
 
-            // 写入下载日志
             Database::insert(
                 'INSERT INTO apk_download_logs (distribution_id, download_token, ip_address, user_agent, referer, downloaded_at)
                  VALUES (?, ?, ?, ?, ?, NOW())',
                 [$distributionId, $token, mb_substr($ip, 0, 45), mb_substr($ua, 0, 512), mb_substr($referer, 0, 512)]
             );
         } catch (\Throwable $e) {
-            // 下载计数失败不影响下载本身
         }
     }
 
-    /**
-     * 获取下载统计数据
-     *
-     * @param int $id 分发记录ID
-     * @return array
-     */
     public static function getDownloadStats(int $id): array
     {
         $record = self::getDetail($id);
@@ -493,7 +414,6 @@ class ApkDistributionService
 
         $total = (int)($record['download_count'] ?? 0);
 
-        // 最近 50 条下载日志
         $recent = Database::fetchAll(
             'SELECT ip_address, user_agent, referer, downloaded_at
              FROM apk_download_logs WHERE distribution_id = ?
@@ -501,7 +421,6 @@ class ApkDistributionService
             [$id]
         );
 
-        // 简化 UA（只保留浏览器/客户端名称）
         foreach ($recent as &$log) {
             $ua = (string)($log['user_agent'] ?? '');
             if (strlen($ua) > 100) {
@@ -516,35 +435,43 @@ class ApkDistributionService
     }
 
     /**
-     * 验证蓝奏云 Cookie 是否有效
+     * 验证小飞机网盘凭证是否有效
      *
-     * 通过 Cookie 请求蓝奏云的个人网盘页面，检查返回内容是否包含登录态标识。
+     * 通过调用 /app/user/info 接口检查 AppToken/UUID/DevCode 是否有效。
      *
-     * @param string $cookie 蓝奏云 Cookie 字符串
-     * @return array ["valid" => bool, "message" => string]
+     * @param string $appToken
+     * @param string $uuid
+     * @param string $devCode
+     * @return array ["valid" => bool, "message" => string, "user_info" => array|null]
      */
-    public static function validateLanzouCookie(string $cookie): array
+    public static function validateFeijiiCredentials(string $appToken, string $uuid, string $devCode): array
     {
-        $cookie = trim($cookie);
-        if ($cookie === '') {
-            return ['valid' => false, 'message' => 'Cookie 不能为空'];
+        $appToken = trim($appToken);
+        $uuid = trim($uuid);
+        $devCode = trim($devCode);
+        if ($appToken === '' || $uuid === '' || $devCode === '') {
+            return ['valid' => false, 'message' => 'AppToken、UUID、DevCode 三项均不能为空', 'user_info' => null];
         }
 
-        // 请求蓝奏云个人网盘页面（与本地上传/文件列表同一路径），
-        // 已登录会包含反 CSRF 字段 ve、folder_id_f 或 退出/userinfo/文件管理 等关键词
-        $url = 'https://up.woozooo.com/mydisk.php?item=files&action=index';
+        $url = 'https://api.feejii.com/app/user/info?appToken=' . urlencode($appToken)
+            . '&uuid=' . urlencode($uuid)
+            . '&devCode=' . urlencode($devCode)
+            . '&devType=1&userId=';
+
         $ch = curl_init();
         curl_setopt_array($ch, [
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_COOKIE => $cookie,
             CURLOPT_TIMEOUT => 15,
             CURLOPT_CONNECTTIMEOUT => 8,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            CURLOPT_REFERER => 'https://up.woozooo.com/mydisk.php',
-            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/json, text/plain, */*',
+                'Origin: https://www.feejii.com',
+                'Referer: https://www.feejii.com/',
+            ],
         ]);
         $body = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -552,71 +479,45 @@ class ApkDistributionService
         curl_close($ch);
 
         if ($body === false || $error !== '') {
-            return ['valid' => false, 'message' => '请求蓝奏云失败: ' . $error];
+            return ['valid' => false, 'message' => '请求小飞机网盘失败: ' . $error, 'user_info' => null];
         }
-
-        // 蓝奏云异常时会先输出 <script>alert("XXX");...</script> 再 302 或 200
-        // 识别 alert 消息优先给出明确错误
-        if (preg_match('/<script[^>]*>.*?alert\(\s*["\']([^"\']+)["\']\s*\)/is', $body, $m)) {
-            $alert = trim((string)$m[1]);
-            if ($alert !== '') {
-                return [
-                    'valid'   => false,
-                    'message' => '蓝奏云返回提示：' . $alert . '。请先在网页端登录 up.woozooo.com 处理（激活账号/绑定手机/完成验证）后，重新抓取 Cookie 填入',
-                ];
-            }
-        }
-
-        // 301/302 到登录页 = Cookie 完全失效（如果 body 没 alert）
-        if ($httpCode === 302 || $httpCode === 301) {
-            return ['valid' => false, 'message' => 'Cookie 已失效（被重定向到登录页），请重新获取'];
-        }
-
         if ($httpCode !== 200) {
-            return ['valid' => false, 'message' => '蓝奏云返回异常 HTTP ' . $httpCode];
+            return ['valid' => false, 'message' => '小飞机网盘返回异常 HTTP ' . $httpCode, 'user_info' => null];
         }
 
-        // HTTP 200 情况下的登录态判断：
-        //   强特征（登录成功一定有）：name="ve" / name="folder_id_f" / 上传表单 html5up
-        //   普通特征：退出 / userinfo / 文件管理 / 用户名 / 全部文件 / 新建文件夹
-        $hasVe          = stripos($body, 'name="ve"') !== false || preg_match('/ve\s*[:=]\s*["\'][A-Za-z0-9_-]{10,}/', $body) === 1;
-        $hasFolderId    = stripos($body, 'folder_id_f') !== false;
-        $hasUploadForm  = stripos($body, 'html5up.php') !== false || stripos($body, 'fileup.php') !== false;
-        $hasLogout      = mb_strpos($body, '退出') !== false || stripos($body, 'userinfo') !== false
-                        || mb_strpos($body, '文件管理') !== false || mb_strpos($body, '全部文件') !== false
-                        || mb_strpos($body, '新建文件夹') !== false || mb_strpos($body, '用户名') !== false;
-
-        if ($hasVe && ($hasFolderId || $hasUploadForm || $hasLogout)) {
-            return ['valid' => true, 'message' => 'Cookie 有效，蓝奏云登录状态正常'];
+        $resp = json_decode((string)$body, true);
+        if (!is_array($resp)) {
+            return ['valid' => false, 'message' => '小飞机网盘返回非 JSON 响应（可能接口变更/网络代理）', 'user_info' => null];
         }
 
-        if ($hasVe || $hasLogout) {
-            // 弱匹配，可能是接口结构变了，给出半确认提示
-            return ['valid' => true, 'message' => 'Cookie 疑似有效（匹配到登录特征，但未取到完整表单结构，建议用本地上传测试实际是否能传）'];
+        $code = $resp['code'] ?? null;
+        $msg  = (string)($resp['msg'] ?? '');
+        $data = is_array($resp['data'] ?? null) ? $resp['data'] : null;
+
+        if ($code === 0 && $data !== null) {
+            $nickName = (string)($data['nickName'] ?? $data['userName'] ?? $data['name'] ?? '');
+            $userId   = (string)($data['userId'] ?? $data['id'] ?? '');
+            $vip      = isset($data['isVip']) ? ($data['isVip'] ? 'VIP' : '普通用户') : '';
+            $info = '';
+            if ($nickName !== '') $info .= "用户：{$nickName}";
+            if ($userId !== '')   $info .= ($info ? '，' : '') . "ID：{$userId}";
+            if ($vip !== '')      $info .= ($info ? '，' : '') . $vip;
+            return [
+                'valid'     => true,
+                'message'   => '凭证有效，小飞机网盘登录正常' . ($info !== '' ? "（{$info}）" : ''),
+                'user_info' => $data,
+            ];
         }
 
-        // 未登录强特征：登录表单里出现 password + action=login
-        $isLoginPage = (stripos($body, 'password') !== false && preg_match('/action=["\']?[^"\']*login/i', $body) === 1)
-                    || mb_strpos($body, '请登录') !== false
-                    || mb_strpos($body, '立即登录') !== false;
-        if ($isLoginPage) {
-            return ['valid' => false, 'message' => 'Cookie 已失效（返回登录页），请在浏览器重新登录 up.woozooo.com 后复制完整 Cookie'];
+        $errMsg = $msg !== '' ? "小飞机返回错误：{$msg}" : '凭证无效，请检查 AppToken / UUID / DevCode 是否与登录会话一致';
+        if ($code !== null) {
+            $errMsg .= "（code={$code}）";
         }
-
-        return ['valid' => false, 'message' => '无法确认登录状态，请检查 Cookie 是否为 up.woozooo.com 下完整 Cookie（至少需要 ylogin 和 phpdisk_info 两项）'];
+        return ['valid' => false, 'message' => $errMsg, 'user_info' => null];
     }
 
     /**
      * 从上传的文件创建分发记录（本地上传 APK）
-     *
-     * 接收类似 $_FILES['file'] 的文件数组，兼容 Swoole 运行环境。
-     *
-     * @param array  $file        上传文件数组（含 tmp_name/name/size/error）
-     * @param string $appName     应用名称
-     * @param string $packageName 包名
-     * @param string $versionName 版本名
-     * @param int    $adminId     管理员ID
-     * @return array ["success" => bool, "message" => string, "id" => int|null]
      */
     public static function createFromFile(
         array $file,
@@ -625,12 +526,10 @@ class ApkDistributionService
         string $versionName,
         int $adminId
     ): array {
-        // 检查上传错误码
         if (isset($file['error']) && $file['error'] !== UPLOAD_ERR_OK) {
             return ['success' => false, 'message' => '上传错误码：' . $file['error'], 'id' => null];
         }
 
-        // Swoole 环境下 is_uploaded_file 可能失效，改用 is_file 校验
         $tmpPath = (string)($file['tmp_name'] ?? '');
         if ($tmpPath === '' || !is_file($tmpPath)) {
             return ['success' => false, 'message' => '无效的上传文件', 'id' => null];
@@ -638,13 +537,11 @@ class ApkDistributionService
 
         $originalName = (string)($file['name'] ?? '');
 
-        // 验证文件扩展名
         $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
         if ($ext !== 'apk') {
             return ['success' => false, 'message' => '只支持 .apk 文件', 'id' => null];
         }
 
-        // 文件大小限制 200MB
         $fileSize = (int)($file['size'] ?? 0);
         if ($fileSize <= 0) {
             $fileSize = filesize($tmpPath);
@@ -653,7 +550,6 @@ class ApkDistributionService
             return ['success' => false, 'message' => '文件超过 200MB 限制', 'id' => null];
         }
 
-        // 应用名/版本名兜底
         $appName = trim($appName);
         if ($appName === '') {
             $appName = pathinfo($originalName, PATHINFO_FILENAME);
@@ -663,16 +559,13 @@ class ApkDistributionService
             $versionName = '1.0.0';
         }
 
-        // 生成 build_id（用 upload- 前缀 + 时间戳）
         $buildId = 'upload-' . date('YmdHis') . '-' . bin2hex(random_bytes(4));
 
-        // 创建存储目录
         $storageDir = dirname(__DIR__, 2) . '/storage/apk_uploads';
         if (!is_dir($storageDir)) {
             mkdir($storageDir, 0755, true);
         }
 
-        // 移动文件到持久化目录（Swoole 下 move_uploaded_file 可能失效，改用 rename）
         $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', $appName);
         $fileName = $safeName . '-' . $versionName . '-' . $buildId . '.apk';
         $destPath = $storageDir . '/' . $fileName;
@@ -680,7 +573,6 @@ class ApkDistributionService
             return ['success' => false, 'message' => '文件保存失败', 'id' => null];
         }
 
-        // 计算文件信息
         $md5 = md5_file($destPath);
         $downloadToken = self::generateDownloadToken();
         $selfHostedUrl = '/api/apk-distribution/download/' . $downloadToken;
@@ -700,22 +592,11 @@ class ApkDistributionService
         return ['success' => true, 'message' => 'APK 上传成功，分发记录已创建', 'id' => (int)$id];
     }
 
-    /**
-     * 生成下载令牌（32位随机字符串）
-     *
-     * @return string
-     */
     private static function generateDownloadToken(): string
     {
         return bin2hex(random_bytes(16));
     }
 
-    /**
-     * 格式化文件大小为可读字符串
-     *
-     * @param int $bytes
-     * @return string
-     */
     private static function formatFileSize(int $bytes): string
     {
         if ($bytes < 1024) {
