@@ -853,7 +853,7 @@ function handleFileChange(file: UploadFile) {
       selectedFile.value = null
       return
     }
-    if (file.size > 200 * 1024 * 1024) {
+    if ((file.size ?? 0) > 200 * 1024 * 1024) {
       ElMessage.error('文件超过 200MB 限制')
       uploadRef.value?.clearFiles()
       selectedFile.value = null
