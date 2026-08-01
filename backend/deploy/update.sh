@@ -223,15 +223,27 @@ restore_git_proxy() {
 # 从 .env 读取数据库配置（用于数据库迁移）
 # ------------------------------------------------------------
 if [[ -f "${PROJECT_DIR}/backend/.env" ]]; then
-    DB_NAME="$(grep -E '^DB_NAME=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2-)"
-    DB_USER="$(grep -E '^DB_USER=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2-)"
-    DB_PASS="$(grep -E '^DB_PASS=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2-)"
-    DB_HOST="$(grep -E '^DB_HOST=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2-)"
+    DB_NAME="$(grep -E '^DB_NAME=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2- | tr -d '\r')"
+    DB_USER="$(grep -E '^DB_USER=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2- | tr -d '\r')"
+    DB_PASS="$(grep -E '^DB_PASS=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2- | tr -d '\r')"
+    DB_HOST="$(grep -E '^DB_HOST=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2- | tr -d '\r')"
 fi
 DB_NAME="${DB_NAME:-im_push}"
 DB_USER="${DB_USER:-root}"
 DB_PASS="${DB_PASS:-}"
 DB_HOST="${DB_HOST:-127.0.0.1}"
+
+# Ubuntu/MariaDB 兼容：root+空密码时自动检测是否需要 sudo（unix_socket 认证）
+# 如果直连失败但 sudo mysql 成功，则后续所有 mysql 命令自动加 sudo 前缀
+MYSQL_CMD=(mysql)
+if [[ "${DB_USER}" == "root" && -z "${DB_PASS}" ]]; then
+    if ! mysql -h"${DB_HOST}" -u"${DB_USER}" -e "SELECT 1" &>/dev/null; then
+        if sudo mysql -h"${DB_HOST}" -u"${DB_USER}" -e "SELECT 1" &>/dev/null; then
+            MYSQL_CMD=(sudo mysql)
+            echo "[INFO] 检测到 root 使用 unix_socket 认证，已自动切换为 sudo mysql 连接"
+        fi
+    fi
+fi
 
 # ============================================================
 # 主流程
@@ -652,7 +664,7 @@ else
 
     if [[ -d "${MIGRATIONS_DIR}" ]]; then
         # 创建迁移记录表（如不存在），记录已应用的迁移文件
-        mysql "${MYSQL_OPTS[@]}" "${DB_NAME}" <<EOF
+        "${MYSQL_CMD[@]}" "${MYSQL_OPTS[@]}" "${DB_NAME}" <<EOF
 CREATE TABLE IF NOT EXISTS \`${MIGRATIONS_TABLE}\` (
     \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     \`filename\` VARCHAR(255) NOT NULL UNIQUE,
@@ -665,9 +677,9 @@ EOF
             local filename="$1"
             local check_sql="$2"
             local exists
-            exists=$(mysql "${MYSQL_OPTS[@]}" "${DB_NAME}" -sN -e "${check_sql}" 2>/dev/null || echo 0)
+            exists=$("${MYSQL_CMD[@]}" "${MYSQL_OPTS[@]}" "${DB_NAME}" -sN -e "${check_sql}" 2>/dev/null || echo 0)
             if [[ "${exists}" == "1" ]]; then
-                mysql "${MYSQL_OPTS[@]}" "${DB_NAME}" -e \
+                "${MYSQL_CMD[@]}" "${MYSQL_OPTS[@]}" "${DB_NAME}" -e \
                     "INSERT IGNORE INTO \`${MIGRATIONS_TABLE}\` (filename) VALUES ('${filename}');" 2>/dev/null || true
                 info "  补录已应用迁移: ${filename}"
             fi
@@ -715,7 +727,7 @@ EOF
                 filename="$(basename "${sql_file}")"
 
                 # 检查是否已执行
-                ALREADY_APPLIED=$(mysql "${MYSQL_OPTS[@]}" "${DB_NAME}" -sN -e \
+                ALREADY_APPLIED=$("${MYSQL_CMD[@]}" "${MYSQL_OPTS[@]}" "${DB_NAME}" -sN -e \
                     "SELECT COUNT(*) FROM \`${MIGRATIONS_TABLE}\` WHERE filename='${filename}';" 2>/dev/null || echo 0)
 
                 if [[ "${ALREADY_APPLIED}" -gt 0 ]]; then
@@ -723,8 +735,8 @@ EOF
                     SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
                 else
                     info "  执行: ${filename}"
-                    if mysql "${MYSQL_OPTS[@]}" "${DB_NAME}" < "${sql_file}"; then
-                        mysql "${MYSQL_OPTS[@]}" "${DB_NAME}" -e \
+                    if "${MYSQL_CMD[@]}" "${MYSQL_OPTS[@]}" "${DB_NAME}" < "${sql_file}"; then
+                        "${MYSQL_CMD[@]}" "${MYSQL_OPTS[@]}" "${DB_NAME}" -e \
                             "INSERT INTO \`${MIGRATIONS_TABLE}\` (filename) VALUES ('${filename}');"
                         APPLIED_COUNT=$((APPLIED_COUNT + 1))
                     else
