@@ -85,9 +85,20 @@ DISK_HTML=$(curl -sS -k --max-time 15 \
 
 [[ -z "$DISK_HTML" ]] && fail "无法访问蓝奏云控制台 (mydisk.php 请求为空，检查网络/域名)"
 
+# ---------- 登录态 / 账号问题 明确检测 ----------
+# 蓝奏云在各种异常时会先返回 <script>alert("提示");location.href="..."</script>
+# 这里把常见异常提前识别出来，给出中文明确提示，而不是让用户猜。
+if grep -qE '<script[^>]*>.*alert\(' <<<"$DISK_HTML"; then
+    # 提取 alert(...) 里的中文提示
+    ALERT_MSG=$(grep -oE 'alert\(["\x27][^"\x27]*["\x27]\)' <<<"$DISK_HTML" \
+        | head -1 | sed -E "s/alert\([\"']([^\"']*)[\"']\)/\1/")
+    [[ -n "$ALERT_MSG" ]] && fail "蓝奏云返回提示：${ALERT_MSG}。请先登录 up.woozooo.com 网页端处理后再重新获取 Cookie"
+fi
+
 # 验证登录态：未登录时页面一般出现 "登录"/"password" 表单，没 ve 也没 folder_id_f
-if ! grep -q 've\s*=' <<<"$DISK_HTML" && ! grep -q 'folder_id_f\s*=' <<<"$DISK_HTML"; then
-    if grep -qiE 'login|登录|password' <<<"$DISK_HTML"; then
+if ! grep -qE '(name=["'"'"']?ve["'"'"']?|ve\s*[:=]\s*["'"'"'])' <<<"$DISK_HTML" \
+    && ! grep -q 'folder_id_f' <<<"$DISK_HTML"; then
+    if grep -qiE 'login|登录|password|请登录|立即登录' <<<"$DISK_HTML"; then
         fail "蓝奏云 Cookie 已失效（跳转到登录页），请在浏览器重新登录并复制新 Cookie"
     fi
 fi

@@ -555,7 +555,19 @@ class ApkDistributionService
             return ['valid' => false, 'message' => '请求蓝奏云失败: ' . $error];
         }
 
-        // 301/302 到登录页 = Cookie 完全失效
+        // 蓝奏云异常时会先输出 <script>alert("XXX");...</script> 再 302 或 200
+        // 识别 alert 消息优先给出明确错误
+        if (preg_match('/<script[^>]*>.*?alert\(\s*["\']([^"\']+)["\']\s*\)/is', $body, $m)) {
+            $alert = trim((string)$m[1]);
+            if ($alert !== '') {
+                return [
+                    'valid'   => false,
+                    'message' => '蓝奏云返回提示：' . $alert . '。请先在网页端登录 up.woozooo.com 处理（激活账号/绑定手机/完成验证）后，重新抓取 Cookie 填入',
+                ];
+            }
+        }
+
+        // 301/302 到登录页 = Cookie 完全失效（如果 body 没 alert）
         if ($httpCode === 302 || $httpCode === 301) {
             return ['valid' => false, 'message' => 'Cookie 已失效（被重定向到登录页），请重新获取'];
         }
