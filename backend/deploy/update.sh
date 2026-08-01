@@ -140,6 +140,10 @@ step_done() {
 # 标记步骤完成
 mark_done() {
     local step_name="$1"
+    # 确保进度文件父目录存在（被 git reset 删掉后自动重建）
+    local progress_dir
+    progress_dir="$(dirname "${PROGRESS_FILE}")"
+    [[ -d "${progress_dir}" ]] || mkdir -p "${progress_dir}" 2>/dev/null || true
     echo "${step_name}=done" >> "${PROGRESS_FILE}"
 }
 

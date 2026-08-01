@@ -61,6 +61,10 @@ app/src/main/assets/build_config.json
 deploy/.installed
 deploy/.env
 
+# ---- 部署状态（断点续装进度、临时文件，不应被 git reset 删除）----
+.deploy/
+backend/storage/apk_uploads/
+
 # ---- 测试 ----
 backend/tests/coverage/
 backend/tests/reports/
