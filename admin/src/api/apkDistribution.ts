@@ -98,9 +98,13 @@ export function validateLanzouCookieApi(cookie: string) {
   return post<CookieValidateResult>('/admin/apk-distribution/validate-cookie', { cookie })
 }
 
-/** 本地上传 APK 文件 */
+/** 本地上传 APK 文件（大文件 200MB，请求超时放宽到 10 分钟） */
 export function uploadApkApi(formData: FormData) {
-  return post<UploadApkResult>('/admin/apk-distribution/upload', formData)
+  return post<UploadApkResult>(
+    '/admin/apk-distribution/upload',
+    formData as unknown as Record<string, any>,
+    { timeout: 10 * 60 * 1000 }
+  )
 }
 
 /** 获取下载统计数据 */
