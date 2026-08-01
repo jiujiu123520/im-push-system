@@ -530,18 +530,20 @@ class ApkDistributionService
             return ['valid' => false, 'message' => 'Cookie 不能为空'];
         }
 
-        // 请求蓝奏云个人网盘页面，检查是否已登录
-        $url = 'https://up.woozooo.com/mydisk.php';
+        // 请求蓝奏云个人网盘页面（与本地上传/文件列表同一路径），
+        // 已登录会包含反 CSRF 字段 ve、folder_id_f 或 退出/userinfo/文件管理 等关键词
+        $url = 'https://up.woozooo.com/mydisk.php?item=files&action=index';
         $ch = curl_init();
         curl_setopt_array($ch, [
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_COOKIE => $cookie,
-            CURLOPT_TIMEOUT => 10,
-            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_CONNECTTIMEOUT => 8,
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_SSL_VERIFYHOST => false,
-            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            CURLOPT_REFERER => 'https://up.woozooo.com/mydisk.php',
             CURLOPT_FOLLOWLOCATION => false,
         ]);
         $body = curl_exec($ch);
@@ -553,23 +555,43 @@ class ApkDistributionService
             return ['valid' => false, 'message' => '请求蓝奏云失败: ' . $error];
         }
 
-        // 未登录时蓝奏云会重定向到登录页或返回登录表单
-        // 已登录时页面包含 "退出" 或 "userinfo" 或 "文件管理" 等标识
-        if ($httpCode === 200) {
-            if (strpos($body, '退出') !== false || strpos($body, 'userinfo') !== false || strpos($body, '文件管理') !== false) {
-                return ['valid' => true, 'message' => 'Cookie 有效，蓝奏云登录状态正常'];
-            }
-            if (strpos($body, '登录') !== false && strpos($body, 'password') !== false) {
-                return ['valid' => false, 'message' => 'Cookie 已失效，请重新获取蓝奏云 Cookie'];
-            }
-            return ['valid' => false, 'message' => '无法确认登录状态，请重试或检查 Cookie 是否完整'];
-        }
-
+        // 301/302 到登录页 = Cookie 完全失效
         if ($httpCode === 302 || $httpCode === 301) {
             return ['valid' => false, 'message' => 'Cookie 已失效（被重定向到登录页），请重新获取'];
         }
 
-        return ['valid' => false, 'message' => '蓝奏云返回异常 HTTP ' . $httpCode];
+        if ($httpCode !== 200) {
+            return ['valid' => false, 'message' => '蓝奏云返回异常 HTTP ' . $httpCode];
+        }
+
+        // HTTP 200 情况下的登录态判断：
+        //   强特征（登录成功一定有）：name="ve" / name="folder_id_f" / 上传表单 html5up
+        //   普通特征：退出 / userinfo / 文件管理 / 用户名 / 全部文件 / 新建文件夹
+        $hasVe          = stripos($body, 'name="ve"') !== false || preg_match('/ve\s*[:=]\s*["\'][A-Za-z0-9_-]{10,}/', $body) === 1;
+        $hasFolderId    = stripos($body, 'folder_id_f') !== false;
+        $hasUploadForm  = stripos($body, 'html5up.php') !== false || stripos($body, 'fileup.php') !== false;
+        $hasLogout      = mb_strpos($body, '退出') !== false || stripos($body, 'userinfo') !== false
+                        || mb_strpos($body, '文件管理') !== false || mb_strpos($body, '全部文件') !== false
+                        || mb_strpos($body, '新建文件夹') !== false || mb_strpos($body, '用户名') !== false;
+
+        if ($hasVe && ($hasFolderId || $hasUploadForm || $hasLogout)) {
+            return ['valid' => true, 'message' => 'Cookie 有效，蓝奏云登录状态正常'];
+        }
+
+        if ($hasVe || $hasLogout) {
+            // 弱匹配，可能是接口结构变了，给出半确认提示
+            return ['valid' => true, 'message' => 'Cookie 疑似有效（匹配到登录特征，但未取到完整表单结构，建议用本地上传测试实际是否能传）'];
+        }
+
+        // 未登录强特征：登录表单里出现 password + action=login
+        $isLoginPage = (stripos($body, 'password') !== false && preg_match('/action=["\']?[^"\']*login/i', $body) === 1)
+                    || mb_strpos($body, '请登录') !== false
+                    || mb_strpos($body, '立即登录') !== false;
+        if ($isLoginPage) {
+            return ['valid' => false, 'message' => 'Cookie 已失效（返回登录页），请在浏览器重新登录 up.woozooo.com 后复制完整 Cookie'];
+        }
+
+        return ['valid' => false, 'message' => '无法确认登录状态，请检查 Cookie 是否为 up.woozooo.com 下完整 Cookie（至少需要 ylogin 和 phpdisk_info 两项）'];
     }
 
     /**
