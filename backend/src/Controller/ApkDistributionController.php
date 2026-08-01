@@ -20,6 +20,9 @@ use App\Service\Response;
  *   GET  /admin/apk-distribution/{id}         分发记录详情
  *   GET  /admin/apk-distribution/config      获取分发配置
  *   PUT  /admin/apk-distribution/config       保存分发配置
+ *   POST /admin/apk-distribution/upload       本地上传 APK 文件
+ *   POST /admin/apk-distribution/validate-cookie  验证蓝奏云 Cookie
+ *   GET  /admin/apk-distribution/{id}/stats   下载统计数据
  *   POST /admin/apk-distribution/{id}/lanzou  上传到蓝奏云
  *   POST /admin/apk-distribution/{id}/custom  执行自定义上传
  *   DELETE /admin/apk-distribution/{id}       删除分发记录
@@ -99,6 +102,93 @@ class ApkDistributionController
             return false;
         }
         return ['message' => '配置保存成功'];
+    }
+
+    /**
+     * 验证蓝奏云 Cookie 是否有效
+     * POST /admin/apk-distribution/validate-cookie
+     *
+     * 请求体：{ "cookie": "蓝奏云 Cookie 字符串" }
+     */
+    public function validateCookie(array $context, array $params = [])
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $body = self::parseJsonBody($context);
+        $cookie = (string)($body['cookie'] ?? '');
+        if ($cookie === '') {
+            Response::fail($context['response'], 'Cookie 不能为空', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        return ApkDistributionService::validateLanzouCookie($cookie);
+    }
+
+    /**
+     * 本地上传 APK 文件
+     * POST /admin/apk-distribution/upload
+     *
+     * 表单字段：
+     *   file         APK 文件（multipart）
+     *   app_name     应用名称
+     *   package_name 包名
+     *   version_name 版本名
+     */
+    public function uploadApk(array $context, array $params = [])
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $files = $context['files'] ?? [];
+        if (!isset($files['file']) || !is_array($files['file'])) {
+            Response::fail($context['response'], '请选择要上传的 APK 文件', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        $post = $context['post'] ?? [];
+        $appName = (string)($post['app_name'] ?? '');
+        $packageName = (string)($post['package_name'] ?? '');
+        $versionName = (string)($post['version_name'] ?? '');
+        $adminId = (int)($payload['admin_id'] ?? 0);
+
+        $result = ApkDistributionService::createFromFile(
+            $files['file'],
+            $appName,
+            $packageName,
+            $versionName,
+            $adminId
+        );
+
+        if (!$result['success']) {
+            Response::fail($context['response'], $result['message'], Response::CODE_ERROR);
+            return false;
+        }
+        return $result;
+    }
+
+    /**
+     * 获取下载统计数据
+     * GET /admin/apk-distribution/{id}/stats
+     */
+    public function downloadStats(array $context, array $params = [])
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $id = (int)($params['id'] ?? 0);
+        if ($id <= 0) {
+            Response::fail($context['response'], '无效的 ID', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        return ApkDistributionService::getDownloadStats($id);
     }
 
     /**
@@ -183,6 +273,12 @@ class ApkDistributionController
 
         $apkPath = $fileInfo['path'];
         $filename = $fileInfo['filename'];
+
+        // 递增下载计数并记录下载日志（失败不影响下载）
+        $ip = AdminAuth::getClientIp($context);
+        $ua = (string)($context['header']['user-agent'] ?? $context['server']['http_user_agent'] ?? '');
+        $referer = (string)($context['header']['referer'] ?? $context['server']['http_referer'] ?? '');
+        ApkDistributionService::incrementDownloadCount($token, $ip, $ua, $referer);
 
         $response->status(200);
         $response->header('Content-Type', 'application/vnd.android.package-archive');

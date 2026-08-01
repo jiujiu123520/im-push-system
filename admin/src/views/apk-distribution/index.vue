@@ -25,6 +25,13 @@
           />
           <el-button type="primary" :icon="SearchIcon" @click="handleSearch">查询</el-button>
           <el-button
+            type="success"
+            :icon="UploadIcon"
+            @click="openUploadDialog"
+          >
+            上传 APK
+          </el-button>
+          <el-button
             class="settings-btn"
             type="primary"
             plain
@@ -100,6 +107,19 @@
               </el-icon>
               {{ statusLabel(row.upload_status) }}
             </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="下载次数" width="110" align="center">
+          <template #default="{ row }">
+            <el-button
+              link
+              type="primary"
+              class="download-count-btn"
+              @click="openStatsDialog(row as ApkDistributionRecord)"
+            >
+              <el-icon class="count-icon"><DataLineIcon /></el-icon>
+              <span class="count-num">{{ row.download_count ?? 0 }}</span>
+            </el-button>
           </template>
         </el-table-column>
         <el-table-column label="下载链接" min-width="200">
@@ -234,6 +254,27 @@
               :rows="4"
               placeholder="从浏览器开发者工具获取"
             />
+            <div class="cookie-actions">
+              <el-button
+                size="small"
+                type="primary"
+                plain
+                :loading="cookieValidating"
+                :icon="CircleCheckIcon"
+                @click="handleValidateCookie"
+              >
+                验证 Cookie
+              </el-button>
+              <el-tag
+                v-if="cookieValidateResult !== null"
+                :type="cookieValidateResult.valid ? 'success' : 'danger'"
+                size="small"
+                effect="light"
+                round
+              >
+                {{ cookieValidateResult.message }}
+              </el-tag>
+            </div>
             <div class="form-tip">登录蓝奏云后，从浏览器开发者工具 Network 中复制 Cookie</div>
           </el-form-item>
 
@@ -298,11 +339,147 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- 上传 APK 对话框 -->
+    <el-dialog
+      v-model="uploadDialogVisible"
+      title="上传 APK 文件"
+      width="520px"
+      align-center
+      class="upload-dialog"
+      :close-on-click-modal="false"
+    >
+      <el-form
+        ref="uploadFormRef"
+        :model="uploadForm"
+        :rules="uploadRules"
+        label-position="top"
+        class="upload-form"
+      >
+        <el-form-item label="APK 文件" prop="file">
+          <el-upload
+            ref="uploadRef"
+            class="apk-uploader"
+            drag
+            :auto-upload="false"
+            :limit="1"
+            accept=".apk"
+            :on-change="handleFileChange"
+            :on-remove="handleFileRemove"
+            :on-exceed="handleFileExceed"
+          >
+            <el-icon class="upload-icon"><UploadFilledIcon /></el-icon>
+            <div class="upload-text">将 APK 文件拖到此处，或<em>点击上传</em></div>
+            <template #tip>
+              <div class="upload-tip">只能上传 .apk 文件，且不超过 200MB</div>
+            </template>
+          </el-upload>
+        </el-form-item>
+
+        <el-form-item label="应用名称" prop="app_name">
+          <el-input
+            v-model="uploadForm.app_name"
+            placeholder="例如：我的推送"
+            clearable
+          />
+        </el-form-item>
+
+        <el-form-item label="包名（可选）">
+          <el-input
+            v-model="uploadForm.package_name"
+            placeholder="例如：com.example.app"
+            clearable
+          />
+        </el-form-item>
+
+        <el-form-item label="版本号" prop="version_name">
+          <el-input
+            v-model="uploadForm.version_name"
+            placeholder="例如：1.0.0"
+            clearable
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="uploadDialogVisible = false">取消</el-button>
+          <el-button
+            type="primary"
+            :loading="uploading"
+            @click="handleUploadApk"
+          >
+            确认上传
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- 下载统计对话框 -->
+    <el-dialog
+      v-model="statsDialogVisible"
+      title="下载统计"
+      width="680px"
+      align-center
+      class="stats-dialog"
+    >
+      <div v-loading="statsLoading" class="stats-content">
+        <div class="stats-summary">
+          <div class="stats-card">
+            <div class="stats-card-icon">
+              <el-icon><DataLineIcon /></el-icon>
+            </div>
+            <div class="stats-card-info">
+              <span class="stats-card-label">总下载次数</span>
+              <span class="stats-card-value">{{ statsData?.total ?? 0 }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="stats-recent-title">
+          <el-icon><ListIcon /></el-icon>
+          <span>最近下载记录（最多 50 条）</span>
+        </div>
+
+        <el-table
+          :data="statsData?.recent ?? []"
+          style="width: 100%"
+          max-height="360"
+          empty-text="暂无下载记录"
+          size="small"
+          stripe
+        >
+          <el-table-column type="index" label="#" width="50" align="center" />
+          <el-table-column prop="ip_address" label="IP 地址" width="140">
+            <template #default="{ row }">
+              <span class="mono-text">{{ row.ip_address || '-' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="downloaded_at" label="下载时间" width="170">
+            <template #default="{ row }">
+              <span class="time-text">{{ formatTime(row.downloaded_at) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="user_agent_short" label="User-Agent" min-width="200">
+            <template #default="{ row }">
+              <span class="ua-text" :title="row.user_agent">
+                {{ row.user_agent_short || row.user_agent || '-' }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="referer" label="来源" width="140">
+            <template #default="{ row }">
+              <span class="time-text">{{ row.referer || '-' }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   Search as SearchIcon,
@@ -315,8 +492,13 @@ import {
   Link as LinkIcon,
   Document as DocumentIcon,
   CopyDocument as CopyDocumentIcon,
-  Loading as LoadingIcon
+  Loading as LoadingIcon,
+  DataLine as DataLineIcon,
+  CircleCheck as CircleCheckIcon,
+  UploadFilled as UploadFilledIcon,
+  List as ListIcon
 } from '@element-plus/icons-vue'
+import type { FormInstance, FormRules, UploadFile, UploadInstance } from 'element-plus'
 import {
   getDistributionListApi,
   getDistributionConfigApi,
@@ -324,8 +506,13 @@ import {
   uploadToLanzouApi,
   uploadCustomApi,
   deleteDistributionApi,
+  validateLanzouCookieApi,
+  uploadApkApi,
+  getDownloadStatsApi,
   type ApkDistributionRecord,
-  type ApkDistributionConfig
+  type ApkDistributionConfig,
+  type CookieValidateResult,
+  type DownloadStats
 } from '@/api/apkDistribution'
 
 // ---- 列表数据 ----
@@ -521,6 +708,40 @@ async function saveConfig() {
   }
 }
 
+// ---- Cookie 验证 ----
+const cookieValidating = ref(false)
+const cookieValidateResult = ref<CookieValidateResult | null>(null)
+
+async function handleValidateCookie() {
+  const cookie = (config.lanzou_cookie || '').trim()
+  if (!cookie) {
+    ElMessage.warning('请先填写蓝奏云 Cookie')
+    return
+  }
+  cookieValidating.value = true
+  cookieValidateResult.value = null
+  try {
+    const res = await validateLanzouCookieApi(cookie)
+    const data: any = res.data
+    cookieValidateResult.value = {
+      valid: !!data?.valid,
+      message: data?.message || '验证完成'
+    }
+    if (data?.valid) {
+      ElMessage.success(data?.message || 'Cookie 有效')
+    } else {
+      ElMessage.warning(data?.message || 'Cookie 无效')
+    }
+  } catch (err: any) {
+    cookieValidateResult.value = {
+      valid: false,
+      message: err?.message || '验证失败'
+    }
+  } finally {
+    cookieValidating.value = false
+  }
+}
+
 // ---- 二维码对话框 ----
 const qrDialogVisible = ref(false)
 const qrCanvasRef = ref<HTMLCanvasElement | null>(null)
@@ -589,6 +810,122 @@ async function copyLink(text: string) {
       ElMessage.warning('复制失败，请手动复制')
     }
     document.body.removeChild(textarea)
+  }
+}
+
+// ---- 上传 APK 对话框 ----
+const uploadDialogVisible = ref(false)
+const uploading = ref(false)
+const uploadFormRef = ref<FormInstance | null>(null)
+const uploadRef = ref<UploadInstance | null>(null)
+const selectedFile = ref<File | null>(null)
+
+const uploadForm = reactive({
+  app_name: '',
+  package_name: '',
+  version_name: ''
+})
+
+const uploadRules: FormRules = {
+  app_name: [{ required: true, message: '请输入应用名称', trigger: 'blur' }],
+  version_name: [{ required: true, message: '请输入版本号', trigger: 'blur' }]
+}
+
+function openUploadDialog() {
+  uploadForm.app_name = ''
+  uploadForm.package_name = ''
+  uploadForm.version_name = ''
+  selectedFile.value = null
+  uploadDialogVisible.value = true
+  // 清空上传组件已选文件
+  nextTick(() => {
+    uploadRef.value?.clearFiles()
+  })
+}
+
+function handleFileChange(file: UploadFile) {
+  if (file.raw) {
+    const name = file.name || ''
+    const ext = name.split('.').pop()?.toLowerCase()
+    if (ext !== 'apk') {
+      ElMessage.error('只能上传 .apk 文件')
+      uploadRef.value?.clearFiles()
+      selectedFile.value = null
+      return
+    }
+    if (file.size > 200 * 1024 * 1024) {
+      ElMessage.error('文件超过 200MB 限制')
+      uploadRef.value?.clearFiles()
+      selectedFile.value = null
+      return
+    }
+    selectedFile.value = file.raw
+    // 自动填充应用名（若为空）
+    if (!uploadForm.app_name) {
+      uploadForm.app_name = name.replace(/\.apk$/i, '')
+    }
+  }
+}
+
+function handleFileRemove() {
+  selectedFile.value = null
+}
+
+function handleFileExceed() {
+  ElMessage.warning('只能上传一个文件，请先删除已选文件')
+}
+
+async function handleUploadApk() {
+  if (!selectedFile.value) {
+    ElMessage.warning('请先选择 APK 文件')
+    return
+  }
+  // 表单校验
+  try {
+    await uploadFormRef.value?.validate()
+  } catch {
+    return
+  }
+
+  const formData = new FormData()
+  formData.append('file', selectedFile.value)
+  formData.append('app_name', uploadForm.app_name)
+  formData.append('package_name', uploadForm.package_name)
+  formData.append('version_name', uploadForm.version_name)
+
+  uploading.value = true
+  try {
+    const res = await uploadApkApi(formData)
+    const data: any = res.data
+    ElMessage.success(data?.message || 'APK 上传成功')
+    uploadDialogVisible.value = false
+    // 刷新列表（跳到第一页查看新记录）
+    query.page = 1
+    await fetchData()
+  } catch (err: any) {
+    ElMessage.error(err?.message || '上传失败')
+  } finally {
+    uploading.value = false
+  }
+}
+
+// ---- 下载统计对话框 ----
+const statsDialogVisible = ref(false)
+const statsLoading = ref(false)
+const statsData = ref<DownloadStats | null>(null)
+
+async function openStatsDialog(row: ApkDistributionRecord) {
+  statsDialogVisible.value = true
+  statsLoading.value = true
+  statsData.value = null
+  try {
+    const res = await getDownloadStatsApi(row.id)
+    statsData.value = (res.data as any) ?? { total: row.download_count ?? 0, recent: [] }
+  } catch (err: any) {
+    statsData.value = { total: row.download_count ?? 0, recent: [] }
+    ElMessage.error(err?.message || '获取统计数据失败')
+  } finally {
+    statsLoading.value = false
   }
 }
 
@@ -1034,5 +1371,167 @@ onMounted(() => {
   .qr-canvas-wrap {
     background: #fff;
   }
+}
+
+// ===== 下载次数按钮 =====
+.download-count-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  padding: 0 4px;
+
+  .count-icon {
+    font-size: 14px;
+  }
+
+  .count-num {
+    font-size: 14px;
+  }
+}
+
+// ===== Cookie 验证操作区 =====
+.cookie-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+// ===== 上传 APK 对话框 =====
+.upload-dialog {
+  :deep(.el-dialog__body) {
+    padding: 20px 24px;
+  }
+}
+
+.upload-form {
+  .apk-uploader {
+    width: 100%;
+
+    :deep(.el-upload-dragger) {
+      width: 100%;
+      padding: 28px 20px;
+      border-radius: $radius-md;
+      border: 1.5px dashed var(--border-medium);
+      transition: border-color 0.2s ease;
+
+      &:hover {
+        border-color: $color-primary;
+      }
+    }
+
+    .upload-icon {
+      font-size: 40px;
+      color: $color-primary;
+      margin-bottom: 8px;
+    }
+
+    .upload-text {
+      font-size: 14px;
+      color: var(--text-regular);
+
+      em {
+        color: $color-primary;
+        font-style: normal;
+        font-weight: 600;
+      }
+    }
+
+    .upload-tip {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 6px;
+    }
+  }
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+// ===== 下载统计对话框 =====
+.stats-dialog {
+  :deep(.el-dialog__body) {
+    padding: 20px 24px;
+  }
+}
+
+.stats-content {
+  min-height: 200px;
+}
+
+.stats-summary {
+  margin-bottom: 20px;
+
+  .stats-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 18px 22px;
+    border-radius: $radius-md;
+    background: linear-gradient(135deg, rgba(109, 92, 255, 0.08), rgba(92, 184, 255, 0.08));
+    border: 1px solid var(--border-light);
+
+    .stats-card-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: $radius-sm;
+      background: $gradient-primary;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 24px;
+      flex-shrink: 0;
+      box-shadow: 0 4px 10px rgba(109, 92, 255, 0.25);
+    }
+
+    .stats-card-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .stats-card-label {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .stats-card-value {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--text-primary);
+      line-height: 1.2;
+    }
+  }
+}
+
+.stats-recent-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+
+  .el-icon {
+    color: $color-primary;
+    font-size: 16px;
+  }
+}
+
+.ua-text {
+  font-size: 12px;
+  color: var(--text-regular);
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

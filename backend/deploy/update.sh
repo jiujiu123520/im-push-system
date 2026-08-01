@@ -711,6 +711,8 @@ EOF
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='devices' AND COLUMN_NAME='platform'),1,0);"
         record_if_applied "013_push_logs_extend.sql" \
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='push_logs' AND COLUMN_NAME='fail_reason'),1,0);"
+        record_if_applied "014_apk_download_logs.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='apk_download_logs'),1,0);"
 
         APPLIED_COUNT=0
         SKIPPED_COUNT=0

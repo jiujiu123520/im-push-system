@@ -115,6 +115,7 @@ class ApkDistributionService
             $item['id'] = (int)$item['id'];
             $item['apk_size'] = (int)$item['apk_size'];
             $item['admin_id'] = (int)$item['admin_id'];
+            $item['download_count'] = (int)($item['download_count'] ?? 0);
             // 转换为可读大小
             $item['apk_size_text'] = self::formatFileSize((int)$item['apk_size']);
         }
@@ -143,6 +144,7 @@ class ApkDistributionService
         $row['id'] = (int)$row['id'];
         $row['apk_size'] = (int)$row['apk_size'];
         $row['admin_id'] = (int)$row['admin_id'];
+        $row['download_count'] = (int)($row['download_count'] ?? 0);
         $row['apk_size_text'] = self::formatFileSize((int)$row['apk_size']);
         return $row;
     }
@@ -439,6 +441,229 @@ class ApkDistributionService
 
         self::updateCustomResult($id, '', 'failed', $output);
         return ['success' => false, 'message' => '自定义上传失败: ' . $output, 'url' => ''];
+    }
+
+    /**
+     * 递增下载计数并记录下载日志
+     *
+     * @param string $token   下载令牌
+     * @param string $ip      下载者 IP
+     * @param string $ua      User-Agent
+     * @param string $referer 来源页面
+     * @return void
+     */
+    public static function incrementDownloadCount(string $token, string $ip = '', string $ua = '', string $referer = ''): void
+    {
+        try {
+            $record = self::getByToken($token);
+            if ($record === null) {
+                return;
+            }
+            $distributionId = (int)$record['id'];
+
+            // 递增 download_count
+            Database::execute(
+                'UPDATE apk_distributions SET download_count = download_count + 1 WHERE id = ?',
+                [$distributionId]
+            );
+
+            // 写入下载日志
+            Database::insert(
+                'INSERT INTO apk_download_logs (distribution_id, download_token, ip_address, user_agent, referer, downloaded_at)
+                 VALUES (?, ?, ?, ?, ?, NOW())',
+                [$distributionId, $token, mb_substr($ip, 0, 45), mb_substr($ua, 0, 512), mb_substr($referer, 0, 512)]
+            );
+        } catch (\Throwable $e) {
+            // 下载计数失败不影响下载本身
+        }
+    }
+
+    /**
+     * 获取下载统计数据
+     *
+     * @param int $id 分发记录ID
+     * @return array
+     */
+    public static function getDownloadStats(int $id): array
+    {
+        $record = self::getDetail($id);
+        if ($record === null) {
+            return ['total' => 0, 'recent' => []];
+        }
+
+        $total = (int)($record['download_count'] ?? 0);
+
+        // 最近 50 条下载日志
+        $recent = Database::fetchAll(
+            'SELECT ip_address, user_agent, referer, downloaded_at
+             FROM apk_download_logs WHERE distribution_id = ?
+             ORDER BY id DESC LIMIT 50',
+            [$id]
+        );
+
+        // 简化 UA（只保留浏览器/客户端名称）
+        foreach ($recent as &$log) {
+            $ua = (string)($log['user_agent'] ?? '');
+            if (strlen($ua) > 100) {
+                $log['user_agent_short'] = mb_substr($ua, 0, 100) . '...';
+            } else {
+                $log['user_agent_short'] = $ua;
+            }
+        }
+        unset($log);
+
+        return ['total' => $total, 'recent' => $recent];
+    }
+
+    /**
+     * 验证蓝奏云 Cookie 是否有效
+     *
+     * 通过 Cookie 请求蓝奏云的个人网盘页面，检查返回内容是否包含登录态标识。
+     *
+     * @param string $cookie 蓝奏云 Cookie 字符串
+     * @return array ["valid" => bool, "message" => string]
+     */
+    public static function validateLanzouCookie(string $cookie): array
+    {
+        $cookie = trim($cookie);
+        if ($cookie === '') {
+            return ['valid' => false, 'message' => 'Cookie 不能为空'];
+        }
+
+        // 请求蓝奏云个人网盘页面，检查是否已登录
+        $url = 'https://up.lanzou.com/mydisk.php';
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_COOKIE => $cookie,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            CURLOPT_FOLLOWLOCATION => false,
+        ]);
+        $body = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        if ($body === false || $error !== '') {
+            return ['valid' => false, 'message' => '请求蓝奏云失败: ' . $error];
+        }
+
+        // 未登录时蓝奏云会重定向到登录页或返回登录表单
+        // 已登录时页面包含 "退出" 或 "userinfo" 或 "文件管理" 等标识
+        if ($httpCode === 200) {
+            if (strpos($body, '退出') !== false || strpos($body, 'userinfo') !== false || strpos($body, '文件管理') !== false) {
+                return ['valid' => true, 'message' => 'Cookie 有效，蓝奏云登录状态正常'];
+            }
+            if (strpos($body, '登录') !== false && strpos($body, 'password') !== false) {
+                return ['valid' => false, 'message' => 'Cookie 已失效，请重新获取蓝奏云 Cookie'];
+            }
+            return ['valid' => false, 'message' => '无法确认登录状态，请重试或检查 Cookie 是否完整'];
+        }
+
+        if ($httpCode === 302 || $httpCode === 301) {
+            return ['valid' => false, 'message' => 'Cookie 已失效（被重定向到登录页），请重新获取'];
+        }
+
+        return ['valid' => false, 'message' => '蓝奏云返回异常 HTTP ' . $httpCode];
+    }
+
+    /**
+     * 从上传的文件创建分发记录（本地上传 APK）
+     *
+     * 接收类似 $_FILES['file'] 的文件数组，兼容 Swoole 运行环境。
+     *
+     * @param array  $file        上传文件数组（含 tmp_name/name/size/error）
+     * @param string $appName     应用名称
+     * @param string $packageName 包名
+     * @param string $versionName 版本名
+     * @param int    $adminId     管理员ID
+     * @return array ["success" => bool, "message" => string, "id" => int|null]
+     */
+    public static function createFromFile(
+        array $file,
+        string $appName,
+        string $packageName,
+        string $versionName,
+        int $adminId
+    ): array {
+        // 检查上传错误码
+        if (isset($file['error']) && $file['error'] !== UPLOAD_ERR_OK) {
+            return ['success' => false, 'message' => '上传错误码：' . $file['error'], 'id' => null];
+        }
+
+        // Swoole 环境下 is_uploaded_file 可能失效，改用 is_file 校验
+        $tmpPath = (string)($file['tmp_name'] ?? '');
+        if ($tmpPath === '' || !is_file($tmpPath)) {
+            return ['success' => false, 'message' => '无效的上传文件', 'id' => null];
+        }
+
+        $originalName = (string)($file['name'] ?? '');
+
+        // 验证文件扩展名
+        $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        if ($ext !== 'apk') {
+            return ['success' => false, 'message' => '只支持 .apk 文件', 'id' => null];
+        }
+
+        // 文件大小限制 200MB
+        $fileSize = (int)($file['size'] ?? 0);
+        if ($fileSize <= 0) {
+            $fileSize = filesize($tmpPath);
+        }
+        if ($fileSize > 200 * 1024 * 1024) {
+            return ['success' => false, 'message' => '文件超过 200MB 限制', 'id' => null];
+        }
+
+        // 应用名/版本名兜底
+        $appName = trim($appName);
+        if ($appName === '') {
+            $appName = pathinfo($originalName, PATHINFO_FILENAME);
+        }
+        $versionName = trim($versionName);
+        if ($versionName === '') {
+            $versionName = '1.0.0';
+        }
+
+        // 生成 build_id（用 upload- 前缀 + 时间戳）
+        $buildId = 'upload-' . date('YmdHis') . '-' . bin2hex(random_bytes(4));
+
+        // 创建存储目录
+        $storageDir = dirname(__DIR__, 2) . '/storage/apk_uploads';
+        if (!is_dir($storageDir)) {
+            mkdir($storageDir, 0755, true);
+        }
+
+        // 移动文件到持久化目录（Swoole 下 move_uploaded_file 可能失效，改用 rename）
+        $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', $appName);
+        $fileName = $safeName . '-' . $versionName . '-' . $buildId . '.apk';
+        $destPath = $storageDir . '/' . $fileName;
+        if (!rename($tmpPath, $destPath)) {
+            return ['success' => false, 'message' => '文件保存失败', 'id' => null];
+        }
+
+        // 计算文件信息
+        $md5 = md5_file($destPath);
+        $downloadToken = self::generateDownloadToken();
+        $selfHostedUrl = '/api/apk-distribution/download/' . $downloadToken;
+
+        try {
+            $id = Database::insert(
+                'INSERT INTO apk_distributions
+                 (build_id, app_name, package_name, version_name, apk_path, apk_size, md5, download_token, self_hosted_url, upload_status, admin_id, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())',
+                [$buildId, $appName, $packageName, $versionName, $destPath, $fileSize, $md5, $downloadToken, $selfHostedUrl, 'pending', $adminId]
+            );
+        } catch (\Throwable $e) {
+            @unlink($destPath);
+            return ['success' => false, 'message' => '创建分发记录失败: ' . $e->getMessage(), 'id' => null];
+        }
+
+        return ['success' => true, 'message' => 'APK 上传成功，分发记录已创建', 'id' => (int)$id];
     }
 
     /**
