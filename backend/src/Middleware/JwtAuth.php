@@ -58,6 +58,12 @@ class JwtAuth
             return null;
         }
 
+        // V-02 安全修复：检查 token 是否已被吊销（登出黑名单）
+        if (Jwt::isRevoked($token)) {
+            self::unauthorized($response, '令牌已失效，请重新登录');
+            return null;
+        }
+
         // 校验令牌类型，避免使用管理员令牌访问用户接口
         $type = $payload['type'] ?? '';
         if ($type !== 'user') {

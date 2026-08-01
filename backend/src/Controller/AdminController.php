@@ -153,6 +153,20 @@ class AdminController
             return false;
         }
 
+        // V-02: 将当前 token 加入黑名单，使其立即失效
+        $server = $context['server'] ?? [];
+        $header = $context['header'] ?? [];
+        if (!isset($server['HTTP_AUTHORIZATION']) && !isset($server['http_authorization'])) {
+            $auth = $header['authorization'] ?? ($header['Authorization'] ?? '');
+            if ($auth !== '') {
+                $server['HTTP_AUTHORIZATION'] = $auth;
+            }
+        }
+        $token = Jwt::extractToken($server, $context['get'] ?? []);
+        if ($token !== null && $token !== '') {
+            Jwt::revoke($token);
+        }
+
         $adminId = (int)$payload['admin_id'];
         $ip = AdminAuth::getClientIp($context);
         AdminService::logAction(

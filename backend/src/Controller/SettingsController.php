@@ -565,6 +565,30 @@ class SettingsController
             return false;
         }
 
+        // V-05: 仅 super_admin 可触发系统更新
+        $role = $admin['role'] ?? '';
+        if ($role !== 'super_admin') {
+            Response::fail($context['response'], '仅超级管理员可执行系统更新', Response::CODE_FORBIDDEN, 403);
+            return false;
+        }
+
+        // V-05: 非本机请求需显式允许（防止公网任意 admin 触发 RCE）
+        $allowRemote = (string)\App\Service\Config::env('SYSTEM_UPDATE_ALLOW_REMOTE', '0') === '1';
+        if (!$allowRemote) {
+            $clientIp = AdminAuth::getClientIp($context);
+            $isLocal = $clientIp === '127.0.0.1' || $clientIp === '::1' || $clientIp === '0.0.0.0'
+                || (bool)preg_match('/^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/', $clientIp);
+            if (!$isLocal) {
+                Response::fail(
+                    $context['response'],
+                    '系统更新仅允许内网访问。如需远程更新，请在 .env 设置 SYSTEM_UPDATE_ALLOW_REMOTE=1',
+                    Response::CODE_FORBIDDEN,
+                    403
+                );
+                return false;
+            }
+        }
+
         $response = $context['response'];
         $body = $this->parseBody($context);
 

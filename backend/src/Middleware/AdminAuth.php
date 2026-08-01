@@ -54,6 +54,12 @@ class AdminAuth
             return null;
         }
 
+        // V-02 安全修复：检查 token 是否已被吊销（登出黑名单）
+        if (Jwt::isRevoked($token)) {
+            self::unauthorized($response, '令牌已失效，请重新登录');
+            return null;
+        }
+
         // 校验令牌类型
         $type = $payload['type'] ?? '';
         if ($type !== 'admin') {

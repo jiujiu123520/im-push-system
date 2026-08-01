@@ -73,8 +73,9 @@ class UserService
             $fail['message'] = '用户名长度需在 3-64 之间';
             return $fail;
         }
-        if (strlen($password) < 6 || strlen($password) > 64) {
-            $fail['message'] = '密码长度需在 6-64 之间';
+        $pwdCheck = AdminService::validatePasswordStrength($password);
+        if (!$pwdCheck['valid']) {
+            $fail['message'] = $pwdCheck['message'];
             return $fail;
         }
         // 手机号和邮箱至少填写一项，格式校验仅对已填写的字段生效

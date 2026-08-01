@@ -14,6 +14,9 @@ class AdminService
     /** 列表分页每页条数 */
     private const PAGE_SIZE = 10;
 
+    /** @var array<string,int> 本地登录失败计数（Redis 不可用时兜底，V-03） */
+    private static array $localFailCache = [];
+
     /**
      * 管理员登录（独立接口，签发带 role 的 JWT）
      *
@@ -64,7 +67,8 @@ class AdminService
             try {
                 $failCount = (int)Redis::get($failKey);
             } catch (\Throwable $e) {
-                // Redis 不可用时降级为不限制
+                // V-03: Redis 不可用时使用本地内存兜底限流，防止暴力破解
+                $failCount = self::$localFailCache[$failKey] ?? 0;
             }
             if ($failCount >= $failLimit) {
                 $mins = 30;
@@ -184,7 +188,8 @@ class AdminService
                 Redis::expire($failKey, 1800);
             }
         } catch (\Throwable $e) {
-            // Redis 不可用时忽略
+            // V-03: Redis 不可用时用本地内存兜底计数
+            self::$localFailCache[$failKey] = (self::$localFailCache[$failKey] ?? 0) + 1;
         }
     }
 
@@ -199,7 +204,9 @@ class AdminService
         try {
             Redis::del($failKey);
         } catch (\Throwable $e) {
+            // V-03: Redis 不可用时清本地内存计数
         }
+        unset(self::$localFailCache[$failKey]);
     }
 
     /**
@@ -290,8 +297,9 @@ class AdminService
         if (trim($username) === '' || strlen($username) < 3 || strlen($username) > 64) {
             return ['success' => false, 'message' => '用户名长度需在 3-64 之间', 'id' => null];
         }
-        if (strlen($password) < 6 || strlen($password) > 64) {
-            return ['success' => false, 'message' => '密码长度需在 6-64 之间', 'id' => null];
+        $pwdCheck = self::validatePasswordStrength($password);
+        if (!$pwdCheck['valid']) {
+            return ['success' => false, 'message' => $pwdCheck['message'], 'id' => null];
         }
         if (!in_array($role, ['super_admin', 'admin'], true)) {
             return ['success' => false, 'message' => '角色无效，仅支持 super_admin/admin', 'id' => null];
@@ -472,8 +480,9 @@ class AdminService
         if (!password_verify($oldPassword, $admin['password_hash'])) {
             return ['success' => false, 'message' => '旧密码错误'];
         }
-        if (strlen($newPassword) < 6 || strlen($newPassword) > 64) {
-            return ['success' => false, 'message' => '新密码长度需在 6-64 之间'];
+        $pwdCheck = self::validatePasswordStrength($newPassword);
+        if (!$pwdCheck['valid']) {
+            return ['success' => false, 'message' => $pwdCheck['message']];
         }
         $hash = password_hash($newPassword, PASSWORD_BCRYPT);
         if ($hash === false) {
@@ -603,6 +612,46 @@ class AdminService
             return 0;
         }
         return (int)($row['cnt'] ?? 0);
+    }
+
+    /**
+     * V-04 密码强度校验
+     *
+     * 策略（可通过 .env PASSWORD_POLICY_STRICT 控制）：
+     *   - strict=1（默认）：至少 8 位，必须包含字母+数字，拒绝常见弱密码
+     *   - strict=0：仅要求 6-64 位长度（兼容旧行为）
+     *
+     * @param string $password 明文密码
+     * @return array ['valid' => bool, 'message' => string]
+     */
+    public static function validatePasswordStrength(string $password): array
+    {
+        $strict = (string)Config::env('PASSWORD_POLICY_STRICT', '1') === '1';
+
+        $minLen = $strict ? 8 : 6;
+        if (strlen($password) < $minLen) {
+            return ['valid' => false, 'message' => "密码长度至少 {$minLen} 位"];
+        }
+        if (strlen($password) > 64) {
+            return ['valid' => false, 'message' => '密码长度不能超过 64 位'];
+        }
+
+        if (!$strict) {
+            return ['valid' => true, 'message' => ''];
+        }
+
+        // 严格模式：必须包含字母+数字
+        if (!preg_match('/[a-zA-Z]/', $password) || !preg_match('/[0-9]/', $password)) {
+            return ['valid' => false, 'message' => '密码必须包含字母和数字'];
+        }
+
+        // 拒绝常见弱密码
+        $weak = ['12345678', 'password', '123456789', '11111111', '00000000', 'abc12345', 'qwerty12'];
+        if (in_array(strtolower($password), $weak, true)) {
+            return ['valid' => false, 'message' => '密码过于简单，请使用更复杂的密码'];
+        }
+
+        return ['valid' => true, 'message' => ''];
     }
 
     /**
