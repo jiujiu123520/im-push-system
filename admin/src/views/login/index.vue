@@ -175,7 +175,8 @@ const captchaLoading = ref(false) // 验证码加载中标志，加载失败后�
 const loading = ref(false)
 
 const form = reactive<LoginParams & { remember: boolean }>({
-  username: import.meta.env.DEV ? 'admin' : '',
+  // 支持从注册页跳转时预填用户名（query.username）
+  username: (route.query.username as string) || (import.meta.env.DEV ? 'admin' : ''),
   password: import.meta.env.DEV ? 'admin123' : '',
   captcha_token: '',
   captcha_input: '',

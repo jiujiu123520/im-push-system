@@ -180,7 +180,7 @@
           </div>
         </div>
         <template #footer>
-          <el-button type="primary" @click="handleSecurityConfirm">我已保存，去登录</el-button>
+          <el-button type="primary" @click="handleSecurityConfirm">我已保存，自动登录</el-button>
         </template>
       </el-dialog>
     </div>
@@ -201,6 +201,8 @@ import {
 } from '@element-plus/icons-vue'
 import { registerApi, sendCodeApi, getCaptchaApi } from '@/api/auth'
 import type { RegisterParams } from '@/api/types'
+import { setToken, removeToken } from '@/utils/auth'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
 const formRef = ref<FormInstance>()
@@ -381,6 +383,9 @@ async function handleRegister() {
     }
     const res = await registerApi(params)
     securityCode.value = res.data?.security_code || ''
+    // 保存注册返回的 token，用于安全码确认后自动登录
+    registeredToken.value = res.data?.token || ''
+    registeredUsername.value = form.username
     securityDialogVisible.value = true
     ElMessage.success('注册成功')
   } catch (err) {
@@ -393,6 +398,9 @@ async function handleRegister() {
 // 安全码展示对话框
 const securityDialogVisible = ref(false)
 const securityCode = ref('')
+// 注册成功后返回的 token 和用户名，用于自动登录
+const registeredToken = ref('')
+const registeredUsername = ref('')
 
 function copySecurityCode() {
   if (!navigator.clipboard) {
@@ -413,8 +421,33 @@ function handleSecurityConfirm() {
     '安全提示',
     { type: 'warning', confirmButtonText: '我已确认' }
   ).finally(() => {
-    router.push('/login')
+    // 自动登录：使用注册返回的 token 直接登录
+    autoLoginAfterRegister()
   })
+}
+
+// 注册成功后自动登录
+// 注册接口 /auth/register 返回的 token 是用户 token（type=user），
+// 管理后台 /admin/info 需要管理员 token（type=admin）。
+// 尝试用用户 token 访问后台，若失败则跳转登录页（用户名已预填）。
+async function autoLoginAfterRegister() {
+  if (registeredToken.value) {
+    setToken(registeredToken.value)
+    try {
+      // 尝试获取用户信息，验证 token 是否可用于后台
+      const userStore = useUserStore()
+      await userStore.getUserInfo()
+      // 成功：跳转到首页
+      ElMessage.success('登录成功')
+      router.replace('/')
+      return
+    } catch {
+      // token 不兼容后台（普通用户 token），清除并跳转登录页
+      removeToken()
+    }
+  }
+  // 跳转到登录页，并传递用户名用于预填
+  router.push({ path: '/login', query: { username: registeredUsername.value } })
 }
 
 function goLogin() {
