@@ -35,11 +35,56 @@
           <el-input
             v-model="form.password"
             type="password"
-            placeholder="6-64 位字符"
+            :placeholder="'至少 8 位，必须包含大小写字母和数字'"
             :prefix-icon="LockIcon"
             show-password
             clearable
           />
+          <!-- 密码规则实时提示 & 强度条 -->
+          <div v-if="form.password" class="password-rules">
+            <div class="password-strength" aria-label="密码强度">
+              <div
+                v-for="i in 4"
+                :key="i"
+                class="strength-bar"
+                :class="{ active: passwordStrength >= i, [strengthColorClass]: passwordStrength >= i }"
+              />
+            </div>
+            <div class="rule-list">
+              <div
+                class="rule-item"
+                :class="{ ok: form.password.length >= 8 && form.password.length <= 64 }"
+              >
+                <el-icon v-if="form.password.length >= 8 && form.password.length <= 64"><CircleCheckFilled /></el-icon>
+                <el-icon v-else><CircleCloseFilled /></el-icon>
+                <span>长度 8-64 位</span>
+              </div>
+              <div
+                class="rule-item"
+                :class="{ ok: /[a-z]/.test(form.password) }"
+              >
+                <el-icon v-if="/[a-z]/.test(form.password)"><CircleCheckFilled /></el-icon>
+                <el-icon v-else><CircleCloseFilled /></el-icon>
+                <span>包含小写字母</span>
+              </div>
+              <div
+                class="rule-item"
+                :class="{ ok: /[A-Z]/.test(form.password) }"
+              >
+                <el-icon v-if="/[A-Z]/.test(form.password)"><CircleCheckFilled /></el-icon>
+                <el-icon v-else><CircleCloseFilled /></el-icon>
+                <span>包含大写字母</span>
+              </div>
+              <div
+                class="rule-item"
+                :class="{ ok: /\d/.test(form.password) }"
+              >
+                <el-icon v-if="/\d/.test(form.password)"><CircleCheckFilled /></el-icon>
+                <el-icon v-else><CircleCloseFilled /></el-icon>
+                <span>包含数字</span>
+              </div>
+            </div>
+          </div>
         </el-form-item>
 
         <el-form-item prop="phone" label="手机号">
@@ -197,7 +242,9 @@ import {
   Phone as PhoneIcon,
   Message as MessageIcon,
   Key as KeyIcon,
-  CopyDocument as CopyIcon
+  CopyDocument as CopyIcon,
+  CircleCheckFilled,
+  CircleCloseFilled
 } from '@element-plus/icons-vue'
 import { registerApi, sendCodeApi, getCaptchaApi } from '@/api/auth'
 import type { RegisterParams } from '@/api/types'
@@ -238,6 +285,24 @@ const form = reactive<{
   codeInput: ''
 })
 
+// 密码强度：1=弱 2=中 3=强 4=很强
+const passwordStrength = computed(() => {
+  const pwd = form.password
+  if (!pwd) return 0
+  let score = 0
+  if (pwd.length >= 8) score++
+  if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) score++
+  if (/\d/.test(pwd)) score++
+  if (/[^a-zA-Z0-9]/.test(pwd) || pwd.length >= 14) score++
+  return score
+})
+const strengthColorClass = computed(() => {
+  if (passwordStrength.value <= 1) return 'weak'
+  if (passwordStrength.value === 2) return 'medium'
+  if (passwordStrength.value === 3) return 'strong'
+  return 'very-strong'
+})
+
 const rules = computed<FormRules>(() => ({
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
@@ -245,7 +310,20 @@ const rules = computed<FormRules>(() => ({
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, max: 64, message: '密码长度需在 6-64 之间', trigger: 'blur' }
+    // 前端严格校验：8位+大小写字母+数字（与后端 validatePasswordStrength 保持一致）
+    {
+      validator: (_rule, value, callback) => {
+        if (!value) return callback(new Error('请输入密码'))
+        if (value.length < 8 || value.length > 64) {
+          return callback(new Error('密码长度需在 8-64 之间'))
+        }
+        if (!/[a-z]/.test(value)) return callback(new Error('密码必须包含小写字母'))
+        if (!/[A-Z]/.test(value)) return callback(new Error('密码必须包含大写字母'))
+        if (!/\d/.test(value)) return callback(new Error('密码必须包含数字'))
+        callback()
+      },
+      trigger: 'blur'
+    }
   ],
   // 需要验证码时才强制必填
   codeInput: needCaptcha.value
@@ -632,6 +710,56 @@ onUnmounted(() => {
       margin-bottom: 16px;
     }
   }
+}
+
+/* ---------- 密码规则 & 强度条 ---------- */
+.password-rules {
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: rgba(109, 92, 255, 0.06);
+  border: 1px solid rgba(109, 92, 255, 0.18);
+  border-radius: 12px;
+
+  .password-strength {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-bottom: 10px;
+    .strength-bar {
+      height: 5px;
+      border-radius: 3px;
+      background: rgba(140, 145, 175, 0.25);
+      transition: all 0.25s;
+      &.active.weak        { background: #f56c6c; }
+      &.active.medium      { background: #e6a23c; }
+      &.active.strong      { background: #67c23a; }
+      &.active.very-strong { background: #409eff; }
+    }
+  }
+  .rule-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 14px;
+    .rule-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.5px;
+      color: #8a8fb0;
+      .el-icon { font-size: 13px; }
+      &.ok {
+        color: #67c23a;
+      }
+      &:not(.ok) {
+        color: #c0c4dc;
+      }
+    }
+  }
+}
+:global(html.dark) .password-rules {
+  background: rgba(109, 92, 255, 0.1);
+  border-color: rgba(109, 92, 255, 0.28);
+  .rule-list .rule-item:not(.ok) { color: #9aa0c3; }
 }
 
 @keyframes float {

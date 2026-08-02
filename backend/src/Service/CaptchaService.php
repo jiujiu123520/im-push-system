@@ -319,31 +319,44 @@ class CaptchaService
         } elseif ($type === 'email') {
             $key = self::KEY_EMAIL . $target;
         } else {
+            self::log($type, "[VERIFY] 未知类型: type={$type}");
             return false;
         }
 
         $encrypted = Redis::get($key);
-        // 校验后立即删除
+        // 校验后立即删除（无论成功失败都失效，防重放）
         Redis::del($key);
 
         if ($encrypted === null) {
+            self::log($type, "[VERIFY] 验证码不存在或已过期: target={$target}, input={$input}");
             return false;
         }
 
         $plain = Aes::decryptString($encrypted);
         if ($plain === null) {
+            self::log($type, "[VERIFY] AES解密失败: target={$target}, input={$input}");
             return false;
         }
 
         $data = json_decode($plain, true);
         if (!is_array($data) || empty($data['code']) || empty($data['expire'])) {
+            self::log($type, "[VERIFY] 数据格式错误: target={$target}, plain=" . substr($plain, 0, 128));
             return false;
         }
-        if (time() > (int)$data['expire']) {
+        $storedCode = (string)$data['code'];
+        $expireAt = (int)$data['expire'];
+        if (time() > $expireAt) {
+            self::log($type, "[VERIFY] 验证码已过期: target={$target}, expire=" . date('Y-m-d H:i:s', $expireAt) . ', input={$input}, stored={$storedCode}');
             return false;
         }
 
-        return hash_equals((string)$data['code'], $input);
+        $eq = hash_equals($storedCode, $input);
+        if (!$eq) {
+            self::log($type, "[VERIFY] 验证码不匹配: target={$target}, input={$input}, stored={$storedCode}");
+            return false;
+        }
+        self::log($type, "[VERIFY] 验证码校验通过: target={$target}, input={$input}");
+        return true;
     }
 
     /**
