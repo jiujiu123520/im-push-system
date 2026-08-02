@@ -250,10 +250,6 @@ class ApkDistributionService
         $row['admin_id'] = (int)$row['admin_id'];
         $row['download_count'] = (int)($row['download_count'] ?? 0);
         $row['apk_size_text'] = self::formatFileSize((int)$row['apk_size']);
-        if (empty($row['feijipan_url'] ?? '') && !empty($row['lanzou_url'] ?? '')) {
-            $row['feijipan_url'] = $row['lanzou_url'];
-            $row['feijipan_share_id'] = $row['lanzou_password'] ?? '';
-        }
         return $row;
     }
 
@@ -356,6 +352,7 @@ class ApkDistributionService
             if ($row !== false) {
                 $cfg = json_decode((string)$row['config_value'], true);
                 if (is_array($cfg)) {
+                    unset($cfg['lanzou_cookie'], $cfg['lanzou_url'], $cfg['lanzou_password']);
                     return array_merge($defaults, $cfg);
                 }
             }
