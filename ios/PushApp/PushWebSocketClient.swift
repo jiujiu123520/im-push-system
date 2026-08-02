@@ -61,8 +61,22 @@ class PushWebSocketClient: NSObject {
 
     func connect() {
         isManualDisconnect = false
-        guard let url = URL(string: "\(serverUrl)/ws") else {
-            print("[WebSocket] 无效的 URL: \(serverUrl)/ws")
+
+        // 将 HTTP(S) 协议转换为 WS(S) 协议
+        // 用户配置的 serverUrl 通常是 http:// 或 https://
+        // WebSocket 需要 ws:// 或 wss://
+        var wsUrl = serverUrl
+        if wsUrl.lowercased().hasPrefix("https://") {
+            wsUrl = "wss://" + String(wsUrl.dropFirst("https://".count))
+        } else if wsUrl.lowercased().hasPrefix("http://") {
+            wsUrl = "ws://" + String(wsUrl.dropFirst("http://".count))
+        } else if !wsUrl.lowercased().hasPrefix("ws://") && !wsUrl.lowercased().hasPrefix("wss://") {
+            // 没有协议前缀，默认使用 ws://
+            wsUrl = "ws://" + wsUrl
+        }
+
+        guard let url = URL(string: "\(wsUrl)/ws") else {
+            print("[WebSocket] 无效的 URL: \(wsUrl)/ws")
             onStateChange(.disconnected)
             return
         }

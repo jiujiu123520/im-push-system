@@ -198,7 +198,7 @@ struct SettingsView: View {
                         .keyboardType(.URL)
                         .autocapitalization(.none)
                         .textContentType(.URL)
-                        .placeholder("https://push.example.com")
+                        .prompt(Text("https://push.example.com").foregroundStyle(.tertiary))
 
                     SecureField("推送 Key", text: $pushKey)
                         .autocapitalization(.none)
@@ -291,20 +291,6 @@ struct InfoRow: View {
                 .font(.system(.body, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.middle)
-        }
-    }
-}
-
-// MARK: - TextField Placeholder 扩展
-
-extension View {
-    func placeholder(_ text: String, when shouldShow: Bool = true) -> some View {
-        ZStack(alignment: .leading) {
-            if shouldShow {
-                Text(text)
-                    .foregroundStyle(.tertiary)
-            }
-            self
         }
     }
 }
