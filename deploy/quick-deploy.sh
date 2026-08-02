@@ -21,7 +21,6 @@
 # ============================================================
 
 set -e
-
 # ------------------------------------------------------------
 # 跨系统：依赖检查（bash/mysql/git/curl）
 # ------------------------------------------------------------
@@ -587,24 +586,16 @@ EOF
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='devices' AND COLUMN_NAME='platform'),1,0);"
         record_if_applied "013_push_logs_extend.sql" \
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='push_logs' AND COLUMN_NAME='fail_reason'),1,0);"
+        record_if_applied "014_apk_download_logs.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='apk_download_logs'),1,0);"
+        record_if_applied "015_apk_distribution_feijii.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='apk_distributions' AND COLUMN_NAME='feijipan_url'),1,0);"
+        record_if_applied "016_apk_feijii_direct_url.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='apk_distributions' AND COLUMN_NAME='feijipan_fetch_count'),1,0);"
+        record_if_applied "017_drop_lanzou_fields.sql" \
+            "SELECT IF(NOT EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='apk_distributions' AND COLUMN_NAME='lanzou_url'),1,0);"
 
         APPLIED_COUNT=0
-        record_if_applied "014_apk_download_logs.sql" \
-            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='
-''
-' AND TABLE_NAME='apk_download_logs'),1,0);"
-        record_if_applied "015_apk_distribution_feijii.sql" \
-            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='
-''
-' AND TABLE_NAME='apk_distributions' AND COLUMN_NAME='feijipan_url'),1,0);"
-        record_if_applied "016_apk_feijii_direct_url.sql" \
-            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='
-        record_if_applied "017_drop_lanzou_fields.sql" \
-            "SELECT IF(NOT EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='
-''
-' AND TABLE_NAME='apk_distributions' AND COLUMN_NAME='lanzou_url'),1,0);"
-''
-' AND TABLE_NAME='apk_distributions' AND COLUMN_NAME='feijipan_fetch_count'),1,0);"
         SKIPPED_COUNT=0
 
         # 按文件名顺序执行迁移（使用数组避免空格问题）
