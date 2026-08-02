@@ -38,6 +38,7 @@ class UserService
         string $codeInput
     ): array {
         $fail = ['success' => false, 'message' => '', 'user_id' => null, 'token' => null, 'user' => null, 'security_code' => null];
+        self::logRegister("START  username={$username} phone={$phone} email={$email} codeType={$codeType} codeTarget={$codeTarget} codeInputLen=" . strlen($codeInput));
 
         // 1. 校验验证码（受系统设置 captcha.enabled 控制，默认开启）
         // 支持两种验证码方式：
@@ -45,81 +46,106 @@ class UserService
         //   b) 短信/邮箱验证码（codeType='sms'/'email'）：codeTarget=手机号/邮箱，codeInput=收到的验证码
         // 短信和邮箱验证码分别受 smsEnabled 和 emailEnabled 独立开关控制
         $codeTypeLower = strtolower($codeType);
-        if ($codeTypeLower !== '' && self::isCaptchaTypeEnabled($codeTypeLower)) {
+        $captchaEnabled = $codeTypeLower !== '' && self::isCaptchaTypeEnabled($codeTypeLower);
+        self::logRegister("STEP1  codeTypeLower={$codeTypeLower} captchaEnabled=" . ($captchaEnabled ? 'yes' : 'no') . " captcha.settings.enabled=" . (self::isCaptchaEnabled() ? 'yes' : 'no'));
+        if ($captchaEnabled) {
             if ($codeTypeLower === 'captcha') {
                 // 图形验证码模式：codeTarget 是验证码 token，codeInput 是图形码
                 if (!CaptchaService::verifyImageCaptcha($codeTarget, $codeInput)) {
-                    $fail['message'] = '验证码错误或已过期';
+                    $fail['message'] = '图形验证码错误或已过期';
+                    self::logRegister("FAIL1a imageCaptchaVerifyFailed codeTarget={$codeTarget} codeInput={$codeInput}");
                     return $fail;
                 }
+                self::logRegister("STEP1a imageCaptchaVerifyOK");
             } else {
                 // 短信/邮箱验证码模式
-                if (!CaptchaService::verifyCode($codeType, $codeTarget, $codeInput)) {
+                $verifyResult = CaptchaService::verifyCode($codeType, $codeTarget, $codeInput);
+                if (!$verifyResult) {
                     $fail['message'] = '验证码错误或已过期';
+                    self::logRegister("FAIL1b sms/emailCaptchaVerifyFailed codeType={$codeType} codeTarget={$codeTarget} codeInput={$codeInput}");
                     return $fail;
                 }
+                self::logRegister("STEP1b sms/emailCaptchaVerifyOK codeType={$codeType}");
 
                 // 2. 校验验证码目标与注册信息一致（防绕过）
                 $expectedTarget = $codeTypeLower === 'sms' ? $phone : $email;
                 if ($codeTarget !== $expectedTarget) {
                     $fail['message'] = '验证码目标与注册信息不匹配';
+                    self::logRegister("FAIL2  targetMismatch codeTarget={$codeTarget} expected={$expectedTarget}");
                     return $fail;
                 }
+                self::logRegister("STEP2  targetMatchOK");
             }
+        } else {
+            self::logRegister("STEP1  captchaSkipped");
         }
 
         // 3. 参数基础校验
         if (trim($username) === '' || strlen($username) < 3 || strlen($username) > 64) {
             $fail['message'] = '用户名长度需在 3-64 之间';
+            self::logRegister("FAIL3  usernameInvalid len=" . strlen($username));
             return $fail;
         }
         $pwdCheck = AdminService::validatePasswordStrength($password);
         if (!$pwdCheck['valid']) {
             $fail['message'] = $pwdCheck['message'];
+            self::logRegister("FAIL3  passwordWeak: " . $pwdCheck['message']);
             return $fail;
         }
         // 手机号和邮箱至少填写一项，格式校验仅对已填写的字段生效
         if ($phone === '' && $email === '') {
             $fail['message'] = '手机号与邮箱至少填写一项';
+            self::logRegister("FAIL3  bothPhoneEmailEmpty");
             return $fail;
         }
         if ($phone !== '' && !preg_match('/^1[3-9]\d{9}$/', $phone)) {
             $fail['message'] = '手机号格式不正确';
+            self::logRegister("FAIL3  phoneFormatInvalid phone={$phone}");
             return $fail;
         }
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $fail['message'] = '邮箱格式不正确';
+            self::logRegister("FAIL3  emailFormatInvalid email={$email}");
             return $fail;
         }
+        self::logRegister("STEP3  paramsOK");
 
         // 4. 校验唯一性
         if (self::findByUsername($username) !== null) {
             $fail['message'] = '用户名已被占用';
+            self::logRegister("FAIL4  usernameDuplicate {$username}");
             return $fail;
         }
         if ($phone !== '' && self::findByPhone($phone) !== null) {
             $fail['message'] = '手机号已注册';
+            self::logRegister("FAIL4  phoneDuplicate {$phone}");
             return $fail;
         }
         if ($email !== '' && self::findByEmail($email) !== null) {
             $fail['message'] = '邮箱已注册';
+            self::logRegister("FAIL4  emailDuplicate {$email}");
             return $fail;
         }
+        self::logRegister("STEP4  uniquenessOK");
 
         // 5. 密码 bcrypt 哈希
         $hash = password_hash($password, PASSWORD_BCRYPT);
         if ($hash === false) {
             $fail['message'] = '密码加密失败';
+            self::logRegister("FAIL5  passwordHashFailed");
             return $fail;
         }
+        self::logRegister("STEP5  passwordHashOK");
 
         // 6. 生成 8 位安全码（非简单数字），并哈希存储
         $securityCode = self::generateSecurityCode();
         $securityCodeHash = password_hash($securityCode, PASSWORD_BCRYPT);
         if ($securityCodeHash === false) {
             $fail['message'] = '安全码加密失败';
+            self::logRegister("FAIL6  securityCodeHashFailed");
             return $fail;
         }
+        self::logRegister("STEP6  securityCodeHashOK");
 
         // 7. 写入数据库
         $now = date('Y-m-d H:i:s');
@@ -133,15 +159,24 @@ class UserService
             );
         } catch (\Throwable $e) {
             $fail['message'] = '注册失败：' . $e->getMessage();
+            self::logRegister("FAIL7  dbInsertError: " . $e->getMessage());
             return $fail;
         }
+        self::logRegister("STEP7  dbInsertOK userId={$userId}");
 
         // 8. 自动登录：签发 JWT Token
-        $token = Jwt::issue([
-            'user_id'  => (int)$userId,
-            'username' => $username,
-            'type'     => 'user',
-        ]);
+        try {
+            $token = Jwt::issue([
+                'user_id'  => (int)$userId,
+                'username' => $username,
+                'type'     => 'user',
+            ]);
+        } catch (\Throwable $e) {
+            $fail['message'] = 'JWT签发失败：' . $e->getMessage();
+            self::logRegister("FAIL8  jwtIssueError: " . $e->getMessage());
+            return $fail;
+        }
+        self::logRegister("STEP8  jwtIssueOK tokenLen=" . strlen($token));
 
         $userInfo = [
             'id'         => (int)$userId,
@@ -152,7 +187,7 @@ class UserService
             'created_at' => $now,
         ];
 
-        return [
+        $result = [
             'success'       => true,
             'message'       => '注册成功',
             'user_id'       => (int)$userId,
@@ -160,6 +195,21 @@ class UserService
             'user'          => $userInfo,
             'security_code' => $securityCode,
         ];
+        self::logRegister("SUCCESS  user_id={$userId} username={$username} securityCodeLen=8");
+        return $result;
+    }
+
+    /**
+     * 记录注册日志到 runtime/logs/register.log（便于排查注册失败原因）
+     */
+    private static function logRegister(string $message): void
+    {
+        $dir = dirname(__DIR__, 2) . '/runtime/logs';
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0777, true);
+        }
+        $line = '[' . date('Y-m-d H:i:s') . "] [REGISTER] {$message}" . PHP_EOL;
+        @file_put_contents($dir . '/register.log', $line, FILE_APPEND);
     }
 
     /**

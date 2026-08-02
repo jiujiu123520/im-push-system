@@ -431,9 +431,14 @@
               </el-input>
             </el-form-item>
           </div>
-          <el-form-item label="发件人地址" prop="mailFrom">
-            <el-input v-model="captchaForm.mailFrom" placeholder="Push 推送服务 <noreply@push.com>" clearable />
-          </el-form-item>
+          <div class="form-row">
+            <el-form-item label="发件人名称" prop="mailSenderName">
+              <el-input v-model="captchaForm.mailSenderName" placeholder="Push 推送服务" clearable />
+            </el-form-item>
+            <el-form-item label="发件人邮箱" prop="mailFrom">
+              <el-input v-model="captchaForm.mailFrom" placeholder="noreply@push.com" clearable />
+            </el-form-item>
+          </div>
 
           <div class="form-actions">
             <el-button
@@ -1337,14 +1342,16 @@ const captchaForm = reactive({
   mailPort: 465,
   mailUsername: '',
   mailPassword: '',
-  mailFrom: ''
+  mailFrom: '',
+  mailSenderName: ''
 })
 const captchaRules: FormRules = {
   mailHost: [{ required: true, message: '请输入 SMTP 主机', trigger: 'blur' }],
   mailPort: [{ required: true, message: '请输入端口', trigger: 'blur' }],
   mailUsername: [{ required: true, message: '请输入账号', trigger: 'blur' }],
+  mailSenderName: [{ required: true, message: '请输入发件人名称', trigger: 'blur' }],
   mailFrom: [
-    { required: true, message: '请输入发件人', trigger: 'blur' },
+    { required: true, message: '请输入发件人邮箱', trigger: 'blur' },
     { type: 'email', message: '邮箱格式不正确', trigger: 'blur' }
   ]
 }

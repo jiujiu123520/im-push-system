@@ -255,8 +255,9 @@ class CaptchaService
         $mailUser = (string)($settings['mailUsername'] ?? '') ?: (string)Config::env('MAIL_USERNAME', '');
         $mailPass = (string)($settings['mailPassword'] ?? '') ?: (string)Config::env('MAIL_PASSWORD', '');
         $mailPort = (int)(($settings['mailPort'] ?? '') ?: Config::env('MAIL_PORT', 587));
-        $mailFrom = (string)($settings['mailFrom'] ?? '') ?: (string)Config::env('MAIL_SENDER_NAME', 'IM Push System');
-        $mailName = $mailFrom;
+        // 发件人显示名称：优先 mailSenderName（新字段），回退 mailFrom，最后回退 .env MAIL_SENDER_NAME
+        $mailName = (string)($settings['mailSenderName'] ?? '')
+            ?: ((string)($settings['mailFrom'] ?? '') ?: (string)Config::env('MAIL_SENDER_NAME', 'IM Push System'));
         // 加密方式：后台显式配置 > .env > 根据端口自动推断（465=ssl, 587=tls）
         $mailEnc  = strtolower((string)($settings['mailEncryption'] ?? ''));
         if ($mailEnc === '') {
