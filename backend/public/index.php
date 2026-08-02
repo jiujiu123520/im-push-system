@@ -299,6 +299,9 @@ $router->put('/admin/keys/{id}/subscribers/{device_id}/repair', [\App\Controller
         // APP 端设备历史消息查询（无需鉴权，通过 push_key + device_id）
         $router->get('/api/device/messages',      [\App\Controller\DeviceApiController::class, 'messages']);
 
+        // APP 端上报 iOS APNS device token（无需鉴权，通过 push_key + device_id）
+        $router->post('/api/device/register-token', [\App\Controller\DeviceApiController::class, 'registerToken']);
+
         // ============================================================
         // 系统设置（管理员鉴权）
         // ============================================================
@@ -312,6 +315,11 @@ $router->put('/admin/keys/{id}/subscribers/{device_id}/repair', [\App\Controller
         $router->get('/admin/settings/check-version',      [\App\Controller\SettingsController::class, 'checkVersion']);
         $router->post('/admin/settings/system-update',     [\App\Controller\SettingsController::class, 'systemUpdate']);
         $router->get('/admin/settings/update-progress/{taskId}', [\App\Controller\SettingsController::class, 'getUpdateProgress']);
+        $router->get('/admin/settings/apns',               [\App\Controller\SettingsController::class, 'getApnsConfig']);
+        $router->post('/admin/settings/apns',              [\App\Controller\SettingsController::class, 'saveApnsConfig']);
+        $router->post('/admin/settings/apns/test',         [\App\Controller\SettingsController::class, 'testApnsPush']);
+        $router->get('/admin/settings/apns/health',        [\App\Controller\SettingsController::class, 'getApnsHealth']);
+        $router->post('/admin/settings/apns/reset-circuit',[\App\Controller\SettingsController::class, 'resetApnsCircuit']);
 
         // ============================================================
         // 域名绑定与 SSL 证书管理（管理员鉴权）

@@ -137,3 +137,34 @@ export function getUpdateProgressApi(taskId: string) {
     logs: string[]
   }>(`/admin/settings/update-progress/${taskId}`)
 }
+
+// ==================== iOS APNS 推送配置 ====================
+
+// APNS 配置
+export interface ApnsConfig {
+  enabled: boolean
+  team_id: string
+  key_id: string
+  auth_key: string
+  bundle_id: string
+  environment: 'production' | 'development'
+}
+
+// 获取 APNS 配置
+export function getApnsConfigApi() {
+  return get<ApnsConfig>('/admin/settings/apns')
+}
+
+// 保存 APNS 配置
+export function saveApnsConfigApi(data: ApnsConfig) {
+  return post<{ message: string }>('/admin/settings/apns', data)
+}
+
+// 测试 APNS 推送
+export function testApnsPushApi(data: {
+  device_token: string
+  title?: string
+  body?: string
+}) {
+  return post<{ message: string; apns_id: string }>('/admin/settings/apns/test', data)
+}

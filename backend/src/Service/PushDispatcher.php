@@ -105,7 +105,14 @@ class PushDispatcher
         $this->logPush("[pushToDevice·{$ctx}] 查询在线 fd device_id={$deviceId} msg_id={$msgId} fds=" . json_encode($fds));
 
         if (empty($fds)) {
-            // 设备离线，存离线消息
+            // 设备 WebSocket 离线，尝试 APNS 通道（iOS 设备后台/被杀时）
+            $apnsResult = $this->tryApnsPush($deviceId, $message);
+            if ($apnsResult !== null) {
+                // APNS 已处理（无论成功失败），不再存离线
+                return $apnsResult;
+            }
+
+            // 非 iOS 设备或 APNS 未配置，存离线消息
             $this->storeOfflineMessage($deviceId, $message);
             $this->logPush("[pushToDevice·{$ctx}] 设备离线，已存离线 device_id={$deviceId} msg_id={$msgId}");
             $reason = '设备离线，APP未连接或已断开（消息已存为离线，设备重连后可拉取）';
@@ -219,10 +226,15 @@ class PushDispatcher
             }
             foreach ($deviceIds as $deviceId) {
                 $this->storeMessage($deviceId, $message);
-                $this->storeOfflineMessage($deviceId, $message);
+                // 尝试 APNS 通道（iOS 设备），失败则存离线
+                $apnsResult = $this->tryApnsPush($deviceId, $message);
+                if ($apnsResult === null) {
+                    // 非 iOS 设备或 APNS 未配置，存离线
+                    $this->storeOfflineMessage($deviceId, $message);
+                }
             }
-            $this->logPush("[pushByKey] 所有设备离线，已存离线 key={$keyValue} devices=" . count($deviceIds) . " msg_id={$message['message_id']}");
-            $reason = '所有设备离线（共' . count($deviceIds) . '台），APP未连接或已断开，消息已存为离线';
+            $this->logPush("[pushByKey] 所有设备离线，已处理 key={$keyValue} devices=" . count($deviceIds) . " msg_id={$message['message_id']}");
+            $reason = '所有设备离线（共' . count($deviceIds) . '台），iOS设备已走APNS，其他设备已存离线';
             return [
                 'success_count'  => 0,
                 'fail_count'     => count($deviceIds),
@@ -252,6 +264,150 @@ class PushDispatcher
         $this->logPush("[pushByKey] 在线设备 fds=" . json_encode($fds) . " key={$keyValue} msg_id={$message['message_id']}");
 
         return $this->pushToFds($fds, $message, $deviceIdStr, $keyValue);
+    }
+
+    /**
+     * 尝试通过 APNS 推送给 iOS 设备（WebSocket 离线时的兜底通道）
+     *
+     * 逻辑：
+     *   1. 查询设备是否有有效的 apns_token（apns_active=1）
+     *   2. 有则调用 ApnsService::send 发送 APNS 推送
+     *   3. 返回推送结果数组（成功或失败）
+     *   4. 如果设备不是 iOS 或没有 apns_token，返回 null（调用方应存离线）
+     *
+     * @param string $deviceId
+     * @param array  $message
+     * @return array|null 推送结果数组，null 表示不适用 APNS（应走离线）
+     */
+    private function tryApnsPush(string $deviceId, array $message): ?array
+    {
+        try {
+            $row = Database::fetch(
+                'SELECT platform, apns_token, apns_active, apns_bundle_id
+                 FROM devices
+                 WHERE device_id = ?
+                 ORDER BY id DESC
+                 LIMIT 1',
+                [$deviceId]
+            );
+        } catch (\Throwable $e) {
+            $this->logPush("[tryApnsPush] 查询设备信息失败 device_id={$deviceId} error=" . $e->getMessage());
+            return null;
+        }
+
+        // 设备不存在或非 iOS 或 APNS 未激活
+        if ($row === false) return null;
+        $platform = (string)($row['platform'] ?? '');
+        $apnsToken = (string)($row['apns_token'] ?? '');
+        $apnsActive = (int)($row['apns_active'] ?? 0);
+
+        if ($platform !== 'ios') return null;
+        if ($apnsActive !== 1 || $apnsToken === '') return null;
+
+        // 调用 APNS 发送
+        $title   = (string)($message['title'] ?? '');
+        $content = (string)($message['content'] ?? '');
+        $msgId   = $message['message_id'] ?? '';
+        $payload = [];
+        // 将消息 ID 放入 payload，客户端可据此去重
+        if ($msgId !== '') {
+            $payload['message_id'] = $msgId;
+        }
+        // 透传自定义 payload
+        if (isset($message['payload']) && is_array($message['payload'])) {
+            $payload['data'] = $message['payload'];
+        }
+
+        $this->logPush("[tryApnsPush] 通过 APNS 推送 device_id={$deviceId} msg_id={$msgId}");
+
+        // 告警合并：将告警加入聚合窗口，由 AlertAggregator 决定是否立即发送
+        // 30 秒窗口内的多条告警合并为 1 条汇总推送，使用 collapse-id 防刷屏
+        // 这是防 APNS DoS 风控的最有效措施
+        $aggResult = \App\Service\AlertAggregator::add($deviceId, $apnsToken, $title, $content, $payload);
+
+        if ($aggResult['aggregated'] && !$aggResult['flushed']) {
+            // 告警已暂存在聚合窗口，等待窗口结束后合并发送
+            $this->logPush("[tryApnsPush] 告警已聚合（窗口内第 {$aggResult['count']} 条），等待合并发送 device_id={$deviceId} msg_id={$msgId}");
+            return [
+                'success_count'  => 0,
+                'fail_count'     => 0,
+                'stored_offline' => true,  // 标记为已处理（离线消息已存，聚合窗口也暂存了）
+                'detail'         => [
+                    [
+                        'device_id' => $deviceId,
+                        'status'    => 'aggregated',
+                        'message'   => '告警已聚合（窗口内第 ' . $aggResult['count'] . ' 条），将合并发送',
+                        'count'     => $aggResult['count'],
+                    ],
+                ],
+                'fail_detail' => [],
+                'fail_reason' => '',
+            ];
+        }
+
+        // 聚合器已触发 flush（窗口到期或达到阈值），汇总推送已发送
+        // 或者聚合失败降级为直接发送
+        if ($aggResult['flushed']) {
+            // 聚合器内部已调用 ApnsService::send 发送汇总推送
+            // 这里返回成功结果（实际推送结果由聚合器内部处理）
+            $this->logPush("[tryApnsPush] 告警合并发送完成（合并 {$aggResult['count']} 条）device_id={$deviceId} msg_id={$msgId}");
+            return [
+                'success_count'  => 1,
+                'fail_count'     => 0,
+                'stored_offline' => false,
+                'detail'         => [
+                    [
+                        'device_id' => $deviceId,
+                        'status'    => 'apns_aggregated',
+                        'message'   => 'APNS 汇总推送已发送（合并 ' . $aggResult['count'] . ' 条告警）',
+                    ],
+                ],
+                'fail_detail' => [],
+                'fail_reason' => '',
+            ];
+        }
+
+        // 聚合失败，降级为直接发送单条推送
+        $result = \App\Service\ApnsService::send($apnsToken, $title, $content, $payload);
+
+        if ($result['success']) {
+            $this->logPush("[tryApnsPush] APNS 推送成功 device_id={$deviceId} msg_id={$msgId} apns_id=" . ($result['apns_id'] ?? ''));
+            return [
+                'success_count'  => 1,
+                'fail_count'     => 0,
+                'stored_offline' => false,
+                'detail'         => [
+                    [
+                        'device_id' => $deviceId,
+                        'status'    => 'apns_success',
+                        'message'   => 'APNS 推送成功',
+                        'apns_id'   => $result['apns_id'] ?? '',
+                    ],
+                ],
+                'fail_detail' => [],
+                'fail_reason' => '',
+            ];
+        }
+
+        // APNS 失败：token 失效/限流/熔断等由 ApnsService 内部统一处理
+        // 这里只负责存离线消息作为兜底（设备重新打开 APP 时可拉取）
+        $this->logPush("[tryApnsPush] APNS 推送失败 device_id={$deviceId} msg_id={$msgId} reason=" . $result['message']);
+        $this->storeOfflineMessage($deviceId, $message);
+
+        return [
+            'success_count'  => 0,
+            'fail_count'     => 1,
+            'stored_offline' => true,
+            'detail'         => [
+                [
+                    'device_id' => $deviceId,
+                    'status'    => 'apns_failed',
+                    'message'   => 'APNS 推送失败：' . $result['message'] . '（已存离线兜底）',
+                ],
+            ],
+            'fail_detail' => [['target' => $deviceId, 'reason' => $result['message']]],
+            'fail_reason' => 'APNS 推送失败：' . $result['message'],
+        ];
     }
 
     /**

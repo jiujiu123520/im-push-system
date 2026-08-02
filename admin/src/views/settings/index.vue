@@ -826,6 +826,128 @@
         </el-form>
       </div>
 
+      <!-- d2) iOS APNS 推送配置 -->
+      <div class="setting-card apns-config-card">
+        <div class="card-head">
+          <div class="head-icon icon-apns">
+            <el-icon><IphoneIcon /></el-icon>
+          </div>
+          <div class="head-text">
+            <h3 class="card-title">iOS APNS 推送配置</h3>
+            <p class="card-sub">Apple Push Notification Service - iOS 后台推送通道</p>
+          </div>
+          <el-switch v-model="apnsForm.enabled" />
+        </div>
+
+        <el-form
+          ref="apnsFormRef"
+          :model="apnsForm"
+          label-width="120px"
+          label-position="right"
+        >
+          <el-form-item label="启用 APNS">
+            <el-switch v-model="apnsForm.enabled" />
+            <span class="form-hint">启用后，iOS 设备后台/被杀时通过 APNS 接收推送</span>
+          </el-form-item>
+
+          <el-form-item label="运行环境">
+            <el-radio-group v-model="apnsForm.environment">
+              <el-radio value="production">生产环境</el-radio>
+              <el-radio value="development">开发环境</el-radio>
+            </el-radio-group>
+            <div class="form-hint">
+              App Store 上架用生产环境；Xcode 调试用开发环境（需用开发证书）
+            </div>
+          </el-form-item>
+
+          <el-form-item label="Team ID">
+            <el-input
+              v-model="apnsForm.team_id"
+              placeholder="Apple Developer Team ID（10位字母数字）"
+              maxlength="10"
+            />
+            <div class="form-hint">在 Apple Developer 后台 → Membership 页查看</div>
+          </el-form-item>
+
+          <el-form-item label="Key ID">
+            <el-input
+              v-model="apnsForm.key_id"
+              placeholder="APNS Auth Key ID（10位）"
+              maxlength="10"
+            />
+            <div class="form-hint">在 Certificates, Identifiers &amp; Profiles → Keys 页查看</div>
+          </el-form-item>
+
+          <el-form-item label="Bundle ID">
+            <el-input
+              v-model="apnsForm.bundle_id"
+              placeholder="如 com.example.pushapp"
+            />
+            <div class="form-hint">iOS APP 的 Bundle Identifier，需与 Xcode 中一致</div>
+          </el-form-item>
+
+          <el-form-item label=".p8 私钥">
+            <el-input
+              v-model="apnsForm.auth_key"
+              type="textarea"
+              :rows="6"
+              placeholder="将 .p8 文件内容粘贴到这里（含 -----BEGIN PRIVATE KEY----- 和 -----END PRIVATE KEY-----）"
+              :show-password="apnsForm.auth_key !== '******'"
+            />
+            <div class="form-hint">
+              在 Apple Developer → Keys 页创建 Auth Key 后下载 .p8 文件，用文本编辑器打开粘贴
+            </div>
+            <div v-if="apnsForm.auth_key === '******'" class="auth-key-hint">
+              <el-icon><CircleCheckIcon /></el-icon>
+              已配置私钥（保存时不修改则保持原值）
+            </div>
+          </el-form-item>
+
+          <el-form-item>
+            <el-button
+              type="primary"
+              :loading="saving.apns"
+              @click="saveApnsConfig"
+            >
+              保存配置
+            </el-button>
+          </el-form-item>
+        </el-form>
+
+        <!-- 测试推送 -->
+        <el-divider content-position="left">测试推送</el-divider>
+        <el-form label-width="120px" label-position="right">
+          <el-form-item label="设备 Token">
+            <el-input
+              v-model="apnsForm.testToken"
+              placeholder="iOS APP 上报的 APNS device token（十六进制字符串）"
+            />
+            <div class="form-hint">在设备列表页查看 iOS 设备的 APNS Token</div>
+          </el-form-item>
+          <el-form-item label="推送标题">
+            <el-input v-model="apnsForm.testTitle" placeholder="测试推送（留空使用默认）" />
+          </el-form-item>
+          <el-form-item label="推送内容">
+            <el-input
+              v-model="apnsForm.testBody"
+              type="textarea"
+              :rows="2"
+              placeholder="这是一条来自推送系统的测试消息（留空使用默认）"
+            />
+          </el-form-item>
+          <el-form-item>
+            <el-button
+              type="success"
+              :loading="testing.apns"
+              :disabled="!apnsForm.enabled || !apnsForm.testToken"
+              @click="testApnsPush"
+            >
+              发送测试推送
+            </el-button>
+          </el-form-item>
+        </el-form>
+      </div>
+
       <!-- e) 系统信息（只读） -->
       <div class="setting-card system-info-card" v-loading="systemInfoLoading">
         <div class="card-head">
@@ -1025,7 +1147,8 @@ import {
   Upload as UploadIcon,
   Download as DownloadIcon,
   CircleCheck as CircleCheckIcon,
-  CircleClose as CircleCloseIcon
+  CircleClose as CircleCloseIcon,
+  Iphone as IphoneIcon
 } from '@element-plus/icons-vue'
 import {
   getSettingsApi,
@@ -1037,7 +1160,10 @@ import {
   getSystemInfoApi,
   checkVersionApi,
   systemUpdateApi,
-  getUpdateProgressApi
+  getUpdateProgressApi,
+  getApnsConfigApi,
+  saveApnsConfigApi,
+  testApnsPushApi
 } from '@/api/settings'
 import { concurrentTestPushApi } from '@/api/push'
 import type { ConcurrentTestResult } from '@/api/types'
@@ -1168,6 +1294,20 @@ const mailForm = reactive({
   encryption: 'tls',
   sender_name: '',
   testEmail: ''
+})
+
+// ---- iOS APNS 推送配置 ----
+const apnsFormRef = ref<FormInstance>()
+const apnsForm = reactive({
+  enabled: false,
+  team_id: '',
+  key_id: '',
+  auth_key: '',
+  bundle_id: '',
+  environment: 'production' as 'production' | 'development',
+  testToken: '',
+  testTitle: '',
+  testBody: ''
 })
 
 // 密码切换显示
@@ -1389,12 +1529,14 @@ const saving = reactive({
   push: false,
   captcha: false,
   mail: false,
-  security: false
+  security: false,
+  apns: false
 })
 const testing = reactive({
   mail: false,
   mailNotify: false,
-  concurrent: false
+  concurrent: false,
+  apns: false
 })
 
 // ---- 并发压测推送 ----
@@ -1641,6 +1783,67 @@ async function fetchMailConfig() {
   }
 }
 
+// 加载 APNS 配置
+async function fetchApnsConfig() {
+  try {
+    const res = await getApnsConfigApi()
+    const config = res.data
+    apnsForm.enabled = config.enabled
+    apnsForm.team_id = config.team_id || ''
+    apnsForm.key_id = config.key_id || ''
+    apnsForm.auth_key = config.auth_key || ''
+    apnsForm.bundle_id = config.bundle_id || ''
+    apnsForm.environment = config.environment || 'production'
+  } catch {
+    // 使用默认值
+  }
+}
+
+// 保存 APNS 配置
+async function saveApnsConfig() {
+  saving.apns = true
+  try {
+    await saveApnsConfigApi({
+      enabled: apnsForm.enabled,
+      team_id: apnsForm.team_id,
+      key_id: apnsForm.key_id,
+      auth_key: apnsForm.auth_key,
+      bundle_id: apnsForm.bundle_id,
+      environment: apnsForm.environment
+    })
+    ElMessage.success('APNS 配置保存成功')
+    // 保存后将 auth_key 重置为脱敏值
+    if (apnsForm.auth_key && apnsForm.auth_key !== '******') {
+      apnsForm.auth_key = '******'
+    }
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '保存失败')
+  } finally {
+    saving.apns = false
+  }
+}
+
+// 测试 APNS 推送
+async function testApnsPush() {
+  if (!apnsForm.testToken) {
+    ElMessage.warning('请输入测试设备的 APNS Token')
+    return
+  }
+  testing.apns = true
+  try {
+    const res = await testApnsPushApi({
+      device_token: apnsForm.testToken,
+      title: apnsForm.testTitle || undefined,
+      body: apnsForm.testBody || undefined
+    })
+    ElMessage.success(res.data?.message || '测试推送发送成功')
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '测试推送失败')
+  } finally {
+    testing.apns = false
+  }
+}
+
 // 保存各个分组
 async function saveSection(section: 'server' | 'push' | 'captcha' | 'security') {
   const formRefMap = {
@@ -1767,6 +1970,7 @@ async function testMail() {
 onMounted(async () => {
   await fetchSettings()
   fetchMailConfig()
+  fetchApnsConfig()
   fetchSystemInfo()
   // 加载完成后对已配置的端口做一次可用性检测
   if (serverForm.frontendPort && serverForm.frontendPort > 0) {
@@ -2174,6 +2378,10 @@ onUnmounted(() => {
     &.icon-mail {
       background: $gradient-warm;
       box-shadow: 0 6px 18px rgba(255, 181, 71, 0.32);
+    }
+    &.icon-apns {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      box-shadow: 0 6px 18px rgba(118, 75, 162, 0.32);
     }
   }
 
@@ -2678,6 +2886,29 @@ onUnmounted(() => {
     .progress-logs {
       background: rgba(0, 0, 0, 0.2);
     }
+  }
+}
+
+// ===== APNS 配置卡片 =====
+.apns-config-card {
+  .form-hint {
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+    line-height: 1.5;
+    margin-top: 4px;
+  }
+
+  .auth-key-hint {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 8px;
+    padding: 6px 12px;
+    background: rgba(24, 194, 156, 0.1);
+    border: 1px solid rgba(24, 194, 156, 0.3);
+    border-radius: 6px;
+    font-size: 12px;
+    color: #18c29c;
   }
 }
 </style>

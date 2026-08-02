@@ -21,6 +21,9 @@ use App\Service\Response;
  *   GET  /admin/settings/check-version      版本检测
  *   POST /admin/settings/system-update       一键更新
  *   GET  /admin/settings/update-progress/{taskId}  查询更新进度
+ *   GET  /admin/settings/apns               获取 APNS 配置
+ *   POST /admin/settings/apns               保存 APNS 配置
+ *   POST /admin/settings/apns/test          测试 APNS 推送
  */
 class SettingsController
 {
@@ -788,6 +791,190 @@ class SettingsController
             'message'  => $progressData['message'] ?? '',
             'logs'     => $logs,
         ];
+    }
+
+    /**
+     * 获取 APNS 配置
+     * 路由：GET /admin/settings/apns
+     *
+     * 返回 APNS 配置（auth_key 脱敏为 ******）
+     */
+    public function getApnsConfig(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $config = \App\Service\ApnsService::getConfig();
+
+        // .p8 私钥脱敏
+        if (!empty($config['auth_key'])) {
+            $config['auth_key'] = '******';
+        }
+
+        return $config;
+    }
+
+    /**
+     * 保存 APNS 配置
+     * 路由：POST /admin/settings/apns
+     *
+     * 参数（JSON body）：
+     *   enabled     (bool)   是否启用 APNS
+     *   team_id     (string) Apple Developer Team ID（10位）
+     *   key_id      (string) APNS Auth Key ID（10位）
+     *   auth_key    (string) .p8 文件内容（PEM 格式，传 ****** 表示不修改）
+     *   bundle_id   (string) iOS APP Bundle ID（如 com.push.app）
+     *   environment (string) "production" 或 "development"
+     */
+    public function saveApnsConfig(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $body     = $this->parseBody($context);
+
+        $enabled     = (bool)($body['enabled'] ?? false);
+        $teamId      = trim((string)($body['team_id'] ?? ''));
+        $keyId       = trim((string)($body['key_id'] ?? ''));
+        $authKey     = trim((string)($body['auth_key'] ?? ''));
+        $bundleId    = trim((string)($body['bundle_id'] ?? ''));
+        $environment = (string)($body['environment'] ?? 'production');
+
+        // 环境参数校验
+        if (!in_array($environment, ['production', 'development'], true)) {
+            $environment = 'production';
+        }
+
+        // 启用时校验必填项
+        if ($enabled) {
+            if ($teamId === '' || $keyId === '' || $bundleId === '') {
+                Response::fail($response, '启用 APNS 时，Team ID、Key ID、Bundle ID 不能为空', Response::CODE_BAD_REQUEST, 400);
+                return false;
+            }
+            // auth_key 为空且不是 ****** 时，检查是否已有配置
+            $existingConfig = \App\Service\ApnsService::getConfig();
+            if ($authKey === '' || $authKey === '******') {
+                if (empty($existingConfig['auth_key'])) {
+                    Response::fail($response, '启用 APNS 时，必须上传 .p8 私钥文件内容', Response::CODE_BAD_REQUEST, 400);
+                    return false;
+                }
+                // 保留原有私钥
+                $authKey = $existingConfig['auth_key'];
+            }
+        }
+
+        // auth_key 为 ****** 时保留原值
+        if ($authKey === '******') {
+            $existingConfig = \App\Service\ApnsService::getConfig();
+            $authKey = $existingConfig['auth_key'] ?? '';
+        }
+
+        $configData = [
+            'enabled'     => $enabled,
+            'team_id'     => $teamId,
+            'key_id'      => $keyId,
+            'auth_key'    => $authKey,
+            'bundle_id'   => $bundleId,
+            'environment' => $environment,
+        ];
+
+        try {
+            \App\Service\ApnsService::saveConfig($configData);
+        } catch (\Throwable $e) {
+            Response::fail($response, '保存失败：' . $e->getMessage(), Response::CODE_INTERNAL, 500);
+            return false;
+        }
+
+        // 清除 JWT 缓存（配置变更后需要重新签名）
+        try {
+            \App\Service\Redis::getInstance()->del('apns:jwt_token');
+        } catch (\Throwable $e) {}
+
+        return ['message' => 'APNS 配置已保存'];
+    }
+
+    /**
+     * 测试 APNS 推送
+     * 路由：POST /admin/settings/apns/test
+     *
+     * 参数（JSON body）：
+     *   device_token (string) 目标设备的 APNS device token
+     *   title        (string) 推送标题（可选，默认"测试推送"）
+     *   body         (string) 推送内容（可选，默认"这是一条来自推送系统的测试消息"）
+     */
+    public function testApnsPush(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $body     = $this->parseBody($context);
+
+        $deviceToken = trim((string)($body['device_token'] ?? ''));
+        $title       = trim((string)($body['title'] ?? ''));
+        $content     = trim((string)($body['body'] ?? ''));
+
+        if ($deviceToken === '') {
+            Response::fail($response, '请输入设备 APNS Token', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        if ($title === '') {
+            $title = '测试推送';
+        }
+        if ($content === '') {
+            $content = '这是一条来自推送系统的测试消息';
+        }
+
+        $result = \App\Service\ApnsService::send($deviceToken, $title, $content);
+
+        if ($result['success']) {
+            return [
+                'message'  => '测试推送发送成功',
+                'apns_id'  => $result['apns_id'] ?? '',
+            ];
+        }
+
+        Response::fail($response, '测试推送失败：' . $result['message'], Response::CODE_ERROR, 500);
+        return false;
+    }
+
+    /**
+     * 获取 APNS 健康度统计
+     * 路由：GET /admin/settings/apns/health
+     *
+     * 返回：成功率、今日推送数、熔断状态等
+     */
+    public function getApnsHealth(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+        return \App\Service\ApnsService::getHealthStats();
+    }
+
+    /**
+     * 重置 APNS 熔断状态
+     * 路由：POST /admin/settings/apns/reset-circuit
+     *
+     * 管理员手动清除熔断状态，恢复 APNS 推送
+     */
+    public function resetApnsCircuit(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+        \App\Service\ApnsService::resetCircuitBreaker();
+        return ['message' => '熔断状态已重置，APNS 通道已恢复'];
     }
 
     /**
