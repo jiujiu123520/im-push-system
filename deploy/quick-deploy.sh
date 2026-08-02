@@ -599,6 +599,10 @@ EOF
 ' AND TABLE_NAME='apk_distributions' AND COLUMN_NAME='feijipan_url'),1,0);"
         record_if_applied "016_apk_feijii_direct_url.sql" \
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='
+        record_if_applied "017_drop_lanzou_fields.sql" \
+            "SELECT IF(NOT EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='
+''
+' AND TABLE_NAME='apk_distributions' AND COLUMN_NAME='lanzou_url'),1,0);"
 ''
 ' AND TABLE_NAME='apk_distributions' AND COLUMN_NAME='feijipan_fetch_count'),1,0);"
         SKIPPED_COUNT=0

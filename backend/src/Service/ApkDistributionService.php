@@ -228,11 +228,6 @@ class ApkDistributionService
             $item['admin_id'] = (int)$item['admin_id'];
             $item['download_count'] = (int)($item['download_count'] ?? 0);
             $item['apk_size_text'] = self::formatFileSize((int)$item['apk_size']);
-            // 兼容老数据：若 feijipan_url 为空但 lanzou_url 有值，合并到 feijipan_url
-            if (empty($item['feijipan_url'] ?? '') && !empty($item['lanzou_url'] ?? '')) {
-                $item['feijipan_url'] = $item['lanzou_url'];
-                $item['feijipan_share_id'] = $item['lanzou_password'] ?? '';
-            }
         }
         unset($item);
 
@@ -361,10 +356,7 @@ class ApkDistributionService
             if ($row !== false) {
                 $cfg = json_decode((string)$row['config_value'], true);
                 if (is_array($cfg)) {
-                    // 兼容老配置：lanzou_cookie 迁移为提示，但仍读取老字段以便平滑过渡
-                    $merged = array_merge($defaults, $cfg);
-                    // 若老的 lanzou_cookie 还在且新字段为空，保留（前端会提示需要切换）
-                    return $merged;
+                    return array_merge($defaults, $cfg);
                 }
             }
         } catch (\Throwable $e) {

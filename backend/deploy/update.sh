@@ -796,6 +796,8 @@ EOF
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='apk_distributions' AND COLUMN_NAME='feijipan_url'),1,0);"
         record_if_applied "016_apk_feijii_direct_url.sql" \
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='apk_distributions' AND COLUMN_NAME='feijipan_fetch_count'),1,0);"
+        record_if_applied "017_drop_lanzou_fields.sql" \
+            "SELECT IF(NOT EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='apk_distributions' AND COLUMN_NAME='lanzou_url'),1,0);"
 
         APPLIED_COUNT=0
         SKIPPED_COUNT=0
@@ -878,8 +880,8 @@ else
     sudo find "${PROJECT_DIR}/backend/storage" -type f -exec chmod 664 {} \; 2>/dev/null || true
     sudo find "${PROJECT_DIR}/backend/runtime" -type f -exec chmod 664 {} \; 2>/dev/null || true
     sudo find "${PROJECT_DIR}/build" "${PROJECT_DIR}/backend/bin" "${PROJECT_DIR}/deploy/apk" -type f -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
-    # 小飞机/蓝奏云上传脚本需要 www-data 可执行（PHP shell_exec 调用）
-    for s in deploy/apk/upload-to-feijipan.sh deploy/apk/upload-to-lanzou.sh; do
+    # 小飞机上传脚本需要 www-data 可执行（PHP shell_exec 调用）
+    for s in deploy/apk/upload-to-feijipan.sh; do
         [[ -f "${PROJECT_DIR}/${s}" ]] && sudo chmod +x "${PROJECT_DIR}/${s}" 2>/dev/null || true
     done
     # .env 文件让 Web 用户可读
