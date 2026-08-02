@@ -68,6 +68,18 @@ html.dark {
     background: var(--bg-card);
   }
 
+  // 遮罩层背景（确保暗色模式下不透明）
+  .el-overlay,
+  .el-overlay-message-box {
+    background-color: rgba(0, 0, 0, 0.6) !important;
+  }
+
+  .el-message-box {
+    --el-messagebox-bg-color: var(--bg-card) !important;
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border-base) !important;
+  }
+
   .el-pagination {
     --el-pagination-bg-color: transparent;
     --el-pagination-button-bg-color: transparent;

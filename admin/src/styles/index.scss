@@ -172,6 +172,7 @@
 }
 
 // 修复 ElMessageBox 在有 transform/backdrop-filter 的容器内定位异常（出现在左上角）
+.el-overlay,
 .el-overlay-message-box {
   position: fixed !important;
   top: 0 !important;
@@ -181,11 +182,21 @@
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  background-color: rgba(15, 18, 38, 0.55) !important;
+  background-color: rgba(0, 0, 0, 0.5) !important;
 }
 
 .el-message-box {
   margin: auto !important;
+  max-width: 420px !important;
+  width: 420px !important;
+  border-radius: 12px !important;
+}
+
+// 暗色模式下弹窗适配
+html.dark .el-message-box {
+  --el-messagebox-bg-color: var(--bg-card) !important;
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-base) !important;
 }
 
 .el-tag {
