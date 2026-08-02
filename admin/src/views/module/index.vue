@@ -2009,17 +2009,6 @@ function pushStatusType(status: number): 'success' | 'danger' | 'warning' | 'pri
   return map[status] || 'info'
 }
 
-// 平台标签颜色
-function platformTagType(platform: string): 'success' | 'warning' | 'info' | 'primary' | 'danger' {
-  const map: Record<string, 'success' | 'warning' | 'info' | 'primary' | 'danger'> = {
-    android: 'success',
-    ios: 'primary',
-    web: 'info',
-    harmony: 'warning',
-  }
-  return map[platform] || 'info'
-}
-
 // 推送详情明细状态标签类型
 function pushDetailStatusType(status: string): 'success' | 'danger' | 'warning' | 'primary' | 'info' {
   const successStatuses = ['success', 'apns_success', 'apns_aggregated']

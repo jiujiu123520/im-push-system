@@ -173,7 +173,7 @@
         </el-descriptions>
         <div class="profile-actions">
           <el-button type="primary" :icon="LockIcon" @click="profileToPassword">修改密码</el-button>
-          <el-button :icon="LogoutIcon" @click="profileToLogout">退出登录</el-button>
+          <el-button :icon="SwitchButtonIcon" @click="profileToLogout">退出登录</el-button>
         </div>
       </div>
     </el-dialog>
@@ -202,7 +202,6 @@ import {
   SwitchButton as SwitchButtonIcon,
   Warning as WarningIcon,
   SuccessFilled as SuccessFilledIcon,
-  CircleCheckFilled as CircleCheckFilledIcon,
   InfoFilled as InfoFilledIcon
 } from '@element-plus/icons-vue'
 import { useFullscreen } from '@vueuse/core'
@@ -231,7 +230,7 @@ async function profileToLogout() {
       confirmButtonText: '退出',
       cancelButtonText: '取消',
       type: 'warning',
-      appendToBody: true
+      appendTo: document.body
     })
     profileDialogVisible.value = false
     await userStore.logout()
@@ -285,7 +284,7 @@ async function fetchNotifications() {
   try {
     // 获取最近 8 条推送记录作为通知
     const { getPushLogListApi } = await import('@/api/push')
-    const res = await getPushLogListApi({ page: 1, per_page: 8 })
+    const res = await getPushLogListApi({ page: 1, pageSize: 8 })
     const list = res.data?.list || []
     notifications.value = list.map((log: any) => {
       const status = Number(log.status)
@@ -425,7 +424,7 @@ async function handleCommand(cmd: string) {
         confirmButtonText: '退出',
         cancelButtonText: '取消',
         type: 'warning',
-        appendToBody: true
+        appendTo: document.body
       })
       await userStore.logout()
       ElMessage.success('已退出登录')
