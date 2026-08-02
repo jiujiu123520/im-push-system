@@ -549,12 +549,23 @@ onUnmounted(() => {
   position: relative;
   width: 100%;
   min-height: 100vh;
+  /* 使用 auto 而非 center：内容超出视口时顶部不会被裁掉 */
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 40px 20px;
-  overflow: hidden;
+  padding: 40px 20px 80px;
+  /* 关键：允许页面纵向滚动，避免表单内容超出视口被裁剪 */
+  overflow-y: auto;
+  overflow-x: hidden;
   background: linear-gradient(135deg, #f5f6fb 0%, #eceeff 100%);
+}
+
+/* 视口高度足够时垂直居中（通过媒体查询在大屏恢复居中效果） */
+@media (min-height: 800px) {
+  .register-page {
+    align-items: center;
+    padding: 40px 20px;
+  }
 }
 
 .bg-layer {
@@ -562,6 +573,8 @@ onUnmounted(() => {
   inset: 0;
   z-index: 0;
   overflow: hidden;
+  /* 背景层不随页面滚动，避免拉伸 */
+  pointer-events: none;
 }
 
 .bg-blob {
