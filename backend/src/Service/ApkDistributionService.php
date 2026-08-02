@@ -8,7 +8,7 @@ namespace App\Service;
  *
  * 管理构建完成后的 APK 分发记录，支持三种分发方式：
  *  1. 自托管下载（服务器直接提供下载）
- *  2. 小飞机网盘上传（feejii.com，通过 AppToken+UUID 鉴权）
+ *  2. 小飞机网盘上传（feijipan.com，通过 AppToken+UUID 鉴权）
  *  3. 自定义脚本上传（用户自行配置上传命令）
  *
  * 配置存储在 admin_settings 表：
@@ -128,8 +128,8 @@ class ApkDistributionService
         }
 
         // ---------- Pattern 4: 通用：任何带 sign/exp/token 参数的 https CDN URL（小飞机直链特征） ----------
-        // 形如 https://cdnX.feejii.com/v1/file/xxx?sign=yyy&expire=zzz
-        // 或     https://*.feejii.com/*?AWSAccessKeyId=...&Signature=...  (S3 签名)
+        // 形如 https://cdnX.feijipan.com/v1/file/xxx?sign=yyy&expire=zzz
+        // 或     https://*.feijipan.com/*?AWSAccessKeyId=...&Signature=...  (S3 签名)
         // 或     https://*.aliyuncs.com/*?Expires=...&OSSAccessKeyId=...&Signature=...  (OSS)
         if (preg_match_all('/https?:\/\/[a-zA-Z0-9.\-]+\/[^"\'<>?#\s]+\?(?:[^"\'<>#\s]*(?:sign|expir|expire|token|AWSAccessKeyId|OSSAccessKeyId|Signature|X-Amz-Credential|X-Amz-Signature)=[^"\'<>#\s]*)+/i', $html, $m)) {
             foreach ($m[0] as $u) $candidates[] = html_entity_decode($u, ENT_QUOTES, 'UTF-8');
@@ -400,59 +400,47 @@ class ApkDistributionService
     }
 
     /**
-     * 上传 APK 到小飞机网盘
+     * 为分发记录创建小飞机网盘分享链接
+     *
+     * 新流程：用户先在小飞机网盘上传文件，然后从后台选择文件创建分享链接。
+     * 不再依赖外部脚本上传文件。
      *
      * @param int $id 分发记录ID
+     * @param string $fileId 小飞机网盘文件ID（从文件列表中选择）
      * @return array ["success" => bool, "message" => string, "url" => string, "share_id" => string]
      */
-    public static function uploadToFeijii(int $id): array
+    public static function uploadToFeijii(int $id, string $fileId = ''): array
     {
         $record = self::getDetail($id);
         if ($record === null) {
             return ['success' => false, 'message' => '分发记录不存在', 'url' => '', 'share_id' => ''];
         }
 
-        $apkPath = $record['apk_path'];
-        if (!file_exists($apkPath)) {
-            return ['success' => false, 'message' => 'APK 文件不存在', 'url' => '', 'share_id' => ''];
+        $fileId = trim($fileId);
+        if ($fileId === '') {
+            return ['success' => false, 'message' => '请选择小飞机网盘文件', 'url' => '', 'share_id' => ''];
         }
 
         $config = self::getConfig();
         $appToken = trim((string)($config['feijii_app_token'] ?? ''));
         $uuid     = trim((string)($config['feijii_uuid'] ?? ''));
-        $devCode  = trim((string)($config['feijii_dev_code'] ?? ''));
-
-        if ($appToken === '' || $uuid === '' || $devCode === '') {
-            self::updateFeijiiResult($id, '', '', 'failed', '未配置小飞机网盘凭证（需要 AppToken、UUID、DevCode）');
-            return ['success' => false, 'message' => '未配置小飞机网盘凭证，请在分发设置中填写 AppToken、UUID、DevCode', 'url' => '', 'share_id' => ''];
+        if ($appToken === '' || $uuid === '') {
+            self::updateFeijiiResult($id, '', '', 'failed', '未配置小飞机网盘凭证（需要 AppToken、UUID）');
+            return ['success' => false, 'message' => '未配置小飞机网盘凭证，请在分发设置中填写 AppToken、UUID', 'url' => '', 'share_id' => ''];
         }
 
-        self::updateFeijiiResult($id, '', '', 'uploading', '正在上传到小飞机网盘...');
+        self::updateFeijiiResult($id, '', '', 'uploading', '正在创建分享链接...');
 
-        $scriptPath = dirname(__DIR__, 2) . '/deploy/apk/upload-to-feijipan.sh';
-        $appName = escapeshellarg($record['app_name']);
-        $apkPathArg = escapeshellarg($apkPath);
-        $appTokenArg = escapeshellarg($appToken);
-        $uuidArg = escapeshellarg($uuid);
-        $devCodeArg = escapeshellarg($devCode);
-
-        $cmd = "bash {$scriptPath} {$apkPathArg} {$appName} {$appTokenArg} {$uuidArg} {$devCodeArg} 2>&1";
-        $output = shell_exec($cmd);
-        $output = is_string($output) ? trim($output) : '';
-
-        $result = json_decode($output, true);
-        if (is_array($result) && ($result['success'] ?? false)) {
-            $url = (string)($result['url'] ?? '');
-            $shareId = (string)($result['share_id'] ?? '');
-            $message = (string)($result['message'] ?? '上传成功');
-            $status = $url !== '' ? 'success' : 'success';
-            self::updateFeijiiResult($id, $url, $shareId, $status, $message);
-            return ['success' => true, 'message' => $message, 'url' => $url, 'share_id' => $shareId];
+        $result = self::createFeijiiShare($fileId);
+        if (!$result['success']) {
+            self::updateFeijiiResult($id, '', '', 'failed', $result['message']);
+            return ['success' => false, 'message' => $result['message'], 'url' => '', 'share_id' => ''];
         }
 
-        $errorMsg = is_array($result) ? ($result['message'] ?? $output) : $output;
-        self::updateFeijiiResult($id, '', '', 'failed', $errorMsg);
-        return ['success' => false, 'message' => '小飞机网盘上传失败: ' . $errorMsg, 'url' => '', 'share_id' => ''];
+        $url = $result['url'];
+        $shareId = $result['share_id'];
+        self::updateFeijiiResult($id, $url, $shareId, 'success', '分享链接创建成功');
+        return ['success' => true, 'message' => '分享链接创建成功', 'url' => $url, 'share_id' => $shareId];
     }
 
     public static function uploadCustom(int $id): array
@@ -554,42 +542,69 @@ class ApkDistributionService
     }
 
     /**
-     * 验证小飞机网盘凭证是否有效
+     * 小飞机网盘 API 常量（基于真实抓包验证）
      *
-     * 通过调用 /app/user/info 接口检查 AppToken/UUID/DevCode 是否有效。
-     *
-     * @param string $appToken
-     * @param string $uuid
-     * @param string $devCode
-     * @return array ["valid" => bool, "message" => string, "user_info" => array|null]
+     * timestamp 算法：AES-128-ECB-Pkcs7 加密当前毫秒时间戳，密钥 "dingHao-disk-app"，输出 hex。
+     * 公共 query 参数：uuid, devType=6, devCode=uuid, devModel=chrome, devVersion=142, appVersion=, timestamp, extra=2, appToken
+     * 成功响应 code=200（不是 0）。
      */
-    public static function validateFeijiiCredentials(string $appToken, string $uuid, string $devCode): array
-    {
-        $appToken = trim($appToken);
-        $uuid = trim($uuid);
-        $devCode = trim($devCode);
-        if ($appToken === '' || $uuid === '' || $devCode === '') {
-            return ['valid' => false, 'message' => 'AppToken、UUID、DevCode 三项均不能为空', 'user_info' => null];
-        }
+    private const FEEJII_API_BASE = 'https://api.feijipan.com';
+    private const FEEJII_AES_KEY  = 'dingHao-disk-app';
 
-        $url = 'https://api.feejii.com/app/user/info?appToken=' . urlencode($appToken)
-            . '&uuid=' . urlencode($uuid)
-            . '&devCode=' . urlencode($devCode)
-            . '&devType=1&userId=';
+    /**
+     * 生成小飞机网盘 API 所需的 timestamp 签名
+     * 算法：AES-128-ECB-Pkcs7 加密当前毫秒时间戳，输出 hex 字符串
+     */
+    private static function feijiiEncryptTimestamp(int $ts): string
+    {
+        $data = (string)$ts;
+        $pad = 16 - (strlen($data) % 16);
+        $data .= str_repeat(chr($pad), $pad);
+        $encrypted = openssl_encrypt($data, 'AES-128-ECB', self::FEEJII_AES_KEY, OPENSSL_RAW_DATA);
+        return $encrypted === false ? '' : bin2hex($encrypted);
+    }
+
+    /**
+     * 构造小飞机网盘 API 的公共 query 参数（含 timestamp 签名）
+     * @return array 公共参数键值对
+     */
+    private static function feijiiCommonParams(string $appToken, string $uuid): array
+    {
+        return [
+            'uuid'        => $uuid,
+            'devType'     => '6',
+            'devCode'     => $uuid,        // devCode 等于 uuid
+            'devModel'    => 'chrome',
+            'devVersion'  => '142',
+            'appVersion'  => '',
+            'timestamp'   => self::feijiiEncryptTimestamp((int)(microtime(true) * 1000)),
+            'extra'       => '2',
+            'appToken'    => $appToken,
+        ];
+    }
+
+    /**
+     * 发起小飞机网盘 GET 请求
+     * @return array ['ok'=>bool, 'http'=>int, 'resp'=>array|null, 'raw'=>string, 'error'=>string]
+     */
+    private static function feijiiGet(string $path, string $appToken, string $uuid, array $extraParams = []): array
+    {
+        $params = array_merge(self::feijiiCommonParams($appToken, $uuid), $extraParams);
+        $url = self::FEEJII_API_BASE . $path . '?' . http_build_query($params);
 
         $ch = curl_init();
         curl_setopt_array($ch, [
-            CURLOPT_URL => $url,
+            CURLOPT_URL            => $url,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 15,
+            CURLOPT_TIMEOUT        => 15,
             CURLOPT_CONNECTTIMEOUT => 8,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            CURLOPT_HTTPHEADER => [
+            CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            CURLOPT_HTTPHEADER     => [
                 'Accept: application/json, text/plain, */*',
-                'Origin: https://www.feejii.com',
-                'Referer: https://www.feejii.com/',
+                'Origin: https://www.feijipan.com',
+                'Referer: https://www.feijipan.com/',
             ],
         ]);
         $body = curl_exec($ch);
@@ -598,41 +613,239 @@ class ApkDistributionService
         curl_close($ch);
 
         if ($body === false || $error !== '') {
-            return ['valid' => false, 'message' => '请求小飞机网盘失败: ' . $error, 'user_info' => null];
+            return ['ok' => false, 'http' => 0, 'resp' => null, 'raw' => '', 'error' => $error];
         }
-        if ($httpCode !== 200) {
-            return ['valid' => false, 'message' => '小飞机网盘返回异常 HTTP ' . $httpCode, 'user_info' => null];
+        $resp = json_decode((string)$body, true);
+        return [
+            'ok'    => $httpCode === 200,
+            'http'  => $httpCode,
+            'resp'  => is_array($resp) ? $resp : null,
+            'raw'   => (string)$body,
+            'error' => '',
+        ];
+    }
+
+    /**
+     * 发起小飞机网盘 POST 请求（JSON body）
+     * @return array ['ok'=>bool, 'http'=>int, 'resp'=>array|null, 'raw'=>string, 'error'=>string]
+     */
+    private static function feijiiPost(string $path, string $appToken, string $uuid, array $body = []): array
+    {
+        $params = self::feijiiCommonParams($appToken, $uuid);
+        $url = self::FEEJII_API_BASE . $path . '?' . http_build_query($params);
+
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CONNECTTIMEOUT => 8,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode($body, JSON_UNESCAPED_UNICODE),
+            CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            CURLOPT_HTTPHEADER     => [
+                'Accept: application/json, text/plain, */*',
+                'Content-Type: application/json',
+                'Origin: https://www.feijipan.com',
+                'Referer: https://www.feijipan.com/',
+            ],
+        ]);
+        $respBody = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        if ($respBody === false || $error !== '') {
+            return ['ok' => false, 'http' => 0, 'resp' => null, 'raw' => '', 'error' => $error];
+        }
+        $resp = json_decode((string)$respBody, true);
+        return [
+            'ok'    => $httpCode === 200,
+            'http'  => $httpCode,
+            'resp'  => is_array($resp) ? $resp : null,
+            'raw'   => (string)$respBody,
+            'error' => '',
+        ];
+    }
+
+    /**
+     * 验证小飞机网盘凭证是否有效
+     *
+     * 通过调用 /app/user/info/map 接口检查 AppToken/UUID/DevCode 是否有效。
+     * 注意：devCode 实际等于 uuid，前端统一用 uuid 作为 devCode。
+     *
+     * @param string $appToken
+     * @param string $uuid
+     * @param string $devCode （兼容保留，实际不单独使用）
+     * @return array ["valid" => bool, "message" => string, "user_info" => array|null]
+     */
+    public static function validateFeijiiCredentials(string $appToken, string $uuid, string $devCode): array
+    {
+        $appToken = trim($appToken);
+        $uuid = trim($uuid);
+        $devCode = trim($devCode);
+        if ($appToken === '' || $uuid === '') {
+            return ['valid' => false, 'message' => 'AppToken 和 UUID 不能为空（devCode 已与 uuid 统一）', 'user_info' => null];
         }
 
-        $resp = json_decode((string)$body, true);
-        if (!is_array($resp)) {
+        $r = self::feijiiGet('/app/user/info/map', $appToken, $uuid);
+
+        if (!$r['ok'] && $r['http'] === 0) {
+            return ['valid' => false, 'message' => '请求小飞机网盘失败: ' . $r['error'], 'user_info' => null];
+        }
+        if ($r['http'] !== 200) {
+            return ['valid' => false, 'message' => '小飞机网盘返回异常 HTTP ' . $r['http'], 'user_info' => null];
+        }
+
+        $resp = $r['resp'];
+        if ($resp === null) {
             return ['valid' => false, 'message' => '小飞机网盘返回非 JSON 响应（可能接口变更/网络代理）', 'user_info' => null];
         }
 
         $code = $resp['code'] ?? null;
         $msg  = (string)($resp['msg'] ?? '');
-        $data = is_array($resp['data'] ?? null) ? $resp['data'] : null;
+        // 小飞机成功状态码是 200（不是 0），用户信息在 map 字段
+        $map = is_array($resp['map'] ?? null) ? $resp['map'] : null;
 
-        if ($code === 0 && $data !== null) {
-            $nickName = (string)($data['nickName'] ?? $data['userName'] ?? $data['name'] ?? '');
-            $userId   = (string)($data['userId'] ?? $data['id'] ?? '');
-            $vip      = isset($data['isVip']) ? ($data['isVip'] ? 'VIP' : '普通用户') : '';
+        if ($code === 200 && $map !== null) {
+            $userName = (string)($map['userName'] ?? $map['account'] ?? '');
+            $userId   = (string)($map['userId'] ?? '');
+            $isVip    = $map['isVip'] ?? null;
+            $vipName  = (string)($map['vipName'] ?? '');
+            $vip      = $isVip ? ($vipName !== '' ? $vipName : 'VIP') : '普通用户';
             $info = '';
-            if ($nickName !== '') $info .= "用户：{$nickName}";
+            if ($userName !== '') $info .= "用户：{$userName}";
             if ($userId !== '')   $info .= ($info ? '，' : '') . "ID：{$userId}";
-            if ($vip !== '')      $info .= ($info ? '，' : '') . $vip;
+            if ($info !== '')     $info .= "，{$vip}";
             return [
                 'valid'     => true,
                 'message'   => '凭证有效，小飞机网盘登录正常' . ($info !== '' ? "（{$info}）" : ''),
-                'user_info' => $data,
+                'user_info' => $map,
             ];
         }
 
-        $errMsg = $msg !== '' ? "小飞机返回错误：{$msg}" : '凭证无效，请检查 AppToken / UUID / DevCode 是否与登录会话一致';
+        $errMsg = $msg !== '' ? "小飞机返回错误：{$msg}" : '凭证无效，请检查 AppToken / UUID 是否与登录会话一致';
         if ($code !== null) {
             $errMsg .= "（code={$code}）";
         }
         return ['valid' => false, 'message' => $errMsg, 'user_info' => null];
+    }
+
+    /**
+     * 列出小飞机网盘根目录下的文件列表
+     * 调用 /app/record/file/list 接口
+     *
+     * @return array ['success'=>bool, 'message'=>string, 'files'=>array]
+     */
+    public static function listFeijiiFiles(int $folderId = 0, int $offset = 1, int $limit = 50): array
+    {
+        $config = self::getConfig();
+        $appToken = trim((string)($config['feijii_app_token'] ?? ''));
+        $uuid     = trim((string)($config['feijii_uuid'] ?? ''));
+        if ($appToken === '' || $uuid === '') {
+            return ['success' => false, 'message' => '未配置小飞机网盘凭证', 'files' => []];
+        }
+
+        $r = self::feijiiGet('/app/record/file/list', $appToken, $uuid, [
+            'offset'   => $offset,
+            'limit'    => $limit,
+            'folderId' => $folderId,
+            'type'     => 0,
+        ]);
+
+        if ($r['http'] !== 200) {
+            return ['success' => false, 'message' => '小飞机网盘返回异常 HTTP ' . $r['http'], 'files' => []];
+        }
+        $resp = $r['resp'];
+        if ($resp === null) {
+            return ['success' => false, 'message' => '小飞机返回非 JSON: ' . substr($r['raw'], 0, 200), 'files' => []];
+        }
+        $code = $resp['code'] ?? null;
+        $msg  = (string)($resp['msg'] ?? '');
+        if ($code !== 200) {
+            return ['success' => false, 'message' => "小飞机返回错误：{$msg}（code={$code}）", 'files' => []];
+        }
+
+        // 响应中 list 字段是文件数组
+        $list = $resp['list'] ?? $resp['data'] ?? [];
+        if (!is_array($list)) $list = [];
+
+        $files = [];
+        foreach ($list as $item) {
+            if (!is_array($item)) continue;
+            $files[] = [
+                'fileId'     => (string)($item['fileId'] ?? $item['id'] ?? ''),
+                'fileName'   => (string)($item['fileName'] ?? $item['name'] ?? ''),
+                'fileSize'   => (int)($item['fileSize'] ?? 0),
+                'updTime'    => (string)($item['updTime'] ?? ''),
+                'fileIcon'   => (string)($item['fileIcon'] ?? ''),
+            ];
+        }
+        return ['success' => true, 'message' => '获取文件列表成功', 'files' => $files];
+    }
+
+    /**
+     * 为小飞机网盘指定文件创建分享链接
+     * 调用 POST /app/share/url 接口
+     *
+     * @param string $fileId 小飞机网盘文件 ID（字符串）
+     * @return array ['success'=>bool, 'message'=>string, 'url'=>string, 'share_id'=>string]
+     */
+    public static function createFeijiiShare(string $fileId): array
+    {
+        $fileId = trim($fileId);
+        if ($fileId === '') {
+            return ['success' => false, 'message' => '文件 ID 不能为空', 'url' => '', 'share_id' => ''];
+        }
+
+        $config = self::getConfig();
+        $appToken = trim((string)($config['feijii_app_token'] ?? ''));
+        $uuid     = trim((string)($config['feijii_uuid'] ?? ''));
+        if ($appToken === '' || $uuid === '') {
+            return ['success' => false, 'message' => '未配置小飞机网盘凭证', 'url' => '', 'share_id' => ''];
+        }
+
+        // POST body 参数（基于真实抓包验证）
+        $body = [
+            'fileIds'        => (string)$fileId,  // 字符串形式，不是数组
+            'term'           => 0,                // 有效期：0=永久，-1=一次性，N=N天
+            'code'           => '',               // 提取码（空=无提取码）
+            'freeDownload'   => 1,
+            'showRecommend'  => 0,
+            'showUpTime'     => 0,
+            'showDownloads'  => 0,
+            'showComments'   => 0,
+            'showStars'      => 0,
+            'showLikes'      => 0,
+        ];
+
+        $r = self::feijiiPost('/app/share/url', $appToken, $uuid, $body);
+
+        if ($r['http'] !== 200) {
+            return ['success' => false, 'message' => '小飞机网盘返回异常 HTTP ' . $r['http'], 'url' => '', 'share_id' => ''];
+        }
+        $resp = $r['resp'];
+        if ($resp === null) {
+            return ['success' => false, 'message' => '小飞机返回非 JSON: ' . substr($r['raw'], 0, 200), 'url' => '', 'share_id' => ''];
+        }
+        $code = $resp['code'] ?? null;
+        $msg  = (string)($resp['msg'] ?? '');
+        if ($code !== 200) {
+            return ['success' => false, 'message' => "小飞机返回错误：{$msg}（code={$code}）", 'url' => '', 'share_id' => ''];
+        }
+
+        $shareUrl = (string)($resp['shareUrl'] ?? '');
+        if ($shareUrl === '') {
+            // 兜底尝试其它字段名
+            $shareUrl = (string)($resp['url'] ?? $resp['shortUrl'] ?? '');
+        }
+        if ($shareUrl === '') {
+            return ['success' => false, 'message' => '分享创建成功但未返回 URL: ' . substr($r['raw'], 0, 300), 'url' => '', 'share_id' => $fileId];
+        }
+
+        return ['success' => true, 'message' => '分享链接创建成功', 'url' => $shareUrl, 'share_id' => $fileId];
     }
 
     /**

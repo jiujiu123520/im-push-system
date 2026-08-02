@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # ============================================================
-# 上传 APK 到小飞机网盘 (feejii.com)
+# [已弃用] 上传 APK 到小飞机网盘 (feijipan.com)
+#
+# ⚠️ 此脚本已弃用，保留仅供历史参考。
+# 新流程：用户先在小飞机网盘上传文件 → 后台「上传小飞机」按钮
+#         → 选择网盘文件 → 后端调用 createFeijiiShare(fileId) 创建分享链接。
+# 不再需要通过服务器中转上传文件。
 #
 # 小飞机网盘 API 流程 (基于 Web/App 真实抓包):
-#   Step 1: GET  /app/vod/getUpToken?appToken=xxx&uuid=xxx&devCode=xxx&fileName=xxx&fileSize=xxx
+#   Step 1: POST /app/vod/getUpToken?appToken=xxx&uuid=xxx&devCode=xxx&fileName=xxx&fileSize=xxx
 #           -> 返回 S3 上传凭证 (uploadUrl/credential/key/bucket 等)
 #   Step 2: PUT  {uploadUrl} (S3 兼容接口) 上传文件体
-#   Step 3: GET  /app/share/url?appToken=xxx&uuid=xxx&devCode=xxx&fileId=xxx
-#           -> 返回分享短链和密码 (如有)
+#   Step 3: POST /app/share/url  创建分享链接
 #
 # 用法: upload-to-feijipan.sh <apk_path> <app_name> <app_token> <uuid> <dev_code>
 #
@@ -78,7 +82,7 @@ APP_TOKEN="${3:-${FEEJII_APP_TOKEN:-}}"
 UUID="${4:-${FEEJII_UUID:-}}"
 DEV_CODE="${5:-${FEEJII_DEV_CODE:-}}"
 
-API_BASE="https://api.feejii.com"
+API_BASE="https://api.feijipan.com"
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 # ---------- 辅助函数 ----------
@@ -141,8 +145,8 @@ UPTOKEN_URL="${API_BASE}/app/vod/getUpToken?appToken=${APP_TOKEN}&uuid=${UUID}&d
 TOKEN_RESP=$(curl -sS --max-time 30 \
     -H "User-Agent: $UA" \
     -H "Accept: application/json, text/plain, */*" \
-    -H "Origin: https://www.feejii.com" \
-    -H "Referer: https://www.feejii.com/" \
+    -H "Origin: https://www.feijipan.com" \
+    -H "Referer: https://www.feijipan.com/" \
     "$UPTOKEN_URL" 2>/dev/null || echo "")
 
 [[ -z "$TOKEN_RESP" ]] && fail "获取上传凭证失败：请求无响应（检查网络/凭证/域名）"
@@ -270,8 +274,8 @@ SHARE_URL="${API_BASE}/app/share/url?appToken=${APP_TOKEN}&uuid=${UUID}&devCode=
 SHARE_RESP=$(curl -sS --max-time 30 \
     -H "User-Agent: $UA" \
     -H "Accept: application/json, text/plain, */*" \
-    -H "Origin: https://www.feejii.com" \
-    -H "Referer: https://www.feejii.com/" \
+    -H "Origin: https://www.feijipan.com" \
+    -H "Referer: https://www.feijipan.com/" \
     "$SHARE_URL" 2>/dev/null || echo "")
 
 SHARE_CODE=$(extract_json_field "code" "$SHARE_RESP")
@@ -295,7 +299,7 @@ WARN_MSG="$WARN_MSG，但创建分享链接失败"
 if [[ -n "$SHARE_MSG" ]]; then
     WARN_MSG="$WARN_MSG：${SHARE_MSG}"
 fi
-WARN_MSG="$WARN_MSG。请登录 www.feejii.com 后台 → 文件列表 → 找到该文件 → 「分享」手动获取下载链接"
+WARN_MSG="$WARN_MSG。请登录 www.feijipan.com 后台 → 文件列表 → 找到该文件 → 「分享」手动获取下载链接"
 
 # 如果分享没拿到 URL 但上传成功，仍然认为成功（让用户手动去拿）
 output_json "true" "$WARN_MSG" "" "$FILE_ID"

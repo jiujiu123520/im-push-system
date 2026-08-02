@@ -250,7 +250,7 @@
           <el-form-item label="小飞机网盘 AppToken">
             <el-input
               v-model="config.feijii_app_token"
-              placeholder="登录 feejii.com 后从抓包请求 URL 参数中获取"
+              placeholder="登录 feijipan.com 后从抓包请求 URL 参数中获取"
               clearable
             />
           </el-form-item>
@@ -277,7 +277,7 @@
                   <li>
                     <div class="guide-step-title">第 1 步：用 Chrome / Edge 打开小飞机官网并登录</div>
                     <div class="guide-step-desc">
-                      访问 <a href="https://www.feejii.com" target="_blank" rel="noopener" class="guide-link">feejii.com</a>，
+                      访问 <a href="https://www.feijipan.com" target="_blank" rel="noopener" class="guide-link">feijipan.com</a>，
                       用你注册的手机号 / 账号密码正常登录。
                     </div>
                   </li>
@@ -475,6 +475,77 @@
       </template>
     </el-dialog>
 
+    <!-- 小飞机网盘文件选择对话框 -->
+    <el-dialog
+      v-model="feijiiFileDialogVisible"
+      title="选择小飞机网盘文件"
+      width="640px"
+      align-center
+      class="feijii-files-dialog"
+      :close-on-click-modal="false"
+    >
+      <div v-loading="feijiiFilesLoading" class="feijii-files-content">
+        <el-alert
+          v-if="feijiiFiles.length === 0 && !feijiiFilesLoading"
+          type="info"
+          :closable="false"
+          show-icon
+          title="网盘暂无文件"
+          description="请先在小飞机网盘上传 APK 文件，然后回到这里选择文件创建分享链接。"
+          style="margin-bottom: 12px"
+        />
+        <el-table
+          v-if="feijiiFiles.length > 0"
+          :data="feijiiFiles"
+          style="width: 100%"
+          max-height="380"
+          size="small"
+          stripe
+          @row-click="(row: any) => selectedFeijiiFileId = row.fileId"
+        >
+          <el-table-column width="50" align="center">
+            <template #default="{ row }">
+              <el-radio v-model="selectedFeijiiFileId" :value="row.fileId">
+                <span></span>
+              </el-radio>
+            </template>
+          </el-table-column>
+          <el-table-column prop="fileName" label="文件名" min-width="220">
+            <template #default="{ row }">
+              <span class="feijii-file-name">{{ row.fileName }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="大小" width="100" align="center">
+            <template #default="{ row }">
+              <span class="feijii-file-size">{{ formatFeijiiFileSize(row.fileSize) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="updTime" label="更新时间" width="170">
+            <template #default="{ row }">
+              <span class="time-text">{{ formatTime(row.updTime) }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="feijii-files-tip">
+          <el-button link type="primary" :icon="RefreshIcon" @click="loadFeijiiFiles">
+            刷新文件列表
+          </el-button>
+        </div>
+      </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="feijiiFileDialogVisible = false">取消</el-button>
+          <el-button
+            type="primary"
+            :disabled="!selectedFeijiiFileId"
+            @click="confirmFeijiiFileSelect"
+          >
+            创建分享链接
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
     <!-- 下载统计对话框 -->
     <el-dialog
       v-model="statsDialogVisible"
@@ -556,7 +627,8 @@ import {
   DataLine as DataLineIcon,
   CircleCheck as CircleCheckIcon,
   UploadFilled as UploadFilledIcon,
-  List as ListIcon
+  List as ListIcon,
+  Refresh as RefreshIcon
 } from '@element-plus/icons-vue'
 import type { FormInstance, FormRules, UploadFile, UploadInstance } from 'element-plus'
 import {
@@ -569,10 +641,12 @@ import {
   validateFeijiiCredentialsApi,
   uploadApkApi,
   getDownloadStatsApi,
+  getFeijiiFilesApi,
   type ApkDistributionRecord,
   type ApkDistributionConfig,
   type CredentialsValidateResult,
-  type DownloadStats
+  type DownloadStats,
+  type FeijiiFile
 } from '@/api/apkDistribution'
 
 // ---- 列表数据 ----
@@ -675,19 +749,72 @@ function handleDownload(row: ApkDistributionRecord) {
 const uploadingId = ref<number | null>(null)
 const uploadType = ref<'feijipan' | 'custom' | ''>('')
 
+// 小飞机网盘文件选择对话框
+const feijiiFileDialogVisible = ref(false)
+const feijiiFilesLoading = ref(false)
+const feijiiFiles = ref<FeijiiFile[]>([])
+const selectedFeijiiFileId = ref('')
+const feijiiFileTargetRow = ref<ApkDistributionRecord | null>(null)
+
 async function handleUploadFeijipan(row: ApkDistributionRecord) {
-  uploadingId.value = row.id
-  uploadType.value = 'feijipan'
+  feijiiFileTargetRow.value = row
+  selectedFeijiiFileId.value = ''
+  feijiiFileDialogVisible.value = true
+  await loadFeijiiFiles()
+}
+
+async function loadFeijiiFiles() {
+  feijiiFilesLoading.value = true
   try {
-    await uploadToFeijiiApi(row.id)
-    ElMessage.success('已上传至小飞机网盘')
+    const res = await getFeijiiFilesApi({ offset: 1, limit: 100 })
+    const data: any = res.data
+    if (data?.success) {
+      feijiiFiles.value = data.files || []
+      if (feijiiFiles.value.length === 0) {
+        ElMessage.info('小飞机网盘暂无文件，请先在小飞机网盘上传 APK')
+      }
+    } else {
+      ElMessage.warning(data?.message || '获取文件列表失败')
+      feijiiFiles.value = []
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.message || '获取文件列表失败，请检查小飞机网盘凭证配置')
+    feijiiFiles.value = []
+  } finally {
+    feijiiFilesLoading.value = false
+  }
+}
+
+async function confirmFeijiiFileSelect() {
+  if (!selectedFeijiiFileId.value) {
+    ElMessage.warning('请选择一个文件')
+    return
+  }
+  if (!feijiiFileTargetRow.value) return
+
+  uploadingId.value = feijiiFileTargetRow.value.id
+  uploadType.value = 'feijipan'
+  feijiiFileDialogVisible.value = false
+  try {
+    await uploadToFeijiiApi(feijiiFileTargetRow.value.id, selectedFeijiiFileId.value)
+    ElMessage.success('分享链接创建成功')
     await fetchData()
   } catch (err: any) {
-    ElMessage.error(err?.message || '上传小飞机网盘失败')
+    ElMessage.error(err?.message || '创建分享链接失败')
   } finally {
     uploadingId.value = null
     uploadType.value = ''
+    feijiiFileTargetRow.value = null
+    selectedFeijiiFileId.value = ''
   }
+}
+
+function formatFeijiiFileSize(bytes: number): string {
+  if (!bytes) return '-'
+  const mb = bytes / (1024 * 1024)
+  if (mb >= 1) return `${mb.toFixed(2)} MB`
+  const kb = bytes / 1024
+  return `${kb.toFixed(1)} KB`
 }
 
 async function handleUploadCustom(row: ApkDistributionRecord) {
@@ -1536,6 +1663,34 @@ onMounted(() => {
 
 .stats-content {
   min-height: 200px;
+}
+
+// ===== 小飞机文件选择对话框 =====
+.feijii-files-dialog {
+  :deep(.el-dialog__body) {
+    padding: 20px 24px;
+  }
+}
+
+.feijii-files-content {
+  min-height: 200px;
+}
+
+.feijii-file-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.feijii-file-size {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.feijii-files-tip {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .stats-summary {

@@ -12,7 +12,7 @@ use App\Service\Response;
  *
  * 管理构建完成后 APK 的分发记录，支持三种分发方式：
  *  1. 自托管下载（服务器直接提供下载）
- *  2. 小飞机网盘上传（feejii.com）
+ *  2. 小飞机网盘上传（feijipan.com）
  *  3. 自定义脚本上传
  *
  * 路由：
@@ -22,8 +22,9 @@ use App\Service\Response;
  *   PUT  /admin/apk-distribution/config       保存分发配置
  *   POST /admin/apk-distribution/upload       本地上传 APK 文件
  *   POST /admin/apk-distribution/validate-credentials  验证小飞机网盘凭证
+ *   GET  /admin/apk-distribution/feijii-files         列出小飞机网盘文件
  *   GET  /admin/apk-distribution/{id}/stats   下载统计数据
- *   POST /admin/apk-distribution/{id}/feijipan 上传到小飞机网盘
+ *   POST /admin/apk-distribution/{id}/feijipan 为指定文件创建小飞机分享链接
  *   POST /admin/apk-distribution/{id}/custom  执行自定义上传
  *   DELETE /admin/apk-distribution/{id}       删除分发记录
  *
@@ -169,8 +170,26 @@ class ApkDistributionController
     }
 
     /**
-     * 上传到小飞机网盘
+     * 列出小飞机网盘文件
+     * GET /admin/apk-distribution/feijii-files
+     */
+    public function feijiiFiles(array $context, array $params = [])
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $folderId = (int)($context['get']['folderId'] ?? 0);
+        $offset = (int)($context['get']['offset'] ?? 1);
+        $limit = (int)($context['get']['limit'] ?? 50);
+        return ApkDistributionService::listFeijiiFiles($folderId, $offset, $limit);
+    }
+
+    /**
+     * 为指定文件创建小飞机分享链接
      * POST /admin/apk-distribution/{id}/feijipan
+     * Body: { "fileId": "xxx" }
      */
     public function uploadFeijipan(array $context, array $params = [])
     {
@@ -180,7 +199,10 @@ class ApkDistributionController
         }
 
         $id = (int)($params['id'] ?? 0);
-        $result = ApkDistributionService::uploadToFeijii($id);
+        $body = self::parseJsonBody($context);
+        $fileId = (string)($body['fileId'] ?? $body['file_id'] ?? '');
+
+        $result = ApkDistributionService::uploadToFeijii($id, $fileId);
         if (!$result['success']) {
             Response::fail($context['response'], $result['message'], Response::CODE_ERROR);
             return false;

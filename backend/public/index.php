@@ -112,6 +112,7 @@ if ($runWs) {
         // 静态路由必须在 {id} 之前注册，避免被 {id} 捕获
         $router->post('/admin/apk-distribution/upload', [\App\Controller\ApkDistributionController::class, 'uploadApk']);
         $router->post('/admin/apk-distribution/validate-credentials', [\App\Controller\ApkDistributionController::class, 'validateCredentials']);
+        $router->get('/admin/apk-distribution/feijii-files', [\App\Controller\ApkDistributionController::class, 'feijiiFiles']);
         $router->get('/admin/apk-distribution/{id}', [\App\Controller\ApkDistributionController::class, 'show']);
         $router->get('/admin/apk-distribution/{id}/stats', [\App\Controller\ApkDistributionController::class, 'downloadStats']);
         $router->post('/admin/apk-distribution/{id}/feijipan', [\App\Controller\ApkDistributionController::class, 'uploadFeijipan']);

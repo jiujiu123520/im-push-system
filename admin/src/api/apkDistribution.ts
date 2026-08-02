@@ -68,6 +68,22 @@ export interface UploadApkResult {
   id: number
 }
 
+/** 小飞机网盘文件 */
+export interface FeijiiFile {
+  fileId: string
+  fileName: string
+  fileSize: number
+  updTime: string
+  fileIcon: string
+}
+
+/** 小飞机网盘文件列表结果 */
+export interface FeijiiFilesResult {
+  success: boolean
+  message: string
+  files: FeijiiFile[]
+}
+
 export function getDistributionListApi(params: { page?: number; keyword?: string }) {
   return get<PageResult<ApkDistributionRecord>>('/admin/apk-distribution', params)
 }
@@ -84,8 +100,14 @@ export function saveDistributionConfigApi(data: ApkDistributionConfig) {
   return put('/admin/apk-distribution/config', data)
 }
 
-export function uploadToFeijiiApi(id: number) {
-  return post(`/admin/apk-distribution/${id}/feijipan`)
+/** 获取小飞机网盘文件列表 */
+export function getFeijiiFilesApi(params?: { folderId?: number; offset?: number; limit?: number }) {
+  return get<FeijiiFilesResult>('/admin/apk-distribution/feijii-files', params)
+}
+
+/** 为指定文件创建小飞机分享链接 */
+export function uploadToFeijiiApi(id: number, fileId: string) {
+  return post(`/admin/apk-distribution/${id}/feijipan`, { fileId })
 }
 
 export function uploadCustomApi(id: number) {
