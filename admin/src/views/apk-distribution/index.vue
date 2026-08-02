@@ -479,26 +479,67 @@
     <el-dialog
       v-model="feijiiFileDialogVisible"
       title="选择小飞机网盘文件"
-      width="640px"
+      width="720px"
       align-center
       class="feijii-files-dialog"
       :close-on-click-modal="false"
     >
       <div v-loading="feijiiFilesLoading" class="feijii-files-content">
+        <!-- 面包屑导航 -->
+        <div class="feijii-breadcrumb">
+          <el-button
+            link
+            type="primary"
+            :disabled="feijiiCurrentFolderId === 0"
+            @click="backToFeijiiParent"
+          >
+            <el-icon><FolderOpenedIcon /></el-icon>
+            返回上级
+          </el-button>
+          <el-divider direction="vertical" />
+          <span class="breadcrumb-path">
+            <span class="breadcrumb-item" @click="feijiiCurrentFolderId !== 0 && backToFeijiiParent()">
+              全部文件
+            </span>
+            <template v-for="(p, idx) in feijiiFolderPath" :key="idx">
+              <el-icon class="breadcrumb-sep"><ArrowRightIcon /></el-icon>
+              <span class="breadcrumb-item">{{ p.name }}</span>
+            </template>
+          </span>
+        </div>
+
+        <!-- 空状态 -->
         <el-alert
-          v-if="feijiiFiles.length === 0 && !feijiiFilesLoading"
+          v-if="feijiiFiles.length === 0 && feijiiFolders.length === 0 && !feijiiFilesLoading"
           type="info"
           :closable="false"
           show-icon
-          title="网盘暂无文件"
-          description="请先在小飞机网盘上传 APK 文件，然后回到这里选择文件创建分享链接。"
+          title="当前文件夹为空"
+          description="请先在小飞机网盘上传 APK 文件，或进入子文件夹选择文件。"
           style="margin-bottom: 12px"
         />
+
+        <!-- 文件夹列表 -->
+        <div v-if="feijiiFolders.length > 0" class="feijii-folder-list">
+          <div
+            v-for="folder in feijiiFolders"
+            :key="folder.folderId"
+            class="feijii-folder-item"
+            @dblclick="enterFeijiiFolder(folder)"
+            @click="enterFeijiiFolder(folder)"
+          >
+            <el-icon class="folder-icon"><FolderIcon /></el-icon>
+            <span class="folder-name">{{ folder.folderName }}</span>
+            <span class="folder-time">{{ formatTime(folder.updTime) }}</span>
+          </div>
+        </div>
+
+        <!-- 文件列表 -->
         <el-table
           v-if="feijiiFiles.length > 0"
           :data="feijiiFiles"
           style="width: 100%"
-          max-height="380"
+          max-height="320"
           size="small"
           stripe
           @row-click="(row: any) => selectedFeijiiFileId = row.fileId"
@@ -527,8 +568,11 @@
           </el-table-column>
         </el-table>
         <div class="feijii-files-tip">
-          <el-button link type="primary" :icon="RefreshIcon" @click="loadFeijiiFiles">
-            刷新文件列表
+          <span class="feijii-summary">
+            共 {{ feijiiFolders.length }} 个文件夹，{{ feijiiFiles.length }} 个文件
+          </span>
+          <el-button link type="primary" :icon="RefreshIcon" @click="loadFeijiiFiles()">
+            刷新
           </el-button>
         </div>
       </div>
@@ -628,7 +672,10 @@ import {
   CircleCheck as CircleCheckIcon,
   UploadFilled as UploadFilledIcon,
   List as ListIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Folder as FolderIcon,
+  FolderOpened as FolderOpenedIcon,
+  ArrowRight as ArrowRightIcon
 } from '@element-plus/icons-vue'
 import type { FormInstance, FormRules, UploadFile, UploadInstance } from 'element-plus'
 import {
@@ -646,7 +693,8 @@ import {
   type ApkDistributionConfig,
   type CredentialsValidateResult,
   type DownloadStats,
-  type FeijiiFile
+  type FeijiiFile,
+  type FeijiiFolder
 } from '@/api/apkDistribution'
 
 // ---- 列表数据 ----
@@ -753,35 +801,61 @@ const uploadType = ref<'feijipan' | 'custom' | ''>('')
 const feijiiFileDialogVisible = ref(false)
 const feijiiFilesLoading = ref(false)
 const feijiiFiles = ref<FeijiiFile[]>([])
+const feijiiFolders = ref<FeijiiFolder[]>([])
 const selectedFeijiiFileId = ref('')
 const feijiiFileTargetRow = ref<ApkDistributionRecord | null>(null)
+const feijiiCurrentFolderId = ref(0)
+const feijiiFolderPath = ref<{ id: number; name: string }[]>([])
 
 async function handleUploadFeijipan(row: ApkDistributionRecord) {
   feijiiFileTargetRow.value = row
   selectedFeijiiFileId.value = ''
+  feijiiCurrentFolderId.value = 0
+  feijiiFolderPath.value = []
   feijiiFileDialogVisible.value = true
   await loadFeijiiFiles()
 }
 
-async function loadFeijiiFiles() {
+async function loadFeijiiFiles(folderId = feijiiCurrentFolderId.value) {
   feijiiFilesLoading.value = true
   try {
-    const res = await getFeijiiFilesApi({ offset: 1, limit: 100 })
+    const res = await getFeijiiFilesApi({ folderId, offset: 1, limit: 100 })
     const data: any = res.data
     if (data?.success) {
       feijiiFiles.value = data.files || []
-      if (feijiiFiles.value.length === 0) {
-        ElMessage.info('小飞机网盘暂无文件，请先在小飞机网盘上传 APK')
-      }
+      feijiiFolders.value = data.folders || []
+      feijiiCurrentFolderId.value = data.currentFolderId ?? folderId
     } else {
       ElMessage.warning(data?.message || '获取文件列表失败')
       feijiiFiles.value = []
+      feijiiFolders.value = []
     }
   } catch (err: any) {
     ElMessage.error(err?.message || '获取文件列表失败，请检查小飞机网盘凭证配置')
     feijiiFiles.value = []
+    feijiiFolders.value = []
   } finally {
     feijiiFilesLoading.value = false
+  }
+}
+
+function enterFeijiiFolder(folder: FeijiiFolder) {
+  feijiiFolderPath.value.push({ id: feijiiCurrentFolderId.value, name: folder.folderName })
+  feijiiCurrentFolderId.value = folder.folderId
+  selectedFeijiiFileId.value = ''
+  loadFeijiiFiles(folder.folderId)
+}
+
+function backToFeijiiParent() {
+  const parent = feijiiFolderPath.value.pop()
+  if (parent) {
+    feijiiCurrentFolderId.value = parent.id
+    selectedFeijiiFileId.value = ''
+    loadFeijiiFiles(parent.id)
+  } else {
+    feijiiCurrentFolderId.value = 0
+    selectedFeijiiFileId.value = ''
+    loadFeijiiFiles(0)
   }
 }
 
@@ -1673,24 +1747,105 @@ onMounted(() => {
 }
 
 .feijii-files-content {
-  min-height: 200px;
+  min-height: 280px;
+}
+
+.feijii-breadcrumb {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-secondary, #f5f7fa);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.breadcrumb-path {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-secondary, #909399);
+  flex-wrap: wrap;
+}
+
+.breadcrumb-item {
+  cursor: pointer;
+  color: var(--text-primary, #303133);
+  &:hover {
+    color: var(--el-color-primary);
+  }
+}
+
+.breadcrumb-sep {
+  margin: 0 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #c0c4cc);
+}
+
+.feijii-folder-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.feijii-folder-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg-secondary, #f5f7fa);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+
+  &:hover {
+    background: var(--el-color-primary-light-9, #ecf5ff);
+    border-color: var(--el-color-primary-light-7, #d9ecff);
+  }
+
+  .folder-icon {
+    font-size: 20px;
+    color: #f0b400;
+    margin-right: 8px;
+  }
+
+  .folder-name {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text-primary, #303133);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .folder-time {
+    font-size: 11px;
+    color: var(--text-secondary, #909399);
+    margin-left: 8px;
+  }
 }
 
 .feijii-file-name {
   font-size: 13px;
-  color: var(--text-primary);
+  color: var(--text-primary, #303133);
   word-break: break-all;
 }
 
 .feijii-file-size {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text-secondary, #909399);
 }
 
 .feijii-files-tip {
   margin-top: 12px;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.feijii-summary {
+  font-size: 12px;
+  color: var(--text-secondary, #909399);
 }
 
 .stats-summary {

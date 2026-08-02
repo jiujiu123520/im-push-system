@@ -77,11 +77,22 @@ export interface FeijiiFile {
   fileIcon: string
 }
 
+/** 小飞机网盘文件夹 */
+export interface FeijiiFolder {
+  folderId: number
+  folderName: string
+  updTime: string
+  addTime: string
+}
+
 /** 小飞机网盘文件列表结果 */
 export interface FeijiiFilesResult {
   success: boolean
   message: string
   files: FeijiiFile[]
+  folders: FeijiiFolder[]
+  total: number
+  currentFolderId: number
 }
 
 export function getDistributionListApi(params: { page?: number; keyword?: string }) {

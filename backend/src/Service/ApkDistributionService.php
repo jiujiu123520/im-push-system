@@ -753,20 +753,44 @@ class ApkDistributionService
     }
 
     /**
-     * 列出小飞机网盘根目录下的文件列表
-     * 调用 /app/record/file/list 接口
+     * 列出小飞机网盘指定文件夹下的文件和子文件夹
+     * 调用 /app/record/file/list 和 /app/record/folder/list 接口
      *
-     * @return array ['success'=>bool, 'message'=>string, 'files'=>array]
+     * @param int $folderId 文件夹ID，0=根目录
+     * @return array ['success'=>bool, 'message'=>string, 'files'=>array, 'folders'=>array, 'currentFolderId'=>int]
      */
-    public static function listFeijiiFiles(int $folderId = 0, int $offset = 1, int $limit = 50): array
+    public static function listFeijiiFiles(int $folderId = 0, int $offset = 1, int $limit = 100): array
     {
         $config = self::getConfig();
         $appToken = trim((string)($config['feijii_app_token'] ?? ''));
         $uuid     = trim((string)($config['feijii_uuid'] ?? ''));
         if ($appToken === '' || $uuid === '') {
-            return ['success' => false, 'message' => '未配置小飞机网盘凭证', 'files' => []];
+            return ['success' => false, 'message' => '未配置小飞机网盘凭证', 'files' => [], 'folders' => [], 'currentFolderId' => $folderId];
         }
 
+        // 1. 获取子文件夹列表
+        $folders = [];
+        $rf = self::feijiiGet('/app/record/folder/list', $appToken, $uuid, [
+            'offset'   => $offset,
+            'limit'    => $limit,
+            'folderId' => $folderId,
+        ]);
+        if ($rf['http'] === 200 && $rf['resp'] !== null && ($rf['resp']['code'] ?? null) === 200) {
+            $folderList = $rf['resp']['list'] ?? [];
+            if (is_array($folderList)) {
+                foreach ($folderList as $item) {
+                    if (!is_array($item)) continue;
+                    $folders[] = [
+                        'folderId'   => (int)($item['folderId'] ?? 0),
+                        'folderName' => (string)($item['folderName'] ?? '未命名文件夹'),
+                        'updTime'    => (string)($item['updTime'] ?? ''),
+                        'addTime'    => (string)($item['addTime'] ?? ''),
+                    ];
+                }
+            }
+        }
+
+        // 2. 获取文件列表
         $r = self::feijiiGet('/app/record/file/list', $appToken, $uuid, [
             'offset'   => $offset,
             'limit'    => $limit,
@@ -775,19 +799,18 @@ class ApkDistributionService
         ]);
 
         if ($r['http'] !== 200) {
-            return ['success' => false, 'message' => '小飞机网盘返回异常 HTTP ' . $r['http'], 'files' => []];
+            return ['success' => false, 'message' => '小飞机网盘返回异常 HTTP ' . $r['http'], 'files' => [], 'folders' => $folders, 'currentFolderId' => $folderId];
         }
         $resp = $r['resp'];
         if ($resp === null) {
-            return ['success' => false, 'message' => '小飞机返回非 JSON: ' . substr($r['raw'], 0, 200), 'files' => []];
+            return ['success' => false, 'message' => '小飞机返回非 JSON: ' . substr($r['raw'], 0, 200), 'files' => [], 'folders' => $folders, 'currentFolderId' => $folderId];
         }
         $code = $resp['code'] ?? null;
         $msg  = (string)($resp['msg'] ?? '');
         if ($code !== 200) {
-            return ['success' => false, 'message' => "小飞机返回错误：{$msg}（code={$code}）", 'files' => []];
+            return ['success' => false, 'message' => "小飞机返回错误：{$msg}（code={$code}）", 'files' => [], 'folders' => $folders, 'currentFolderId' => $folderId];
         }
 
-        // 响应中 list 字段是文件数组
         $list = $resp['list'] ?? $resp['data'] ?? $resp['records'] ?? $resp['rows'] ?? [];
         if (!is_array($list)) $list = [];
 
@@ -803,8 +826,18 @@ class ApkDistributionService
             ];
         }
         $total = (int)($resp['total'] ?? 0);
-        $msg = count($files) > 0 ? '获取文件列表成功' : "网盘根目录暂无文件（共 {$total} 个文件，可能位于子文件夹中）";
-        return ['success' => true, 'message' => $msg, 'files' => $files, 'total' => $total];
+        $totalItems = count($files) + count($folders);
+        $resultMsg = $totalItems > 0
+            ? '获取列表成功（' . count($folders) . ' 个文件夹，' . count($files) . ' 个文件）'
+            : '当前文件夹为空';
+        return [
+            'success'         => true,
+            'message'         => $resultMsg,
+            'files'           => $files,
+            'folders'         => $folders,
+            'total'           => $total,
+            'currentFolderId' => $folderId,
+        ];
     }
 
     /**
