@@ -45,7 +45,7 @@ class UserService
         //   b) 短信/邮箱验证码（codeType='sms'/'email'）：codeTarget=手机号/邮箱，codeInput=收到的验证码
         // 短信和邮箱验证码分别受 smsEnabled 和 emailEnabled 独立开关控制
         $codeTypeLower = strtolower($codeType);
-        if (self::isCaptchaTypeEnabled($codeTypeLower)) {
+        if ($codeTypeLower !== '' && self::isCaptchaTypeEnabled($codeTypeLower)) {
             if ($codeTypeLower === 'captcha') {
                 // 图形验证码模式：codeTarget 是验证码 token，codeInput 是图形码
                 if (!CaptchaService::verifyImageCaptcha($codeTarget, $codeInput)) {
@@ -124,10 +124,12 @@ class UserService
         // 7. 写入数据库
         $now = date('Y-m-d H:i:s');
         try {
+            $phoneForDb = $phone !== '' ? $phone : null;
+            $emailForDb = $email !== '' ? $email : null;
             $userId = Database::insert(
                 'INSERT INTO users (username, phone, email, password_hash, security_code_hash, status, created_at, updated_at)
                  VALUES (?, ?, ?, ?, ?, 1, ?, ?)',
-                [$username, $phone, $email, $hash, $securityCodeHash, $now, $now]
+                [$username, $phoneForDb, $emailForDb, $hash, $securityCodeHash, $now, $now]
             );
         } catch (\Throwable $e) {
             $fail['message'] = '注册失败：' . $e->getMessage();

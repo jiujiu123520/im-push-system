@@ -141,10 +141,12 @@ class UserController
         $securityCodeHash = '';
 
         $now = date('Y-m-d H:i:s');
+        $phoneForDb = $phone !== '' ? $phone : null;
+        $emailForDb = $email !== '' ? $email : null;
         $userId = Database::insert(
             'INSERT INTO users (username, phone, email, password_hash, security_code_hash, status, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [$username, $phone, $email, $hash, $securityCodeHash, $status, $now, $now]
+            [$username, $phoneForDb, $emailForDb, $hash, $securityCodeHash, $status, $now, $now]
         );
 
         return [
