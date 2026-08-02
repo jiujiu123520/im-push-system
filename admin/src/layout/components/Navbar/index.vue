@@ -56,13 +56,44 @@
       </el-tooltip>
 
       <!-- 通知 -->
-      <el-badge :value="3" class="nav-badge">
-        <el-tooltip content="消息通知" placement="bottom">
-          <div class="nav-action">
-            <el-icon><BellIcon /></el-icon>
+      <el-popover placement="bottom-end" :width="380" trigger="click" popper-class="notification-popover">
+        <template #reference>
+          <el-badge :value="notificationCount || undefined" :hidden="notificationCount === 0" class="nav-badge">
+            <div class="nav-action">
+              <el-icon><BellIcon /></el-icon>
+            </div>
+          </el-badge>
+        </template>
+        <div class="notification-panel">
+          <div class="notification-header">
+            <span class="notification-title">消息通知</span>
+            <el-button v-if="notificationCount > 0" text type="primary" size="small" @click="markAllRead">全部已读</el-button>
           </div>
-        </el-tooltip>
-      </el-badge>
+          <div v-if="notifications.length === 0" class="notification-empty">
+            <el-empty description="暂无通知" :image-size="48" />
+          </div>
+          <div v-else class="notification-list">
+            <div
+              v-for="item in notifications"
+              :key="item.id"
+              class="notification-item"
+              :class="{ unread: !item.read }"
+              @click="handleNotificationClick(item)"
+            >
+              <div class="notification-icon" :class="item.type">
+                <el-icon><component :is="getNotificationIcon(item.type)" /></el-icon>
+              </div>
+              <div class="notification-content">
+                <div class="notification-text">{{ item.title }}</div>
+                <div class="notification-time">{{ item.time }}</div>
+              </div>
+            </div>
+          </div>
+          <div v-if="notifications.length > 0" class="notification-footer">
+            <el-button text type="primary" size="small" @click="router.push('/push-logs')">查看全部推送记录</el-button>
+          </div>
+        </div>
+      </el-popover>
 
       <el-divider direction="vertical" />
 
@@ -112,11 +143,45 @@
         <el-button type="primary" :loading="passwordLoading" @click="handleChangePassword">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 个人中心弹窗 -->
+    <el-dialog v-model="profileDialogVisible" title="个人中心" width="480px" append-to-body>
+      <div class="profile-card">
+        <div class="profile-header">
+          <el-avatar :size="64" :src="userStore.avatar" class="profile-avatar">
+            {{ userStore.username.charAt(0).toUpperCase() }}
+          </el-avatar>
+          <div class="profile-info">
+            <div class="profile-name">{{ userStore.userInfo?.nickname || userStore.username }}</div>
+            <div class="profile-role">
+              <el-tag :type="roleLabel === '超级管理员' ? 'danger' : 'primary'" effect="plain" size="small">
+                {{ roleLabel }}
+              </el-tag>
+            </div>
+          </div>
+        </div>
+        <el-divider />
+        <el-descriptions :column="1" border size="small">
+          <el-descriptions-item label="用户名">{{ userStore.username }}</el-descriptions-item>
+          <el-descriptions-item label="角色">{{ roleLabel }}</el-descriptions-item>
+          <el-descriptions-item label="账号状态">
+            <el-tag type="success" effect="plain" size="small">正常</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="userStore.userInfo?.created_at" label="注册时间">
+            {{ userStore.userInfo.created_at }}
+          </el-descriptions-item>
+        </el-descriptions>
+        <div class="profile-actions">
+          <el-button type="primary" :icon="LockIcon" @click="profileToPassword">修改密码</el-button>
+          <el-button :icon="LogoutIcon" @click="profileToLogout">退出登录</el-button>
+        </div>
+      </div>
+    </el-dialog>
   </header>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, reactive } from 'vue'
+import { computed, ref, reactive, onMounted, markRaw } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { changePasswordApi } from '@/api/auth'
@@ -134,7 +199,11 @@ import {
   Bell as BellIcon,
   User as UserIcon,
   Lock as LockIcon,
-  SwitchButton as SwitchButtonIcon
+  SwitchButton as SwitchButtonIcon,
+  Warning as WarningIcon,
+  SuccessFilled as SuccessFilledIcon,
+  CircleCheckFilled as CircleCheckFilledIcon,
+  InfoFilled as InfoFilledIcon
 } from '@element-plus/icons-vue'
 import { useFullscreen } from '@vueuse/core'
 import { useAppStore } from '@/stores/app'
@@ -147,6 +216,114 @@ const userStore = useUserStore()
 const { isFullscreen, toggle: toggleFullscreen } = useFullscreen()
 
 const refreshing = ref(false)
+
+// ---- 个人中心弹窗 ----
+const profileDialogVisible = ref(false)
+
+function profileToPassword() {
+  profileDialogVisible.value = false
+  passwordDialogVisible.value = true
+}
+
+async function profileToLogout() {
+  try {
+    await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
+      confirmButtonText: '退出',
+      cancelButtonText: '取消',
+      type: 'warning',
+      appendToBody: true
+    })
+    profileDialogVisible.value = false
+    await userStore.logout()
+    ElMessage.success('已退出登录')
+    router.push('/login')
+  } catch {
+    // 取消
+  }
+}
+
+// ---- 消息通知 ----
+interface NotificationItem {
+  id: number
+  type: 'success' | 'warning' | 'info'
+  title: string
+  time: string
+  read: boolean
+  logId?: number
+}
+
+const notifications = ref<NotificationItem[]>([])
+const notificationCount = ref(0)
+
+function getNotificationIcon(type: string) {
+  const map: Record<string, any> = {
+    success: markRaw(SuccessFilledIcon),
+    warning: markRaw(WarningIcon),
+    info: markRaw(InfoFilledIcon),
+  }
+  return map[type] || markRaw(InfoFilledIcon)
+}
+
+function handleNotificationClick(item: NotificationItem) {
+  item.read = true
+  updateNotificationCount()
+  if (item.logId) {
+    router.push('/push-logs')
+  }
+}
+
+function markAllRead() {
+  notifications.value.forEach(n => { n.read = true })
+  updateNotificationCount()
+}
+
+function updateNotificationCount() {
+  notificationCount.value = notifications.value.filter(n => !n.read).length
+}
+
+async function fetchNotifications() {
+  try {
+    // 获取最近 8 条推送记录作为通知
+    const { getPushLogListApi } = await import('@/api/push')
+    const res = await getPushLogListApi({ page: 1, per_page: 8 })
+    const list = res.data?.list || []
+    notifications.value = list.map((log: any) => {
+      const status = Number(log.status)
+      let type: 'success' | 'warning' | 'info' = 'info'
+      let title = ''
+      if (status === 1) {
+        type = 'success'
+        title = `推送成功：${log.title || '无标题'}`
+      } else if (status === 2) {
+        type = 'warning'
+        title = `部分成功：${log.title || '无标题'}（成功${log.success_count} 失败${log.fail_count}）`
+      } else if (status === 0) {
+        type = 'warning'
+        title = `推送失败：${log.title || '无标题'}`
+      } else {
+        type = 'info'
+        title = `推送记录：${log.title || '无标题'}`
+      }
+      return {
+        id: log.id,
+        type,
+        title,
+        time: log.created_at || '',
+        read: false,
+        logId: log.id,
+      } as NotificationItem
+    })
+    updateNotificationCount()
+  } catch {
+    // 静默失败
+  }
+}
+
+onMounted(() => {
+  fetchNotifications()
+  // 每 60 秒刷新一次通知
+  setInterval(fetchNotifications, 60000)
+})
 
 // 修改密码弹窗
 const passwordDialogVisible = ref(false)
@@ -247,7 +424,8 @@ async function handleCommand(cmd: string) {
       await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
         confirmButtonText: '退出',
         cancelButtonText: '取消',
-        type: 'warning'
+        type: 'warning',
+        appendToBody: true
       })
       await userStore.logout()
       ElMessage.success('已退出登录')
@@ -256,7 +434,7 @@ async function handleCommand(cmd: string) {
       // 取消
     }
   } else if (cmd === 'profile') {
-    ElMessage.info('个人中心即将开放')
+    profileDialogVisible.value = true
   } else if (cmd === 'password') {
     passwordDialogVisible.value = true
   }
@@ -437,6 +615,140 @@ async function handleCommand(cmd: string) {
   }
   .breadcrumb {
     display: none;
+  }
+}
+
+// ---- 通知面板样式 ----
+.notification-panel {
+  .notification-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-light);
+    margin-bottom: 8px;
+
+    .notification-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+  }
+
+  .notification-empty {
+    padding: 20px 0;
+  }
+
+  .notification-list {
+    max-height: 360px;
+    overflow-y: auto;
+  }
+
+  .notification-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+
+    &:hover {
+      background: rgba(109, 92, 255, 0.06);
+    }
+
+    &.unread {
+      background: rgba(109, 92, 255, 0.04);
+    }
+
+    .notification-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 16px;
+
+      &.success {
+        background: rgba(103, 194, 58, 0.12);
+        color: #67c23a;
+      }
+      &.warning {
+        background: rgba(230, 162, 60, 0.12);
+        color: #e6a23c;
+      }
+      &.info {
+        background: rgba(144, 147, 153, 0.12);
+        color: #909399;
+      }
+    }
+
+    .notification-content {
+      flex: 1;
+      min-width: 0;
+
+      .notification-text {
+        font-size: 13px;
+        color: var(--text-regular);
+        line-height: 1.4;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+      }
+
+      .notification-time {
+        font-size: 11px;
+        color: var(--text-secondary);
+        margin-top: 4px;
+      }
+    }
+  }
+
+  .notification-footer {
+    text-align: center;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-light);
+    margin-top: 8px;
+  }
+}
+
+// ---- 个人中心弹窗样式 ----
+.profile-card {
+  .profile-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+
+    .profile-avatar {
+      background: $gradient-primary;
+      color: #fff;
+      font-size: 24px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .profile-info {
+      .profile-name {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .profile-role {
+        margin-top: 6px;
+      }
+    }
+  }
+
+  .profile-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+    justify-content: center;
   }
 }
 </style>

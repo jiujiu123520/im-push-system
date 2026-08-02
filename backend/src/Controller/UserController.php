@@ -12,6 +12,7 @@ use App\Service\Response;
  *
  * 路由：
  *   GET    /admin/users              列表（分页10条，支持搜索）
+ *   POST   /admin/users              新增用户
  *   GET    /admin/users/{id}         用户详情
  *   PUT    /admin/users/{id}         更新用户信息（用户名/手机号/邮箱/状态）
  *   PUT    /admin/users/{id}/password  管理员重置用户密码
@@ -60,6 +61,95 @@ class UserController
             'page'        => $page,
             'per_page'    => self::PER_PAGE,
             'total_pages' => $total > 0 ? (int)ceil($total / self::PER_PAGE) : 0,
+        ];
+    }
+
+    /**
+     * 新增用户
+     * POST /admin/users
+     * Body: { username, password, phone?, email?, status? }
+     */
+    public function store(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $body = $this->parseBody($context);
+
+        $username = trim((string)($body['username'] ?? ''));
+        $password = (string)($body['password'] ?? '');
+        $phone    = trim((string)($body['phone'] ?? ''));
+        $email    = trim((string)($body['email'] ?? ''));
+        $status   = isset($body['status']) ? (int)$body['status'] : 1;
+
+        // 参数校验
+        if ($username === '') {
+            Response::fail($context['response'], '用户名不能为空', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+        if (strlen($username) < 3 || strlen($username) > 64) {
+            Response::fail($context['response'], '用户名长度需在 3-64 之间', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+        if (strlen($password) < 6 || strlen($password) > 64) {
+            Response::fail($context['response'], '密码长度需在 6-64 之间', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+        if (!in_array($status, [0, 1], true)) {
+            $status = 1;
+        }
+
+        // 唯一性校验
+        $exist = Database::fetch('SELECT id FROM users WHERE username = ? LIMIT 1', [$username]);
+        if ($exist !== false) {
+            Response::fail($context['response'], '用户名已存在', Response::CODE_ERROR);
+            return false;
+        }
+        if ($phone !== '') {
+            if (!preg_match('/^1[3-9]\d{9}$/', $phone)) {
+                Response::fail($context['response'], '手机号格式不正确', Response::CODE_BAD_REQUEST, 400);
+                return false;
+            }
+            $exist = Database::fetch('SELECT id FROM users WHERE phone = ? LIMIT 1', [$phone]);
+            if ($exist !== false) {
+                Response::fail($context['response'], '手机号已被占用', Response::CODE_ERROR);
+                return false;
+            }
+        }
+        if ($email !== '') {
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                Response::fail($context['response'], '邮箱格式不正确', Response::CODE_BAD_REQUEST, 400);
+                return false;
+            }
+            $exist = Database::fetch('SELECT id FROM users WHERE email = ? LIMIT 1', [$email]);
+            if ($exist !== false) {
+                Response::fail($context['response'], '邮箱已被占用', Response::CODE_ERROR);
+                return false;
+            }
+        }
+
+        // 密码哈希
+        $hash = password_hash($password, PASSWORD_BCRYPT);
+        if ($hash === false) {
+            Response::fail($context['response'], '密码加密失败', Response::CODE_INTERNAL, 500);
+            return false;
+        }
+
+        // 安全码（留空，用户可后续自行设置）
+        $securityCodeHash = '';
+
+        $now = date('Y-m-d H:i:s');
+        $userId = Database::insert(
+            'INSERT INTO users (username, phone, email, password_hash, security_code_hash, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [$username, $phone, $email, $hash, $securityCodeHash, $status, $now, $now]
+        );
+
+        return [
+            'id'      => (int)$userId,
+            'message' => '用户创建成功',
         ];
     }
 

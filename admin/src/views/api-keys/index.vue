@@ -441,7 +441,7 @@
           </div>
           <div>
             <h3 class="card-title">API 调用示例</h3>
-            <p class="card-sub">使用 AccessKey / SecretKey 调用开放接口</p>
+            <p class="card-sub">使用 API Key 调用推送接口</p>
           </div>
         </div>
         <el-icon class="toggle-icon" :class="{ open: examplesOpen }">
@@ -484,15 +484,19 @@
           <div class="example-tips">
             <div class="tip-item">
               <el-icon class="tip-icon"><InfoFilledIcon /></el-icon>
-              <span>请求头需携带 <code>X-Api-Key</code>（创建 API Key 后获取）</span>
+              <span>请求头需携带 <code>X-Api-Key</code>（在上方创建 API Key 后获取）</span>
             </div>
             <div class="tip-item">
               <el-icon class="tip-icon"><InfoFilledIcon /></el-icon>
-              <span>所有接口返回统一 JSON 结构：<code>{ code, message, data }</code></span>
+              <span>推送目标类型支持 <code>device</code>（按设备ID）、<code>key</code>（按Key值）、<code>broadcast</code>（广播）</span>
             </div>
             <div class="tip-item">
               <el-icon class="tip-icon"><InfoFilledIcon /></el-icon>
-              <span>频率限制：默认 100 次/分钟，可在 Key 配置中调整</span>
+              <span>设备离线时消息自动存为离线，设备重连后可拉取</span>
+            </div>
+            <div class="tip-item">
+              <el-icon class="tip-icon"><InfoFilledIcon /></el-icon>
+              <span>iOS 设备后台离线时通过 APNS 推送，需在系统设置中配置 APNS</span>
             </div>
           </div>
         </div>
@@ -748,8 +752,8 @@ const headerParams = [
 ]
 
 const bodyParams = [
-  { name: 'target_type', required: true, type: 'string', desc: '推送目标类型：<code>device</code> 按设备ID推送，<code>key</code> 按Key值推送' },
-  { name: 'target_value', required: true, type: 'string', desc: '推送目标值，多个用英文逗号分隔。device类型为设备ID，key类型为Key值' },
+  { name: 'target_type', required: true, type: 'string', desc: '推送目标类型：<code>device</code> 按设备ID推送，<code>key</code> 按Key值推送，<code>broadcast</code> 广播推送' },
+  { name: 'target_value', required: true, type: 'string', desc: '推送目标值，多个用英文逗号分隔。device类型为设备ID，key类型为Key值。broadcast类型时传任意值即可' },
   { name: 'title', required: false, type: 'string', desc: '消息标题' },
   { name: 'content', required: false, type: 'string', desc: '消息内容' },
   { name: 'payload', required: false, type: 'object', desc: '附加数据，JSON对象，客户端可自定义解析' },
@@ -759,16 +763,20 @@ const bodyParams = [
 const responseFields = [
   { name: 'success_count', type: 'number', desc: '推送成功的设备数量' },
   { name: 'fail_count', type: 'number', desc: '推送失败的设备数量' },
-  { name: 'detail', type: 'array', desc: '推送详情列表，包含每个设备的推送结果' }
+  { name: 'stored_offline', type: 'boolean', desc: '是否有设备离线时消息已存为离线（重连后可拉取）' },
+  { name: 'detail', type: 'array', desc: '推送详情列表，包含每个设备的推送结果' },
+  { name: 'fail_reason', type: 'string', desc: '失败原因摘要（如有失败）' }
 ]
 
 const errorCodes = [
-  { code: 200, message: 'OK', desc: '请求成功' },
+  { code: 200, message: 'OK', desc: '请求成功（即使部分设备推送失败，HTTP 状态码仍为 200）' },
   { code: 400, message: 'Bad Request', desc: '请求参数错误，如 target_type 无效、target_value 为空等' },
-  { code: 401, message: 'Unauthorized', desc: '鉴权失败，缺少 X-Api-Key 请求头或 API Key 无效/已过期' },
+  { code: 401, message: 'Unauthorized', desc: '鉴权失败，缺少 X-Api-Key 请求头或 API Key 无效/已禁用' },
+  { code: 403, message: 'Forbidden', desc: '权限不足，API Key 无推送权限或 IP 不在白名单内' },
   { code: 404, message: 'Not Found', desc: '请求的接口不存在' },
+  { code: 429, message: 'Too Many Requests', desc: '请求频率超过限制，请降低调用频率' },
   { code: 500, message: 'Internal Server Error', desc: '服务器内部错误' },
-  { code: 503, message: 'Service Unavailable', desc: '服务不可用' }
+  { code: 503, message: 'Service Unavailable', desc: '服务不可用，推送服务可能未启动' }
 ]
 
 // ---- 动态服务器地址 ----
@@ -847,6 +855,8 @@ sendPush('your-api-key-here', {
 const docResponseExample = `{
   "success_count": 2,
   "fail_count": 1,
+  "stored_offline": true,
+  "fail_reason": "设备离线，APP未连接或已断开（消息已存为离线，设备重连后可拉取）",
   "detail": [
     {
       "device_id": "device001",
@@ -859,7 +869,7 @@ const docResponseExample = `{
     {
       "device_id": "device003",
       "status": "offline",
-      "reason": "设备不在线"
+      "message": "设备离线，APP未连接或已断开（消息已存为离线，设备重连后可拉取）"
     }
   ]
 }`

@@ -232,13 +232,13 @@ export const asyncRoutes: RouteRecordRaw[] = [
   {
     path: '/audio',
     component: Layout,
-    meta: { title: '音频管理', icon: 'Music', roles: ['admin', 'super_admin'] },
+    meta: { title: '音频管理', icon: 'Headset', roles: ['admin', 'super_admin'] },
     children: [
       {
         path: '',
         name: 'Audio',
         component: () => import('@/views/audio/index.vue'),
-        meta: { title: '音频管理', icon: 'Music', cache: true, module: 'audio' }
+        meta: { title: '音频管理', icon: 'Headset', cache: true, module: 'audio' }
       }
     ]
   },

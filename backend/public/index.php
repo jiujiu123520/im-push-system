@@ -211,6 +211,7 @@ if ($runWs) {
         // 用户管理（管理员鉴权）
         // ============================================================
         $router->get('/admin/users',              [\App\Controller\UserController::class, 'index']);
+        $router->post('/admin/users',             [\App\Controller\UserController::class, 'store']);
         $router->get('/admin/users/{id}',         [\App\Controller\UserController::class, 'show']);
         $router->put('/admin/users/{id}',         [\App\Controller\UserController::class, 'update']);
         $router->put('/admin/users/{id}/password', [\App\Controller\UserController::class, 'resetPassword']);
