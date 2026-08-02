@@ -5,6 +5,7 @@ namespace App;
 
 use App\Service\Config;
 use App\Service\Response;
+use App\Middleware\StaticRouter;
 use Swoole\Http\Request;
 use Swoole\Http\Response as SwooleResponse;
 use Swoole\Http\Server;
@@ -175,6 +176,11 @@ class HttpServer
 
             $path = $request->server['request_uri'];
             $method = strtoupper($request->server['request_method']);
+
+            // 静态路由中间件（按 settings_paths 实时配置处理根跳转与路径提示）
+            if (StaticRouter::handle($path, $response)) {
+                return;
+            }
 
             // 路由分发
             [$handler, $params] = $this->router->dispatch($method, $path);
