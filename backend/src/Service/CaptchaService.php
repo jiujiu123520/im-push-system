@@ -40,6 +40,32 @@ class CaptchaService
     private const KEY_EMAIL = 'captcha:email:';
 
     /**
+     * 从数据库读取验证码服务配置（admin_settings.settings_captcha）
+     *
+     * 后台"验证码服务配置"卡片保存的 SMTP/短信参数存于此 key。
+     * CaptchaService 优先使用后台配置，回退到 .env 环境变量。
+     *
+     * @return array 后台配置数组（未找到或读取失败返回空数组）
+     */
+    private static function readCaptchaSettings(): array
+    {
+        try {
+            $row = Database::fetch(
+                'SELECT config_value FROM admin_settings WHERE config_key = ? LIMIT 1',
+                ['settings_captcha']
+            );
+            if ($row !== false) {
+                $cfg = json_decode((string)$row['config_value'], true);
+                if (is_array($cfg)) {
+                    return $cfg;
+                }
+            }
+        } catch (\Throwable $e) {
+        }
+        return [];
+    }
+
+    /**
      * 生成图形验证码
      *
      * 返回：
@@ -183,14 +209,15 @@ class CaptchaService
         $encrypted = Aes::encryptString($plain);
         Redis::setex(self::KEY_SMS . $phone, self::CODE_TTL, $encrypted);
 
-        // 调用短信 API
-        $apiKey = (string)Config::env('SMS_API_KEY', '');
-        $apiUrl = (string)Config::env('SMS_API_URL', '');
+        // 读取短信 API 配置：优先后台管理配置，回退到 .env
+        $settings = self::readCaptchaSettings();
+        $apiKey = (string)($settings['smsApiKey'] ?? '') ?: (string)Config::env('SMS_API_KEY', '');
+        $apiUrl = (string)($settings['smsApiUrl'] ?? '') ?: (string)Config::env('SMS_API_URL', '');
 
         if ($apiKey === '' || $apiUrl === '') {
-            // 未配置短信服务，仅记录日志不实际发送
-            self::log('sms', "[SMS] 未配置 SMS_API_KEY/SMS_API_URL，验证码模拟发送：phone={$phone}, code={$code}");
-            return ['success' => true, 'message' => '验证码已发送（开发环境未实际发送）'];
+            // 未配置短信服务：返回失败，避免前端误以为已发送
+            self::log('sms', "[SMS] 未配置短信服务参数，无法发送验证码：phone={$phone}, code={$code}");
+            return ['success' => false, 'message' => '短信服务未配置，请联系管理员在后台设置短信 API 参数'];
         }
 
         $result = self::callSmsApi($apiUrl, $apiKey, $phone, $code);
@@ -222,18 +249,27 @@ class CaptchaService
         $encrypted = Aes::encryptString($plain);
         Redis::setex(self::KEY_EMAIL . $email, self::CODE_TTL, $encrypted);
 
-        // 使用 PHPMailer 发送
-        $mailHost = (string)Config::env('MAIL_HOST', '');
-        $mailUser = (string)Config::env('MAIL_USERNAME', '');
-        $mailPass = (string)Config::env('MAIL_PASSWORD', '');
-        $mailPort = (int)Config::env('MAIL_PORT', 587);
-        $mailEnc  = strtolower((string)Config::env('MAIL_ENCRYPTION', 'tls'));
-        $mailName = (string)Config::env('MAIL_SENDER_NAME', 'IM Push System');
+        // 读取邮件 SMTP 配置：优先后台管理配置，回退到 .env
+        $settings = self::readCaptchaSettings();
+        $mailHost = (string)($settings['mailHost'] ?? '') ?: (string)Config::env('MAIL_HOST', '');
+        $mailUser = (string)($settings['mailUsername'] ?? '') ?: (string)Config::env('MAIL_USERNAME', '');
+        $mailPass = (string)($settings['mailPassword'] ?? '') ?: (string)Config::env('MAIL_PASSWORD', '');
+        $mailPort = (int)(($settings['mailPort'] ?? '') ?: Config::env('MAIL_PORT', 587));
+        $mailFrom = (string)($settings['mailFrom'] ?? '') ?: (string)Config::env('MAIL_SENDER_NAME', 'IM Push System');
+        $mailName = $mailFrom;
+        // 加密方式：后台显式配置 > .env > 根据端口自动推断（465=ssl, 587=tls）
+        $mailEnc  = strtolower((string)($settings['mailEncryption'] ?? ''));
+        if ($mailEnc === '') {
+            $mailEnc = strtolower((string)Config::env('MAIL_ENCRYPTION', ''));
+        }
+        if ($mailEnc === '' || $mailEnc === 'auto') {
+            $mailEnc = $mailPort == 465 ? 'ssl' : 'tls';
+        }
 
         if ($mailHost === '' || $mailUser === '') {
             // 未配置邮件服务：返回失败，避免前端误以为已发送
-            self::log('email', "[EMAIL] 未配置 MAIL_HOST/MAIL_USERNAME，无法发送验证码：email={$email}, code={$code}");
-            return ['success' => false, 'message' => '邮件服务未配置，请联系管理员在 .env 中设置 MAIL_HOST/MAIL_USERNAME'];
+            self::log('email', "[EMAIL] 未配置 SMTP 参数，无法发送验证码：email={$email}, code={$code}");
+            return ['success' => false, 'message' => '邮件服务未配置，请联系管理员在后台设置 SMTP 参数'];
         }
 
         try {
@@ -251,6 +287,9 @@ class CaptchaService
             } elseif ($mailEnc === 'tls') {
                 $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
             }
+            // QQ/163 等邮箱要求 setFrom 地址与 SMTP 登录账号一致，
+            // 否则会报 "SMTP Error: Could not authenticate" 或发件被拒。
+            // 因此发件人地址强制使用 SMTP 登录账号（mailUser），mailFrom 仅作为显示名称。
             $mail->setFrom($mailUser, $mailName);
             $mail->addAddress($email);
             $mail->Subject = '邮箱验证码';
