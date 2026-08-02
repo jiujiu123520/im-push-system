@@ -554,13 +554,14 @@ class ApkDistributionService
     /**
      * 生成小飞机网盘 API 所需的 timestamp 签名
      * 算法：AES-128-ECB-Pkcs7 加密当前毫秒时间戳，输出 hex 字符串
+     *
+     * 注意：openssl_encrypt 在 OPENSSL_RAW_DATA 模式下默认自动加 PKCS7 padding，
+     * 不要手动 padding，否则会重复 padding 导致结果长度翻倍（32字节→64字符，错误）。
      */
     private static function feijiiEncryptTimestamp(int $ts): string
     {
-        $data = (string)$ts;
-        $pad = 16 - (strlen($data) % 16);
-        $data .= str_repeat(chr($pad), $pad);
-        $encrypted = openssl_encrypt($data, 'AES-128-ECB', self::FEEJII_AES_KEY, OPENSSL_RAW_DATA);
+        // 直接传原始字符串，openssl_encrypt 会自动处理 PKCS7 padding
+        $encrypted = openssl_encrypt((string)$ts, 'AES-128-ECB', self::FEEJII_AES_KEY, OPENSSL_RAW_DATA);
         return $encrypted === false ? '' : bin2hex($encrypted);
     }
 
