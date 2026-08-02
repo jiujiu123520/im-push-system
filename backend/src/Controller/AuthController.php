@@ -205,6 +205,41 @@ class AuthController
     }
 
     /**
+     * 通过 QQ 号重置密码（支持：QQ 单独 / QQ+邮箱验证码）
+     * POST /auth/reset-password-by-qq
+     * Body: { qq, account, email, email_code, new_password }
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public static function resetPasswordByQq(array $context, array $params = [])
+    {
+        $body = self::parseJsonBody($context);
+        $qq        = (string)($body['qq'] ?? '');
+        $account   = (string)($body['account'] ?? '');
+        $email     = (string)($body['email'] ?? '');
+        $emailCode = (string)($body['email_code'] ?? ($body['captcha'] ?? ''));
+        $newPwd    = (string)($body['new_password'] ?? '');
+
+        $result = UserService::resetPasswordByQq($qq, $account, $email, $emailCode, $newPwd);
+        if (!$result['success']) {
+            Response::fail($context['response'], $result['message'], Response::CODE_ERROR);
+            return false;
+        }
+        return ['message' => $result['message']];
+    }
+
+    /**
+     * 获取安全配置（用于登录/找回密码页展示改密方式开关）
+     * GET /auth/security-config
+     */
+    public static function securityConfig(array $context, array $params = [])
+    {
+        return UserService::getSecurityConfig();
+    }
+
+    /**
      * 用户登录
      * POST /auth/login
      * Body: { account, password, captcha_token, captcha_input }

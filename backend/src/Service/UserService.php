@@ -636,4 +636,176 @@ class UserService
 
         return false;
     }
+
+    /**
+     * 读取 settings_security 安全配置
+     *
+     * @return array
+     */
+    public static function getSecurityConfig(): array
+    {
+        $defaults = [
+            'allow_register'          => 1,
+            'password_reset_mode'     => 'both',   // qq_only | email_only | both
+            'require_email_for_reset' => 1,
+            'qq_bind_enabled'         => 1,
+            'user_self_unbind_qq'     => 0,
+            'rate_limit_push_per_min'  => 20,
+            'rate_limit_push_per_hour' => 500,
+            'rate_limit_push_per_day'  => 3000,
+        ];
+        try {
+            $row = Database::fetch(
+                'SELECT config_value FROM admin_settings WHERE config_key = ? LIMIT 1',
+                ['settings_security']
+            );
+            if ($row !== false) {
+                $cfg = json_decode((string)$row['config_value'], true);
+                if (is_array($cfg)) {
+                    return array_merge($defaults, $cfg);
+                }
+            }
+        } catch (\Throwable $e) {
+        }
+        return $defaults;
+    }
+
+    /**
+     * 脱敏手机号
+     */
+    public static function maskPhone(string $phone): string
+    {
+        if ($phone === '' || strlen($phone) < 7) return $phone;
+        return substr($phone, 0, 3) . str_repeat('*', max(0, strlen($phone) - 7)) . substr($phone, -4);
+    }
+
+    /**
+     * 脱敏邮箱
+     */
+    public static function maskEmail(string $email): string
+    {
+        if ($email === '' || strpos($email, '@') === false) return $email;
+        [$local, $domain] = explode('@', $email, 2);
+        $len = strlen($local);
+        if ($len <= 2) {
+            $local = $local . str_repeat('*', 2);
+        } else {
+            $local = $local[0] . str_repeat('*', max(1, $len - 2)) . ($len > 1 ? $local[$len - 1] : '');
+        }
+        return $local . '@' . $domain;
+    }
+
+    /**
+     * 脱敏 QQ 号
+     */
+    public static function maskQq(string $qq): string
+    {
+        if ($qq === '' || strlen($qq) < 5) return $qq;
+        return substr($qq, 0, 2) . str_repeat('*', max(1, strlen($qq) - 4)) . substr($qq, -2);
+    }
+
+    /**
+     * 通过 QQ 号重置密码
+     *
+     * @param string $qq            QQ号
+     * @param string $account       绑定的账号名（username/phone/email 任一，可选取决于 settings_security）
+     * @param string $email         邮箱（可选，若 require_email_for_reset=1 则需要填注册邮箱）
+     * @param string $emailCode     邮箱验证码（若传了 email，则验证邮箱验证码）
+     * @param string $newPassword   新密码
+     * @return array [success, message]
+     */
+    public static function resetPasswordByQq(
+        string $qq,
+        string $account,
+        string $email,
+        string $emailCode,
+        string $newPassword
+    ): array {
+        $sec = self::getSecurityConfig();
+        if (empty($sec['qq_bind_enabled'])) {
+            return ['success' => false, 'message' => '系统未开启 QQ 绑定功能'];
+        }
+        $mode = (string)($sec['password_reset_mode'] ?? 'both');
+        if ($mode === 'email_only') {
+            return ['success' => false, 'message' => '管理员关闭了通过 QQ 号改密，请使用邮箱找回密码'];
+        }
+        if ($qq === '' || !ctype_digit($qq)) {
+            return ['success' => false, 'message' => '请输入正确的 QQ 号'];
+        }
+        if (strlen($newPassword) < 6 || strlen($newPassword) > 64) {
+            return ['success' => false, 'message' => '密码长度需 6-64 位'];
+        }
+
+        // 查找用户
+        $row = Database::fetch('SELECT id, username, phone, email, qq FROM users WHERE qq = ? LIMIT 1', [$qq]);
+        if ($row === false) {
+            return ['success' => false, 'message' => '该 QQ 号未绑定任何账号'];
+        }
+
+        // 要求匹配绑定的账号名（防止知道别人QQ号就改密码）
+        $account = trim($account);
+        $accountOk = true;
+        if ($account !== '') {
+            $accountLower = mb_strtolower($account);
+            $hit = false;
+            foreach (['username', 'phone', 'email'] as $f) {
+                $v = (string)($row[$f] ?? '');
+                if ($v !== '' && mb_strtolower($v) === $accountLower) {
+                    $hit = true;
+                    break;
+                }
+            }
+            if (!$hit) $accountOk = false;
+        }
+        if (!$accountOk) {
+            return ['success' => false, 'message' => '绑定的账号名不匹配，请输入绑定 QQ 的账号（用户名/手机号/邮箱）'];
+        }
+
+        // 邮箱验证码双重校验（可选，require_email_for_reset=1 必须校验注册邮箱）
+        $email = trim($email);
+        if (!empty($sec['require_email_for_reset'])) {
+            $regEmail = (string)($row['email'] ?? '');
+            if ($regEmail === '') {
+                return ['success' => false, 'message' => '该账号未绑定邮箱，无法通过邮箱验证码校验，请联系管理员'];
+            }
+            if ($email === '' || strtolower($email) !== strtolower($regEmail)) {
+                return ['success' => false, 'message' => '请填写该账号绑定的邮箱'];
+            }
+            if ($emailCode === '') {
+                return ['success' => false, 'message' => '请输入邮箱验证码'];
+            }
+            $verify = CaptchaService::verify($regEmail, $emailCode, 'email');
+            if (!$verify['success']) {
+                return ['success' => false, 'message' => $verify['message']];
+            }
+        } elseif ($email !== '' && $emailCode !== '') {
+            // 用户主动提供邮箱和验证码，走校验
+            $verify = CaptchaService::verify($email, $emailCode, 'email');
+            if (!$verify['success']) {
+                return ['success' => false, 'message' => $verify['message']];
+            }
+        }
+
+        $hash = password_hash($newPassword, PASSWORD_DEFAULT);
+        Database::execute(
+            'UPDATE users SET password_hash = ?, updated_at = NOW() WHERE id = ?',
+            [$hash, (int)$row['id']]
+        );
+        self::invalidateAllUserTokens((int)$row['id']);
+        return ['success' => true, 'message' => '密码已重置，请使用新密码登录'];
+    }
+
+    /**
+     * 让用户所有 token 失效（通过 Redis 置一个"最早有效签发时间"）
+     */
+    private static function invalidateAllUserTokens(int $userId): void
+    {
+        if ($userId <= 0) return;
+        try {
+            $r = Redis::getInstance();
+            // 当前时间之后签发的 token 才算有效
+            $r->set('user_jwt_nbf:' . $userId, (string)time(), ['nx', 'ex' => 86400 * 30]);
+        } catch (\Throwable $e) {
+        }
+    }
 }
