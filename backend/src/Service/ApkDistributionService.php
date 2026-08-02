@@ -754,12 +754,16 @@ class ApkDistributionService
 
     /**
      * 列出小飞机网盘指定文件夹下的文件和子文件夹
-     * 调用 /app/record/file/list 和 /app/record/folder/list 接口
+     *
+     * 与 feijipan.com 官网一致，只调用 /app/record/file/list?type=0 接口，
+     * 该接口同时返回文件和文件夹（通过 fileName/folderName 字段区分）。
+     * 不再单独调用 /app/record/folder/list，因为两个接口返回的 folderId
+     * 可能不一致，导致进入子文件夹时 file/list 查不到文件。
      *
      * @param int $folderId 文件夹ID，0=根目录
      * @return array ['success'=>bool, 'message'=>string, 'files'=>array, 'folders'=>array, 'currentFolderId'=>int]
      */
-    public static function listFeijiiFiles(int $folderId = 0, int $offset = 1, int $limit = 100): array
+    public static function listFeijiiFiles(int $folderId = 0, int $offset = 1, int $limit = 110): array
     {
         $config = self::getConfig();
         $appToken = trim((string)($config['feijii_app_token'] ?? ''));
@@ -768,29 +772,7 @@ class ApkDistributionService
             return ['success' => false, 'message' => '未配置小飞机网盘凭证', 'files' => [], 'folders' => [], 'currentFolderId' => $folderId];
         }
 
-        // 1. 获取子文件夹列表
-        $folders = [];
-        $rf = self::feijiiGet('/app/record/folder/list', $appToken, $uuid, [
-            'offset'   => $offset,
-            'limit'    => $limit,
-            'folderId' => $folderId,
-        ]);
-        if ($rf['http'] === 200 && $rf['resp'] !== null && ($rf['resp']['code'] ?? null) === 200) {
-            $folderList = $rf['resp']['list'] ?? [];
-            if (is_array($folderList)) {
-                foreach ($folderList as $item) {
-                    if (!is_array($item)) continue;
-                    $folders[] = [
-                        'folderId'   => (int)($item['folderId'] ?? 0),
-                        'folderName' => (string)($item['folderName'] ?? '未命名文件夹'),
-                        'updTime'    => (string)($item['updTime'] ?? ''),
-                        'addTime'    => (string)($item['addTime'] ?? ''),
-                    ];
-                }
-            }
-        }
-
-        // 2. 获取文件列表
+        // 调用 /app/record/file/list?type=0，同时返回文件和文件夹
         $r = self::feijiiGet('/app/record/file/list', $appToken, $uuid, [
             'offset'   => $offset,
             'limit'    => $limit,
@@ -799,31 +781,49 @@ class ApkDistributionService
         ]);
 
         if ($r['http'] !== 200) {
-            return ['success' => false, 'message' => '小飞机网盘返回异常 HTTP ' . $r['http'], 'files' => [], 'folders' => $folders, 'currentFolderId' => $folderId];
+            return ['success' => false, 'message' => '小飞机网盘返回异常 HTTP ' . $r['http'], 'files' => [], 'folders' => [], 'currentFolderId' => $folderId];
         }
         $resp = $r['resp'];
         if ($resp === null) {
-            return ['success' => false, 'message' => '小飞机返回非 JSON: ' . substr($r['raw'], 0, 200), 'files' => [], 'folders' => $folders, 'currentFolderId' => $folderId];
+            return ['success' => false, 'message' => '小飞机返回非 JSON: ' . substr($r['raw'], 0, 200), 'files' => [], 'folders' => [], 'currentFolderId' => $folderId];
         }
         $code = $resp['code'] ?? null;
         $msg  = (string)($resp['msg'] ?? '');
         if ($code !== 200) {
-            return ['success' => false, 'message' => "小飞机返回错误：{$msg}（code={$code}）", 'files' => [], 'folders' => $folders, 'currentFolderId' => $folderId];
+            return ['success' => false, 'message' => "小飞机返回错误：{$msg}（code={$code}）", 'files' => [], 'folders' => [], 'currentFolderId' => $folderId];
         }
 
         $list = $resp['list'] ?? $resp['data'] ?? $resp['records'] ?? $resp['rows'] ?? [];
         if (!is_array($list)) $list = [];
 
+        // 官网 file/list?type=0 同时返回文件和文件夹：
+        // - 文件夹项有 folderName + folderId，无 fileName
+        // - 文件项有 fileName + fileId，无 folderName
         $files = [];
+        $folders = [];
         foreach ($list as $item) {
             if (!is_array($item)) continue;
-            $files[] = [
-                'fileId'     => (string)($item['fileId'] ?? $item['id'] ?? ''),
-                'fileName'   => (string)($item['fileName'] ?? $item['name'] ?? ''),
-                'fileSize'   => (int)($item['fileSize'] ?? 0),
-                'updTime'    => (string)($item['updTime'] ?? ''),
-                'fileIcon'   => (string)($item['fileIcon'] ?? ''),
-            ];
+            $hasFolderName = isset($item['folderName']) && $item['folderName'] !== '';
+            $hasFileName   = isset($item['fileName']) && $item['fileName'] !== '';
+
+            if ($hasFolderName && !$hasFileName) {
+                // 文件夹
+                $folders[] = [
+                    'folderId'   => (int)($item['folderId'] ?? 0),
+                    'folderName' => (string)$item['folderName'],
+                    'updTime'    => (string)($item['updTime'] ?? ''),
+                    'addTime'    => (string)($item['addTime'] ?? ''),
+                ];
+            } else {
+                // 文件
+                $files[] = [
+                    'fileId'     => (string)($item['fileId'] ?? $item['id'] ?? ''),
+                    'fileName'   => (string)($item['fileName'] ?? $item['folderName'] ?? ''),
+                    'fileSize'   => (int)($item['fileSize'] ?? 0),
+                    'updTime'    => (string)($item['updTime'] ?? ''),
+                    'fileIcon'   => (string)($item['fileIcon'] ?? ''),
+                ];
+            }
         }
         $total = (int)($resp['total'] ?? 0);
         $totalItems = count($files) + count($folders);
