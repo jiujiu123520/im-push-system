@@ -62,9 +62,19 @@ export function batchDeletePushLogsApi(ids: number[]) {
   return del('/admin/push-logs/batch', { ids })
 }
 
-// 重新推送
+// 重新推送（对失败的推送记录进行重试）
+// 返回：status=success/partial/offline/failed + 成功/失败计数
 export function retryPushApi(id: number) {
-  return post(`/admin/push/logs/${id}/retry`)
+  return post<{
+    message: string
+    status: 'success' | 'partial' | 'offline' | 'failed'
+    success_count: number
+    fail_count: number
+    stored_offline: boolean
+    fail_reason: string
+    retry_of: number
+    new_message_id: string
+  }>(`/admin/push-logs/${id}/retry`)
 }
 
 // 取消推送

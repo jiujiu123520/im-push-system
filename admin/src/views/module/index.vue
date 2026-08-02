@@ -2003,12 +2003,52 @@ async function retryPushLog(row: Record<string, any>) {
         center: true
       }
     )
-    retryPushLoading.value = true
-    await retryPushApi(row.id)
-    ElMessage.success('已提交重新推送任务，请稍后查看最新状态')
-    fetchData()
   } catch {
-    // 取消或失败
+    return // 用户取消
+  }
+
+  retryPushLoading.value = true
+  try {
+    const res = await retryPushApi(row.id)
+    const data = res.data
+    const successCount = data.success_count ?? 0
+    const failCount = data.fail_count ?? 0
+    const failReason = data.fail_reason ?? ''
+    const status = data.status
+
+    // 根据返回状态显示不同提示
+    if (status === 'success') {
+      ElMessage({
+        type: 'success',
+        message: `重新推送成功！共成功 ${successCount} 条`,
+        duration: 4000
+      })
+    } else if (status === 'partial') {
+      ElMessage({
+        type: 'warning',
+        message: `重新推送部分成功：成功 ${successCount} 条，失败 ${failCount} 条${failReason ? '（' + failReason + '）' : ''}`,
+        duration: 6000
+      })
+    } else if (status === 'offline') {
+      ElMessage({
+        type: 'info',
+        message: `设备当前离线，消息已存为离线消息（${successCount} 条），设备重连后自动送达`,
+        duration: 5000
+      })
+    } else {
+      // failed
+      ElMessage({
+        type: 'error',
+        message: `重新推送失败${failReason ? '：' + failReason : ''}`,
+        duration: 6000
+      })
+    }
+
+    // 刷新列表以展示最新状态
+    fetchData()
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err?.message || '重新推送请求失败'
+    ElMessage.error(msg)
   } finally {
     retryPushLoading.value = false
   }

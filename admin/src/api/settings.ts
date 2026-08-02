@@ -168,3 +168,28 @@ export function testApnsPushApi(data: {
 }) {
   return post<{ message: string; apns_id: string }>('/admin/settings/apns/test', data)
 }
+
+// APNS 健康度统计
+export interface ApnsHealthStats {
+  success_total: number
+  fail_total: number
+  success_today: number
+  fail_today: number
+  success_rate: number
+  last_success_at: string
+  last_fail_at: string
+  last_circuit_break: string
+  last_reset: string
+  circuit_broken: boolean
+  fail_count: number
+}
+
+// 获取 APNS 健康度统计
+export function getApnsHealthApi() {
+  return get<ApnsHealthStats>('/admin/settings/apns/health')
+}
+
+// 重置 APNS 熔断状态
+export function resetApnsCircuitApi() {
+  return post<{ message: string }>('/admin/settings/apns/reset-circuit')
+}

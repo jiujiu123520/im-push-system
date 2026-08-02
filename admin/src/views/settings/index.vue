@@ -914,6 +914,83 @@
           </el-form-item>
         </el-form>
 
+        <!-- 健康度统计 -->
+        <el-divider content-position="left">
+          <span style="font-size: 13px;">
+            <el-icon><DataAnalysisIcon /></el-icon>
+            健康度统计
+          </span>
+        </el-divider>
+        <div v-loading="apnsHealthLoading" class="apns-health-stats">
+          <template v-if="apnsHealth">
+            <!-- 熔断状态告警 -->
+            <el-alert
+              v-if="apnsHealth.circuit_broken"
+              title="APNS 通道已熔断"
+              type="error"
+              :closable="false"
+              show-icon
+              style="margin-bottom: 12px;"
+            >
+              <template #default>
+                <div style="font-size: 12px; line-height: 1.6;">
+                  连续失败已达熔断阈值，APNS 推送已暂停。<br>
+                  熔断时间：{{ apnsHealth.last_circuit_break || '-' }}
+                  <el-button
+                    text
+                    type="primary"
+                    size="small"
+                    :loading="resettingCircuit"
+                    style="margin-left: 8px;"
+                    @click="resetApnsCircuit"
+                  >
+                    手动重置熔断
+                  </el-button>
+                </div>
+              </template>
+            </el-alert>
+
+            <div class="health-stats-grid">
+              <div class="stat-item stat-success">
+                <div class="stat-label">总成功率</div>
+                <div class="stat-value">{{ apnsHealth.success_rate }}%</div>
+                <div class="stat-sub">
+                  成功 {{ apnsHealth.success_total }} / 失败 {{ apnsHealth.fail_total }}
+                </div>
+              </div>
+              <div class="stat-item stat-today">
+                <div class="stat-label">今日推送</div>
+                <div class="stat-value">
+                  <span class="text-green">{{ apnsHealth.success_today }}</span>
+                  <span style="color:#909399;margin:0 4px;">/</span>
+                  <span class="text-red">{{ apnsHealth.fail_today }}</span>
+                </div>
+                <div class="stat-sub">成功 / 失败</div>
+              </div>
+              <div class="stat-item stat-failcount" v-if="apnsHealth.fail_count > 0">
+                <div class="stat-label">连续失败</div>
+                <div class="stat-value text-red">{{ apnsHealth.fail_count }}</div>
+                <div class="stat-sub">达到 5 次触发熔断</div>
+              </div>
+              <div class="stat-item stat-last-success">
+                <div class="stat-label">最后成功</div>
+                <div class="stat-value-small">{{ apnsHealth.last_success_at || '从未成功' }}</div>
+              </div>
+              <div class="stat-item stat-last-fail" v-if="apnsHealth.last_fail_at">
+                <div class="stat-label">最后失败</div>
+                <div class="stat-value-small">{{ apnsHealth.last_fail_at }}</div>
+              </div>
+            </div>
+
+            <div class="health-actions">
+              <el-button text type="primary" :icon="RefreshIcon" :loading="apnsHealthLoading" @click="fetchApnsHealth">
+                刷新统计
+              </el-button>
+            </div>
+          </template>
+          <el-empty v-else description="暂无统计数据" :image-size="60" />
+        </div>
+
         <!-- 测试推送 -->
         <el-divider content-position="left">测试推送</el-divider>
         <el-form label-width="120px" label-position="right">
@@ -1148,7 +1225,8 @@ import {
   Download as DownloadIcon,
   CircleCheck as CircleCheckIcon,
   CircleClose as CircleCloseIcon,
-  Iphone as IphoneIcon
+  Iphone as IphoneIcon,
+  DataAnalysis as DataAnalysisIcon
 } from '@element-plus/icons-vue'
 import {
   getSettingsApi,
@@ -1163,7 +1241,10 @@ import {
   getUpdateProgressApi,
   getApnsConfigApi,
   saveApnsConfigApi,
-  testApnsPushApi
+  testApnsPushApi,
+  getApnsHealthApi,
+  resetApnsCircuitApi,
+  type ApnsHealthStats
 } from '@/api/settings'
 import { concurrentTestPushApi } from '@/api/push'
 import type { ConcurrentTestResult } from '@/api/types'
