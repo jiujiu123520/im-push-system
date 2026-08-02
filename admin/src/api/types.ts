@@ -195,8 +195,30 @@ export interface PushLog {
   elapsed_ms?: number
   created_at: string
   // 详情接口返回的扩展字段
-  push_detail?: any[]
-  fail_detail?: { target: string; reason: string }[]
+  push_detail?: PushDetailItem[]
+  fail_detail?: FailDetailItem[]
+}
+
+export interface PushDetailItem {
+  fd?: number
+  device_id?: string
+  key?: string
+  status: string
+  message?: string
+  device_model?: string
+  platform?: string
+  app_version?: string
+  device_status?: number
+  last_active_at?: string
+  [key: string]: any
+}
+
+export interface FailDetailItem {
+  target: string
+  reason: string
+  device_model?: string
+  platform?: string
+  app_version?: string
 }
 
 export interface PushParams {

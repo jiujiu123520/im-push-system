@@ -897,9 +897,20 @@
             <div class="detail-title">失败明细（共 {{ pushDetailData.fail_detail.length }} 条）</div>
             <el-table :data="pushDetailData.fail_detail" size="small" border max-height="320">
               <el-table-column type="index" label="#" width="50" align="center" />
-              <el-table-column prop="target" label="目标" width="180" show-overflow-tooltip>
+              <el-table-column prop="target" label="设备ID/目标" width="180" show-overflow-tooltip>
                 <template #default="{ row }">
                   <span style="font-family: monospace; font-size: 12px;">{{ row.target }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="设备型号" width="120" show-overflow-tooltip>
+                <template #default="{ row }">
+                  <span style="font-size: 12px;">{{ row.device_model || '-' }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="平台" width="80">
+                <template #default="{ row }">
+                  <el-tag v-if="row.platform" :type="platformTagType(row.platform)" effect="plain" size="small">{{ row.platform }}</el-tag>
+                  <span v-else style="color: #c0c4cc;">-</span>
                 </template>
               </el-table-column>
               <el-table-column prop="reason" label="失败原因" show-overflow-tooltip>
@@ -915,22 +926,33 @@
             <el-collapse-item title="推送详情明细（高级调试）" name="push_detail">
               <el-table :data="pushDetailData.push_detail" size="small" border max-height="320">
                 <el-table-column type="index" label="#" width="50" align="center" />
-                <el-table-column label="目标/FD" width="120" show-overflow-tooltip>
+                <el-table-column label="设备ID/目标" width="160" show-overflow-tooltip>
                   <template #default="{ row }">
                     <span style="font-family: monospace; font-size: 12px;">
                       {{ row.fd !== undefined ? 'fd:' + row.fd : (row.device_id || row.key || '-') }}
                     </span>
                   </template>
                 </el-table-column>
-                <el-table-column label="状态" width="100">
+                <el-table-column label="设备型号" width="120" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <span style="font-size: 12px;">{{ row.device_model || '-' }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="平台" width="80">
+                  <template #default="{ row }">
+                    <el-tag v-if="row.platform" :type="platformTagType(row.platform)" effect="plain" size="small">{{ row.platform }}</el-tag>
+                    <span v-else style="color: #c0c4cc;">-</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="状态" width="120">
                   <template #default="{ row }">
                     <el-tag
-                      :type="row.status === 'success' ? 'success' : (row.status === 'queued' ? 'primary' : 'danger')"
+                      :type="pushDetailStatusType(row.status)"
                       effect="plain"
                       round
                       size="small"
                     >
-                      {{ row.status || '-' }}
+                      {{ pushDetailStatusLabel(row.status) }}
                     </el-tag>
                   </template>
                 </el-table-column>
@@ -1985,6 +2007,46 @@ function pushStatusType(status: number): 'success' | 'danger' | 'warning' | 'pri
     4: 'info'
   }
   return map[status] || 'info'
+}
+
+// 平台标签颜色
+function platformTagType(platform: string): 'success' | 'warning' | 'info' | 'primary' | 'danger' {
+  const map: Record<string, 'success' | 'warning' | 'info' | 'primary' | 'danger'> = {
+    android: 'success',
+    ios: 'primary',
+    web: 'info',
+    harmony: 'warning',
+  }
+  return map[platform] || 'info'
+}
+
+// 推送详情明细状态标签类型
+function pushDetailStatusType(status: string): 'success' | 'danger' | 'warning' | 'primary' | 'info' {
+  const successStatuses = ['success', 'apns_success', 'apns_aggregated']
+  const warningStatuses = ['queued', 'aggregated', 'offline']
+  const dangerStatuses = ['failed', 'apns_failed', 'enqueue_failed', 'no_subscribers', 'all_offline']
+  if (successStatuses.includes(status)) return 'success'
+  if (warningStatuses.includes(status)) return 'warning'
+  if (dangerStatuses.includes(status)) return 'danger'
+  return 'info'
+}
+
+// 推送详情明细状态中文标签
+function pushDetailStatusLabel(status: string): string {
+  const map: Record<string, string> = {
+    success: '成功',
+    failed: '失败',
+    queued: '已入队',
+    offline: '离线已存',
+    aggregated: '告警聚合',
+    apns_success: 'APNS成功',
+    apns_aggregated: 'APNS汇总',
+    apns_failed: 'APNS失败',
+    enqueue_failed: '入队失败',
+    no_subscribers: '无订阅',
+    all_offline: '全部离线',
+  }
+  return map[status] || status || '-'
 }
 
 // ------------------------------------------------------------

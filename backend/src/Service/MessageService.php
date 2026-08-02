@@ -201,7 +201,123 @@ class MessageService
         }
         unset($row['detail']);
 
+        // 补充设备元信息（device_model / platform / app_version / device_status）
+        $row['push_detail'] = $this->enrichWithDeviceInfo($row['push_detail']);
+        $row['fail_detail'] = $this->enrichFailDetailWithDeviceInfo($row['fail_detail']);
+
         return $row;
+    }
+
+    /**
+     * 为 push_detail 项补充设备元信息（device_model / platform / app_version / device_status）
+     *
+     * @param array $pushDetail
+     * @return array
+     */
+    private function enrichWithDeviceInfo(array $pushDetail): array
+    {
+        if (empty($pushDetail)) {
+            return $pushDetail;
+        }
+
+        // 收集所有 device_id
+        $deviceIds = [];
+        foreach ($pushDetail as $item) {
+            if (is_array($item) && !empty($item['device_id'])) {
+                $deviceIds[] = $item['device_id'];
+            }
+        }
+
+        $deviceMeta = $this->fetchDeviceMeta($deviceIds);
+
+        foreach ($pushDetail as &$item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $deviceId = $item['device_id'] ?? '';
+            $meta = $deviceId !== '' ? ($deviceMeta[$deviceId] ?? null) : null;
+            $item['device_model']   = $meta['device_model'] ?? '';
+            $item['platform']       = $meta['platform'] ?? '';
+            $item['app_version']    = $meta['app_version'] ?? '';
+            $item['device_status']  = $meta['device_status'] ?? '';
+            $item['last_active_at'] = $meta['last_active_at'] ?? '';
+        }
+        unset($item);
+
+        return $pushDetail;
+    }
+
+    /**
+     * 为 fail_detail 项补充设备元信息
+     *
+     * @param array $failDetail
+     * @return array
+     */
+    private function enrichFailDetailWithDeviceInfo(array $failDetail): array
+    {
+        if (empty($failDetail)) {
+            return $failDetail;
+        }
+
+        // 收集 device_id（target 去掉 key:/fd: 前缀后就是 device_id）
+        $deviceIds = [];
+        foreach ($failDetail as $item) {
+            $target = $item['target'] ?? '';
+            if ($target !== '' && strpos($target, 'key:') !== 0 && strpos($target, 'fd:') !== 0) {
+                $deviceIds[] = $target;
+            }
+        }
+
+        $deviceMeta = $this->fetchDeviceMeta($deviceIds);
+
+        foreach ($failDetail as &$item) {
+            $target = $item['target'] ?? '';
+            $deviceId = '';
+            if (strpos($target, 'key:') !== 0 && strpos($target, 'fd:') !== 0) {
+                $deviceId = $target;
+            }
+            $meta = $deviceId !== '' ? ($deviceMeta[$deviceId] ?? null) : null;
+            $item['device_model']  = $meta['device_model'] ?? '';
+            $item['platform']      = $meta['platform'] ?? '';
+            $item['app_version']   = $meta['app_version'] ?? '';
+        }
+        unset($item);
+
+        return $failDetail;
+    }
+
+    /**
+     * 批量查询设备元信息
+     *
+     * @param array $deviceIds
+     * @return array<string, array>  device_id => [device_model, platform, app_version, device_status, last_active_at]
+     */
+    private function fetchDeviceMeta(array $deviceIds): array
+    {
+        $deviceIds = array_values(array_filter(array_unique($deviceIds)));
+        if (empty($deviceIds)) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($deviceIds), '?'));
+        $sql = "SELECT device_id, device_model, platform, app_version, status, last_active_at"
+             . " FROM devices WHERE device_id IN ({$placeholders})";
+        $stmt = Database::pdo()->prepare($sql);
+        $stmt->execute($deviceIds);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        $result = [];
+        foreach ($rows as $r) {
+            $result[$r['device_id']] = [
+                'device_model'   => $r['device_model'] ?? '',
+                'platform'       => $r['platform'] ?? '',
+                'app_version'    => $r['app_version'] ?? '',
+                'device_status'  => isset($r['status']) ? (int)$r['status'] : 0,
+                'last_active_at' => $r['last_active_at'] ?? '',
+            ];
+        }
+
+        return $result;
     }
 
     /**
