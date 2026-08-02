@@ -69,7 +69,6 @@ html.dark {
   }
 
   // 遮罩层背景（确保暗色模式下不透明）
-  .el-overlay,
   .el-overlay-message-box {
     background-color: rgba(0, 0, 0, 0.6) !important;
   }

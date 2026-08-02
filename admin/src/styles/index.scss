@@ -172,14 +172,13 @@
 }
 
 // 修复 ElMessageBox 在有 transform/backdrop-filter 的容器内定位异常（出现在左上角）
-.el-overlay,
+// 仅覆盖 message-box 的 overlay，不影响 dialog/drawer 等正常 overlay
 .el-overlay-message-box {
   position: fixed !important;
   top: 0 !important;
   left: 0 !important;
   width: 100% !important;
   height: 100% !important;
-  display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   background-color: rgba(0, 0, 0, 0.5) !important;
