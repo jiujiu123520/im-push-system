@@ -2092,6 +2092,380 @@ class AppBuildController
     }
 
     /**
+     * POST /admin/app-build/ios/generate
+     * 生成 iOS 源码压缩包（含动态注入的服务器配置）
+     *
+     * 注意：iOS IPA 必须在 macOS + Xcode 环境编译，Linux 服务器无法直接构建。
+     * 本接口仅生成"已注入配置的 Xcode 项目源码 ZIP"，用户下载后在 Mac 上用 Xcode 打开编译即可。
+     *
+     * 注入内容：
+     *   - Bundle Identifier（包名）
+     *   - 应用显示名（CFBundleDisplayName）
+     *   - 版本号（MARKETING_VERSION）
+     *   - 服务器地址 / WebSocket 地址 / 默认 Key（注入到 PreferencesManager.swift 默认值）
+     *   - APNS 环境（development / production）
+     *
+     * @param array $context
+     * @param array $params
+     * @return false
+     */
+    public function generateIosSource(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $data = $this->parseBody($context);
+
+        $appName      = trim((string)($data['app_name'] ?? 'PushApp'));
+        $bundleId     = trim((string)($data['package_name'] ?? 'com.pushapp.ios'));
+        $defaultKey   = trim((string)($data['default_key'] ?? 'default_key'));
+        $serverUrl    = trim((string)($data['server_url'] ?? ''));
+        $wsUrl        = trim((string)($data['ws_url'] ?? ''));
+        $version      = trim((string)($data['version'] ?? '1.0.0'));
+        $apnsEnv      = trim((string)($data['apns_environment'] ?? 'development'));
+        $iconBase64   = (string)($data['icon_base64'] ?? '');
+
+        if ($appName === '') {
+            Response::fail($response, '应用名称不能为空', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        // 校验 APNS 环境
+        if (!in_array($apnsEnv, ['development', 'production'], true)) {
+            $apnsEnv = 'development';
+        }
+
+        // 校验 Bundle ID 格式（反向域名）
+        if ($bundleId !== '' && !preg_match('/^[a-zA-Z][a-zA-Z0-9_-]*(\.[a-zA-Z][a-zA-Z0-9_-]*)+$/', $bundleId)) {
+            Response::fail($response, 'Bundle ID 格式不正确，需符合反向域名格式（如 com.example.app）', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        // 剥离 data URL 前缀
+        $iconBase64 = preg_replace('/^data:image\/[a-z]+;base64,/i', '', $iconBase64);
+
+        $projectRoot = dirname(__DIR__, 3);
+        $templateDir = $projectRoot . '/ios';
+
+        if (!is_dir($templateDir)) {
+            Response::fail($response, 'iOS 源码模板目录不存在（ios/）', Response::CODE_INTERNAL);
+            return false;
+        }
+
+        // 创建临时目录（使用项目目录下的 .deploy 避免权限问题）
+        $tempBase = $projectRoot . '/.deploy/ios_build';
+        if (!is_dir($tempBase)) {
+            if (!@mkdir($tempBase, 0755, true)) {
+                Response::fail($response, '创建临时目录失败: ' . $tempBase, Response::CODE_INTERNAL);
+                return false;
+            }
+        }
+        $tempDir = $tempBase . '/ios_' . uniqid();
+        if (!mkdir($tempDir, 0755, true)) {
+            Response::fail($response, '创建构建目录失败', Response::CODE_INTERNAL);
+            return false;
+        }
+
+        try {
+            // 1. 复制 iOS 模板到临时目录
+            self::copyDir($templateDir, $tempDir);
+
+            // 2. 注入配置到 PreferencesManager.swift（添加 AppConfig 默认值）
+            $prefFile = $tempDir . '/PushApp/PreferencesManager.swift';
+            if (is_file($prefFile)) {
+                $content = (string)file_get_contents($prefFile);
+
+                // 在 import Foundation 后注入 AppConfig 结构体
+                $appConfigCode = "\n/**\n * AppConfig - 构建时注入的默认配置\n * 由后台生成 iOS 源码时动态写入，用户未在 App 中配置时使用这些默认值\n */\nstruct AppConfig {\n    static let serverUrl = " . self::swiftStr($serverUrl) . "\n    static let pushKey = " . self::swiftStr($defaultKey) . "\n    static let wsUrl = " . self::swiftStr($wsUrl) . "\n    static let version = " . self::swiftStr($version) . "\n}\n";
+
+                // 在 import Foundation 后插入
+                $content = preg_replace(
+                    '/^(import Foundation\s*\n)/m',
+                    '$1' . $appConfigCode,
+                    $content,
+                    1
+                );
+
+                // 修改 serverUrl getter：未配置时返回 AppConfig.serverUrl
+                $content = preg_replace(
+                    '/var serverUrl: String \{\s*get \{ defaults\.string\(forKey: kServerUrl\) \?\? "" \}\s*set \{ defaults\.set\(newValue, forKey: kServerUrl\) \}\s*\}/',
+                    'var serverUrl: String {' . "\n" .
+                    '        get {' . "\n" .
+                    '            let v = defaults.string(forKey: kServerUrl) ?? ""' . "\n" .
+                    '            return v.isEmpty ? AppConfig.serverUrl : v' . "\n" .
+                    '        }' . "\n" .
+                    '        set { defaults.set(newValue, forKey: kServerUrl) }' . "\n" .
+                    '    }',
+                    $content
+                );
+
+                // 修改 pushKey getter：未配置时返回 AppConfig.pushKey
+                $content = preg_replace(
+                    '/var pushKey: String \{\s*get \{ defaults\.string\(forKey: kPushKey\) \?\? "" \}\s*set \{ defaults\.set\(newValue, forKey: kPushKey\) \}\s*\}/',
+                    'var pushKey: String {' . "\n" .
+                    '        get {' . "\n" .
+                    '            let v = defaults.string(forKey: kPushKey) ?? ""' . "\n" .
+                    '            return v.isEmpty ? AppConfig.pushKey : v' . "\n" .
+                    '        }' . "\n" .
+                    '        set { defaults.set(newValue, forKey: kPushKey) }' . "\n" .
+                    '    }',
+                    $content
+                );
+
+                file_put_contents($prefFile, $content);
+            }
+
+            // 3. 修改 project.pbxproj 中的 Bundle ID、显示名、版本号
+            $pbxFile = $tempDir . '/PushApp.xcodeproj/project.pbxproj';
+            if (is_file($pbxFile)) {
+                $content = (string)file_get_contents($pbxFile);
+
+                // 替换 PRODUCT_BUNDLE_IDENTIFIER（出现 2 次：Debug + Release）
+                if ($bundleId !== '') {
+                    $content = str_replace(
+                        'PRODUCT_BUNDLE_IDENTIFIER = "com.pushapp.ios";',
+                        'PRODUCT_BUNDLE_IDENTIFIER = "' . $bundleId . '";',
+                        $content
+                    );
+                }
+
+                // 替换 INFOPLIST_KEY_CFBundleDisplayName（出现 2 次）
+                $content = str_replace(
+                    'INFOPLIST_KEY_CFBundleDisplayName = "推送助手";',
+                    'INFOPLIST_KEY_CFBundleDisplayName = "' . $appName . '";',
+                    $content
+                );
+
+                // 替换 MARKETING_VERSION（出现 2 次）
+                if ($version !== '') {
+                    $content = preg_replace(
+                        '/MARKETING_VERSION = [^;]+;/',
+                        'MARKETING_VERSION = ' . $version . ';',
+                        $content
+                    );
+                }
+
+                file_put_contents($pbxFile, $content);
+            }
+
+            // 4. 修改 Info.plist 中的 CFBundleDisplayName
+            $infoFile = $tempDir . '/PushApp/Info.plist';
+            if (is_file($infoFile)) {
+                $content = (string)file_get_contents($infoFile);
+                $content = str_replace(
+                    '<string>推送助手</string>',
+                    '<string>' . htmlspecialchars($appName, ENT_XML1 | ENT_QUOTES, 'UTF-8') . '</string>',
+                    $content
+                );
+                // 更新版本号
+                if ($version !== '') {
+                    $content = preg_replace(
+                        '/<key>CFBundleShortVersionString<\/key>\s*<string>[^<]*<\/string>/',
+                        '<key>CFBundleShortVersionString</key>' . "\n\t" . '<string>' . $version . '</string>',
+                        $content
+                    );
+                }
+                file_put_contents($infoFile, $content);
+            }
+
+            // 5. 修改 PushApp.entitlements 中的 APNS 环境
+            $entFile = $tempDir . '/PushApp/PushApp.entitlements';
+            if (is_file($entFile)) {
+                $content = (string)file_get_contents($entFile);
+                $content = preg_replace(
+                    '/<key>aps-environment<\/key>\s*<string>[^<]*<\/string>/',
+                    '<key>aps-environment</key>' . "\n\t" . '<string>' . $apnsEnv . '</string>',
+                    $content
+                );
+                file_put_contents($entFile, $content);
+            }
+
+            // 6. 处理图标（替换 AppIcon）
+            if (!empty($iconBase64)) {
+                $iconData = base64_decode($iconBase64);
+                if ($iconData !== false) {
+                    $iconDir = $tempDir . '/PushApp/Assets.xcassets/AppIcon.appiconset';
+                    if (is_dir($iconDir)) {
+                        // 生成 1024x1024 的图标（如果 GD 可用）
+                        if (function_exists('imagecreatefromstring')) {
+                            $srcImg = @imagecreatefromstring($iconData);
+                            if ($srcImg !== false) {
+                                $srcW = imagesx($srcImg);
+                                $srcH = imagesy($srcImg);
+                                // 生成 1024x1024 PNG
+                                $icon1024 = imagecreatetruecolor(1024, 1024);
+                                imagealphablending($icon1024, false);
+                                imagesavealpha($icon1024, true);
+                                imagecopyresampled($icon1024, $srcImg, 0, 0, 0, 0, 1024, 1024, $srcW, $srcH);
+                                imagepng($icon1024, $iconDir . '/icon-1024.png');
+                                imagedestroy($icon1024);
+                                imagedestroy($srcImg);
+
+                                // 更新 Contents.json，只保留 1024x1024 单尺寸（iOS 14+ 支持单尺寸）
+                                $contentsJson = [
+                                    'images' => [
+                                        [
+                                            'filename' => 'icon-1024.png',
+                                            'idiom' => 'universal',
+                                            'platform' => 'ios',
+                                            'size' => '1024x1024',
+                                        ],
+                                    ],
+                                    'info' => [
+                                        'author' => 'xcode',
+                                        'version' => 1,
+                                    ],
+                                ];
+                                file_put_contents(
+                                    $iconDir . '/Contents.json',
+                                    json_encode($contentsJson, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 7. 生成 README.txt（Xcode 编译说明）
+            $readme = "============================================\n";
+            $readme .= "iOS 源码 - Xcode 编译说明\n";
+            $readme .= "============================================\n\n";
+            $readme .= "项目名称: {$appName}\n";
+            $readme .= "Bundle ID: {$bundleId}\n";
+            $readme .= "版本: {$version}\n";
+            $readme .= "APNS 环境: {$apnsEnv}\n";
+            $readme .= "服务器地址: {$serverUrl}\n";
+            $readme .= "WebSocket 地址: {$wsUrl}\n";
+            $readme .= "默认推送 Key: {$defaultKey}\n\n";
+            $readme .= "--------------------------------------------\n";
+            $readme .= "编译环境要求\n";
+            $readme .= "--------------------------------------------\n";
+            $readme .= "- macOS 12.0 或更高版本\n";
+            $readme .= "- Xcode 14.0 或更高版本\n";
+            $readme .= "- iOS 14.0+ 的 iPhone 或 iPad（真机调试）\n";
+            $readme .= "- Apple Developer 账号（免费账号可真机调试，但 APNS 需付费账号）\n\n";
+            $readme .= "--------------------------------------------\n";
+            $readme .= "编译步骤\n";
+            $readme .= "--------------------------------------------\n";
+            $readme .= "1. 解压 ZIP 文件，得到 PushApp 文件夹\n";
+            $readme .= "2. 双击 PushApp.xcodeproj 打开 Xcode\n";
+            $readme .= "3. 在 Xcode 左侧选中 PushApp 项目\n";
+            $readme .= "4. 选择 TARGETS -> PushApp -> Signing & Capabilities\n";
+            $readme .= "5. 勾选 Automatically manage signing\n";
+            $readme .= "6. 在 Team 下拉框选择你的 Apple Developer 账号\n";
+            $readme .= "   (免费账号也可，但 Bundle ID 需改为独有的，避免冲突)\n";
+            $readme .= "7. 连接 iPhone 真机，在 Xcode 顶部选择目标设备\n";
+            $readme .= "8. 按 Cmd+R 编译并运行\n";
+            $readme .= "9. 首次运行时，iOS 会弹出推送权限请求，选择\"允许\"\n\n";
+            $readme .= "--------------------------------------------\n";
+            $readme .= "APNS 推送配置说明\n";
+            $readme .= "--------------------------------------------\n";
+            $readme .= "APNS 需要 Apple Developer 付费账号（\$99/年）:\n";
+            $readme .= "1. 在 Apple Developer 后台创建 APNS Auth Key (.p8 文件)\n";
+            $readme .= "2. 在推送系统后台 -> 设置 -> iOS APNS 推送配置 中填入:\n";
+            $readme .= "   - Team ID\n";
+            $readme .= "   - Key ID\n";
+            $readme .= "   - Auth Key (.p8 文件内容)\n";
+            $readme .= "   - Bundle ID: {$bundleId}\n";
+            $readme .= "3. APNS 环境选择:\n";
+            $readme .= "   - development: Xcode 真机调试时使用\n";
+            $readme .= "   - production: App Store 上架后使用\n";
+            $readme .= "4. App 首次启动会自动注册 APNS 并上报设备 token\n\n";
+            $readme .= "--------------------------------------------\n";
+            $readme .= "配置说明\n";
+            $readme .= "--------------------------------------------\n";
+            $readme .= "服务器地址、WebSocket 地址、推送 Key 已内置到源码中:\n";
+            $readme .= "- 默认服务器: {$serverUrl}\n";
+            $readme .= "- 默认 WebSocket: {$wsUrl}\n";
+            $readme .= "- 默认推送 Key: {$defaultKey}\n";
+            $readme .= "用户也可在 App 内\"设置\"页面手动修改\n\n";
+            $readme .= "--------------------------------------------\n";
+            $readme .= "常见问题\n";
+            $readme .= "--------------------------------------------\n";
+            $readme .= "Q: 编译报错 \"Signing for \\\"PushApp\\\" requires a development team\"?\n";
+            $readme .= "A: 在 Xcode -> Signing & Capabilities 中选择你的 Apple Team\n\n";
+            $readme .= "Q: 推送收不到?\n";
+            $readme .= "A: 1. 检查 App 是否允许通知\n";
+            $readme .= "   2. 检查后台 APNS 配置是否正确\n";
+            $readme .= "   3. development 环境的 token 不能用于 production，反之亦然\n";
+            $readme .= "   4. 真机调试时 APNS 环境必须为 development\n\n";
+            $readme .= "Q: WebSocket 连不上?\n";
+            $readme .= "A: 1. 检查服务器地址是否正确\n";
+            $readme .= "   2. 检查服务器是否启用 SSL（HTTPS/WSS）\n";
+            $readme .= "   3. iOS 不允许 HTTP 明文连接（ATS），需启用 SSL 或在 Info.plist 配置例外\n\n";
+            $readme .= "============================================\n";
+            file_put_contents($tempDir . '/README.txt', $readme);
+
+            // 8. 打包为 ZIP
+            $zipFile = $tempBase . '/' . $appName . '-ios-source.zip';
+            if (is_file($zipFile)) {
+                unlink($zipFile);
+            }
+
+            $zip = new \ZipArchive();
+            if ($zip->open($zipFile, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+                Response::fail($response, '创建 ZIP 文件失败', Response::CODE_INTERNAL);
+                return false;
+            }
+
+            $files = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($tempDir, \RecursiveDirectoryIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::LEAVES_ONLY
+            );
+
+            foreach ($files as $file) {
+                if (!$file->isDir()) {
+                    $filePath = $file->getRealPath();
+                    $relativePath = substr($filePath, strlen($tempDir) + 1);
+                    $zip->addFile($filePath, $relativePath);
+                }
+            }
+
+            $zip->close();
+
+            // 9. 输出 ZIP 文件
+            $filename = $appName . '-ios-source.zip';
+            $response->status(200);
+            $response->header('Content-Type', 'application/zip');
+            $response->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
+            $response->header('Content-Length', (string)filesize($zipFile));
+            $response->sendfile($zipFile);
+
+            // 10. 清理临时目录（保留 ZIP 以便 sendfile 完成后清理）
+            register_shutdown_function(function () use ($tempDir, $zipFile) {
+                self::removeDir($tempDir);
+                if (is_file($zipFile)) {
+                    @unlink($zipFile);
+                }
+            });
+
+            return false;
+        } catch (\Throwable $e) {
+            if (is_dir($tempDir)) {
+                self::removeDir($tempDir);
+            }
+            Response::fail($response, '生成 iOS 源码失败: ' . $e->getMessage(), Response::CODE_INTERNAL);
+            return false;
+        }
+    }
+
+    /**
+     * 将 PHP 字符串转为 Swift 字符串字面量（带引号和转义）
+     *
+     * @param string $value
+     * @return string  如 "https://example.com"
+     */
+    private static function swiftStr(string $value): string
+    {
+        // 转义反斜杠和双引号
+        $escaped = str_replace(['\\', '"'], ['\\\\', '\\"'], $value);
+        return '"' . $escaped . '"';
+    }
+
+    /**
      * 复制目录
      *
      * @param string $src

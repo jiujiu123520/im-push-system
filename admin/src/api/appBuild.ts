@@ -140,6 +140,25 @@ export function generateHBuilderXProjectApi(data: {
   })
 }
 
+// 生成 iOS 源码包（含动态注入的服务器配置，需在 Mac + Xcode 编译）
+export function generateIosSourceApi(data: {
+  app_name: string
+  package_name?: string
+  default_key?: string
+  server_url?: string
+  ws_url?: string
+  icon_base64?: string
+  version?: string
+  apns_environment?: 'development' | 'production'
+}) {
+  return request<Blob>({
+    method: 'post',
+    url: '/admin/app-build/ios/generate',
+    data,
+    responseType: 'blob'
+  })
+}
+
 // 获取 GitHub Actions 配置
 export function getGithubConfigApi() {
   return get<{

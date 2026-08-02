@@ -421,8 +421,25 @@ cat ~/.ssh/github_actions_key</pre>
                   <el-icon><MagicStickIcon /></el-icon>
                   HBuilderX
                 </el-radio-button>
+                <el-radio-button value="ios_source">
+                  <el-icon><AppleIcon /></el-icon>
+                  iOS 源码
+                </el-radio-button>
               </el-radio-group>
             </el-form-item>
+            <el-alert
+              v-if="form.buildMethod === 'ios_source'"
+              type="warning"
+              :closable="false"
+              show-icon
+              style="margin-top: 8px;"
+            >
+              <template #title>
+                <span style="font-size: 12px;">
+                  iOS IPA 必须在 macOS + Xcode 环境编译。点击下方"开始构建"会生成已注入配置的 iOS 源码 ZIP 包，下载后在 Mac 上用 Xcode 打开编译即可。
+                </span>
+              </template>
+            </el-alert>
           </div>
 
           <!-- 打包类型 -->
@@ -685,6 +702,7 @@ import {
   Coin as CoinIcon,
   Monitor as MonitorIcon,
   MagicStick as MagicStickIcon,
+  Apple as AppleIcon,
   Box as BoxIcon,
   Picture as PictureIcon,
   Brush as BrushIcon,
@@ -701,7 +719,8 @@ import {
   downloadApkApi,
   downloadBuildLogApi,
   getAppBuildConfigStatusApi,
-  generateHBuilderXProjectApi
+  generateHBuilderXProjectApi,
+  generateIosSourceApi
 } from '@/api/appBuild'
 import { getKeyListApi } from '@/api/key'
 import { getSettingsApi } from '@/api/settings'
@@ -718,7 +737,7 @@ interface BuildForm {
   version: string
   platform: 'android' | 'ios'
   buildType: 'release' | 'debug'
-  buildMethod: 'github' | 'hbuilderx'
+  buildMethod: 'github' | 'hbuilderx' | 'ios_source'
 }
 
 const formRef = ref<FormInstance>()
@@ -1117,6 +1136,28 @@ async function handleGenerate() {
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
       ElMessage.success('HBuilderX 项目包已生成，正在下载...')
+    } else if (form.buildMethod === 'ios_source') {
+      // iOS 源码打包方式：生成已注入配置的 Xcode 项目 ZIP
+      const res: any = await generateIosSourceApi({
+        app_name: form.name,
+        default_key: form.defaultKey,
+        server_url: form.serverAddress,
+        ws_url: form.websocketAddress,
+        package_name: form.packageName,
+        icon_base64: form.appIcon,
+        version: form.version,
+        apns_environment: 'development'
+      })
+      const blob = new Blob([res.data], { type: 'application/zip' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${form.name || 'PushApp'}-ios-source.zip`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      ElMessage.success('iOS 源码包已生成，正在下载。请在 Mac 上用 Xcode 打开编译。')
     } else {
       // GitHub Actions 打包方式
       await createAppBuildApi({
