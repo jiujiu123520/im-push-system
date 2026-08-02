@@ -357,6 +357,24 @@ class ApkDistributionService
                 }
             }
         } catch (\Throwable $e) {
+            // Swoole 长连接中 PDO 可能因 MySQL wait_timeout 断开，重连一次再试
+            try {
+                Database::reconnect();
+                $row = Database::fetch(
+                    'SELECT config_value FROM admin_settings WHERE config_key = ? LIMIT 1',
+                    ['settings_apk_distribution']
+                );
+                if ($row !== false) {
+                    $cfg = json_decode((string)$row['config_value'], true);
+                    if (is_array($cfg)) {
+                        unset($cfg['lanzou_cookie'], $cfg['lanzou_url'], $cfg['lanzou_password']);
+                        return array_merge($defaults, $cfg);
+                    }
+                }
+            } catch (\Throwable $e2) {
+                // 重连也失败，记录到错误日志便于排查
+                error_log('[ApkDistribution] getConfig 数据库异常: ' . $e2->getMessage());
+            }
         }
         return $defaults;
     }
@@ -770,7 +788,7 @@ class ApkDistributionService
         }
 
         // 响应中 list 字段是文件数组
-        $list = $resp['list'] ?? $resp['data'] ?? [];
+        $list = $resp['list'] ?? $resp['data'] ?? $resp['records'] ?? $resp['rows'] ?? [];
         if (!is_array($list)) $list = [];
 
         $files = [];
@@ -784,7 +802,9 @@ class ApkDistributionService
                 'fileIcon'   => (string)($item['fileIcon'] ?? ''),
             ];
         }
-        return ['success' => true, 'message' => '获取文件列表成功', 'files' => $files];
+        $total = (int)($resp['total'] ?? 0);
+        $msg = count($files) > 0 ? '获取文件列表成功' : "网盘根目录暂无文件（共 {$total} 个文件，可能位于子文件夹中）";
+        return ['success' => true, 'message' => $msg, 'files' => $files, 'total' => $total];
     }
 
     /**
