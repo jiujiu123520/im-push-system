@@ -1390,6 +1390,9 @@ const apnsForm = reactive({
   testTitle: '',
   testBody: ''
 })
+const apnsHealth = ref<ApnsHealthStats | null>(null)
+const apnsHealthLoading = ref(false)
+const resettingCircuit = ref(false)
 
 // 密码切换显示
 const showSecret = reactive({
@@ -1875,6 +1878,10 @@ async function fetchApnsConfig() {
     apnsForm.auth_key = config.auth_key || ''
     apnsForm.bundle_id = config.bundle_id || ''
     apnsForm.environment = config.environment || 'production'
+    // 若 APNS 已启用，自动加载健康度统计
+    if (apnsForm.enabled) {
+      fetchApnsHealth()
+    }
   } catch {
     // 使用默认值
   }
@@ -1896,6 +1903,12 @@ async function saveApnsConfig() {
     // 保存后将 auth_key 重置为脱敏值
     if (apnsForm.auth_key && apnsForm.auth_key !== '******') {
       apnsForm.auth_key = '******'
+    }
+    // 启用状态变化时刷新/清空健康度统计
+    if (apnsForm.enabled) {
+      fetchApnsHealth()
+    } else {
+      apnsHealth.value = null
     }
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : '保存失败')
@@ -1922,6 +1935,33 @@ async function testApnsPush() {
     ElMessage.error(err instanceof Error ? err.message : '测试推送失败')
   } finally {
     testing.apns = false
+  }
+}
+
+// 获取 APNS 健康度统计
+async function fetchApnsHealth() {
+  apnsHealthLoading.value = true
+  try {
+    const res = await getApnsHealthApi()
+    apnsHealth.value = res.data
+  } catch {
+    ElMessage.error('获取健康度统计失败')
+  } finally {
+    apnsHealthLoading.value = false
+  }
+}
+
+// 重置 APNS 熔断状态
+async function resetApnsCircuit() {
+  resettingCircuit.value = true
+  try {
+    const res = await resetApnsCircuitApi()
+    ElMessage.success(res.data?.message || '熔断状态已重置')
+    await fetchApnsHealth()
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '重置熔断失败')
+  } finally {
+    resettingCircuit.value = false
   }
 }
 
