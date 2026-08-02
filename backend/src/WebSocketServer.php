@@ -1191,12 +1191,13 @@ class WebSocketServer
         $prevOfflineAt = (int)$redis->hGet($historyKey, 'last_offline_at');
         $prevOfflineIp = (string)$redis->hGet($historyKey, 'last_offline_ip');
 
-        // 本次连接：如果之前存在 last_offline_at，说明是"重连"
+        // 每次连接都以当前时间作为本次会话起点
+        // 修复：connected_at 曾"只写不清"，掉线/重连均不重置；服务重启或异常
+        // 断连后 Redis 残留老值，导致 online_duration = now - 几十天前的值，邮件
+        // 在线时长离谱。现统一在连接时重置为 now。
+        $connectedAt = $now;
+        // 若之前存在 last_offline_at，说明是"重连"，记录重连时间（用于邮件展示）
         $lastReconnectAt = 0;
-        $connectedAt = (int)$redis->hGet($historyKey, 'connected_at');
-        if ($connectedAt <= 0) {
-            $connectedAt = $now;
-        }
         if ($prevOfflineAt > 0) {
             $lastReconnectAt = $now;
         }
