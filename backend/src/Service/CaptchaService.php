@@ -227,11 +227,13 @@ class CaptchaService
         $mailUser = (string)Config::env('MAIL_USERNAME', '');
         $mailPass = (string)Config::env('MAIL_PASSWORD', '');
         $mailPort = (int)Config::env('MAIL_PORT', 587);
+        $mailEnc  = strtolower((string)Config::env('MAIL_ENCRYPTION', 'tls'));
+        $mailName = (string)Config::env('MAIL_SENDER_NAME', 'IM Push System');
 
         if ($mailHost === '' || $mailUser === '') {
-            // 未配置邮件服务，仅记录日志
-            self::log('email', "[EMAIL] 未配置 MAIL_HOST/MAIL_USERNAME，验证码模拟发送：email={$email}, code={$code}");
-            return ['success' => true, 'message' => '验证码已发送（开发环境未实际发送）'];
+            // 未配置邮件服务：返回失败，避免前端误以为已发送
+            self::log('email', "[EMAIL] 未配置 MAIL_HOST/MAIL_USERNAME，无法发送验证码：email={$email}, code={$code}");
+            return ['success' => false, 'message' => '邮件服务未配置，请联系管理员在 .env 中设置 MAIL_HOST/MAIL_USERNAME'];
         }
 
         try {
@@ -243,7 +245,13 @@ class CaptchaService
             $mail->Username = $mailUser;
             $mail->Password = $mailPass;
             $mail->CharSet = 'UTF-8';
-            $mail->setFrom($mailUser, 'IM Push System');
+            // 加密方式：tls / ssl / none
+            if ($mailEnc === 'ssl') {
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+            } elseif ($mailEnc === 'tls') {
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+            }
+            $mail->setFrom($mailUser, $mailName);
             $mail->addAddress($email);
             $mail->Subject = '邮箱验证码';
             $mail->Body = "您的邮箱验证码是：{$code}，5 分钟内有效。";
