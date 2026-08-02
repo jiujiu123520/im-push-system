@@ -265,6 +265,7 @@ function getNotificationIcon(type: string) {
 
 function handleNotificationClick(item: NotificationItem) {
   item.read = true
+  saveReadState()
   updateNotificationCount()
   if (item.logId) {
     router.push('/push-logs')
@@ -273,7 +274,29 @@ function handleNotificationClick(item: NotificationItem) {
 
 function markAllRead() {
   notifications.value.forEach(n => { n.read = true })
+  saveReadState()
   updateNotificationCount()
+}
+
+function getReadIds(): Set<number> {
+  try {
+    const raw = localStorage.getItem('notification_read_ids')
+    if (raw) return new Set(JSON.parse(raw))
+  } catch {
+    // 忽略解析错误
+  }
+  return new Set()
+}
+
+function saveReadState() {
+  try {
+    const ids = notifications.value.filter(n => n.read).map(n => n.id)
+    // 只保留最近 100 条已读 ID
+    const trimmed = ids.slice(-100)
+    localStorage.setItem('notification_read_ids', JSON.stringify(trimmed))
+  } catch {
+    // 忽略存储错误
+  }
 }
 
 function updateNotificationCount() {
@@ -286,6 +309,7 @@ async function fetchNotifications() {
     const { getPushLogListApi } = await import('@/api/push')
     const res = await getPushLogListApi({ page: 1, pageSize: 8 })
     const list = res.data?.list || []
+    const readIds = getReadIds()
     notifications.value = list.map((log: any) => {
       const status = Number(log.status)
       let type: 'success' | 'warning' | 'info' = 'info'
@@ -308,7 +332,7 @@ async function fetchNotifications() {
         type,
         title,
         time: log.created_at || '',
-        read: false,
+        read: readIds.has(log.id),
         logId: log.id,
       } as NotificationItem
     })
