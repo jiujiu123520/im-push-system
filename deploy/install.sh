@@ -97,6 +97,59 @@ error() { echo -e "${COLOR_RED}[ERROR]${COLOR_RESET} $*" >&2; }
 step()  { echo -e "\n${COLOR_GREEN}===== [$1] $2 =====${COLOR_RESET}"; }
 
 # ------------------------------------------------------------
+# 跨系统通用辅助函数
+# ------------------------------------------------------------
+# 跨平台获取文件所有者用户名（GNU stat -c / BSD stat -f / BusyBox stat -c / ls+awk 兜底）
+_stat_owner() {
+    local target="$1"
+    [[ -e "$target" ]] || { echo ""; return; }
+    # GNU coreutils stat（绝大多数 Linux，包括 BusyBox）
+    if stat -c '%U' "$target" >/dev/null 2>&1; then
+        stat -c '%U' "$target" 2>/dev/null || echo ""
+        return
+    fi
+    # BSD/macOS stat
+    if stat -f '%Su' "$target" >/dev/null 2>&1; then
+        stat -f '%Su' "$target" 2>/dev/null || echo ""
+        return
+    fi
+    # 兜底：ls + awk（POSIX 通用）
+    ls -ld "$target" 2>/dev/null | awk '{print $3}' || echo ""
+}
+
+# 跨平台 readlink -f（获取符号链接真实绝对路径，BusyBox readlink 不支持 -f）
+_readlink_f() {
+    local target="$1"
+    [[ -z "$target" ]] && { echo ""; return; }
+    # 方案1: 原生 readlink -f（GNU coreutils）
+    if readlink -f "$target" >/dev/null 2>&1; then
+        readlink -f "$target" 2>/dev/null || echo "$target"
+        return
+    fi
+    # 方案2: realpath（部分系统有）
+    if command -v realpath >/dev/null 2>&1; then
+        realpath "$target" 2>/dev/null || echo "$target"
+        return
+    fi
+    # 方案3: 递归解析（最多 8 层，避免死循环）
+    local current="$target"
+    local depth=0
+    while [[ $depth -lt 8 && -L "$current" ]]; do
+        local link_target
+        link_target=$(readlink "$current" 2>/dev/null || echo "")
+        [[ -z "$link_target" ]] && break
+        # 如果是相对路径，拼上所在目录
+        if [[ "${link_target:0:1}" != "/" ]]; then
+            current="$(cd "$(dirname "$current")" 2>/dev/null && pwd)/${link_target}"
+        else
+            current="$link_target"
+        fi
+        depth=$((depth + 1))
+    done
+    echo "$current"
+}
+
+# ------------------------------------------------------------
 # 前置检查
 # ------------------------------------------------------------
 if [[ $EUID -ne 0 ]]; then
@@ -734,16 +787,42 @@ install_mysql_safe() {
     # 再次修复 apt
     repair_apt_cache
 
+    # 跨平台 swap 检测：优先 swapon --show，兜底 /proc/swaps（BusyBox/Alpine 无 --show）
+    has_any_swap() {
+        if swapon --show 2>/dev/null | grep -q .; then
+            return 0
+        elif [[ -f /proc/swaps ]] && grep -qv '^Filename' /proc/swaps 2>/dev/null | grep -q .; then
+            return 0
+        fi
+        return 1
+    }
+
+    # 跨平台获取 CPU 核心数（nproc 不存在时兜底 sysconf/proc/cpuinfo）
+    get_nproc() {
+        local n
+        if command -v nproc >/dev/null 2>&1; then
+            n=$(nproc 2>/dev/null || echo 1)
+        elif [[ -f /proc/cpuinfo ]]; then
+            n=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 1)
+        elif command -v sysctl >/dev/null 2>&1; then
+            n=$(sysctl -n hw.ncpu 2>/dev/null || echo 1)
+        else
+            n=1
+        fi
+        [[ -z "$n" || "$n" -lt 1 ]] && n=1
+        echo "$n"
+    }
+
     # 检查内存(2G 服务器常见 OOM 导致 MySQL 初始化失败)
     AVAILABLE_MEM=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
     if [[ "${AVAILABLE_MEM}" -lt 500 ]]; then
         warn "可用内存较低(${AVAILABLE_MEM}MB),创建临时 swap 防止 MySQL 初始化 OOM..."
-        if ! swapon --show 2>/dev/null | grep -q .; then
+        if ! has_any_swap; then
             fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048
             chmod 600 /swapfile
             mkswap /swapfile
             swapon /swapfile
-            if ! grep -q '/swapfile' /etc/fstab; then
+            if ! grep -q '/swapfile' /etc/fstab 2>/dev/null; then
                 echo '/swapfile none swap sw 0 0' >> /etc/fstab
             fi
             info "临时 swap 已创建(2G)"
@@ -1084,9 +1163,16 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
         git clone --depth 1 https://github.com/swoole/swoole-src.git "$SWOOLE_SRC" 2>/dev/null || true
 
     SWOOLE_BUILD_SUCCESS=false
-    if [[ -d "$SWOOLE_SRC" ]]; then
+    if [[ -d "$SWOOLE_SRC" && -f "$SWOOLE_SRC/config.m4" ]]; then
         cd "$SWOOLE_SRC"
-        phpize
+        # phpize 前确保 build/ 目录存在（部分环境 phpize 不会自动创建）
+        [[ ! -d build ]] && mkdir -p build 2>/dev/null || true
+        phpize || phpize --force || {
+            warn "phpize 失败，尝试重新生成 build 目录..."
+            rm -rf build
+            mkdir build
+            phpize
+        }
 
         # 构造 configure 参数
         # 注意：Swoole 4.x/5.x 用 --enable-openssl，Swoole 6.x 用 --with-openssl-dir
@@ -1104,10 +1190,14 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
             SWOOLE_CONFIGURE_OPTS="${SWOOLE_CONFIGURE_OPTS} --with-openssl-dir=${OPENSSL_DIR}"
         fi
 
+        # CPU 核心数（跨平台）
+        MAKE_JOBS=$(get_nproc)
+        info "使用 ${MAKE_JOBS} 线程编译 Swoole"
+
         # 尝试 1：启用 brotli + openssl（完整功能）
         info "尝试编译 Swoole（启用 openssl + brotli）..."
         if ./configure $SWOOLE_CONFIGURE_OPTS --enable-brotli=yes; then
-            if make -j"$(nproc)" && make install; then
+            if make -j"${MAKE_JOBS}" && make install; then
                 SWOOLE_BUILD_SUCCESS=true
                 info "Swoole 源码编译安装成功"
             fi
@@ -1118,9 +1208,10 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
             warn "完整编译失败，尝试禁用 brotli..."
             make clean 2>/dev/null || true
             phpize --clean 2>/dev/null || true
-            phpize
+            [[ ! -d build ]] && mkdir -p build 2>/dev/null || true
+            phpize 2>/dev/null || true
             if ./configure $SWOOLE_CONFIGURE_OPTS --enable-brotli=no; then
-                if make -j"$(nproc)" && make install; then
+                if make -j"${MAKE_JOBS}" && make install; then
                     SWOOLE_BUILD_SUCCESS=true
                     info "Swoole 源码编译安装成功（禁用 brotli）"
                 fi
@@ -1132,14 +1223,15 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
             warn "禁用 brotli 也失败，尝试最小化编译..."
             make clean 2>/dev/null || true
             phpize --clean 2>/dev/null || true
-            phpize
+            [[ ! -d build ]] && mkdir -p build 2>/dev/null || true
+            phpize 2>/dev/null || true
             # 最小化编译仍必须启用 OpenSSL，否则 HTTPS/SSL 功能会失败
             MINIMAL_OPTS="--enable-sockets=no --enable-mysqlnd=yes --enable-swoole-curl=no --enable-cares=no --enable-brotli=no --enable-openssl"
             if [[ -n "$OPENSSL_DIR" ]]; then
                 MINIMAL_OPTS="${MINIMAL_OPTS} --with-openssl-dir=${OPENSSL_DIR}"
             fi
             if ./configure $MINIMAL_OPTS; then
-                if make -j"$(nproc)" && make install; then
+                if make -j"${MAKE_JOBS}" && make install; then
                     SWOOLE_BUILD_SUCCESS=true
                     info "Swoole 源码编译安装成功（最小化模式，已启用 OpenSSL）"
                 fi
@@ -1858,7 +1950,7 @@ fi
 # 安装后确保 .bin 中所有文件可执行（跟随符号链接修复目标文件权限）
 if [[ -d node_modules/.bin ]]; then
     find node_modules/.bin -type l | while read -r link; do
-        target=$(readlink -f "$link" 2>/dev/null)
+        target=$(_readlink_f "$link")
         [[ -f "$target" ]] && chmod +x "$target" 2>/dev/null || true
     done
     # 直接对 .bin 目录下的非符号链接文件也设置执行权限
@@ -1963,7 +2055,8 @@ fi
 # 注意：chown 整个项目目录会破坏 .git 权限导致后续 git fetch 失败
 # 需要保留 .git / node_modules / vendor 的原属主，仅 chown 运行时需要的目录
 # 检测项目目录的当前属主（通常是部署用户，如 ubuntu）
-PROJECT_OWNER=$(stat -c '%U' "${PROJECT_DIR}" 2>/dev/null || echo "ubuntu")
+PROJECT_OWNER="$(_stat_owner "${PROJECT_DIR}" 2>/dev/null)"
+[[ -z "${PROJECT_OWNER}" ]] && PROJECT_OWNER="ubuntu"
 info "项目目录属主: ${PROJECT_OWNER}，Web 用户: ${WEB_USER}"
 
 # 仅 chown 后端运行时需要的目录（保持 .git 等目录的原属主）

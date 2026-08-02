@@ -170,7 +170,14 @@ uninstall_env() {
 
     # ------------------------------------------------------------
     step "4/6" "删除 swap(如由安装脚本创建)"
+    # 跨平台 swap 检测：优先 swapon --show，兜底 /proc/swaps（BusyBox/Alpine 无 --show）
+    SWAPFILE_ACTIVE=""
     if swapon --show 2>/dev/null | grep -q '/swapfile'; then
+        SWAPFILE_ACTIVE="1"
+    elif [[ -f /proc/swaps ]] && grep -q '/swapfile' /proc/swaps 2>/dev/null; then
+        SWAPFILE_ACTIVE="1"
+    fi
+    if [[ -n "$SWAPFILE_ACTIVE" || -f /swapfile ]]; then
         swapoff /swapfile 2>/dev/null || true
         rm -f /swapfile 2>/dev/null || true
         sed -i '/\/swapfile/d' /etc/fstab 2>/dev/null || true

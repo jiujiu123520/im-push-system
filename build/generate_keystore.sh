@@ -23,8 +23,44 @@ PROPS_FILE="$KEYSTORE_DIR/keystore.properties"
 
 mkdir -p "$KEYSTORE_DIR"
 
-# ---------------- 颜色输出 ----------------
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+# ---------------- 安全读取用户输入（优先 TTY，其次 stdin；支持 secret 隐藏）----------------
+_safe_read() {
+    local prompt="$1"
+    local varname="$2"
+    local is_secret="${3:-}"
+    local reply=""
+    if [ -t 0 ]; then
+        printf '%s' "$prompt"
+        if [ "$is_secret" = "secret" ]; then
+            stty -echo 2>/dev/null
+            IFS= read -r reply
+            stty echo 2>/dev/null
+            echo ""
+        else
+            IFS= read -r reply
+        fi
+    elif [ -r /dev/tty ]; then
+        printf '%s' "$prompt" > /dev/tty
+        if [ "$is_secret" = "secret" ]; then
+            stty -echo 2>/dev/null < /dev/tty
+            IFS= read -r reply < /dev/tty
+            stty echo 2>/dev/null < /dev/tty
+            echo "" > /dev/tty
+        else
+            IFS= read -r reply < /dev/tty
+        fi
+    else
+        reply=""
+    fi
+    eval "$varname=\"\$reply\""
+}
+
+# ---------------- 颜色输出（仅在 TTY 启用） ----------------
+if [ -t 1 ]; then
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+else
+    RED=''; GREEN=''; YELLOW=''; NC=''
+fi
 info()  { echo -e "${GREEN}[KEYSTORE]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[KEYSTORE]${NC} $1"; }
 error() { echo -e "${RED}[KEYSTORE]${NC} $1" >&2; }
@@ -67,7 +103,7 @@ fi
 # ---------------- 已存在则确认覆盖 ----------------
 if [ -f "$KEYSTORE_FILE" ]; then
     warn "已存在 $KEYSTORE_FILE"
-    read -r -p "是否覆盖？(y/N) " ans
+    _safe_read "是否覆盖？(y/N) " ans
     case "$ans" in
         y|Y|yes|YES) rm -f "$KEYSTORE_FILE" "$PROPS_FILE"; info "已删除旧文件" ;;
         *) info "已取消，退出"; exit 0 ;;
@@ -76,12 +112,10 @@ fi
 
 # ---------------- 密码处理 ----------------
 if [ -z "$STORE_PASSWORD" ]; then
-    read -r -s -p "请输入 keystore 密码 (store_password): " STORE_PASSWORD
-    echo ""
+    _safe_read "请输入 keystore 密码 (store_password): " STORE_PASSWORD "secret"
 fi
 if [ -z "$KEY_PASSWORD" ]; then
-    read -r -s -p "请输入 key 密码 (key_password，回车则与 store 密码一致): " KEY_PASSWORD
-    echo ""
+    _safe_read "请输入 key 密码 (key_password，回车则与 store 密码一致): " KEY_PASSWORD "secret"
     [ -z "$KEY_PASSWORD" ] && KEY_PASSWORD="$STORE_PASSWORD"
 fi
 

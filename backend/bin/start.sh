@@ -37,15 +37,43 @@ fi
 # 3. 创建运行时目录
 mkdir -p runtime/logs
 
-# 4. 清理可能占用端口的旧进程
+# 4. 清理可能占用端口的旧进程（跨发行版兼容：优先 lsof，兜底 fuser/ss/netstat/ps）
 HTTP_PORT="${HTTP_PORT:-9501}"
 WS_PORT="${WS_PORT:-9502}"
+
+# 通用：根据端口获取占用进程 PID 列表（支持 lsof/ss/netstat/fuser，任意一种成功即可）
+get_pids_by_port() {
+    local port="$1"
+    local pids=""
+    # 方案1: lsof（macOS/Linux 通用，优先级最高）
+    if command -v lsof >/dev/null 2>&1; then
+        pids=$(lsof -t -i:${port} 2>/dev/null || true)
+        if [ -n "$pids" ]; then echo "$pids"; return; fi
+    fi
+    # 方案2: ss（iproute2，现代 Linux）
+    if command -v ss >/dev/null 2>&1; then
+        pids=$(ss -ltnp "sport = :${port}" 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u || true)
+        if [ -n "$pids" ]; then echo "$pids"; return; fi
+    fi
+    # 方案3: netstat（net-tools，旧系统）
+    if command -v netstat >/dev/null 2>&1; then
+        pids=$(netstat -ltnp 2>/dev/null | grep ":${port} " | awk '{print $7}' | cut -d/ -f1 | sort -u || true)
+        if [ -n "$pids" ]; then echo "$pids"; return; fi
+    fi
+    # 方案4: fuser（兼容语法：先试 GNU 格式，再试 BusyBox 格式）
+    if command -v fuser >/dev/null 2>&1; then
+        pids=$(fuser ${port}/tcp 2>/dev/null || fuser -n tcp ${port} 2>/dev/null || true)
+        if [ -n "$pids" ]; then echo "$pids"; return; fi
+    fi
+    echo ""
+}
+
 for port in $HTTP_PORT $WS_PORT; do
-    pids=$(lsof -t -i:$port 2>/dev/null || fuser -n tcp $port 2>/dev/null || echo "")
+    pids=$(get_pids_by_port "$port")
     if [ -n "$pids" ]; then
         echo "[清理] 发现占用端口 ${port} 的旧进程，正在终止..."
         for pid in $pids; do
-            kill -9 $pid 2>/dev/null || true
+            [ -n "$pid" ] && kill -9 $pid 2>/dev/null || true
         done
         sleep 1
     fi

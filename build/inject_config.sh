@@ -37,11 +37,34 @@ VERSION_CODE="1"
 OUTPUT_APK_NAME="app-release.apk"
 BUILD_ID="local-$(date +%s)"
 
-# ---------------- 颜色输出 ----------------
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+# ---------------- 颜色输出（仅 TTY 启用） ----------------
+if [ -t 1 ]; then
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+else
+    RED=''; GREEN=''; YELLOW=''; NC=''
+fi
 info()  { echo -e "${GREEN}[INJECT]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[INJECT]${NC} $1"; }
 error() { echo -e "${RED}[INJECT]${NC} $1" >&2; }
+
+# ---------------- 跨平台 sed -i（GNU/BSD 差异屏蔽） ----------------
+_sed_in_place() {
+    local ext_flag=""
+    local script
+    local file
+    if [ "$1" = "-E" ]; then
+        ext_flag="-E"
+        script="$2"
+        file="$3"
+    else
+        script="$1"
+        file="$2"
+    fi
+    local tmp
+    tmp="$(mktemp 2>/dev/null || echo "${file}.tmp.$$")"
+    sed $ext_flag "$script" "$file" > "$tmp" && mv "$tmp" "$file"
+    rm -f "${file}.bak" 2>/dev/null || true
+}
 
 # ---------------- 解析参数 ----------------
 while [ $# -gt 0 ]; do
@@ -123,15 +146,15 @@ APPLY_LINE='apply(from = "inject.gradle")'
 BUILD_GRADLE="$APP_DIR/build.gradle.kts"
 if [ -f "$BUILD_GRADLE" ]; then
     # 先彻底清理所有旧的注入行（两种语法、注释行都清理，不用 ^ 锚定）
-    sed -i '/apply from: "inject.gradle"/d' "$BUILD_GRADLE" 2>/dev/null || true
-    sed -i '/apply(from = "inject.gradle")/d' "$BUILD_GRADLE" 2>/dev/null || true
-    sed -i '/apply from: "signing.gradle"/d' "$BUILD_GRADLE" 2>/dev/null || true
-    sed -i '/apply(from = "signing.gradle")/d' "$BUILD_GRADLE" 2>/dev/null || true
-    sed -i '/自动注入打包配置/d' "$BUILD_GRADLE" 2>/dev/null || true
-    sed -i '/自动注入签名配置/d' "$BUILD_GRADLE" 2>/dev/null || true
-    sed -i '/自动生成.*debug 签名兜底/d' "$BUILD_GRADLE" 2>/dev/null || true
+    _sed_in_place '/apply from: "inject.gradle"/d' "$BUILD_GRADLE" 2>/dev/null || true
+    _sed_in_place '/apply(from = "inject.gradle")/d' "$BUILD_GRADLE" 2>/dev/null || true
+    _sed_in_place '/apply from: "signing.gradle"/d' "$BUILD_GRADLE" 2>/dev/null || true
+    _sed_in_place '/apply(from = "signing.gradle")/d' "$BUILD_GRADLE" 2>/dev/null || true
+    _sed_in_place '/自动注入打包配置/d' "$BUILD_GRADLE" 2>/dev/null || true
+    _sed_in_place '/自动注入签名配置/d' "$BUILD_GRADLE" 2>/dev/null || true
+    _sed_in_place '/自动生成.*debug 签名兜底/d' "$BUILD_GRADLE" 2>/dev/null || true
     # 清理尾部空行
-    sed -i -e :a -e '/^\n*$/{$d;N;};/\n$/ba' "$BUILD_GRADLE" 2>/dev/null || true
+    _sed_in_place ':a;/^\n*$/{$d;N;};/\n$/ba' "$BUILD_GRADLE" 2>/dev/null || true
     # 追加 Kotlin DSL 语法的 apply
     info "在 build.gradle.kts 追加 apply inject.gradle ..."
     printf '\n// 自动注入打包配置（由 build/inject_config.sh 维护）\n%s\n' "$APPLY_LINE" >> "$BUILD_GRADLE"
@@ -144,7 +167,7 @@ STRINGS_XML="$RES_DIR/values/strings.xml"
 if [ -f "$STRINGS_XML" ]; then
     if grep -qE '<string name="app_name"' "$STRINGS_XML"; then
         info "移除 strings.xml 中的 app_name 声明（改由 resValue 提供）..."
-        sed -i -E '/<string name="app_name"/d' "$STRINGS_XML"
+        _sed_in_place -E '/<string name="app_name"/d' "$STRINGS_XML"
     fi
 fi
 
@@ -165,8 +188,8 @@ if [ -n "$PACKAGE_NAME" ]; then
     BUILD_GRADLE="$APP_DIR/build.gradle.kts"
     if [ -f "$BUILD_GRADLE" ]; then
         info "修改包名为：$PACKAGE_NAME"
-        sed -i "s/namespace = \".*\"/namespace = \"$PACKAGE_NAME\"/" "$BUILD_GRADLE"
-        sed -i "s/applicationId = \".*\"/applicationId = \"$PACKAGE_NAME\"/" "$BUILD_GRADLE"
+        _sed_in_place "s/namespace = \".*\"/namespace = \"$PACKAGE_NAME\"/" "$BUILD_GRADLE"
+        _sed_in_place "s/applicationId = \".*\"/applicationId = \"$PACKAGE_NAME\"/" "$BUILD_GRADLE"
         info "build.gradle.kts 包名已更新"
 
         # 修改 Kotlin 源码目录结构
@@ -214,7 +237,7 @@ if [ -n "$PACKAGE_NAME" ]; then
 
             # 清理空目录
             CURRENT_DIR="$(dirname "$OLD_PATH")"
-            while [ "$CURRENT_DIR" != "$JAVA_SRC_ROOT" ] && [ -d "$CURRENT_DIR" ]; then
+            while [ "$CURRENT_DIR" != "$JAVA_SRC_ROOT" ] && [ -d "$CURRENT_DIR" ]; do
                 if [ -z "$(ls -A "$CURRENT_DIR" 2>/dev/null)" ]; then
                     rmdir "$CURRENT_DIR"
                     CURRENT_DIR="$(dirname "$CURRENT_DIR")"
@@ -226,12 +249,12 @@ if [ -n "$PACKAGE_NAME" ]; then
             # 更新源码中所有包名引用（package 声明、import、代码体内的全限定名）
             info "更新源码中所有包名引用：$OLD_NAMESPACE -> $PACKAGE_NAME"
             find "$NEW_PATH" -type f \( -name "*.kt" -o -name "*.java" \) -print0 | while IFS= read -r -d '' file; do
-                sed -i "s|$OLD_NAMESPACE|$PACKAGE_NAME|g" "$file"
+                _sed_in_place "s|$OLD_NAMESPACE|$PACKAGE_NAME|g" "$file"
             done
             # 同时更新 AndroidManifest.xml 中的包名引用
             MANIFEST="$APP_DIR/src/main/AndroidManifest.xml"
             if [ -f "$MANIFEST" ]; then
-                sed -i "s|$OLD_NAMESPACE|$PACKAGE_NAME|g" "$MANIFEST"
+                _sed_in_place "s|$OLD_NAMESPACE|$PACKAGE_NAME|g" "$MANIFEST"
                 info "AndroidManifest.xml 包名已更新"
             fi
             info "源码包名引用已全部更新"

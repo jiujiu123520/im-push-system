@@ -10,9 +10,94 @@
 # ============================================================
 
 # ------------------------------------------------------------
+# 跨平台辅助函数
+# ------------------------------------------------------------
+
+# 智能 sudo 包装
+_sudo() {
+    if [ "$(id -u)" = "0" ]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        "$@"
+    fi
+}
+
+# 检测是否有 systemd/systemctl
+_has_systemctl() {
+    command -v systemctl >/dev/null 2>&1
+}
+
+# 检测 Web 用户（www-data/nginx/http）
+_detect_web_user() {
+    if id -u www-data >/dev/null 2>&1; then
+        echo "www-data"
+    elif id -u nginx >/dev/null 2>&1; then
+        echo "nginx"
+    elif id -u http >/dev/null 2>&1; then
+        echo "http"
+    elif id -u apache >/dev/null 2>&1; then
+        echo "apache"
+    else
+        echo "www-data"
+    fi
+}
+
+# 跨平台内存信息显示（兼容 BusyBox free 和 GNU free）
+_show_memory() {
+    if command -v free >/dev/null 2>&1; then
+        # 尝试多种格式：BusyBox 可能没有 -m，GNU 有
+        echo "  $(free -m 2>/dev/null | awk 'NR==1 || NR==2' || free | awk 'NR==1 || NR==2')"
+    elif [ -f /proc/meminfo ]; then
+        # 兜底：从 /proc/meminfo 读取
+        awk '
+            /MemTotal/  { total=$2 }
+            /MemFree/   { free=$2 }
+            /MemAvailable/ { avail=$2 }
+            /Buffers/   { buf=$2 }
+            /^Cached/   { cached=$2 }
+            END {
+                total_mb = int(total/1024)
+                avail_mb = int(avail/1024)
+                used_mb = total_mb - avail_mb
+                printf "               total        used        free      shared  buff/cache   available\n"
+                printf "Mem:           %4d        %4d        %4d         N/A         N/A        %4d\n", total_mb, used_mb, int(free/1024), avail_mb
+            }
+        ' /proc/meminfo 2>/dev/null || echo "  无法读取内存信息"
+    else
+        echo "  无法读取内存信息（无 free 命令和 /proc/meminfo）"
+    fi
+}
+
+# 安全读取用户输入（优先 /dev/tty，失败时用 stdin）
+# 用法: _safe_read "提示文字" 变量名 [secret]
+#   第三个参数为 "secret" 时，不回显输入(用于密码)
+_safe_read() {
+    local prompt="$1"
+    local varname="$2"
+    local is_secret="${3:-}"
+    local reply=""
+    local read_extra_flags="-r"
+    [ "$is_secret" = "secret" ] && read_extra_flags="-r -s"
+    if [ -t 0 ]; then
+        printf '%s' "$prompt"
+        IFS= read $read_extra_flags reply
+        [ "$is_secret" = "secret" ] && echo ""
+    elif [ -r /dev/tty ]; then
+        printf '%s' "$prompt" > /dev/tty
+        IFS= read $read_extra_flags reply < /dev/tty
+        [ "$is_secret" = "secret" ] && echo "" > /dev/tty
+    else
+        reply=""
+    fi
+    eval "$varname=\"\$reply\""
+}
+
+# ------------------------------------------------------------
 # 项目目录定位
 # ------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
 PROJECT_DIR="${PROJECT_DIR:-$SCRIPT_DIR}"
 cd "$PROJECT_DIR" 2>/dev/null || {
     echo "[ERROR] 无法进入项目目录: $PROJECT_DIR"
@@ -20,15 +105,25 @@ cd "$PROJECT_DIR" 2>/dev/null || {
 }
 
 # ------------------------------------------------------------
-# 颜色输出
+# 颜色输出（仅在终端 TTY 时启用）
 # ------------------------------------------------------------
-COLOR_GREEN='\033[0;32m'
-COLOR_YELLOW='\033[1;33m'
-COLOR_RED='\033[0;31m'
-COLOR_BLUE='\033[0;34m'
-COLOR_CYAN='\033[0;36m'
-COLOR_PURPLE='\033[0;35m'
-COLOR_RESET='\033[0m'
+if [ -t 1 ]; then
+    COLOR_GREEN='\033[0;32m'
+    COLOR_YELLOW='\033[1;33m'
+    COLOR_RED='\033[0;31m'
+    COLOR_BLUE='\033[0;34m'
+    COLOR_CYAN='\033[0;36m'
+    COLOR_PURPLE='\033[0;35m'
+    COLOR_RESET='\033[0m'
+else
+    COLOR_GREEN=''
+    COLOR_YELLOW=''
+    COLOR_RED=''
+    COLOR_BLUE=''
+    COLOR_CYAN=''
+    COLOR_PURPLE=''
+    COLOR_RESET=''
+fi
 
 info()  { echo -e "${COLOR_GREEN}[INFO]${COLOR_RESET} $*"; }
 warn()  { echo -e "${COLOR_YELLOW}[WARN]${COLOR_RESET} $*"; }
@@ -38,9 +133,14 @@ error() { echo -e "${COLOR_RED}[ERROR]${COLOR_RESET} $*" >&2; }
 # 检查 root 权限(部分操作需要)
 # ------------------------------------------------------------
 check_root() {
-    if [[ $EUID -ne 0 ]]; then
+    if [ "$(id -u)" -ne 0 ]; then
         warn "此操作需要 root 权限,正在使用 sudo 重新执行..."
-        exec sudo bash "$0" "$@"
+        if command -v sudo >/dev/null 2>&1; then
+            exec sudo -E bash "$0" "$@"
+        else
+            error "未找到 sudo，请手动以 root 权限执行此脚本"
+            exit 1
+        fi
     fi
 }
 
@@ -54,30 +154,73 @@ show_service_status() {
     echo -e "${COLOR_CYAN}============================================================${COLOR_RESET}"
     echo ""
 
-    # 检测 Web 用户
-    WEB_USER="www-data"
-    if id -u nginx >/dev/null 2>&1; then
-        WEB_USER="nginx"
-    fi
+    # 检测 Web 用户（跨发行版适配）
+    WEB_USER="$(_detect_web_user)"
+    info "当前 Web 用户: ${WEB_USER}"
 
-    # 核心服务状态
-    for svc in push-http push-websocket push-build-worker; do
-        if systemctl list-unit-files 2>/dev/null | grep -q "$svc"; then
+    # 核心服务状态（优先 systemd，其次通过端口检测）
+    HTTP_PORT=$(grep -E '^HTTP_PORT=' backend/.env 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "9501")
+    WS_PORT=$(grep -E '^WEBSOCKET_PORT=' backend/.env 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "9502")
+
+    for pair in "push-http:${HTTP_PORT}" "push-websocket:${WS_PORT}" "push-build-worker:-"; do
+        svc="${pair%%:*}"
+        port="${pair##*:}"
+        if _has_systemctl && systemctl list-unit-files 2>/dev/null | grep -q "$svc"; then
             if systemctl is-active --quiet "$svc" 2>/dev/null; then
                 echo -e "  ${COLOR_GREEN}●${COLOR_RESET} ${svc}"
             else
                 echo -e "  ${COLOR_RED}●${COLOR_RESET} ${svc}  [未运行]"
             fi
+        elif [ "$port" != "-" ]; then
+            # 通过端口检测
+            running=""
+            if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ":${port} "; then
+                running="1"
+            elif command -v netstat >/dev/null 2>&1 && netstat -ltn 2>/dev/null | grep -q ":${port} "; then
+                running="1"
+            fi
+            if [ -n "$running" ]; then
+                echo -e "  ${COLOR_GREEN}●${COLOR_RESET} ${svc} (端口 ${port})"
+            else
+                echo -e "  ${COLOR_YELLOW}●${COLOR_RESET} ${svc}  [端口未监听]"
+            fi
         else
-            echo -e "  ${COLOR_YELLOW}●${COLOR_RESET} ${svc}  [未安装]"
+            # build worker 通过进程名检测
+            if pgrep -f "build.*worker\|BuildWorker" >/dev/null 2>&1 || ps aux 2>/dev/null | grep -q "[b]uild.*worker"; then
+                echo -e "  ${COLOR_GREEN}●${COLOR_RESET} ${svc}"
+            else
+                echo -e "  ${COLOR_YELLOW}●${COLOR_RESET} ${svc}  [未检测到]"
+            fi
         fi
     done
     echo ""
 
-    # 系统服务
+    # 系统服务（兼容 systemd/sysvinit/进程检测）
     for svc in nginx redis-server redis mysqld mysql mariadb; do
-        if systemctl list-unit-files 2>/dev/null | grep -q "^$svc"; then
-            if systemctl is-active --quiet "$svc" 2>/dev/null; then
+        found=""
+        running=""
+        if _has_systemctl; then
+            if systemctl list-unit-files 2>/dev/null | grep -q "^$svc"; then
+                found="1"
+                if systemctl is-active --quiet "$svc" 2>/dev/null; then
+                    running="1"
+                fi
+            fi
+        fi
+        # 兜底：进程名检测
+        proc_pattern="$svc"
+        case "$svc" in
+            mysqld|mysql|mariadb) proc_pattern="mysqld\|mariadb" ;;
+            redis-server|redis) proc_pattern="redis-server" ;;
+        esac
+        if [ -z "$found" ]; then
+            if pgrep -f "$proc_pattern" >/dev/null 2>&1 || ps aux 2>/dev/null | grep -q "[$(echo "$proc_pattern" | cut -c1)]$(echo "$proc_pattern" | cut -c2-)"; then
+                found="1"
+                running="1"
+            fi
+        fi
+        if [ -n "$found" ]; then
+            if [ -n "$running" ]; then
                 echo -e "  ${COLOR_GREEN}●${COLOR_RESET} ${svc}"
             else
                 echo -e "  ${COLOR_RED}●${COLOR_RESET} ${svc}  [未运行]"
@@ -88,18 +231,18 @@ show_service_status() {
 
     # 磁盘空间
     echo -e "${COLOR_CYAN}----- 磁盘空间 -----${COLOR_RESET}"
-    df -h "$PROJECT_DIR" | tail -1 | awk '{printf "  总计: %s  已用: %s  可用: %s  使用率: %s\n", $2, $3, $4, $5}'
+    df -h "$PROJECT_DIR" 2>/dev/null | tail -1 | awk '{printf "  总计: %s  已用: %s  可用: %s  使用率: %s\n", $2, $3, $4, $5}' || echo "  无法读取磁盘信息"
     echo ""
 
     # 内存
     echo -e "${COLOR_CYAN}----- 内存 -----${COLOR_RESET}"
-    free -m | awk 'NR==1 || NR==2' | sed 's/^/  /'
+    _show_memory | sed 's/^/  /'
     echo ""
 
     # Git 版本
-    if [[ -d "$PROJECT_DIR/.git" ]]; then
+    if [ -d "$PROJECT_DIR/.git" ]; then
         echo -e "${COLOR_CYAN}----- 当前代码版本 -----${COLOR_RESET}"
-        git -C "$PROJECT_DIR" log --oneline -3 | sed 's/^/  /'
+        git -C "$PROJECT_DIR" log --oneline -3 2>/dev/null | sed 's/^/  /' || echo "  无法获取 git 日志"
         echo ""
     fi
 }
@@ -113,7 +256,7 @@ menu_install() {
     echo "  脚本将自动检测已安装的组件并跳过"
     echo "  支持交互式选择安装组件(核心服务/Android/SSL/sudoers)"
     echo ""
-    read -p "确认开始安装? [Y/n] " reply < /dev/tty
+    _safe_read "确认开始安装? [Y/n] " reply
     case "$reply" in
         [Nn]*) return 0 ;;
     esac
@@ -135,15 +278,15 @@ menu_update() {
     echo "    4. 跳过数据库迁移"
     echo "    5. 跳过确认(自动化)"
     echo ""
-    read -p "请选择 [1-5, 默认1]: " choice < /dev/tty
+    _safe_read "请选择 [1-5, 默认1]: " choice
     [[ -z "$choice" ]] && choice="1"
 
     case "$choice" in
-        1) bash "${PROJECT_DIR}/deploy/update.sh ;;
-        2) bash "${PROJECT_DIR}/deploy/update.sh --gh-proxy ;;
-        3) bash "${PROJECT_DIR}/deploy/update.sh --skip-build ;;
-        4) bash "${PROJECT_DIR}/deploy/update.sh --skip-migration ;;
-        5) bash "${PROJECT_DIR}/deploy/update.sh --yes ;;
+        1) bash "${PROJECT_DIR}/deploy/update.sh" ;;
+        2) bash "${PROJECT_DIR}/deploy/update.sh" --gh-proxy ;;
+        3) bash "${PROJECT_DIR}/deploy/update.sh" --skip-build ;;
+        4) bash "${PROJECT_DIR}/deploy/update.sh" --skip-migration ;;
+        5) bash "${PROJECT_DIR}/deploy/update.sh" --yes ;;
         *) warn "无效选项"; return 1 ;;
     esac
     pause
@@ -163,23 +306,73 @@ menu_restart() {
     echo "  6. 重启 MySQL"
     echo "  7. 重启 Redis"
     echo ""
-    read -p "请选择 [1-7]: " choice < /dev/tty
+    _safe_read "请选择 [1-7]: " choice
 
     case "$choice" in
         1)
-            systemctl restart push-http
-            sleep 1
-            systemctl restart push-websocket
-            sleep 1
-            systemctl restart push-build-worker
+            if _has_systemctl; then
+                _sudo systemctl restart push-http
+                sleep 1
+                _sudo systemctl restart push-websocket
+                sleep 1
+                _sudo systemctl restart push-build-worker
+            elif command -v service >/dev/null 2>&1; then
+                _sudo service push-http restart
+                sleep 1
+                _sudo service push-websocket restart
+                sleep 1
+                _sudo service push-build-worker restart
+            fi
             info "所有推送服务已重启"
             ;;
-        2) systemctl restart push-http; info "push-http 已重启" ;;
-        3) systemctl restart push-websocket; info "push-websocket 已重启" ;;
-        4) systemctl restart push-build-worker; info "push-build-worker 已重启" ;;
-        5) systemctl restart nginx; info "nginx 已重启" ;;
-        6) systemctl restart mysql 2>/dev/null || systemctl restart mysqld 2>/dev/null || systemctl restart mariadb 2>/dev/null; info "MySQL 已重启" ;;
-        7) systemctl restart redis-server 2>/dev/null || systemctl restart redis 2>/dev/null; info "Redis 已重启" ;;
+        2)
+            if _has_systemctl; then
+                _sudo systemctl restart push-http
+            elif command -v service >/dev/null 2>&1; then
+                _sudo service push-http restart
+            fi
+            info "push-http 已重启"
+            ;;
+        3)
+            if _has_systemctl; then
+                _sudo systemctl restart push-websocket
+            elif command -v service >/dev/null 2>&1; then
+                _sudo service push-websocket restart
+            fi
+            info "push-websocket 已重启"
+            ;;
+        4)
+            if _has_systemctl; then
+                _sudo systemctl restart push-build-worker
+            elif command -v service >/dev/null 2>&1; then
+                _sudo service push-build-worker restart
+            fi
+            info "push-build-worker 已重启"
+            ;;
+        5)
+            if _has_systemctl; then
+                _sudo systemctl restart nginx
+            elif command -v service >/dev/null 2>&1; then
+                _sudo service nginx restart
+            fi
+            info "nginx 已重启"
+            ;;
+        6)
+            if _has_systemctl; then
+                _sudo systemctl restart mysql 2>/dev/null || _sudo systemctl restart mysqld 2>/dev/null || _sudo systemctl restart mariadb 2>/dev/null
+            elif command -v service >/dev/null 2>&1; then
+                _sudo service mysql restart 2>/dev/null || _sudo service mysqld restart 2>/dev/null || _sudo service mariadb restart 2>/dev/null
+            fi
+            info "MySQL 已重启"
+            ;;
+        7)
+            if _has_systemctl; then
+                _sudo systemctl restart redis-server 2>/dev/null || _sudo systemctl restart redis 2>/dev/null
+            elif command -v service >/dev/null 2>&1; then
+                _sudo service redis-server restart 2>/dev/null || _sudo service redis restart 2>/dev/null
+            fi
+            info "Redis 已重启"
+            ;;
         *) warn "无效选项" ;;
     esac
 
@@ -203,12 +396,39 @@ menu_status() {
     echo "  5. mysql"
     echo "  0. 返回"
     echo ""
-    read -p "请选择 [0-5]: " choice < /dev/tty
+    _safe_read "请选择 [0-5]: " choice
 
     case "$choice" in
-        1) journalctl -u push-http -f ;;
-        2) journalctl -u push-websocket -f ;;
-        3) journalctl -u push-build-worker -f ;;
+        1)
+            if command -v journalctl >/dev/null 2>&1; then
+                journalctl -u push-http -f
+            else
+                warn "未找到 journalctl，请手动查看日志："
+                echo "  - ${PROJECT_DIR}/runtime/logs/"
+                echo "  - /var/log/"
+                echo "  - 执行: tail -f ${PROJECT_DIR}/runtime/logs/*.log"
+            fi
+            ;;
+        2)
+            if command -v journalctl >/dev/null 2>&1; then
+                journalctl -u push-websocket -f
+            else
+                warn "未找到 journalctl，请手动查看日志："
+                echo "  - ${PROJECT_DIR}/runtime/logs/"
+                echo "  - /var/log/"
+                echo "  - 执行: tail -f ${PROJECT_DIR}/runtime/logs/*.log"
+            fi
+            ;;
+        3)
+            if command -v journalctl >/dev/null 2>&1; then
+                journalctl -u push-build-worker -f
+            else
+                warn "未找到 journalctl，请手动查看日志："
+                echo "  - ${PROJECT_DIR}/runtime/logs/"
+                echo "  - /var/log/"
+                echo "  - 执行: tail -f ${PROJECT_DIR}/runtime/logs/*.log"
+            fi
+            ;;
         4) tail -f /var/log/nginx/error.log ;;
         5) tail -f /var/log/mysql/error.log 2>/dev/null || tail -f /var/log/mysqld.log 2>/dev/null ;;
         0) return 0 ;;
@@ -232,16 +452,13 @@ menu_clean() {
     echo "  7. 系统日志(超过 7 天的 journal)"
     echo "  8. 全部清理"
     echo ""
-    read -p "请选择 [1-8]: " choices < /dev/tty
+    _safe_read "请选择 [1-8]: " choices
 
     CLEAN_ALL="n"
     [[ "$choices" == "8" ]] && CLEAN_ALL="y"
 
-    # 检测 Web 用户
-    WEB_USER="www-data"
-    if id -u nginx >/dev/null 2>&1; then
-        WEB_USER="nginx"
-    fi
+    # 检测 Web 用户（跨发行版适配）
+    WEB_USER="$(_detect_web_user)"
 
     for choice in $choices; do
         [[ "$CLEAN_ALL" == "y" ]] && choice="all"
@@ -270,14 +487,24 @@ menu_clean() {
                 if command -v php >/dev/null 2>&1; then
                     # 通过重启 PHP-FPM 清理 opcache
                     for svc in php8.2-fpm php8.1-fpm php8.0-fpm php-fpm; do
-                        if systemctl list-unit-files 2>/dev/null | grep -q "$svc"; then
-                            systemctl restart "$svc" 2>/dev/null && info "  $svc 已重启(opcache 已清理)"
+                        if _has_systemctl; then
+                            if systemctl list-unit-files 2>/dev/null | grep -q "$svc"; then
+                                _sudo systemctl restart "$svc" 2>/dev/null && info "  $svc 已重启(opcache 已清理)"
+                                break
+                            fi
+                        elif command -v service >/dev/null 2>&1; then
+                            _sudo service "$svc" restart 2>/dev/null && info "  $svc 已重启(opcache 已清理)"
                             break
                         fi
                     done
                     # Swoole 服务的 opcache 通过重启服务清理
-                    systemctl restart push-http 2>/dev/null || true
-                    systemctl restart push-websocket 2>/dev/null || true
+                    if _has_systemctl; then
+                        _sudo systemctl restart push-http 2>/dev/null || true
+                        _sudo systemctl restart push-websocket 2>/dev/null || true
+                    elif command -v service >/dev/null 2>&1; then
+                        _sudo service push-http restart 2>/dev/null || true
+                        _sudo service push-websocket restart 2>/dev/null || true
+                    fi
                 fi
                 ;;
         esac
@@ -317,8 +544,14 @@ menu_clean() {
         case "$choice" in
             7|all)
                 info "清理旧系统日志..."
-                journalctl --vacuum-time=7d 2>/dev/null || true
-                info "  7 天前的 journal 日志已清理"
+                if command -v journalctl >/dev/null 2>&1; then
+                    journalctl --vacuum-time=7d 2>/dev/null || true
+                    info "  7 天前的 journal 日志已清理"
+                else
+                    warn "  未找到 journalctl，跳过。请手动清理以下位置的日志："
+                    echo "    - ${PROJECT_DIR}/runtime/logs/"
+                    echo "    - /var/log/"
+                fi
                 ;;
         esac
     done
@@ -365,7 +598,7 @@ menu_repair_mysql() {
     echo ""
     echo -e "  ${COLOR_YELLOW}注意:${COLOR_RESET} 此操作需要 root 权限"
     echo ""
-    read -p "确认执行 MySQL 修复? [y/N] " reply < /dev/tty
+    _safe_read "确认执行 MySQL 修复? [y/N] " reply
     case "$reply" in
         [Yy]*)
             # 检查 root
@@ -380,15 +613,39 @@ menu_repair_mysql() {
                 echo ""
                 # 验证 MySQL 服务状态
                 echo -e "${COLOR_CYAN}----- MySQL 服务状态 -----${COLOR_RESET}"
-                if systemctl is-active --quiet mysql 2>/dev/null \
-                    || systemctl is-active --quiet mysqld 2>/dev/null \
-                    || systemctl is-active --quiet mariadb 2>/dev/null; then
+                mysql_running=""
+                if _has_systemctl; then
+                    if systemctl is-active --quiet mysql 2>/dev/null \
+                        || systemctl is-active --quiet mysqld 2>/dev/null \
+                        || systemctl is-active --quiet mariadb 2>/dev/null; then
+                        mysql_running="1"
+                    fi
+                elif command -v service >/dev/null 2>&1; then
+                    if service mysql status >/dev/null 2>&1 \
+                        || service mysqld status >/dev/null 2>&1 \
+                        || service mariadb status >/dev/null 2>&1; then
+                        mysql_running="1"
+                    fi
+                fi
+                # 兜底：进程检测
+                if [ -z "$mysql_running" ]; then
+                    if pgrep -f "mysqld\|mariadb" >/dev/null 2>&1; then
+                        mysql_running="1"
+                    fi
+                fi
+                if [ -n "$mysql_running" ]; then
                     info "MySQL 服务运行中"
                 else
                     warn "MySQL 服务未运行,尝试启动..."
-                    systemctl start mysql 2>/dev/null \
-                        || systemctl start mysqld 2>/dev/null \
-                        || systemctl start mariadb 2>/dev/null || true
+                    if _has_systemctl; then
+                        _sudo systemctl start mysql 2>/dev/null \
+                            || _sudo systemctl start mysqld 2>/dev/null \
+                            || _sudo systemctl start mariadb 2>/dev/null || true
+                    elif command -v service >/dev/null 2>&1; then
+                        _sudo service mysql start 2>/dev/null \
+                            || _sudo service mysqld start 2>/dev/null \
+                            || _sudo service mariadb start 2>/dev/null || true
+                    fi
                 fi
                 # 显示 MySQL 版本
                 if command -v mysql >/dev/null 2>&1; then
@@ -444,7 +701,7 @@ menu_config() {
         echo "  8. 查看完整 .env(隐藏敏感信息)"
         echo "  0. 返回主菜单"
         echo ""
-        read -p "请选择 [0-8]: " choice < /dev/tty
+        _safe_read "请选择 [0-8]: " choice
 
         case "$choice" in
             1) edit_env_value "HTTP_PORT" "HTTP 端口" ;;
@@ -486,15 +743,23 @@ menu_config() {
         # 配置修改后提示重启
         if [[ "$choice" =~ ^[1-6]$ ]]; then
             echo ""
-            read -p "配置已修改,是否立即重启服务使配置生效? [Y/n] " reply < /dev/tty
+            _safe_read "配置已修改,是否立即重启服务使配置生效? [Y/n] " reply
             case "$reply" in
                 [Nn]*) ;;
                 *)
-                    systemctl restart push-http
-                    sleep 1
-                    systemctl restart push-websocket
-                    sleep 1
-                    systemctl restart push-build-worker
+                    if _has_systemctl; then
+                        _sudo systemctl restart push-http
+                        sleep 1
+                        _sudo systemctl restart push-websocket
+                        sleep 1
+                        _sudo systemctl restart push-build-worker
+                    elif command -v service >/dev/null 2>&1; then
+                        _sudo service push-http restart
+                        sleep 1
+                        _sudo service push-websocket restart
+                        sleep 1
+                        _sudo service push-build-worker restart
+                    fi
                     info "服务已重启"
                     ;;
             esac
@@ -520,7 +785,7 @@ edit_env_value() {
         info "当前 $desc: $current_val"
     fi
 
-    read -p "输入新的 $desc(留空保持不变): " new_val < /dev/tty
+    _safe_read "输入新的 $desc(留空保持不变): " new_val "$is_secret"
     [[ -z "$new_val" ]] && { info "未修改"; return 0; }
 
     # 值含空格自动加引号
@@ -541,7 +806,7 @@ change_db_password() {
     echo ""
     warn "⚠️  修改数据库密码将同步更新 MySQL 用户密码"
     info "当前数据库用户: $(grep '^DB_USER=' "$ENV_FILE" | cut -d= -f2- | tr -d '\"')"
-    read -p "输入新密码: " new_pass < /dev/tty
+    _safe_read "输入新密码: " new_pass "secret"
     [[ -z "$new_pass" ]] && { info "未修改"; return 0; }
 
     DB_USER=$(grep '^DB_USER=' "$ENV_FILE" | cut -d= -f2- | tr -d '\"')
@@ -549,7 +814,7 @@ change_db_password() {
 
     # 同步到 MySQL
     if mysql -uroot -e "ALTER USER '${DB_USER}'@'${DB_HOST}' IDENTIFIED BY '${new_pass}';" 2>/dev/null || \
-       sudo mysql -e "ALTER USER '${DB_USER}'@'${DB_HOST}' IDENTIFIED BY '${new_pass}';" 2>/dev/null; then
+       _sudo mysql -e "ALTER USER '${DB_USER}'@'${DB_HOST}' IDENTIFIED BY '${new_pass}';" 2>/dev/null; then
         info "MySQL 用户密码已同步更新"
     else
         warn "MySQL 密码更新失败(可能需要手动执行)"
@@ -584,9 +849,9 @@ menu_uninstall_env() {
     echo "    - 源码目录 $PROJECT_DIR"
     echo "    - 数据库数据"
     echo ""
-    read -p "确认卸载环境? [y/N] " reply < /dev/tty
+    _safe_read "确认卸载环境? [y/N] " reply
     case "$reply" in
-        [Yy]*) bash "${PROJECT_DIR}/deploy/uninstall.sh --env ;;
+        [Yy]*) bash "${PROJECT_DIR}/deploy/uninstall.sh" --env ;;
         *) info "已取消" ;;
     esac
     pause
@@ -605,9 +870,9 @@ menu_uninstall_source() {
     echo "    - 运行环境(PHP/MySQL/Redis/Nginx 等)"
     echo "    - 数据库数据"
     echo ""
-    read -p "确认删除源码? [y/N] " reply < /dev/tty
+    _safe_read "确认删除源码? [y/N] " reply
     case "$reply" in
-        [Yy]*) bash "${PROJECT_DIR}/deploy/uninstall.sh --source ;;
+        [Yy]*) bash "${PROJECT_DIR}/deploy/uninstall.sh" --source ;;
         *) info "已取消" ;;
     esac
     pause
@@ -627,9 +892,9 @@ menu_uninstall_all() {
     echo "    - 系统配置(systemd/Nginx/sudoers/cron/swap)"
     echo "  此操作不可逆!"
     echo ""
-    read -p "确认完全卸载? 输入 'yes' 继续: " reply < /dev/tty
+    _safe_read "确认完全卸载? 输入 'yes' 继续: " reply
     if [[ "$reply" == "yes" ]]; then
-        bash "${PROJECT_DIR}/deploy/uninstall.sh --all --yes
+        bash "${PROJECT_DIR}/deploy/uninstall.sh" --all --yes
     else
         info "已取消"
     fi
@@ -646,12 +911,12 @@ menu_rollback() {
     echo "    1. 回滚到上次更新前(自动读取备份)"
     echo "    2. 回滚到指定 commit"
     echo ""
-    read -p "请选择 [1-2]: " choice < /dev/tty
+    _safe_read "请选择 [1-2]: " choice
     case "$choice" in
-        1) bash "${PROJECT_DIR}/deploy/rollback.sh ;;
+        1) bash "${PROJECT_DIR}/deploy/rollback.sh" ;;
         2)
-            read -p "输入目标 commit hash: " commit < /dev/tty
-            [[ -n "$commit" ]] && bash "${PROJECT_DIR}/deploy/rollback.sh "$commit"
+            _safe_read "输入目标 commit hash: " commit
+            [[ -n "$commit" ]] && bash "${PROJECT_DIR}/deploy/rollback.sh" "$commit"
             ;;
         *) warn "无效选项" ;;
     esac
@@ -699,7 +964,8 @@ menu_generate_keystore() {
 # ------------------------------------------------------------
 pause() {
     echo ""
-    read -p "按回车键继续..." < /dev/tty
+    local dummy=""
+    _safe_read "按回车键继续..." dummy
 }
 
 # ============================================================
@@ -736,7 +1002,7 @@ main_menu() {
         echo ""
         echo -e "    ${COLOR_GREEN}0.${COLOR_RESET} 退出"
         echo ""
-        read -p "请输入选项 [0-13]: " choice < /dev/tty
+        _safe_read "请输入选项 [0-13]: " choice
 
         case "$choice" in
             1) menu_install ;;
@@ -791,7 +1057,7 @@ main() {
     # 检查是否在项目目录中
     if [[ ! -f "${PROJECT_DIR}/deploy/install.sh" ]]; then
         warn "未检测到项目文件,请在项目根目录执行此脚本"
-        read -p "是否继续? [y/N] " reply < /dev/tty
+        _safe_read "是否继续? [y/N] " reply
         [[ "$reply" != "y" ]] && exit 1
     fi
 

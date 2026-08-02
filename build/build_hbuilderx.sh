@@ -8,16 +8,35 @@
 
 set -e
 
-# ---------------- 颜色定义 ----------------
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+# ---------------- 颜色定义（仅 TTY 启用）----------------
+if [ -t 1 ]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    NC='\033[0m' # No Color
+else
+    RED=''
+    GREEN=''
+    YELLOW=''
+    NC=''
+fi
 
 # ---------------- 工具函数 ----------------
 info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
+
+# ---------------- 跨平台 sed -i（GNU/BSD 行为一致化）----------------
+# GNU sed: sed -i.bak file；BSD sed: sed -i .bak file
+# 这里改用 temp+mv 方式，避免差异
+_sed_in_place() {
+    local script="$1"
+    local file="$2"
+    local tmp
+    tmp="$(mktemp 2>/dev/null || echo "${file}.tmp.$$")"
+    sed "$script" "$file" > "$tmp" && mv "$tmp" "$file"
+    rm -f "${file}.bak" 2>/dev/null || true
+}
 
 # ---------------- 默认参数 ----------------
 BUILD_ID="local-$(date +%s)"
@@ -90,13 +109,12 @@ ESC_SERVER_URL=$(printf '%s' "$SERVER_URL" | sed 's/\\/\\\\/g; s/"/\\"/g')
 ESC_WS_URL=$(printf '%s' "$SERVER_WS_URL" | sed 's/\\/\\\\/g; s/"/\\"/g')
 ESC_DEFAULT_KEY=$(printf '%s' "$DEFAULT_KEY" | sed 's/\\/\\\\/g; s/"/\\"/g')
 
-# 更新 manifest.json
+# 更新 manifest.json（使用 _sed_in_place 兼容 GNU/BSD sed）
 MANIFEST_FILE="$BUILD_OUTPUT/manifest.json"
 if [ -f "$MANIFEST_FILE" ]; then
-    sed -i.bak "s/\"name\" : \"[^\"]*\"/\"name\" : \"$ESC_APP_NAME\"/" "$MANIFEST_FILE"
-    sed -i.bak "s/\"versionName\" : \"[^\"]*\"/\"versionName\" : \"$VERSION_NAME\"/" "$MANIFEST_FILE"
-    sed -i.bak "s/\"versionCode\" : \"[^\"]*\"/\"versionCode\" : \"$VERSION_CODE\"/" "$MANIFEST_FILE"
-    rm -f "$MANIFEST_FILE.bak"
+    _sed_in_place "s/\"name\" : \"[^\"]*\"/\"name\" : \"$ESC_APP_NAME\"/" "$MANIFEST_FILE"
+    _sed_in_place "s/\"versionName\" : \"[^\"]*\"/\"versionName\" : \"$VERSION_NAME\"/" "$MANIFEST_FILE"
+    _sed_in_place "s/\"versionCode\" : \"[^\"]*\"/\"versionCode\" : \"$VERSION_CODE\"/" "$MANIFEST_FILE"
     info "已更新 manifest.json"
 fi
 

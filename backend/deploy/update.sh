@@ -142,6 +142,38 @@ error() { echo -e "${COLOR_RED}[ERROR]${COLOR_RESET} $*" >&2; }
 step()  { echo -e "\n${COLOR_BLUE}===== $1 =====${COLOR_RESET}"; }
 
 # ------------------------------------------------------------
+# 跨系统：通用辅助函数
+# ------------------------------------------------------------
+# 智能 sudo 包装：已是 root 则直接执行，否则使用 sudo（若可用），否则直接执行
+_sudo() {
+    if [[ "$(id -u)" == "0" ]]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        "$@"
+    fi
+}
+
+# 跨平台获取文件所有者用户名（GNU stat -c / BSD stat -f / BusyBox stat -c / ls+awk 兜底）
+_stat_owner() {
+    local target="$1"
+    [[ -e "$target" ]] || { echo ""; return; }
+    # GNU coreutils stat（绝大多数 Linux，包括 BusyBox）
+    if stat -c '%U' "$target" >/dev/null 2>&1; then
+        stat -c '%U' "$target" 2>/dev/null || echo ""
+        return
+    fi
+    # BSD/macOS stat
+    if stat -f '%Su' "$target" >/dev/null 2>&1; then
+        stat -f '%Su' "$target" 2>/dev/null || echo ""
+        return
+    fi
+    # 兜底：ls + awk（POSIX 通用）
+    ls -ld "$target" 2>/dev/null | awk '{print $3}' || echo ""
+}
+
+# ------------------------------------------------------------
 # 断点续装：进度文件 & 辅助函数
 # ------------------------------------------------------------
 # 如果通过 sudo 执行，记录真实调用用户的 UID/GID，结束时 chown 回原用户
@@ -153,17 +185,33 @@ if [[ -n "${SUDO_UID}" && -n "${SUDO_GID}" && "${EUID}" == "0" ]]; then
     ORIGINAL_GID="${SUDO_GID}"
 fi
 
+# 检测 Web 运行用户（跨发行版适配）
+# Debian/Ubuntu=www-data, CentOS/RHEL/Alpine/openSUSE=nginx, Arch=http
+detect_web_user() {
+    if id -u www-data >/dev/null 2>&1; then
+        echo "www-data"
+    elif id -u nginx >/dev/null 2>&1; then
+        echo "nginx"
+    elif id -u http >/dev/null 2>&1; then
+        echo "http"
+    else
+        echo "www-data"
+    fi
+}
+
 # 清理/恢复项目目录所有者（成功/失败路径均通过 trap EXIT 调用）
-# 注意：.env / storage / runtime 必须保持 www-data 可读/写，不能改回普通用户，
-# 否则 push-http 以 www-data 启动时读取 .env 600 权限失败直接崩。
+# 注意：.env / storage / runtime 必须保持 Web 用户可读/写，不能改回普通用户，
+# 否则 push-http 以 Web 用户启动时读取 .env 600 权限失败直接崩。
 restore_owner() {
     if [[ -n "${ORIGINAL_UID}" && -n "${ORIGINAL_GID}" && -d "${PROJECT_DIR}" ]]; then
         # 先按默认恢复
         chown -R "${ORIGINAL_UID}:${ORIGINAL_GID}" "${PROJECT_DIR}" 2>/dev/null || true
-        # 再把服务必需文件改回 www-data
-        if command -v id >/dev/null 2>&1 && id -u www-data >/dev/null 2>&1; then
+        # 再把服务必需文件改回 Web 用户
+        local DETECTED_WEB_USER
+        DETECTED_WEB_USER="$(detect_web_user)"
+        if command -v id >/dev/null 2>&1 && id -u "${DETECTED_WEB_USER}" >/dev/null 2>&1; then
             local WWW_UID_GID
-            WWW_UID_GID="$(id -u www-data):$(id -g www-data)"
+            WWW_UID_GID="$(id -u "${DETECTED_WEB_USER}"):$(id -g "${DETECTED_WEB_USER}")"
             # .env（600 权限，仅 owner 可读）
             [[ -f "${PROJECT_DIR}/backend/.env" ]] && \
                 chown "${WWW_UID_GID}" "${PROJECT_DIR}/backend/.env" 2>/dev/null || true
@@ -313,13 +361,13 @@ DB_PASS="${DB_PASS:-}"
 DB_HOST="${DB_HOST:-127.0.0.1}"
 
 # Ubuntu/MariaDB 兼容：root+空密码时自动检测是否需要 sudo（unix_socket 认证）
-# 如果直连失败但 sudo mysql 成功，则后续所有 mysql 命令自动加 sudo 前缀
+# 如果直连失败但 _sudo mysql 成功，则后续所有 mysql 命令自动加 _sudo 前缀
 MYSQL_CMD=(mysql)
 if [[ "${DB_USER}" == "root" && -z "${DB_PASS}" ]]; then
-    if ! mysql -h"${DB_HOST}" -u"${DB_USER}" -e "SELECT 1" &>/dev/null; then
-        if sudo mysql -h"${DB_HOST}" -u"${DB_USER}" -e "SELECT 1" &>/dev/null; then
-            MYSQL_CMD=(sudo mysql)
-            echo "[INFO] 检测到 root 使用 unix_socket 认证，已自动切换为 sudo mysql 连接"
+    if ! mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${DB_USER}" -e "SELECT 1" &>/dev/null; then
+        if _sudo mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${DB_USER}" -e "SELECT 1" &>/dev/null; then
+            MYSQL_CMD=(_sudo mysql)
+            echo "[INFO] 检测到 root 使用 unix_socket 认证，已自动切换为 _sudo mysql 连接"
         fi
     fi
 fi
@@ -367,14 +415,14 @@ else
 
     # 修复 .git 目录权限（避免版本检测时因权限失败）
     if [[ -d "${PROJECT_DIR}/.git" ]]; then
-        local_owner="$(stat -c '%U' "${PROJECT_DIR}/.git" 2>/dev/null || echo '')"
+        local_owner="$(_stat_owner "${PROJECT_DIR}/.git" 2>/dev/null || echo '')"
         current_user="$(whoami)"
         if [[ -n "${local_owner}" && "${local_owner}" != "${current_user}" ]]; then
             warn "修复 .git 目录权限 (${local_owner} -> ${current_user})..."
             if [[ "$(id -u)" == "0" ]]; then
                 chown -R "${current_user}:${current_user}" "${PROJECT_DIR}/.git" 2>/dev/null || true
             else
-                sudo chown -R "${current_user}:${current_user}" "${PROJECT_DIR}/.git" 2>/dev/null || true
+                _sudo chown -R "${current_user}:${current_user}" "${PROJECT_DIR}/.git" 2>/dev/null || true
             fi
         fi
     fi
@@ -575,19 +623,19 @@ else
         current_user="$(whoami)"
         chown -R "${current_user}:${current_user}" "${PROJECT_DIR}" 2>/dev/null || true
     else
-        sudo chown -R "$(whoami):$(whoami)" "${PROJECT_DIR}" 2>/dev/null || true
+        _sudo chown -R "$(whoami):$(whoami)" "${PROJECT_DIR}" 2>/dev/null || true
     fi
 
     # 修复 .git 目录权限（避免 root 操作后权限不足）
     if [[ -d "${PROJECT_DIR}/.git" ]]; then
-        local_owner="$(stat -c '%U' "${PROJECT_DIR}/.git" 2>/dev/null || echo '')"
+        local_owner="$(_stat_owner "${PROJECT_DIR}/.git" 2>/dev/null || echo '')"
         current_user="$(whoami)"
         if [[ -n "${local_owner}" && "${local_owner}" != "${current_user}" ]]; then
             warn "修复 .git 目录权限 (${local_owner} -> ${current_user})..."
             if [[ "$(id -u)" == "0" ]]; then
                 chown -R "${current_user}:${current_user}" "${PROJECT_DIR}/.git" 2>/dev/null || true
             else
-                sudo chown -R "${current_user}:${current_user}" "${PROJECT_DIR}/.git" 2>/dev/null || true
+                _sudo chown -R "${current_user}:${current_user}" "${PROJECT_DIR}/.git" 2>/dev/null || true
             fi
         fi
     fi
@@ -627,7 +675,7 @@ else
         current_user="$(whoami)"
         chown -R "${current_user}:${current_user}" "${PROJECT_DIR}" 2>/dev/null || true
     else
-        sudo chown -R "$(whoami):$(whoami)" "${PROJECT_DIR}" 2>/dev/null || true
+        _sudo chown -R "$(whoami):$(whoami)" "${PROJECT_DIR}" 2>/dev/null || true
     fi
 
     info "代码拉取完成。"
@@ -687,7 +735,7 @@ else
         # 跟随符号链接修复目标文件权限
         if [[ -d node_modules/.bin ]]; then
             find node_modules/.bin -type l | while read -r link; do
-                target=$(readlink -f "$link" 2>/dev/null)
+                target=$(_readlink_f "$link")
                 [[ -f "$target" ]] && chmod +x "$target" 2>/dev/null || true
             done
             find node_modules/.bin -type f -exec chmod +x {} \; 2>/dev/null || true
@@ -863,11 +911,11 @@ else
 
     # 1. 修复运行时目录权限（Web 用户需要写入 storage/runtime/build 等目录）
     info "修复运行时目录权限 (Web 用户: ${WEB_USER})..."
-    sudo mkdir -p "${PROJECT_DIR}/backend/runtime/logs" "${PROJECT_DIR}/backend/storage" \
+    _sudo mkdir -p "${PROJECT_DIR}/backend/runtime/logs" "${PROJECT_DIR}/backend/storage" \
                 "${PROJECT_DIR}/build/logs" "${PROJECT_DIR}/build/output" \
                 "${PROJECT_DIR}/app/src/main/assets" "${PROJECT_DIR}/.gradle" 2>/dev/null || true
     # 仅修改运行时目录，不破坏 .git / vendor / node_modules 权限
-    sudo chown -R "${WEB_USER}:${WEB_USER}" \
+    _sudo chown -R "${WEB_USER}:${WEB_USER}" \
         "${PROJECT_DIR}/backend/storage" \
         "${PROJECT_DIR}/backend/runtime" \
         "${PROJECT_DIR}/build" \
@@ -875,19 +923,19 @@ else
         "${PROJECT_DIR}/.gradle" \
         2>/dev/null || true
     # 权限位修正
-    sudo find "${PROJECT_DIR}/backend/storage" -type d -exec chmod 775 {} \; 2>/dev/null || true
-    sudo find "${PROJECT_DIR}/backend/runtime" -type d -exec chmod 775 {} \; 2>/dev/null || true
-    sudo find "${PROJECT_DIR}/backend/storage" -type f -exec chmod 664 {} \; 2>/dev/null || true
-    sudo find "${PROJECT_DIR}/backend/runtime" -type f -exec chmod 664 {} \; 2>/dev/null || true
-    sudo find "${PROJECT_DIR}/build" "${PROJECT_DIR}/backend/bin" "${PROJECT_DIR}/deploy/apk" -type f -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
+    _sudo find "${PROJECT_DIR}/backend/storage" -type d -exec chmod 775 {} \; 2>/dev/null || true
+    _sudo find "${PROJECT_DIR}/backend/runtime" -type d -exec chmod 775 {} \; 2>/dev/null || true
+    _sudo find "${PROJECT_DIR}/backend/storage" -type f -exec chmod 664 {} \; 2>/dev/null || true
+    _sudo find "${PROJECT_DIR}/backend/runtime" -type f -exec chmod 664 {} \; 2>/dev/null || true
+    _sudo find "${PROJECT_DIR}/build" "${PROJECT_DIR}/backend/bin" "${PROJECT_DIR}/deploy/apk" -type f -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
     # 小飞机上传脚本需要 www-data 可执行（PHP shell_exec 调用）
     for s in deploy/apk/upload-to-feijipan.sh; do
-        [[ -f "${PROJECT_DIR}/${s}" ]] && sudo chmod +x "${PROJECT_DIR}/${s}" 2>/dev/null || true
+        [[ -f "${PROJECT_DIR}/${s}" ]] && _sudo chmod +x "${PROJECT_DIR}/${s}" 2>/dev/null || true
     done
     # .env 文件让 Web 用户可读
     if [[ -f "${PROJECT_DIR}/backend/.env" ]]; then
-        sudo chown "root:${WEB_USER}" "${PROJECT_DIR}/backend/.env" 2>/dev/null || true
-        sudo chmod 640 "${PROJECT_DIR}/backend/.env" 2>/dev/null || true
+        _sudo chown "root:${WEB_USER}" "${PROJECT_DIR}/backend/.env" 2>/dev/null || true
+        _sudo chmod 640 "${PROJECT_DIR}/backend/.env" 2>/dev/null || true
     fi
     info "运行时目录权限修复完成。"
 
@@ -919,31 +967,31 @@ else
                 fi
                 if [[ "${NEED_UPDATE}" == "true" ]]; then
                     info "  生成 ${svc_name} (用户=${WEB_USER}, 路径=${PROJECT_DIR})..."
-                    sudo sed "s/^User=www-data$/User=${WEB_USER}/g; \
+                    _sudo sed "s/^User=www-data$/User=${WEB_USER}/g; \
 s/^Group=www-data$/Group=${WEB_USER}/g; \
 s|/www/push-system|${PROJECT_DIR}|g" \
-                        "${svc_file}" | sudo tee "$DST_FILE" >/dev/null
+                        "${svc_file}" | _sudo tee "$DST_FILE" >/dev/null
                     # systemd < 227: 移除不支持的 cgroup 指令
                     if [[ "$SYSTEMD_VERSION" -gt 0 && "$SYSTEMD_VERSION" -lt 227 ]]; then
-                        sudo sed -i '/^MemoryMax=/d; /^MemoryHigh=/d; /^TasksMax=/d; /^CPUQuota=/d' "$DST_FILE" 2>/dev/null || true
+                        _sudo sed -i '/^MemoryMax=/d; /^MemoryHigh=/d; /^TasksMax=/d; /^CPUQuota=/d' "$DST_FILE" 2>/dev/null || true
                     fi
                     # systemd < 230: StartLimitIntervalSec -> StartLimitInterval
                     if [[ "$SYSTEMD_VERSION" -gt 0 && "$SYSTEMD_VERSION" -lt 230 ]]; then
-                        sudo sed -i 's/^StartLimitIntervalSec=/StartLimitInterval=/' "$DST_FILE" 2>/dev/null || true
+                        _sudo sed -i 's/^StartLimitIntervalSec=/StartLimitInterval=/' "$DST_FILE" 2>/dev/null || true
                     fi
                 fi
             done
-            sudo systemctl daemon-reload 2>/dev/null || true
+            _sudo systemctl daemon-reload 2>/dev/null || true
             info "systemd 核心服务文件检查完成。"
         fi
 
         # 废弃的 BuildWorker 服务处理（APP 打包已迁移到 GitHub Actions）
         if systemctl list-unit-files 2>/dev/null | grep -q 'push-build-worker'; then
             info "检测到废弃的 push-build-worker 服务，停止并禁用（APP 打包已迁移到 GitHub Actions）..."
-            sudo systemctl stop push-build-worker 2>/dev/null || true
-            sudo systemctl disable push-build-worker 2>/dev/null || true
-            sudo rm -f "/etc/systemd/system/push-build-worker.service" 2>/dev/null || true
-            sudo systemctl daemon-reload 2>/dev/null || true
+            _sudo systemctl stop push-build-worker 2>/dev/null || true
+            _sudo systemctl disable push-build-worker 2>/dev/null || true
+            _sudo rm -f "/etc/systemd/system/push-build-worker.service" 2>/dev/null || true
+            _sudo systemctl daemon-reload 2>/dev/null || true
         fi
     fi
 
@@ -957,8 +1005,8 @@ s|/www/push-system|${PROJECT_DIR}|g" \
                 CURRENT_PHP_IN_SVC=$(grep '^ExecStart=' "$SVC_FILE" 2>/dev/null | sed -E 's/^ExecStart=([^ ]+) .*/\1/' || echo '')
                 if [[ -n "$CURRENT_PHP_IN_SVC" && "$CURRENT_PHP_IN_SVC" != "$PHP_BIN_PATH" ]]; then
                     info "服务 ${svc} 中 PHP 路径 ${CURRENT_PHP_IN_SVC} 与实际 ${PHP_BIN_PATH} 不一致，更新..."
-                    sudo sed -i "s|^ExecStart=${CURRENT_PHP_IN_SVC} |ExecStart=${PHP_BIN_PATH} |" "$SVC_FILE"
-                    sudo systemctl daemon-reload 2>/dev/null || true
+                    _sudo sed -i "s|^ExecStart=${CURRENT_PHP_IN_SVC} |ExecStart=${PHP_BIN_PATH} |" "$SVC_FILE"
+                    _sudo systemctl daemon-reload 2>/dev/null || true
                 fi
             fi
         done
@@ -995,15 +1043,15 @@ s|/www/push-system|${PROJECT_DIR}|g" \
                 if [[ "${NEED_NGINX_UPDATE}" == "true" ]]; then
                     NGINX_TMP=$(mktemp)
                     sed "s|/www/push-system|${PROJECT_DIR}|g" "${NGINX_SRC}" > "${NGINX_TMP}"
-                    sudo cp "${NGINX_TMP}" "${NGINX_DST}"
+                    _sudo cp "${NGINX_TMP}" "${NGINX_DST}"
                     rm -f "${NGINX_TMP}"
                     if [[ "${NGINX_DST}" == "/etc/nginx/sites-available/push.conf" ]]; then
-                        sudo ln -sf /etc/nginx/sites-available/push.conf /etc/nginx/sites-enabled/push.conf 2>/dev/null || true
-                        sudo rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+                        _sudo ln -sf /etc/nginx/sites-available/push.conf /etc/nginx/sites-enabled/push.conf 2>/dev/null || true
+                        _sudo rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
                     fi
                     info "Nginx 配置已更新，测试语法..."
                     if nginx -t 2>&1; then
-                        sudo systemctl reload nginx 2>/dev/null || sudo systemctl restart nginx 2>/dev/null || true
+                        _sudo systemctl reload nginx 2>/dev/null || _sudo systemctl restart nginx 2>/dev/null || true
                         info "Nginx 已重新加载。"
                     else
                         warn "Nginx 语法检查失败，请手动检查: ${NGINX_DST}"
@@ -1031,13 +1079,13 @@ else
     if command -v systemctl >/dev/null 2>&1 && systemctl list-units --type=service 2>/dev/null | grep -q push-http; then
         # 使用 systemctl 重启
         info "重启 push-http..."
-        sudo systemctl restart push-http
+        _sudo systemctl restart push-http
         info "push-http 已重启。"
 
         sleep 1
 
         info "重启 push-websocket..."
-        sudo systemctl restart push-websocket
+        _sudo systemctl restart push-websocket
         info "push-websocket 已重启。"
 
         sleep 2
@@ -1045,7 +1093,7 @@ else
         # 服务健康检查（仅检查核心服务）
         echo ""
         for svc in push-http push-websocket; do
-            status_output="$(sudo systemctl is-active ${svc} 2>/dev/null || echo '')"
+            status_output="$(_sudo systemctl is-active ${svc} 2>/dev/null || echo '')"
             if [[ "${status_output}" == "active" ]]; then
                 echo -e "  ${COLOR_GREEN}●${COLOR_RESET} ${svc}    [运行中]"
             else

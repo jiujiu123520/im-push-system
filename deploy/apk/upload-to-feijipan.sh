@@ -85,7 +85,7 @@ DEV_CODE="${5:-${FEEJII_DEV_CODE:-}}"
 API_BASE="https://api.feijipan.com"
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
-# ---------- 辅助函数 ----------
+# ---------- 辅助函数（必须在调用前定义）----------
 output_json() {
     local success="$1"
     local message="$2"
@@ -100,71 +100,6 @@ output_json() {
 }
 
 fail() { output_json "false" "$1"; }
-
-# ---------- 基本校验 ----------
-[[ -z "$APK_PATH" ]] && fail "参数不完整：缺少 apk_path"
-[[ -f "$APK_PATH" ]] || fail "APK 文件不存在: ${APK_PATH}"
-[[ -z "$APP_TOKEN" ]] && fail "缺少 appToken，请在参数或环境变量 FEEJII_APP_TOKEN 中提供"
-[[ -z "$UUID" ]]      && fail "缺少 uuid，请在参数或环境变量 FEEJII_UUID 中提供"
-[[ -z "$DEV_CODE" ]]  && fail "缺少 devCode，请在参数或环境变量 FEEJII_DEV_CODE 中提供"
-
-FILE_SIZE=$(stat -c%s "$APK_PATH" 2>/dev/null || stat -f%z "$APK_PATH" 2>/dev/null || echo 0)
-[[ "$FILE_SIZE" -eq 0 ]] && fail "APK 文件为空"
-
-# 安全文件名
-SAFE_APP_NAME=$(printf '%s' "$APP_NAME" | sed 's/[^A-Za-z0-9._-]//g; s/^[.-]*//; s/[.-]*$//')
-[[ -z "$SAFE_APP_NAME" ]] && SAFE_APP_NAME="app"
-VER=$(date +%Y%m%d%H%M%S)
-UPLOAD_FILENAME="${SAFE_APP_NAME}-${VER}.apk"
-
-# URL 编码函数（用 python3 兜底，其次 printf + sed）
-urlencode() {
-    local s="$1"
-    if command -v python3 >/dev/null 2>&1; then
-        python3 -c "import sys,urllib.parse;sys.stdout.write(urllib.parse.quote(sys.argv[1]))" "$s"
-    else
-        local out="" i c
-        for (( i=0; i<${#s}; i++ )); do
-            c="${s:$i:1}"
-            case "$c" in
-                [a-zA-Z0-9.~_-]) out+="$c" ;;
-                *) printf -v h '%02X' "'$c"; out+="%${h: -2}" ;;
-            esac
-        done
-        printf '%s' "$out"
-    fi
-}
-
-ENC_FILENAME=$(urlencode "$UPLOAD_FILENAME")
-
-# ============================================================
-# Step 1: 获取 S3 上传凭证
-# ============================================================
-UPTOKEN_URL="${API_BASE}/app/vod/getUpToken?appToken=${APP_TOKEN}&uuid=${UUID}&devCode=${DEV_CODE}&devType=1&userId=&categoryId=-1&fileName=${ENC_FILENAME}&fileSize=${FILE_SIZE}&etag=&duration=0&width=0&height=0"
-
-TOKEN_RESP=$(curl -sS --max-time 30 \
-    -H "User-Agent: $UA" \
-    -H "Accept: application/json, text/plain, */*" \
-    -H "Origin: https://www.feijipan.com" \
-    -H "Referer: https://www.feijipan.com/" \
-    "$UPTOKEN_URL" 2>/dev/null || echo "")
-
-[[ -z "$TOKEN_RESP" ]] && fail "获取上传凭证失败：请求无响应（检查网络/凭证/域名）"
-
-# 解析返回 JSON
-# 成功示例：{"code":0,"msg":"success","data":{"uploadUrl":"https://xxx","key":"xxx","credential":"xxx","fileId":12345,...}}
-# 失败示例：{"code":401,"msg":"appToken 无效"}
-RESP_CODE=$(extract_json_field "code" "$TOKEN_RESP")
-RESP_MSG=$(extract_json_field  "msg"  "$TOKEN_RESP")
-
-if [[ -z "$RESP_CODE" ]]; then
-    PREVIEW=$(printf '%.200s' "$TOKEN_RESP" | sed 's/\\/\\\\/g; s/"/\\"/g')
-    fail "获取上传凭证返回异常（非 JSON）：$PREVIEW"
-fi
-
-if [[ "$RESP_CODE" != "0" ]]; then
-    fail "获取上传凭证失败（code=$RESP_CODE）：${RESP_MSG:-未知错误}"
-fi
 
 # 通用 JSON 字段提取（顶层或 data 子对象都尝试）
 #   主路径：python3 json.loads（BusyBox/BSD grep/sed 下不会抽风）
@@ -240,6 +175,71 @@ PYEOF
     v=$(echo "$json" | grep -oE "\"$field\"\s*:\s*-?[0-9]+" | head -1 | sed -E 's/.*:\s*(-?[0-9]+).*/\1/')
     echo "$v"
 }
+
+# URL 编码函数（用 python3 兜底，其次 printf + sed）
+urlencode() {
+    local s="$1"
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c "import sys,urllib.parse;sys.stdout.write(urllib.parse.quote(sys.argv[1]))" "$s"
+    else
+        local out="" i c
+        for (( i=0; i<${#s}; i++ )); do
+            c="${s:$i:1}"
+            case "$c" in
+                [a-zA-Z0-9.~_-]) out+="$c" ;;
+                *) printf -v h '%02X' "'$c"; out+="%${h: -2}" ;;
+            esac
+        done
+        printf '%s' "$out"
+    fi
+}
+
+# ---------- 基本校验 ----------
+[[ -z "$APK_PATH" ]] && fail "参数不完整：缺少 apk_path"
+[[ -f "$APK_PATH" ]] || fail "APK 文件不存在: ${APK_PATH}"
+[[ -z "$APP_TOKEN" ]] && fail "缺少 appToken，请在参数或环境变量 FEEJII_APP_TOKEN 中提供"
+[[ -z "$UUID" ]]      && fail "缺少 uuid，请在参数或环境变量 FEEJII_UUID 中提供"
+[[ -z "$DEV_CODE" ]]  && fail "缺少 devCode，请在参数或环境变量 FEEJII_DEV_CODE 中提供"
+
+FILE_SIZE=$(stat -c%s "$APK_PATH" 2>/dev/null || stat -f%z "$APK_PATH" 2>/dev/null || echo 0)
+[[ "$FILE_SIZE" -eq 0 ]] && fail "APK 文件为空"
+
+# 安全文件名
+SAFE_APP_NAME=$(printf '%s' "$APP_NAME" | sed 's/[^A-Za-z0-9._-]//g; s/^[.-]*//; s/[.-]*$//')
+[[ -z "$SAFE_APP_NAME" ]] && SAFE_APP_NAME="app"
+VER=$(date +%Y%m%d%H%M%S)
+UPLOAD_FILENAME="${SAFE_APP_NAME}-${VER}.apk"
+
+ENC_FILENAME=$(urlencode "$UPLOAD_FILENAME")
+
+# ============================================================
+# Step 1: 获取 S3 上传凭证
+# ============================================================
+UPTOKEN_URL="${API_BASE}/app/vod/getUpToken?appToken=${APP_TOKEN}&uuid=${UUID}&devCode=${DEV_CODE}&devType=1&userId=&categoryId=-1&fileName=${ENC_FILENAME}&fileSize=${FILE_SIZE}&etag=&duration=0&width=0&height=0"
+
+TOKEN_RESP=$(curl -sS --max-time 30 \
+    -H "User-Agent: $UA" \
+    -H "Accept: application/json, text/plain, */*" \
+    -H "Origin: https://www.feijipan.com" \
+    -H "Referer: https://www.feijipan.com/" \
+    "$UPTOKEN_URL" 2>/dev/null || echo "")
+
+[[ -z "$TOKEN_RESP" ]] && fail "获取上传凭证失败：请求无响应（检查网络/凭证/域名）"
+
+# 解析返回 JSON
+# 成功示例：{"code":0,"msg":"success","data":{"uploadUrl":"https://xxx","key":"xxx","credential":"xxx","fileId":12345,...}}
+# 失败示例：{"code":401,"msg":"appToken 无效"}
+RESP_CODE=$(extract_json_field "code" "$TOKEN_RESP")
+RESP_MSG=$(extract_json_field  "msg"  "$TOKEN_RESP")
+
+if [[ -z "$RESP_CODE" ]]; then
+    PREVIEW=$(printf '%.200s' "$TOKEN_RESP" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    fail "获取上传凭证返回异常（非 JSON）：$PREVIEW"
+fi
+
+if [[ "$RESP_CODE" != "0" ]]; then
+    fail "获取上传凭证失败（code=$RESP_CODE）：${RESP_MSG:-未知错误}"
+fi
 
 # 提取 getUpToken 响应 data 字段（顶层 / data 子对象都兼容，extract_json_field 内部已处理）
 UPLOAD_URL=$(extract_json_field "uploadUrl" "$TOKEN_RESP")

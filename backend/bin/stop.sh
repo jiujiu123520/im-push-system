@@ -26,13 +26,15 @@ stop_by_pid_file() {
         if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
             echo "[停止] ${name} 服务，PID=${pid}"
             kill "${pid}"
-            # 等待最多 10 秒
-            for i in $(seq 1 10); do
+            # 等待最多 10 秒（使用 while 循环兼容 BusyBox/Alpine，这些环境可能无 seq 或 seq 语法不同）
+            i=0
+            while [ $i -lt 10 ]; do
                 if kill -0 "${pid}" 2>/dev/null; then
                     sleep 1
                 else
                     break
                 fi
+                i=$((i + 1))
             done
             # 仍未退出则强杀
             if kill -0 "${pid}" 2>/dev/null; then

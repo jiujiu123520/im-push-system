@@ -41,14 +41,27 @@ check_resources() {
 
     # 检查可用内存（至少 80MB 即可启动，配合 swap 兜底）
     # 2G 服务器 MySQL+Redis+PHP 常驻后可用内存常低于 150MB，阈值过高会导致永远无法构建
-    local available_mem
-    available_mem=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
-    if [[ "${available_mem}" -lt 80 ]]; then
-        echo "[ERROR] 可用内存不足 80MB（当前 ${available_mem}MB），拒绝构建以防止服务器卡死"
-        exit 1
+    # 跨系统兼容：优先 /proc/meminfo (Linux)，其次 sysctl (macOS/FreeBSD)，都不可用时跳过检查
+    local available_mem=0
+    if [ -r /proc/meminfo ]; then
+        available_mem=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
+    elif command -v sysctl >/dev/null 2>&1; then
+        local mem_bytes
+        mem_bytes=$(sysctl -n hw.memsize 2>/dev/null || sysctl -n hw.physmem 2>/dev/null || echo 0)
+        if [ -n "$mem_bytes" ] && [ "$mem_bytes" -gt 0 ] 2>/dev/null; then
+            available_mem=$((mem_bytes / 1024 / 1024 / 2))
+        fi
     fi
-    if [[ "${available_mem}" -lt 150 ]]; then
-        echo "[WARN] 可用内存较低（${available_mem}MB < 150MB），将依赖 swap 进行构建，速度可能较慢"
+    if [ "${available_mem}" -gt 0 ]; then
+        if [[ "${available_mem}" -lt 80 ]]; then
+            echo "[ERROR] 可用内存不足 80MB（当前 ${available_mem}MB），拒绝构建以防止服务器卡死"
+            exit 1
+        fi
+        if [[ "${available_mem}" -lt 150 ]]; then
+            echo "[WARN] 可用内存较低（${available_mem}MB < 150MB），将依赖 swap 进行构建，速度可能较慢"
+        fi
+    else
+        echo "[BUILD] 无法检测可用内存（非 Linux 或受限环境），跳过内存预检"
     fi
 
     # 检查磁盘空间（至少 2GB）
@@ -157,7 +170,7 @@ if ! command -v java >/dev/null 2>&1; then
     on_fail "未找到 Java，请安装 JDK 17"
     exit 1
 fi
-JAVA_VER=$(java -version 2>&1 | head -n 1 | grep -oP 'version "\K[0-9]+' || echo "0")
+JAVA_VER=$(java -version 2>&1 | head -n 1 | { grep -oP 'version "\K[0-9]+' 2>/dev/null || sed -nE 's/.*version "?([0-9]+).*/\1/p'; } || echo "0")
 info "Java 版本: $(java -version 2>&1 | head -n 1)"
 if [ "$JAVA_VER" -lt 17 ]; then
     warn "Java 版本低于 17 (当前 $JAVA_VER)，可能导致构建失败"
@@ -396,10 +409,18 @@ trap - ERR
 # --max-workers=1: 限制单 worker，避免多 JVM 并发（2G 服务器优化）
 # -Dorg.gradle.parallel=false: 禁用并行构建
 # JVM 堆内存由 gradle.properties 中的 org.gradle.jvmargs 控制
-# nice -n 10: 降低 CPU 优先级，让系统服务保持响应
-# ionice -c 2 -n 7: 降低 IO 优先级，避免磁盘 IO 卡死其他服务
-nice -n 10 ionice -c 2 -n 7 "$GRADLEW" "$GRADLE_TASK" --no-daemon --max-workers=1 -Dorg.gradle.parallel=false --stacktrace 2>&1 | tee -a "$LOG_FILE"
-GRADLE_EXIT=${PIPESTATUS[0]}
+# nice/ionice: 可选降低 CPU/IO 优先级，检测存在后再使用
+NICE_CMD=""; command -v nice >/dev/null 2>&1 && NICE_CMD="nice -n 10"
+IONICE_CMD=""; command -v ionice >/dev/null 2>&1 && IONICE_CMD="ionice -c 2 -n 7"
+# PIPESTATUS 兼容处理：优先使用 PIPESTATUS，不可用时用临时文件捕获 exit code
+GRADLE_EXIT_FILE="$(mktemp 2>/dev/null || echo "/tmp/.gradle_exit_$$")"
+{ $NICE_CMD $IONICE_CMD "$GRADLEW" "$GRADLE_TASK" --no-daemon --max-workers=1 -Dorg.gradle.parallel=false --stacktrace; echo $? > "$GRADLE_EXIT_FILE"; } 2>&1 | tee -a "$LOG_FILE"
+if [ -n "${PIPESTATUS+x}" ]; then
+    GRADLE_EXIT=${PIPESTATUS[0]}
+else
+    GRADLE_EXIT=$(cat "$GRADLE_EXIT_FILE" 2>/dev/null || echo 1)
+fi
+rm -f "$GRADLE_EXIT_FILE" 2>/dev/null || true
 # 恢复 ERR trap 和 set -e
 set -e
 trap 'on_fail "构建过程中断（退出码 $?）"' ERR
