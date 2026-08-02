@@ -23,9 +23,9 @@ ios/
 
 ## 编译要求
 
-- **macOS 12.0+**
+- **macOS 13.0+**
 - **Xcode 15.0+**
-- **iOS 15.0+** 部署目标
+- **iOS 16.0+** 部署目标
 - **Apple Developer 账号**（$99/年，APNS 必须）
 - **iPhone 真机**（模拟器不支持 APNS）
 

@@ -2343,9 +2343,9 @@ class AppBuildController
             $readme .= "--------------------------------------------\n";
             $readme .= "编译环境要求\n";
             $readme .= "--------------------------------------------\n";
-            $readme .= "- macOS 12.0 或更高版本\n";
-            $readme .= "- Xcode 14.0 或更高版本\n";
-            $readme .= "- iOS 14.0+ 的 iPhone 或 iPad（真机调试）\n";
+            $readme .= "- macOS 13.0 或更高版本\n";
+            $readme .= "- Xcode 15.0 或更高版本\n";
+            $readme .= "- iOS 16.0+ 的 iPhone 或 iPad（真机调试）\n";
             $readme .= "- Apple Developer 账号（免费账号可真机调试，但 APNS 需付费账号）\n\n";
             $readme .= "--------------------------------------------\n";
             $readme .= "编译步骤\n";

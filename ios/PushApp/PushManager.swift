@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import UserNotifications
 
 /**
  * PushManager - 推送管理器（单例）
@@ -131,9 +132,11 @@ class PushManager: ObservableObject {
         messages.insert(message, at: 0)
         preferences.saveMessages(messages)
 
-        // 更新角标
-        let badge = aps["badge"] as? Int ?? 0
-        if badge > 0 {
+        // 更新角标（兼容 iOS 16 和 iOS 17+）
+        let badge = aps["badge"] as? Int ?? (messages.count)
+        if #available(iOS 16.0, *) {
+            UNUserNotificationCenter.current().setBadgeCount(badge) { _ in }
+        } else {
             UIApplication.shared.applicationIconBadgeNumber = badge
         }
 
@@ -205,7 +208,11 @@ class PushManager: ObservableObject {
     func clearMessages() {
         messages.removeAll()
         preferences.saveMessages(messages)
-        UIApplication.shared.applicationIconBadgeNumber = 0
+        if #available(iOS 16.0, *) {
+            UNUserNotificationCenter.current().setBadgeCount(0) { _ in }
+        } else {
+            UIApplication.shared.applicationIconBadgeNumber = 0
+        }
     }
 }
 
