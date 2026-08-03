@@ -736,7 +736,7 @@
       <div class="setting-card" v-loading="loading">
         <div class="card-head">
           <div class="head-icon icon-security-ext">
-            <el-icon><ShieldIcon /></el-icon>
+            <el-icon><LockIcon /></el-icon>
           </div>
           <div class="head-text">
             <h3 class="card-title">安全扩展配置</h3>
@@ -1508,7 +1508,6 @@ import {
   Iphone as IphoneIcon,
   DataAnalysis as DataAnalysisIcon,
   Link as LinkIcon,
-  Shield as ShieldIcon,
   Cellphone as CellphoneIcon
 } from '@element-plus/icons-vue'
 import {

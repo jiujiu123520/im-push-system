@@ -141,7 +141,7 @@
             <el-switch
               :model-value="row.is_sticky === 1"
               :loading="togglingStickyId === row.id"
-              @change="(v) => onToggleSticky(row, v)"
+              @change="(v) => onToggleSticky(row as UserNoticeRecord, v)"
             />
           </template>
         </el-table-column>
@@ -163,27 +163,27 @@
         </el-table-column>
         <el-table-column label="操作" width="260" align="center" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openDialog(row)">编辑</el-button>
+            <el-button link type="primary" size="small" @click="openDialog(row as UserNoticeRecord)">编辑</el-button>
             <el-button
               v-if="row.status !== 1"
               link
               type="success"
               size="small"
-              @click="onPublish(row)"
+              @click="onPublish(row as UserNoticeRecord)"
             >发布</el-button>
             <el-button
               v-else
               link
               type="warning"
               size="small"
-              @click="onWithdraw(row)"
+              @click="onWithdraw(row as UserNoticeRecord)"
             >撤回</el-button>
             <el-popconfirm
               title="确定要删除该公告吗？"
               confirm-button-text="删除"
               cancel-button-text="取消"
               confirm-button-type="danger"
-              @confirm="onDelete(row)"
+              @confirm="onDelete(row as UserNoticeRecord)"
             >
               <template #reference>
                 <el-button link type="danger" size="small">删除</el-button>
