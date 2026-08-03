@@ -387,27 +387,74 @@ restore_git_proxy() {
 }
 
 # ------------------------------------------------------------
+# 安全读取 .env 中某 KEY 的值
+#   .env 通常是 www-data:www-data + chmod 600，普通用户无法直接 grep
+#   因此先尝试直接读，失败时用 _sudo cat 兜底，避免 DB_* 静默回退到 root/空值
+# ------------------------------------------------------------
+_read_env_key() {
+    local key="$1"
+    local env_file="${PROJECT_DIR}/backend/.env"
+    [[ -f "$env_file" ]] || return 0
+    local val
+    val="$(grep -E "^${key}=" "$env_file" 2>/dev/null | cut -d'=' -f2- | tr -d '\r' || true)"
+    if [[ -z "$val" ]]; then
+        val="$(_sudo cat "$env_file" 2>/dev/null | grep -E "^${key}=" | cut -d'=' -f2- | tr -d '\r' || true)"
+    fi
+    printf '%s' "$val"
+}
+
+# ------------------------------------------------------------
 # 从 .env 读取数据库配置（用于数据库迁移）
 # ------------------------------------------------------------
-if [[ -f "${PROJECT_DIR}/backend/.env" ]]; then
-    DB_NAME="$(grep -E '^DB_NAME=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2- | tr -d '\r')"
-    DB_USER="$(grep -E '^DB_USER=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2- | tr -d '\r')"
-    DB_PASS="$(grep -E '^DB_PASS=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2- | tr -d '\r')"
-    DB_HOST="$(grep -E '^DB_HOST=' "${PROJECT_DIR}/backend/.env" | cut -d'=' -f2- | tr -d '\r')"
-fi
+DB_NAME="$(_read_env_key DB_NAME)"
+DB_USER="$(_read_env_key DB_USER)"
+DB_PASS="$(_read_env_key DB_PASS)"
+DB_HOST="$(_read_env_key DB_HOST)"
+DB_PORT="$(_read_env_key DB_PORT)"
 DB_NAME="${DB_NAME:-im_push}"
 DB_USER="${DB_USER:-root}"
 DB_PASS="${DB_PASS:-}"
 DB_HOST="${DB_HOST:-127.0.0.1}"
+DB_PORT="${DB_PORT:-3306}"
 
-# Ubuntu/MariaDB 兼容：root+空密码时自动检测是否需要 sudo（unix_socket 认证）
-# 如果直连失败但 _sudo mysql 成功，则后续所有 mysql 命令自动加 _sudo 前缀
+# ------------------------------------------------------------
+# 探测可用的 MySQL 连接方式（不再局限于 root+空密码）：
+#   1) 先尝试凭据直连（TCP: -h$DB_HOST）
+#   2) 失败时尝试 _sudo mysql -u$DB_USER（unix_socket）
+#   3) 再失败且 user==root 空密码时：_sudo mysql
+#   任何方式命中则后续所有 mysql 调用统一走 MYSQL_CMD
+# ------------------------------------------------------------
 MYSQL_CMD=(mysql)
-if [[ "${DB_USER}" == "root" && -z "${DB_PASS}" ]]; then
-    if ! mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${DB_USER}" -e "SELECT 1" &>/dev/null; then
-        if _sudo mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${DB_USER}" -e "SELECT 1" &>/dev/null; then
+_test_mysql() {
+    # $1 = "direct" 或 "sudo"
+    local mode="$1"
+    local opts=()
+    if [[ "$mode" == "direct" ]]; then
+        opts+=(-h"${DB_HOST}" -P"${DB_PORT}" -u"${DB_USER}")
+        [[ -n "${DB_PASS}" ]] && opts+=(-p"${DB_PASS}")
+        mysql "${opts[@]}" -e "SELECT 1" &>/dev/null
+    else
+        # sudo 模式下忽略 -h/-P（强制 unix socket），避免 1698
+        local opts2=(-u"${DB_USER}")
+        [[ -n "${DB_PASS}" ]] && opts2+=(-p"${DB_PASS}")
+        _sudo mysql "${opts2[@]}" -e "SELECT 1" &>/dev/null
+    fi
+}
+
+if _test_mysql direct; then
+    : # 直连 OK，保持 MYSQL_CMD=(mysql)
+else
+    echo "[WARN] MySQL 凭据直连失败（DB_USER=${DB_USER} HOST=${DB_HOST}），尝试 unix_socket / sudo 方式..."
+    if _test_mysql sudo; then
+        # 后续统一：忽略 -h$DB_HOST，因为 _sudo mysql 走 socket
+        MYSQL_CMD=(_sudo mysql)
+        DB_HOST="localhost"
+        echo "[INFO] 已切换到 _sudo mysql（unix_socket）连接；DB_HOST 重置为 localhost"
+    elif [[ "${DB_USER}" == "root" && -z "${DB_PASS}" ]]; then
+        if _sudo mysql -e "SELECT 1" &>/dev/null; then
             MYSQL_CMD=(_sudo mysql)
-            echo "[INFO] 检测到 root 使用 unix_socket 认证，已自动切换为 _sudo mysql 连接"
+            DB_HOST="localhost"
+            echo "[INFO] 检测到 root@unix_socket 可用，切换到 _sudo mysql"
         fi
     fi
 fi
