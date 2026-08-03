@@ -9,11 +9,10 @@ export interface PageQuery {
 
 // 通用分页响应
 export interface PageResult<T> {
-  items: T[]
+  list: T[]
   total: number
   page: number
-  pageSize: number
-  per_page?: number
+  per_page: number
   total_pages?: number
 }
 
@@ -91,122 +90,126 @@ export interface SecurityConfig {
 
 // ==================== 仪表盘 ====================
 export interface DashboardOverview {
-  device_count: number
-  online_count: number
-  key_count: number
-  today_push_count: number
-  yesterday_push_count: number
-  total_push_count: number
-  push_trend_7d?: { date: string; count: number }[]
-  key_top?: { key_name: string; count: number }[]
-  platform_distribution?: { platform: string; count: number }[]
+  total_devices: number
+  online_devices: number
+  total_keys: number
+  active_keys: number
+  today_push: number
+  yesterday_push: number
+  today_new_devices: number
+  trend_7d?: { date: string; count: number }[]
 }
 
 // ==================== 推送 ====================
 export interface PushSendParams {
-  key_id: number
+  target_type: 'device' | 'key' | 'broadcast'
+  target_value: string
   title: string
   content: string
-  platform?: 'all' | 'android' | 'ios'
-  target_type?: 'broadcast' | 'key' | 'device'
-  device_id?: number
   payload?: Record<string, any>
+  priority?: 'high' | 'normal' | 'low'
 }
 
 // ==================== 推送记录 ====================
 export interface PushLog {
   id: number
-  key_id: number
-  key_name?: string
+  api_key_id: number
+  target_type: string
+  target_value: string
   title: string
   content: string
-  platform: string
-  target_type: string
-  total: number
-  success: number
-  failed: number
-  status: 'pending' | 'sending' | 'completed' | 'failed' | 'partial'
-  retry_count: number
+  success_count: number
+  fail_count: number
+  fail_reason: string
+  status: number  // 0=failed, 1=success, 2=partial, 4=stored_offline
+  elapsed_ms: number
   created_at: string
-  finished_at?: string
+  detail?: any
+  fail_detail?: any[]
+  push_detail?: any[]
 }
 
+// PushLogDetail extends PushLog
 export interface PushLogDetail extends PushLog {
-  devices?: PushLogDevice[]
-  message?: string
+  // additional fields from detail
 }
 
+// PushLogDevice: match backend push_detail items
 export interface PushLogDevice {
-  id: number
-  device_id: number
-  device_name?: string
-  platform?: string
-  status: 'success' | 'failed' | 'pending'
-  error_reason?: string
-  sent_at?: string
+  device_id: string
+  status: string
+  reason?: string
 }
 
 // ==================== 设备 ====================
 export interface Device {
   id: number
   device_id: string
-  name?: string
-  platform: 'android' | 'ios' | 'unknown'
-  model?: string
-  app_version?: string
-  os_version?: string
-  status: 0 | 1
-  is_online: 0 | 1
-  last_online_at?: string
-  subscribed_keys?: number[]
+  device_name: string
+  device_model: string
+  platform: string
+  os_version: string
+  ip: string
+  ua: string
+  status: number  // 1=enabled, 2=disabled
+  online: number  // 0 or 1
+  model: string
+  last_connect_at: string
+  push_key_value?: string
+  push_key_name?: string
   created_at: string
+  updated_at: string
 }
 
 // ==================== Push Key ====================
 export interface PushKey {
   id: number
+  key_value: string
   name: string
-  push_key: string
-  description?: string
-  subscriber_count?: number
-  status: 0 | 1
+  status: number  // 0 or 1
+  max_devices: number
+  subscribed_total: number
+  online_count: number
   created_at: string
-  updated_at?: string
+  updated_at: string
 }
 
 // ==================== API Key（开放 API 调用凭证） ====================
 export interface ApiKey {
   id: number
+  key_value: string
   name: string
-  api_key: string
-  api_secret?: string
-  status: 0 | 1
-  call_count?: number
-  last_called_at?: string
-  expires_at?: string
+  description: string
+  status: number  // 0 or 1
+  expire_at: string | null
   created_at: string
+  updated_at: string
 }
 
 // ==================== APP 信息 ====================
 export interface AppInfo {
-  apk_name?: string
-  apk_version?: string
-  apk_download_url?: string
-  apk_size?: string
-  apk_updated_at?: string
-  ipa_name?: string
-  ipa_version?: string
-  hbuilderx_enabled?: boolean
-  qq_bind_enabled?: boolean
+  download?: {
+    apk_download_url?: string
+    ipa_download_url?: string
+    apk_version?: string
+    ipa_version?: string
+    update_log?: string
+    force_update?: number
+    user_hbx_enabled?: number
+  }
+  api_config?: {
+    api_base?: string
+    ws_base?: string
+  }
 }
 
+// HBuilderXGenerateParams: match backend AppController::hbuilderxGenerate
 export interface HBuilderXGenerateParams {
   app_name: string
-  package_name: string
-  app_description?: string
-  app_icon?: string
-  version_name?: string
-  version_code?: number
+  package_id: string
+  api_base_url?: string
+  ws_url?: string
+  icon_base64?: string
 }
 
 // ==================== 公告 ====================

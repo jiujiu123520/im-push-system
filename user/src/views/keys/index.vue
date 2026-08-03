@@ -19,13 +19,12 @@
           <template #default="{ row }">
             <div class="key-name">{{ row.name }}</div>
             <div class="key-val">
-              <span>{{ row.push_key }}</span>
-              <el-button link type="primary" @click="copy(row.push_key)">复制</el-button>
+              <span>{{ row.key_value }}</span>
+              <el-button link type="primary" @click="copy(row.key_value)">复制</el-button>
             </div>
-            <div v-if="row.description" class="desc">{{ row.description }}</div>
           </template>
         </el-table-column>
-        <el-table-column prop="subscriber_count" label="订阅设备" width="110" align="center" />
+        <el-table-column prop="subscribed_total" label="订阅设备" width="110" align="center" />
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-switch v-model="row.status" :active-value="1" :inactive-value="0" @change="toggleStatus(row as PushKey)" />
@@ -54,8 +53,9 @@
         <el-form-item label="Key 名称" prop="name">
           <el-input v-model="form.name" placeholder="给 Key 起个名字，比如 业务告警、通知消息等" maxlength="50" show-word-limit />
         </el-form-item>
-        <el-form-item label="描述" prop="description">
-          <el-input v-model="form.description" type="textarea" :rows="3" maxlength="200" show-word-limit />
+        <el-form-item label="最大设备数" prop="max_devices">
+          <el-input-number v-model="form.max_devices" :min="1" :max="10000" />
+          <div style="color:var(--text-secondary);font-size:12px;margin-top:4px">限制此 Key 可订阅的设备数量</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -82,7 +82,7 @@ const query = reactive({ page: 1, pageSize: 10, keyword: '' })
 const dialogVisible = ref(false)
 const editId = ref<number | null>(null)
 const formRef = ref<FormInstance>()
-const form = reactive({ name: '', description: '' })
+const form = reactive({ name: '', max_devices: 10 })
 const rules: FormRules = {
   name: [{ required: true, message: '请输入 Key 名称', trigger: 'blur' },
          { min: 1, max: 50, message: '长度 1-50', trigger: 'blur' }]
@@ -93,22 +93,22 @@ async function loadList(page = query.page) {
   loading.value = true
   try {
     const r = await getKeyListApi({ page: query.page, pageSize: query.pageSize, per_page: query.pageSize, keyword: query.keyword })
-    list.value = r.data?.items || []
+    list.value = r.data?.list || []
     total.value = r.data?.total || 0
   } finally { loading.value = false }
 }
-function openCreate() { editId.value = null; form.name = ''; form.description = ''; dialogVisible.value = true }
-function openEdit(row: PushKey) { editId.value = row.id; form.name = row.name; form.description = row.description || ''; dialogVisible.value = true }
+function openCreate() { editId.value = null; form.name = ''; form.max_devices = 10; dialogVisible.value = true }
+function openEdit(row: PushKey) { editId.value = row.id; form.name = row.name; form.max_devices = row.max_devices || 10; dialogVisible.value = true }
 async function save() {
   await formRef.value?.validate(async (ok) => {
     if (!ok) return
     saving.value = true
     try {
       if (editId.value) {
-        await updateKeyApi(editId.value, { name: form.name, description: form.description })
+        await updateKeyApi(editId.value, { name: form.name, max_devices: form.max_devices })
         ElMessage.success('编辑成功')
       } else {
-        await createKeyApi({ name: form.name, description: form.description })
+        await createKeyApi({ name: form.name, max_devices: form.max_devices })
         ElMessage.success('创建成功')
       }
       dialogVisible.value = false

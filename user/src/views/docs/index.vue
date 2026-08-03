@@ -11,24 +11,23 @@
           </template>
           <el-alert type="info" :closable="false" style="margin-bottom:16px" show-icon>
             <template #title>
-              <div>接口 Base URL：<code class="inline-code">{{ baseUrl }}</code>，请求头需携带
+              <div>接口 Base URL：<code class="inline-code">{{ location.origin + '/api' }}</code>，请求头需携带
                 <code class="inline-code">X-Api-Key: &lt;你的 API Key&gt;</code> 鉴权。
                 <el-button link type="primary" @click="goApiKeys">前往创建 API Key →</el-button>
               </div>
             </template>
           </el-alert>
-          <div v-for="(ep, idx) in docs.endpoints" :key="idx" class="endpoint">
-            <div class="ep-head">
-              <el-tag :type="methodColor(ep.method)" effect="dark" size="small">{{ ep.method }}</el-tag>
-              <code class="path">{{ ep.path }}</code>
-            </div>
-            <div class="ep-desc">{{ ep.description }}</div>
-            <div class="ep-example" v-if="docs.examples?.[ep.method + ' ' + ep.path]">
-              <div class="lbl">示例 cURL</div>
-              <pre class="code"><code>{{ curlExample(ep.method, ep.path, docs.examples[ep.method + ' ' + ep.path]) }}</code></pre>
+          <div v-for="(sec, idx) in docs.sections" :key="idx" class="endpoint">
+            <div class="ep-head"><div class="ep-title">{{ sec.title }}</div></div>
+            <ul class="ep-items">
+              <li v-for="(item, i) in sec.items" :key="i">{{ item }}</li>
+            </ul>
+            <div v-if="sec.example" class="ep-example">
+              <div class="lbl">示例</div>
+              <pre class="code"><code>{{ sec.example }}</code></pre>
             </div>
           </div>
-          <div v-if="!docs.endpoints?.length" class="empty">
+          <div v-if="!docs.sections?.length" class="empty">
             <el-empty description="暂无文档" />
           </div>
         </el-card>
@@ -50,25 +49,13 @@
                 <div class="name">{{ row.name }}</div>
                 <div class="kv">
                   <span>Key:</span>
-                  <code>{{ row.api_key }}</code>
-                  <el-button link type="primary" @click="copy(row.api_key)">复制</el-button>
-                </div>
-                <div v-if="row.api_secret" class="kv">
-                  <span>Secret:</span>
-                  <code>{{ showSecret[row.id] ? row.api_secret : '••••••••' }}</code>
-                  <el-button link type="primary" @click="showSecret[row.id] = !showSecret[row.id]">
-                    {{ showSecret[row.id] ? '隐藏' : '查看' }}
-                  </el-button>
-                  <el-button link type="primary" @click="copy(row.api_secret!)">复制</el-button>
+                  <code>{{ row.key_value }}</code>
+                  <el-button link type="primary" @click="copy(row.key_value)">复制</el-button>
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="call_count" label="调用次数" width="110" align="center" />
-            <el-table-column prop="last_called_at" label="最近调用" width="170" align="center">
-              <template #default="{ row }">{{ row.last_called_at || '-' }}</template>
-            </el-table-column>
-            <el-table-column prop="expires_at" label="过期时间" width="170" align="center">
-              <template #default="{ row }">{{ row.expires_at || '永久有效' }}</template>
+            <el-table-column prop="expire_at" label="过期时间" width="170" align="center">
+              <template #default="{ row }">{{ row.expire_at || '永久有效' }}</template>
             </el-table-column>
             <el-table-column label="状态" width="100" align="center">
               <template #default="{ row }">
@@ -116,30 +103,18 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
-import { useRouter } from 'vue-router'
 import {
   getDocsIndexApi, getUserApiKeyListApi, createUserApiKeyApi, updateUserApiKeyStatusApi, deleteUserApiKeyApi
 } from '@/api/docs'
 import type { ApiKey } from '@/api/types'
 
-const router = useRouter()
 const tab = ref('docs')
-const baseUrl = ref(location.origin + '/api')
-const docs = ref<{ endpoints: any[]; examples: Record<string, any> }>({ endpoints: [], examples: {} })
+const docs = ref<{ sections: any[]; base_url_hint: string }>({ sections: [], base_url_hint: '' })
 async function loadDocs() {
   try {
     const r = await getDocsIndexApi()
-    docs.value = Object.assign({ endpoints: [], examples: {} }, r.data || {})
+    docs.value = Object.assign({ sections: [], base_url_hint: '' }, r.data || {})
   } catch {}
-}
-function methodColor(m: string) {
-  return (m === 'POST' ? 'danger' : m === 'PUT' ? 'warning' : m === 'DELETE' ? 'info' : 'primary') as any
-}
-function curlExample(m: string, p: string, body?: any) {
-  const b = body ? ` -H 'Content-Type: application/json' --data '${JSON.stringify(body)}'` : ''
-  return `curl -X ${m} \\
-  ${baseUrl.value}${p.replace(/^\/api/, '')} \\
-  -H 'X-Api-Key: <YOUR_API_KEY>'${b}`
 }
 function goApiKeys() { tab.value = 'keys' }
 
@@ -149,7 +124,6 @@ const saving = ref(false)
 const keyList = ref<ApiKey[]>([])
 const kTotal = ref(0)
 const qk = reactive({ page: 1, pageSize: 10 })
-const showSecret = reactive<Record<number, boolean>>({})
 const dlgVisible = ref(false)
 const dlgFormRef = ref<FormInstance>()
 const dlgForm = reactive({ name: '', expires_days: 0 })
@@ -162,7 +136,7 @@ async function loadKeys(page = qk.page) {
   loadingKeys.value = true
   try {
     const r = await getUserApiKeyListApi({ page: qk.page, pageSize: qk.pageSize, per_page: qk.pageSize })
-    keyList.value = r.data?.items || []
+    keyList.value = r.data?.list || []
     kTotal.value = r.data?.total || 0
   } finally { loadingKeys.value = false }
 }
@@ -204,6 +178,9 @@ onMounted(() => { loadDocs(); loadKeys(1) })
 }
 .endpoint { margin-bottom: $space-6; padding: $space-4; background: #f8fafc; border-radius: $radius-md; }
 .ep-head { display: flex; align-items: center; gap: $space-3; }
+.ep-title { font-weight: 600; font-size: $font-size-md; color: var(--text-primary); }
+.ep-items { margin: $space-2 0 0; padding-left: 20px;
+  li { padding: 4px 0; font-size: $font-size-sm; color: var(--text-regular); line-height: 1.6; } }
 .path {
   font-family: ui-monospace, Menlo, monospace; font-size: $font-size-sm;
   background: #0f172a; color: #e2e8f0; padding: 2px 8px; border-radius: 4px;

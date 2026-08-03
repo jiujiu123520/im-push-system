@@ -9,8 +9,8 @@ export interface ApiKeyCreateParams {
 // 用户端：API 文档概览
 export function getDocsIndexApi() {
   return get<{
-    endpoints: { method: string; path: string; description: string }[]
-    examples: Record<string, any>
+    sections: { title: string; items: string[]; example?: string }[]
+    base_url_hint: string
   }>('/user-api/docs')
 }
 

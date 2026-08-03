@@ -14,7 +14,7 @@
             </el-select>
             <el-select v-model="query.status" placeholder="状态" clearable style="width:110px" @change="loadList(1)">
               <el-option label="已启用" :value="1" />
-              <el-option label="已禁用" :value="0" />
+              <el-option label="已禁用" :value="2" />
             </el-select>
           </div>
         </div>
@@ -28,40 +28,33 @@
                 :type="row.platform === 'android' ? 'success' : row.platform === 'ios' ? 'primary' : 'info'">
                 {{ row.platform === 'ios' ? 'iOS' : row.platform === 'android' ? 'Android' : '未知' }}
               </el-tag>
-              <span class="name">{{ row.name || '未命名设备' }}</span>
+              <span class="name">{{ row.device_name || '未命名设备' }}</span>
             </div>
             <div class="sub">ID: {{ row.device_id }}</div>
-            <div class="sub2" v-if="row.model || row.os_version || row.app_version">
-              {{ [row.model, row.os_version, row.app_version].filter(Boolean).join(' · ') }}
+            <div class="sub2" v-if="row.device_model || row.os_version">
+              {{ [row.device_model, row.os_version].filter(Boolean).join(' · ') }}
             </div>
           </template>
         </el-table-column>
         <el-table-column label="在线" width="90" align="center">
           <template #default="{ row }">
-            <el-dot :type="row.is_online === 1 ? 'success' : 'info'" />
-            <span class="ml">{{ row.is_online === 1 ? '在线' : '离线' }}</span>
+            <el-dot :type="row.online === 1 ? 'success' : 'info'" />
+            <span class="ml">{{ row.online === 1 ? '在线' : '离线' }}</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
-            <el-switch v-model="row.status" :active-value="1" :inactive-value="0" @change="toggleStatus(row as Device)" />
+            <el-switch v-model="row.status" :active-value="1" :inactive-value="2" @change="toggleStatus(row as Device)" />
           </template>
         </el-table-column>
         <el-table-column label="订阅 Key" width="160" align="center">
           <template #default="{ row }">
-            <span v-if="!row.subscribed_keys?.length" class="zero">-</span>
-            <template v-else>
-              <el-tag v-for="(id) in row.subscribed_keys!.slice(0, 3)" :key="id" size="small" effect="plain" style="margin:2px">
-                #{{ id }}
-              </el-tag>
-              <span v-if="(row.subscribed_keys?.length || 0) > 3" class="more">
-                +{{ (row.subscribed_keys!.length || 0) - 3 }}
-              </span>
-            </template>
+            <span v-if="!row.push_key_name" class="zero">-</span>
+            <el-tag v-else size="small" effect="plain">{{ row.push_key_name }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="last_online_at" label="最后在线" width="170" align="center">
-          <template #default="{ row }">{{ row.last_online_at || '-' }}</template>
+        <el-table-column prop="last_connect_at" label="最后在线" width="170" align="center">
+          <template #default="{ row }">{{ row.last_connect_at || '-' }}</template>
         </el-table-column>
         <el-table-column prop="created_at" label="添加时间" width="170" align="center" />
         <el-table-column label="操作" width="160" align="center" fixed="right">
@@ -84,24 +77,23 @@
       <template v-if="current">
         <el-descriptions :column="1" border>
           <el-descriptions-item label="设备 ID">{{ current.device_id }}</el-descriptions-item>
-          <el-descriptions-item label="名称">{{ current.name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="名称">{{ current.device_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="平台">
             <el-tag>{{ current.platform === 'ios' ? 'iOS' : current.platform === 'android' ? 'Android' : '未知' }}</el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="型号">{{ current.model || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="型号">{{ current.device_model || '-' }}</el-descriptions-item>
           <el-descriptions-item label="系统版本">{{ current.os_version || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="APP 版本">{{ current.app_version || '-' }}</el-descriptions-item>
           <el-descriptions-item label="在线状态">
-            <el-tag :type="current.is_online === 1 ? 'success' : 'info'">
-              {{ current.is_online === 1 ? '在线' : '离线' }}
+            <el-tag :type="current.online === 1 ? 'success' : 'info'">
+              {{ current.online === 1 ? '在线' : '离线' }}
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="启用状态">
             <el-tag :type="current.status === 1 ? 'success' : 'danger'">
-              {{ current.status === 1 ? '已启用' : '已禁用' }}
+              {{ current.status !== 2 ? '已启用' : '已禁用' }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="最后在线">{{ current.last_online_at || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="最后在线">{{ current.last_connect_at || '-' }}</el-descriptions-item>
           <el-descriptions-item label="添加时间">{{ current.created_at }}</el-descriptions-item>
         </el-descriptions>
       </template>
@@ -126,7 +118,7 @@ const ElDot = {
 const loading = ref(false)
 const list = ref<Device[]>([])
 const total = ref(0)
-const query = reactive({ page: 1, pageSize: 10, keyword: '', platform: '', status: '' as '' | '0' | '1' | 0 | 1 })
+const query = reactive({ page: 1, pageSize: 10, keyword: '', platform: '', status: '' as '' | 1 | 2 })
 
 const detailVisible = ref(false)
 const current = ref<Device | null>(null)
@@ -140,7 +132,7 @@ async function loadList(page = query.page) {
       keyword: query.keyword, platform: query.platform || undefined,
       status: query.status === '' ? undefined : Number(query.status)
     })
-    list.value = r.data?.items || []
+    list.value = r.data?.list || []
     total.value = r.data?.total || 0
   } finally { loading.value = false }
 }
@@ -150,7 +142,7 @@ async function toggleStatus(row: Device) {
     ElMessage.success(row.status === 1 ? '已启用' : '已禁用')
   } catch (e: any) {
     ElMessage.error(e?.message || '操作失败')
-    row.status = row.status === 1 ? 0 : 1
+    row.status = row.status === 1 ? 2 : 1
   }
 }
 async function del(row: Device) {

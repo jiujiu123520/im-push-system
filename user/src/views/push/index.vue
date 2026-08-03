@@ -8,20 +8,11 @@
       </template>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="120px" label-position="right">
         <el-row :gutter="16">
-          <el-col :xs="24" :sm="24" :md="12">
-            <el-form-item label="选择 Push Key" prop="key_id">
-              <el-select v-model="form.key_id" placeholder="请选择" style="width:100%">
-                <el-option v-for="k in keys" :key="k.id" :label="k.name + '（' + k.push_key + '）'" :value="k.id" />
+          <el-col :xs="24" :sm="24" :md="12" v-if="form.target_type === 'key'">
+            <el-form-item label="选择 Key" prop="target_value">
+              <el-select v-model="form.target_value" placeholder="请选择" style="width:100%">
+                <el-option v-for="k in keys" :key="k.id" :label="k.name + '（' + k.key_value + '）'" :value="k.key_value" />
               </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="24" :md="12">
-            <el-form-item label="推送平台" prop="platform">
-              <el-radio-group v-model="form.platform">
-                <el-radio-button label="all">全部</el-radio-button>
-                <el-radio-button label="android">Android</el-radio-button>
-                <el-radio-button label="ios">iOS</el-radio-button>
-              </el-radio-group>
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="24" :md="12">
@@ -34,10 +25,10 @@
             </el-form-item>
           </el-col>
           <el-col v-if="form.target_type === 'device'" :xs="24" :sm="24" :md="12">
-            <el-form-item label="选择设备" prop="device_id">
-              <el-select v-model="form.device_id" filterable placeholder="请选择设备" style="width:100%">
+            <el-form-item label="选择设备" prop="target_value">
+              <el-select v-model="form.target_value" filterable placeholder="请选择设备" style="width:100%">
                 <el-option v-for="d in devices" :key="d.id"
-                  :label="(d.name || d.device_id) + '（' + d.platform + '）'" :value="d.id" />
+                  :label="(d.device_name || d.device_id) + '（' + d.platform + '）'" :value="d.device_id" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -59,7 +50,7 @@
           </el-col>
         </el-row>
         <el-form-item>
-          <el-button type="primary" :loading="loading" :disabled="!keys.length" @click="submit">立即推送</el-button>
+          <el-button type="primary" :loading="loading" @click="submit">立即推送</el-button>
           <el-button @click="resetForm">重置</el-button>
           <el-button link @click="$router.push('/push-logs')">查看推送记录</el-button>
         </el-form-item>
@@ -85,26 +76,23 @@ const payloadText = ref('')
 const payloadError = ref('')
 
 const form = reactive({
-  key_id: 0 as number,
   title: '',
   content: '',
-  platform: 'all' as 'all' | 'android' | 'ios',
   target_type: 'broadcast' as 'broadcast' | 'key' | 'device',
-  device_id: 0 as number,
+  target_value: '',
   payload: undefined as Record<string, any> | undefined
 })
 const rules: FormRules = {
-  key_id: [{ required: true, type: 'number', message: '请选择 Push Key', trigger: 'change' }],
   title:  [{ required: true, message: '请输入标题', trigger: 'blur' },
            { min: 1, max: 64, message: '标题长度 1-64', trigger: 'blur' }],
   content:[{ required: true, message: '请输入内容', trigger: 'blur' },
            { min: 1, max: 500, message: '内容长度 1-500', trigger: 'blur' }],
   target_type: [{ required: true, message: '请选择推送目标', trigger: 'change' }],
-  device_id: [{ validator: (_r, v, cb) =>
-    form.target_type === 'device' && !v ? cb(new Error('请选择设备')) : cb(), trigger: 'change' }]
+  target_value: [{ validator: (_r, v, cb) =>
+    form.target_type !== 'broadcast' && !v ? cb(new Error('请填写目标值')) : cb(), trigger: 'change' }]
 }
 
-function onTargetChange() { form.device_id = 0 }
+function onTargetChange() { form.target_value = '' }
 
 watch(payloadText, (v) => {
   payloadError.value = ''
@@ -115,19 +103,18 @@ watch(payloadText, (v) => {
 async function loadKeys() {
   try {
     const r = await getKeyListApi({ page: 1, pageSize: 200 })
-    keys.value = (r.data?.items || []).filter((k) => k.status === 1)
-    if (keys.value.length && !form.key_id) form.key_id = keys.value[0].id
+    keys.value = (r.data?.list || []).filter((k) => k.status === 1)
   } catch {}
 }
 async function loadDevices() {
   try {
     const r = await getDeviceListApi({ page: 1, pageSize: 200 })
-    devices.value = (r.data?.items || []).filter((d) => d.status === 1)
+    devices.value = (r.data?.list || []).filter((d) => d.status === 1)
   } catch {}
 }
 function resetForm() {
-  form.title = ''; form.content = ''; form.platform = 'all'
-  form.target_type = 'broadcast'; form.device_id = 0
+  form.title = ''; form.content = ''
+  form.target_type = 'broadcast'; form.target_value = ''
   payloadText.value = ''; payloadError.value = ''
   formRef.value?.resetFields()
 }
@@ -136,13 +123,16 @@ async function submit() {
     if (!ok || payloadError.value) return
     loading.value = true
     try {
-      const r = await sendPushApi({ ...form })
-      ElMessage.success(r.data?.message || '推送任务已创建')
-      if (r.data?.log_id) {
-        setTimeout(() => {
-          ElMessage.success('推送成功，可在推送记录中查看')
-        }, 300)
+      // For 'key' target: use selected key_value; for 'device': use selected device_id
+      const params: any = {
+        target_type: form.target_type,
+        target_value: form.target_value,
+        title: form.title,
+        content: form.content,
+        payload: form.payload
       }
+      const r = await sendPushApi(params)
+      ElMessage.success('推送任务已完成')
     } catch (e: any) { ElMessage.error(e?.message || '推送失败')
     } finally { loading.value = false }
   })

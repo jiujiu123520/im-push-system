@@ -8,14 +8,10 @@ export function getAppInfoApi() {
 
 // APP 下载二维码
 export function getAppDownloadQrApi() {
-  return get<{ qr_svg: string; download_url: string }>('/user-api/app/download-qr')
+  return get<{ apk_url: string; ipa_url: string; version: string }>('/user-api/app/download-qr')
 }
 
 // 用户端 HBuilderX 项目生成
 export function generateHBuilderXApi(params: HBuilderXGenerateParams) {
-  return post<{
-    download_url: string
-    file_name: string
-    expires_at?: string
-  }>('/user-api/app/hbuilderx/generate', params)
+  return post<any>('/user-api/app/hbuilderx/generate', params)
 }

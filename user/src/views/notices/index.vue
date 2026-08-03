@@ -97,7 +97,7 @@ async function loadList(page = q.page) {
   loading.value = true
   try {
     const r = await getNoticeListApi({ page: q.page, pageSize: q.pageSize, per_page: q.pageSize })
-    list.value = r.data?.items || []
+    list.value = r.data?.list || []
     total.value = r.data?.total || 0
   } finally { loading.value = false }
 }

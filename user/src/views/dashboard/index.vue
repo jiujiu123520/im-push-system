@@ -17,7 +17,7 @@
     </el-row>
 
     <el-row :gutter="16" class="charts-row">
-      <el-col :xs="24" :sm="24" :md="14" :lg="16">
+      <el-col :xs="24" :sm="24" :md="24" :lg="24">
         <el-card shadow="never" class="card">
           <template #header><div class="card-header">
             <span class="title">近 7 天推送趋势</span>
@@ -25,35 +25,10 @@
           <v-chart class="chart" :option="trendChartOption" autoresize />
         </el-card>
       </el-col>
-      <el-col :xs="24" :sm="24" :md="10" :lg="8">
-        <el-card shadow="never" class="card">
-          <template #header><div class="card-header">
-            <span class="title">设备平台分布</span>
-          </div></template>
-          <v-chart class="chart" :option="platformChartOption" autoresize />
-        </el-card>
-      </el-col>
     </el-row>
 
     <el-row :gutter="16" class="charts-row">
-      <el-col :xs="24" :sm="24" :md="12" :lg="12">
-        <el-card shadow="never" class="card">
-          <template #header><div class="card-header">
-            <span class="title">推送 Key Top 5</span>
-            <el-button type="primary" link @click="$router.push('/keys')">管理 Key</el-button>
-          </div></template>
-          <el-empty v-if="!overview.key_top?.length" description="暂无数据" />
-          <el-table v-else :data="overview.key_top?.slice(0,5)" stripe>
-            <el-table-column prop="key_name" label="Key 名称" />
-            <el-table-column prop="count" label="推送次数" width="120" align="right">
-              <template #default="{ row }">
-                <el-tag type="primary" effect="plain">{{ row.count }}</el-tag>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-col>
-      <el-col :xs="24" :sm="24" :md="12" :lg="12">
+      <el-col :xs="24" :sm="24" :md="24" :lg="24">
         <el-card shadow="never" class="card">
           <template #header><div class="card-header">
             <span class="title">快捷操作</span>
@@ -82,33 +57,33 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { BarChart, PieChart, LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, TitleComponent } from 'echarts/components'
+import { BarChart, LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, TitleComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
-import { Promotion, Key, Download, User, Cellphone, Monitor, DataLine, CircleCheck, Warning } from '@element-plus/icons-vue'
+import { Promotion, Key, Download, User, Cellphone, Monitor, DataLine } from '@element-plus/icons-vue'
 import { getDashboardOverviewApi } from '@/api/dashboard'
 import type { DashboardOverview } from '@/api/types'
-use([CanvasRenderer, BarChart, PieChart, LineChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent])
+use([CanvasRenderer, BarChart, LineChart, GridComponent, TooltipComponent, TitleComponent])
 
 const overview = ref<DashboardOverview>({
-  device_count: 0, online_count: 0, key_count: 0, today_push_count: 0,
-  yesterday_push_count: 0, total_push_count: 0,
-  push_trend_7d: [], key_top: [], platform_distribution: []
+  total_devices: 0, online_devices: 0, total_keys: 0, active_keys: 0,
+  today_push: 0, yesterday_push: 0, today_new_devices: 0,
+  trend_7d: []
 })
 
 const stats = computed(() => [
-  { label: '设备总数',    value: overview.value.device_count,    hint: '累计接入', icon: Cellphone,
+  { label: '设备总数',    value: overview.value.total_devices,    hint: '累计接入', icon: Cellphone,
     bg: 'linear-gradient(135deg,#eff6ff,#dbeafe)',   iconBg: 'linear-gradient(135deg,#3b82f6,#60a5fa)' },
-  { label: '在线设备',    value: overview.value.online_count,    hint: '实时在线', icon: Monitor,
+  { label: '在线设备',    value: overview.value.online_devices,    hint: '实时在线', icon: Monitor,
     bg: 'linear-gradient(135deg,#ecfdf5,#d1fae5)',   iconBg: 'linear-gradient(135deg,#10b981,#34d399)' },
-  { label: '今日推送',    value: overview.value.today_push_count,hint: '较昨日 '+compareYesterday, icon: DataLine,
+  { label: '今日推送',    value: overview.value.today_push,hint: '较昨日 '+compareYesterday, icon: DataLine,
     bg: 'linear-gradient(135deg,#fef3c7,#fde68a)',   iconBg: 'linear-gradient(135deg,#f59e0b,#fbbf24)' },
-  { label: 'Push Key',    value: overview.value.key_count,       hint: '可用数量', icon: Key,
+  { label: 'Push Key',    value: overview.value.total_keys,       hint: '可用数量', icon: Key,
     bg: 'linear-gradient(135deg,#f0f9ff,#bae6fd)',   iconBg: 'linear-gradient(135deg,#0ea5e9,#38bdf8)' },
 ])
 const compareYesterday = computed(() => {
-  const y = overview.value.yesterday_push_count || 0
-  const t = overview.value.today_push_count || 0
+  const y = overview.value.yesterday_push || 0
+  const t = overview.value.today_push || 0
   const diff = t - y
   if (y === 0) return t === 0 ? '持平' : '+100%'
   const pct = ((diff / y) * 100).toFixed(0)
@@ -116,7 +91,7 @@ const compareYesterday = computed(() => {
 })
 
 const trendChartOption = computed(() => {
-  const data = overview.value.push_trend_7d || []
+  const data = overview.value.trend_7d || []
   return {
     grid: { left: 40, right: 16, top: 20, bottom: 30 },
     tooltip: { trigger: 'axis' },
@@ -129,26 +104,6 @@ const trendChartOption = computed(() => {
                itemStyle: { color: '#0ea5e9', borderColor: '#fff', borderWidth: 2 },
                areaStyle: { color: { type: 'linear', x:0,y:0,x2:0,y2:1,
                  colorStops:[{offset:0,color:'rgba(14,165,233,0.32)'},{offset:1,color:'rgba(14,165,233,0.02)'}] } } }]
-  }
-})
-
-const platformChartOption = computed(() => {
-  const data = overview.value.platform_distribution || []
-  if (!data.length) return { tooltip: { trigger: 'item' },
-    series: [{ type: 'pie', radius: ['55%','78%'], label: {show: false},
-               data: [{ value: 1, name: '暂无', itemStyle:{color:'#e2e8f0'} }] }] }
-  const colorMap: Record<string,string> = { android:'#22c55e', ios:'#0ea5e9', unknown:'#94a3b8' }
-  return {
-    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-    legend: { bottom: 0, icon: 'circle', textStyle: { color: '#475569' } },
-    series: [{ type: 'pie', radius: ['55%','78%'], avoidLabelOverlap: true,
-      label: { show: true, formatter: '{b}\n{d}%', fontSize: 11, color: '#475569' },
-      labelLine: { length: 6, length2: 6 },
-      data: data.map((d: any) => ({
-        value: d.count, name: d.platform === 'ios' ? 'iOS' : d.platform === 'android' ? 'Android' : '未知',
-        itemStyle: { color: colorMap[d.platform] || '#64748b' }
-      }))
-    }]
   }
 })
 

@@ -8,18 +8,16 @@
               <div class="title">APP 下载 &amp; HBuilderX 源码生成</div>
             </div>
           </template>
-          <div v-if="info.apk_name || info.ipa_name" class="apps">
-            <div v-if="info.apk_download_url" class="app-card">
+          <div v-if="info.download?.apk_download_url || info.download?.ipa_download_url" class="apps">
+            <div v-if="info.download?.apk_download_url" class="app-card">
               <div class="badge android">Android</div>
               <div class="row">
                 <div class="big-icon"><el-icon :size="34" color="#fff"><Cellphone /></el-icon></div>
                 <div class="info">
-                  <div class="name">{{ info.apk_name || 'Push Android App' }}
-                    <el-tag v-if="info.apk_version" size="small" type="primary" effect="plain" style="margin-left:6px">v{{ info.apk_version }}</el-tag>
+                  <div class="name">{{ 'Android App' }}
+                    <el-tag v-if="info.download?.apk_version" size="small" type="primary" effect="plain" style="margin-left:6px">v{{ info.download?.apk_version }}</el-tag>
                   </div>
                   <div class="sub">
-                    <span v-if="info.apk_size">大小: {{ info.apk_size }}</span>
-                    <span v-if="info.apk_updated_at"> · 更新于: {{ info.apk_updated_at }}</span>
                   </div>
                 </div>
               </div>
@@ -29,13 +27,13 @@
                 </el-button>
               </div>
             </div>
-            <div v-if="info.ipa_name" class="app-card ios">
+            <div v-if="info.download?.ipa_download_url" class="app-card ios">
               <div class="badge ios">iOS</div>
               <div class="row">
                 <div class="big-icon ios"><el-icon :size="34" color="#fff"><Iphone /></el-icon></div>
                 <div class="info">
-                  <div class="name">{{ info.ipa_name }}
-                    <el-tag v-if="info.ipa_version" size="small" type="success" effect="plain" style="margin-left:6px">v{{ info.ipa_version }}</el-tag>
+                  <div class="name">{{ 'iOS App' }}
+                    <el-tag v-if="info.download?.ipa_version" size="small" type="success" effect="plain" style="margin-left:6px">v{{ info.download?.ipa_version }}</el-tag>
                   </div>
                   <div class="sub">需企业签名或自行编译</div>
                 </div>
@@ -49,7 +47,7 @@
           <template #header>
             <div class="card-header">
               <div class="title">生成 HBuilderX 定制源码包</div>
-              <el-tag v-if="info.hbuilderx_enabled" type="success" effect="light">功能已启用</el-tag>
+              <el-tag v-if="info.download?.user_hbx_enabled" type="success" effect="light">功能已启用</el-tag>
             </div>
           </template>
           <el-alert type="info" :closable="false" show-icon style="margin-bottom:16px"
@@ -63,7 +61,7 @@
               </el-col>
               <el-col :xs="24" :sm="24" :md="12">
                 <el-form-item label="包名">
-                  <el-input v-model="hb.package_name" placeholder="如：com.example.push" />
+                  <el-input v-model="hb.package_id" placeholder="如：com.example.push" />
                 </el-form-item>
               </el-col>
               <el-col :xs="24" :sm="24" :md="12">
@@ -92,11 +90,10 @@
         <el-card shadow="never">
           <template #header><div class="title">扫码下载</div></template>
           <div class="qr-wrap">
-            <div v-html="qrSvg || placeholderSvg" class="qr-svg"></div>
-            <div class="qr-sub">
-              <div v-if="qrUrl">扫码或 <el-button link type="primary" @click="openUrl(qrUrl)">点击下载</el-button></div>
-              <div v-else>管理员未配置下载链接</div>
+            <div v-if="qrUrl" class="qr-info">
+              <el-button type="primary" @click="openUrl(qrUrl)">下载 APK</el-button>
             </div>
+            <div v-else class="qr-info">管理员未配置下载链接</div>
           </div>
         </el-card>
         <el-card shadow="never" style="margin-top:16px">
@@ -115,27 +112,20 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref, computed } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Cellphone, Iphone, Download, MagicStick } from '@element-plus/icons-vue'
 import { getAppInfoApi, getAppDownloadQrApi, generateHBuilderXApi } from '@/api/app'
 import type { AppInfo, HBuilderXGenerateParams } from '@/api/types'
 
-const info = ref<AppInfo>({})
+const info = ref<any>({})
 const qrSvg = ref('')
 const qrUrl = ref('')
 const genLoading = ref(false)
 
-const hb = reactive<HBuilderXGenerateParams>({
-  app_name: 'Push 用户端', package_name: 'com.push.user',
-  app_description: '自定义推送用户端',
-  version_name: '1.0.0', version_code: 1
+const hb = reactive<any>({
+  app_name: 'Push 用户端', package_id: 'com.push.user'
 })
-
-const placeholderSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="0 0 220 220">
-  <rect width="220" height="220" fill="#f1f5f9" rx="10"/>
-  <text x="110" y="118" text-anchor="middle" fill="#94a3b8" font-size="14" font-family="sans-serif">暂无二维码</text>
-</svg>`
 
 async function loadInfo() {
   try {
@@ -143,12 +133,11 @@ async function loadInfo() {
   } catch {}
   try {
     const r2 = await getAppDownloadQrApi()
-    qrSvg.value = r2.data?.qr_svg || ''
-    qrUrl.value = r2.data?.download_url || ''
+    qrUrl.value = r2.data?.apk_url || ''
   } catch {}
 }
 function downloadApk() {
-  if (info.value.apk_download_url) window.open(info.value.apk_download_url, '_blank')
+  if (info.value.download?.apk_download_url) window.open(info.value.download?.apk_download_url, '_blank')
   else ElMessage.warning('管理员尚未配置 APK 下载地址')
 }
 function openUrl(url: string) {
@@ -156,16 +145,30 @@ function openUrl(url: string) {
 }
 async function generate() {
   if (!hb.app_name.trim()) return ElMessage.warning('请填写 APP 名称')
-  if (!/^[a-zA-Z][a-zA-Z0-9_.]*$/.test(hb.package_name)) return ElMessage.warning('包名格式错误，需字母开头，仅允许字母数字下划线点')
+  if (!/^[a-zA-Z][a-zA-Z0-9_.]*$/.test(hb.package_id)) return ElMessage.warning('包名格式错误，需字母开头，仅允许字母数字下划线点')
   genLoading.value = true
   try {
-    const r = await generateHBuilderXApi({ ...hb })
-    if (r.data?.download_url) {
-      ElMessage.success('生成成功，正在下载…')
-      setTimeout(() => window.open(r.data!.download_url, '_blank'), 200)
-    } else {
-      ElMessage.success('生成成功，请从下载列表获取')
+    // Backend returns ZIP binary, use fetch to get blob
+    const token = localStorage.getItem('user_token') || ''
+    const resp = await fetch('/api/user-api/app/hbuilderx/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ ...hb })
+    })
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}))
+      throw new Error(err.message || `HTTP ${resp.status}`)
     }
+    const blob = await resp.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `hbuilderx-${hb.package_id}.zip`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    ElMessage.success('生成成功，正在下载…')
   } catch (e: any) { ElMessage.error(e?.message || '生成失败')
   } finally { genLoading.value = false }
 }

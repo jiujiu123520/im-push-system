@@ -3,12 +3,12 @@ import type { PageQuery, PageResult, PushKey } from './types'
 
 export interface KeyStoreParams {
   name: string
-  description?: string
+  max_devices?: number
 }
 
 export interface KeyUpdateParams {
   name?: string
-  description?: string
+  max_devices?: number
 }
 
 // 用户端 Push Key 列表

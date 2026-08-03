@@ -12,7 +12,7 @@ export function getDeviceDetailApi(id: number) {
 }
 
 // 切换设备状态（启用/禁用）
-export function updateDeviceStatusApi(id: number, status: 0 | 1) {
+export function updateDeviceStatusApi(id: number, status: 1 | 2) {
   return put<{ message: string }>(`/user-api/devices/${id}/status`, { status })
 }
 

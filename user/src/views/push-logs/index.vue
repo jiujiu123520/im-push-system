@@ -10,11 +10,10 @@
               <template #prefix><el-icon><Search /></el-icon></template>
             </el-input>
             <el-select v-model="query.status" placeholder="全部状态" clearable style="width:140px" @change="loadList(1)">
-              <el-option label="待发送" value="pending" />
-              <el-option label="发送中" value="sending" />
-              <el-option label="已完成" value="completed" />
-              <el-option label="部分成功" value="partial" />
-              <el-option label="全部失败" value="failed" />
+              <el-option label="失败" :value="0" />
+              <el-option label="成功" :value="1" />
+              <el-option label="部分成功" :value="2" />
+              <el-option label="离线存储" :value="4" />
             </el-select>
             <el-button type="primary" @click="loadList(1)">查询</el-button>
           </div>
@@ -25,24 +24,26 @@
         <el-table-column prop="title" label="标题" min-width="200">
           <template #default="{ row }">
             <div class="title-cell">{{ row.title }}</div>
-            <div class="sub">Key: {{ row.key_name || '-' }}</div>
+            <div class="sub">Key ID: {{ row.api_key_id || '-' }}</div>
           </template>
         </el-table-column>
         <el-table-column label="结果" width="180" align="center">
           <template #default="{ row }">
             <el-tag :type="statusType(row.status)" effect="light">{{ statusText(row.status) }}</el-tag>
             <div class="counts">
-              <span class="ok">成功 {{ row.success }}</span>
+              <span class="ok">成功 {{ row.success_count }}</span>
               <span class="sep">/</span>
-              <span class="fail" :class="{ zero: row.failed === 0 }">失败 {{ row.failed }}</span>
+              <span class="fail" :class="{ zero: row.fail_count === 0 }">失败 {{ row.fail_count }}</span>
               <span class="sep">/</span>
-              <span>总计 {{ row.total }}</span>
+              <span>总计 {{ row.success_count + row.fail_count }}</span>
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="platform" label="平台" width="90" align="center">
+        <el-table-column prop="target_type" label="目标" width="100" align="center">
           <template #default="{ row }">
-            <el-tag size="small">{{ row.platform === 'ios' ? 'iOS' : row.platform === 'android' ? 'Android' : '全部' }}</el-tag>
+            <el-tag size="small" :type="row.target_type === 'broadcast' ? 'warning' : row.target_type === 'key' ? 'primary' : 'info'">
+              {{ row.target_type === 'device' ? '设备' : row.target_type === 'key' ? 'Key' : '广播' }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="180" align="center" />
@@ -70,31 +71,28 @@
             <el-tag :type="statusType(current.status)">{{ statusText(current.status) }}</el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="统计">
-            成功 {{ current.success }} / 失败 {{ current.failed }} / 总计 {{ current.total }}
-            &nbsp;&nbsp;重试次数：{{ current.retry_count }}
+            成功 {{ current.success_count }} / 失败 {{ current.fail_count }} / 总计 {{ current.success_count + current.fail_count }}
+            &nbsp;&nbsp;耗时：{{ current.elapsed_ms }}ms
           </el-descriptions-item>
-          <el-descriptions-item label="平台">{{ current.platform }}</el-descriptions-item>
+          <el-descriptions-item label="目标">{{ current.target_type === 'device' ? '指定设备' : current.target_type === 'key' ? '指定Key' : '广播' }}</el-descriptions-item>
           <el-descriptions-item label="创建时间">{{ current.created_at }}</el-descriptions-item>
-          <el-descriptions-item label="完成时间">{{ current.finished_at || '-' }}</el-descriptions-item>
         </el-descriptions>
-        <div class="section-title mt">设备发送明细</div>
-        <el-empty v-if="!current.devices?.length" description="暂无明细" />
-        <el-table v-else :data="current.devices.slice(0,200)" stripe size="small" max-height="360">
-          <el-table-column prop="device_name" label="设备" min-width="180" />
-          <el-table-column prop="platform" label="平台" width="90" />
+        <div class="section-title mt">推送明细</div>
+        <el-empty v-if="!current.push_detail?.length && !current.fail_detail?.length" description="暂无明细" />
+        <el-table v-else :data="(current.push_detail || []).concat(current.fail_detail || []).slice(0,200)" stripe size="small" max-height="360">
+          <el-table-column prop="device_id" label="设备ID" min-width="180" />
           <el-table-column label="状态" width="90">
             <template #default="{ row }">
-              <el-tag size="small" :type="row.status === 'success' ? 'success' : 'danger'">
-                {{ row.status === 'success' ? '成功' : '失败' }}
+              <el-tag size="small" :type="row.status === 'success' || row.status === 1 ? 'success' : 'danger'">
+                {{ row.status === 'success' || row.status === 1 ? '成功' : '失败' }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="失败原因" min-width="160">
+          <el-table-column label="原因" min-width="160">
             <template #default="{ row }">
-              <span class="fail-reason">{{ row.error_reason || '-' }}</span>
+              <span class="fail-reason">{{ row.reason || row.error || '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="sent_at" label="发送时间" width="170" />
         </el-table>
       </template>
     </el-drawer>
@@ -110,16 +108,16 @@ import type { PushLog, PushLogDetail } from '@/api/types'
 const loading = ref(false)
 const list = ref<PushLog[]>([])
 const total = ref(0)
-const query = reactive({ page: 1, pageSize: 10, keyword: '', status: '' })
+const query = reactive({ page: 1, pageSize: 10, keyword: '', status: '' as '' | number })
 
 const detailVisible = ref(false)
 const current = ref<PushLogDetail | null>(null)
 
-function statusText(s: string) {
-  return ({ pending:'待发送', sending:'发送中', completed:'已完成', partial:'部分成功', failed:'失败' } as any)[s] || s
+function statusText(s: number) {
+  return ({ 0:'失败', 1:'成功', 2:'部分成功', 4:'离线存储' } as any)[s] || '未知'
 }
-function statusType(s: string) {
-  return ({ completed:'success', partial:'warning', failed:'danger', sending:'primary', pending:'info' } as any)[s] || 'info'
+function statusType(s: number) {
+  return ({ 1:'success', 2:'warning', 0:'danger', 4:'info' } as any)[s] || 'info'
 }
 async function loadList(page = query.page) {
   query.page = page
@@ -127,9 +125,9 @@ async function loadList(page = query.page) {
   try {
     const r = await getPushLogListApi({
       page: query.page, pageSize: query.pageSize, per_page: query.pageSize,
-      keyword: query.keyword, status: query.status
+      keyword: query.keyword, status: query.status === '' ? undefined : query.status
     })
-    list.value = r.data?.items || []
+    list.value = r.data?.list || []
     total.value = r.data?.total || 0
   } finally { loading.value = false }
 }
