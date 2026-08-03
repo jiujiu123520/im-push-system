@@ -106,6 +106,7 @@ export interface UserRecord {
   avatar?: string
   email?: string
   phone?: string
+  qq?: string
   status: number
   deviceCount: number
   keyCount: number
@@ -119,6 +120,7 @@ export interface UserForm {
   nickname?: string
   email?: string
   phone?: string
+  qq?: string
   password?: string
   status?: number
 }
@@ -399,6 +401,33 @@ export interface Settings {
     mailHost?: string
     mailPort?: number
     mailFrom?: string
+  }
+  // 路径配置（实时生效）
+  settings_paths?: {
+    admin_path: string
+    user_path: string
+    admin_api_prefix: string
+    user_api_prefix: string
+  }
+  // 安全扩展配置
+  settings_security?: {
+    qq_bind_enabled: number
+    password_reset_mode: 'qq' | 'qq_email' | 'email_only'
+    session_expire_hours: number
+    password_reuse_limit: number
+  }
+  // 用户 APP 配置
+  settings_user_app?: {
+    apk_version: string
+    apk_url: string
+    apk_size: string
+    apk_md5: string
+    apk_force_update: number
+    ipa_version: string
+    ipa_url: string
+    user_register_enabled: number
+    user_default_key_limit: number
+    user_default_device_limit: number
   }
 }
 

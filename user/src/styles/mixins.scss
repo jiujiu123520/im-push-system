@@ -1,0 +1,60 @@
+// ============================================================
+// Mixins · 用户端通用混入（与管理后台大体一致）
+// ============================================================
+@use 'variables' as *;
+
+@mixin flex-center($direction: row) {
+  display: flex; flex-direction: $direction;
+  align-items: center; justify-content: center;
+}
+@mixin flex-center-x { display: flex; align-items: center; justify-content: center; }
+@mixin flex-center-y { display: flex; flex-direction: column; justify-content: center; }
+@mixin flex-between  { display: flex; align-items: center; justify-content: space-between; }
+@mixin flex-start($gap: 0) { display: flex; align-items: center; gap: $gap; }
+
+@mixin scrollbar($size: 6px, $color: rgba(14, 165, 233, 0.25)) {
+  &::-webkit-scrollbar        { width: $size; height: $size; }
+  &::-webkit-scrollbar-track  { background: transparent; border-radius: $size; }
+  &::-webkit-scrollbar-thumb  { background: $color; border-radius: $size;
+    transition: background 0.2s;
+    &:hover { background: rgba(14, 165, 233, 0.45); } }
+  scrollbar-width: thin; scrollbar-color: $color transparent;
+}
+@mixin global-scrollbar {
+  ::-webkit-scrollbar       { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(14,165,233,0.2); border-radius: 8px;
+    &:hover { background: rgba(14,165,233,0.4); } }
+}
+
+@mixin card-shadow($level: md) {
+  @if $level == sm { box-shadow: $shadow-sm; }
+  @else if $level == md { box-shadow: $shadow-md; }
+  @else if $level == lg { box-shadow: $shadow-lg; }
+  @else if $level == xl { box-shadow: $shadow-xl; }
+}
+@mixin glass($blur: 14px, $alpha: 0.72) {
+  background: rgba(255,255,255,$alpha);
+  backdrop-filter: blur($blur) saturate(180%);
+  -webkit-backdrop-filter: blur($blur) saturate(180%);
+}
+@mixin text-gradient($gradient: $gradient-primary) {
+  background: $gradient; -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+@mixin text-ellipsis($lines: 1) {
+  @if $lines == 1 {
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  } @else {
+    display: -webkit-box; -webkit-line-clamp: $lines;
+    -webkit-box-orient: vertical; overflow: hidden;
+  }
+}
+@mixin absolute-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); }
+@mixin fill-parent { position: absolute; inset: 0; }
+@mixin transition($properties: all, $duration: $transition-base) { transition: $properties $duration; }
+@mixin card-base { background: var(--bg-card); border-radius: $radius-lg; box-shadow: $shadow-md; }
+@mixin hover-float($translate: -3px) {
+  transition: transform $transition-base, box-shadow $transition-base;
+  &:hover { transform: translateY($translate); box-shadow: $shadow-lg; }
+}

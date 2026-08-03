@@ -307,6 +307,18 @@
             </div>
             <span v-else style="color: #909399;">-</span>
           </template>
+          <!-- 用户：绑定QQ -->
+          <template v-else-if="col.slot === 'qq'" #default="{ row }">
+            <div v-if="row.qq" style="display: flex; align-items: center; gap: 4px;">
+              <el-tag type="primary" effect="plain" round size="small" style="max-width: 100%; overflow: hidden; text-overflow: ellipsis;">
+                {{ row.qq }}
+              </el-tag>
+              <el-button text type="primary" size="small" @click="copyToClipboard(String(row.qq))">
+                <el-icon><CopyDocumentIcon /></el-icon>
+              </el-button>
+            </div>
+            <span v-else style="color: #909399; font-size: 12px;">未绑定</span>
+          </template>
           <!-- Key：掉线通知 -->
           <template v-else-if="col.slot === 'notifyEnabled'" #default="{ row }">
             <el-tag
@@ -414,7 +426,7 @@
 
         <el-table-column label="操作" :width="(
           currentModule === 'push-logs' ? 230 :
-          currentModule === 'users' ? 280 :
+          currentModule === 'users' ? 380 :
           currentModule === 'devices' ? 280 :
           currentModule === 'keys' ? 200 :
           currentModule === 'zombie-connections' ? 100 :
@@ -436,10 +448,22 @@
               </el-button>
               <el-button text type="danger" :icon="DeleteIcon" @click="handleDelete(row)">删除</el-button>
             </template>
-            <!-- 用户：编辑 + 修改密码 + 删除 -->
+            <!-- 用户：编辑 + 修改密码 + 绑定QQ/解绑QQ + 删除 -->
             <template v-else-if="currentModule === 'users'">
               <el-button text type="primary" :icon="EditIcon" @click="openDialog(row)">编辑</el-button>
               <el-button text type="warning" :icon="KeyIcon" @click="openPasswordDialog(row)">修改密码</el-button>
+              <el-button
+                v-if="!row.qq"
+                text
+                type="success"
+                @click="openBindQqDialog(row)"
+              >绑定QQ</el-button>
+              <el-button
+                v-else
+                text
+                type="info"
+                @click="handleUnbindQq(row)"
+              >解绑QQ</el-button>
               <el-button text type="danger" :icon="DeleteIcon" @click="handleDelete(row)">删除</el-button>
             </template>
             <!-- 其他模块：编辑/禁用 + 删除 -->
@@ -787,6 +811,51 @@
       </template>
     </el-dialog>
 
+    <!-- 绑定QQ弹窗 -->
+    <el-dialog
+      v-model="bindQqDialogVisible"
+      :title="bindQqForm.id && currentBindQqUser?.qq ? '改绑QQ号' : '绑定QQ号'"
+      width="460px"
+      destroy-on-close
+    >
+      <el-alert
+        v-if="currentBindQqUser"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px;"
+      >
+        <template #title>
+          为用户 <b>{{ currentBindQqUser.username }}</b> {{ currentBindQqUser.qq ? '改绑' : '绑定' }}QQ号
+        </template>
+        <div v-if="currentBindQqUser.qq" style="font-size: 12px; color: #909399;">
+          当前绑定：<b style="color: #409eff;">{{ currentBindQqUser.qq }}</b>
+        </div>
+      </el-alert>
+      <el-form
+        ref="bindQqFormRef"
+        :model="bindQqForm"
+        :rules="bindQqRules"
+        label-width="100px"
+      >
+        <el-form-item label="QQ号" prop="qq">
+          <el-input
+            v-model="bindQqForm.qq"
+            placeholder="请输入5-11位纯数字QQ号"
+            maxlength="11"
+            clearable
+          />
+          <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+            绑定后用户可通过QQ号重置密码，且用户不可自行解绑
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="bindQqDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="bindingQq" @click="handleBindQq">确定绑定</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 推送记录详情弹窗 -->
     <el-dialog
       v-model="pushDetailVisible"
@@ -1022,7 +1091,7 @@ import {
   updateAdminApi,
   deleteAdminApi
 } from '@/api/admin'
-import { getUserListApi, createUserApi, updateUserApi, deleteUserApi, resetUserPasswordApi } from '@/api/user'
+import { getUserListApi, createUserApi, updateUserApi, deleteUserApi, resetUserPasswordApi, bindUserQqApi, unbindUserQqApi } from '@/api/user'
 import { getApiKeyListApi } from '@/api/apiKey'
 import type { KeyForm, BlacklistForm, AdminForm, UserForm } from '@/api/types'
 
@@ -1041,7 +1110,7 @@ interface ColumnConfig {
   label: string
   width?: number
   slot?: 'status' | 'tag' | 'online' | 'platform'
-        | 'targetType' | 'targetValue' | 'count' | 'email' | 'phone'
+        | 'targetType' | 'targetValue' | 'count' | 'email' | 'phone' | 'qq'
         | 'notifyEnabled' | 'notifyEmail' | 'notifyInterval'
         | 'failReason' | 'elapsedMs' | 'deviceText'
         | 'idleSeconds'
@@ -1061,6 +1130,7 @@ const moduleConfigs: Record<string, {
       { prop: 'username', label: '用户名', width: 160 },
       { prop: 'email', label: '邮箱', slot: 'email' },
       { prop: 'phone', label: '手机号', width: 160, slot: 'phone' },
+      { prop: 'qq', label: '绑定QQ', width: 140, slot: 'qq' },
       { prop: 'status', label: '状态', width: 90, slot: 'status' },
       { prop: 'created_at', label: '注册时间', width: 170 }
     ],
@@ -1069,6 +1139,7 @@ const moduleConfigs: Record<string, {
       { prop: 'password', label: '密码', type: 'input', required: true, placeholder: '默认密码 Admin@123，用户可自行修改' },
       { prop: 'phone', label: '手机号', type: 'input', placeholder: '11位手机号' },
       { prop: 'email', label: '邮箱', type: 'input', placeholder: '用于账号安全通知' },
+      { prop: 'qq', label: 'QQ号', type: 'input', placeholder: '绑定后用户可通过QQ号重置密码', tip: '绑定后用户不可自行解绑，仅管理员可改绑或解绑' },
       { prop: 'status', label: '状态', type: 'switch' }
     ],
     mockRow: () => ({
@@ -1076,6 +1147,7 @@ const moduleConfigs: Record<string, {
       username: 'user_' + Math.floor(Math.random() * 9999),
       email: 'user' + Math.floor(Math.random() * 9999) + '@example.com',
       phone: '138' + String(Math.floor(Math.random() * 100000000)).padStart(8, '0'),
+      qq: Math.random() > 0.5 ? String(10000 + Math.floor(Math.random() * 99999999)) : '',
       status: Math.random() > 0.2 ? 1 : 0,
       created_at: '2026-07-' + String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')
     })
@@ -1405,6 +1477,84 @@ const passwordForm = reactive<{ id: number | null; password: string }>({
   password: ''
 })
 
+// 绑定QQ弹窗
+const bindQqDialogVisible = ref(false)
+const bindQqFormRef = ref<FormInstance>()
+const bindingQq = ref(false)
+const currentBindQqUser = ref<{ id: number; username: string; qq?: string } | null>(null)
+const bindQqForm = reactive<{ id: number | null; qq: string }>({
+  id: null,
+  qq: ''
+})
+function validateQq(_: any, value: string, callback: (err?: Error) => void) {
+  if (value === '' || value == null) {
+    callback(new Error('请输入QQ号'))
+  } else if (!/^\d{5,11}$/.test(value)) {
+    callback(new Error('QQ号必须是5-11位纯数字'))
+  } else {
+    callback()
+  }
+}
+const bindQqRules: FormRules = {
+  qq: [{ required: true, validator: validateQq, trigger: 'blur' }]
+}
+
+function openBindQqDialog(row: Record<string, any>) {
+  currentBindQqUser.value = {
+    id: Number(row.id),
+    username: row.username || '',
+    qq: row.qq || ''
+  }
+  bindQqForm.id = Number(row.id)
+  bindQqForm.qq = row.qq || ''
+  bindQqDialogVisible.value = true
+}
+
+async function handleBindQq() {
+  if (!bindQqFormRef.value || bindQqForm.id == null) return
+  try {
+    await bindQqFormRef.value.validate()
+  } catch {
+    return
+  }
+  bindingQq.value = true
+  try {
+    await bindUserQqApi(bindQqForm.id, bindQqForm.qq.trim())
+    ElMessage.success(currentBindQqUser.value?.qq ? 'QQ号改绑成功' : 'QQ号绑定成功')
+    bindQqDialogVisible.value = false
+    fetchData()
+  } catch (error: any) {
+    ElMessage.error(error?.message || '绑定失败，请稍后重试')
+  } finally {
+    bindingQq.value = false
+  }
+}
+
+async function handleUnbindQq(row: Record<string, any>) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要解绑用户「${row.username}」的QQ号「${row.qq}」吗？\n\n解绑后该用户将无法通过QQ号重置密码。`,
+      '解绑QQ号',
+      {
+        confirmButtonText: '解绑',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger',
+        center: true
+      }
+    )
+  } catch {
+    return
+  }
+  try {
+    await unbindUserQqApi(Number(row.id))
+    ElMessage.success('QQ号解绑成功')
+    fetchData()
+  } catch (error: any) {
+    ElMessage.error(error?.message || '解绑失败，请稍后重试')
+  }
+}
+
 // 订阅设备明细弹窗
 const subscriberDialogVisible = ref(false)
 const subscriberLoading = ref(false)
@@ -1688,8 +1838,13 @@ function openDialog(row?: Record<string, any>) {
   Object.keys(dialogForm).forEach((k) => delete dialogForm[k])
   if (row) {
     Object.assign(dialogForm, JSON.parse(JSON.stringify(row)))
-    if (currentModule.value === 'admins' && isEdit.value) {
+    if ((currentModule.value === 'admins' || currentModule.value === 'users') && isEdit.value) {
+      // 编辑模式：密码通过「修改密码」弹窗单独处理
       delete dialogForm.password
+    }
+    if (currentModule.value === 'users' && isEdit.value) {
+      // 编辑模式：QQ号通过「绑定QQ/解绑QQ」按钮单独处理，不在通用表单中修改
+      delete dialogForm.qq
     }
   } else {
     formFields.value.forEach((f) => {

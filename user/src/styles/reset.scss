@@ -1,0 +1,68 @@
+@use 'variables' as *;
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-family: $font-family;
+  font-size: $font-size-base;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@include global-scrollbar;
+
+a { color: $color-primary; text-decoration: none; &:hover { text-decoration: underline; } }
+
+img { max-width: 100%; display: block; }
+
+// 毛玻璃导航条通用类
+.glass-navbar {
+  @include glass(14px, 0.78);
+  border-bottom: 1px solid $border-light;
+}
+
+// 通用卡片
+.u-card {
+  @include card-base;
+  padding: $space-5;
+  @include transition;
+  &:hover { box-shadow: $shadow-lg; }
+}
+
+// 页面内边距
+.page-padding { padding: $layout-content-padding; }
+
+// 标题
+.section-title {
+  font-size: $font-size-lg;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 $space-4;
+}
+
+// 主按钮（渐变）
+.btn-primary-gradient {
+  background: $gradient-primary;
+  color: #fff;
+  border: none;
+  border-radius: $radius-md;
+  padding: $space-2 $space-5;
+  font-weight: 500;
+  cursor: pointer;
+  @include transition;
+  box-shadow: $shadow-primary;
+  &:hover { filter: brightness(1.06); transform: translateY(-1px); }
+  &:active { transform: translateY(0); }
+  &.is-disabled, &[disabled] { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
+}
+
+// NProgress 颜色
+#nprogress .bar { background: $color-primary !important; height: 3px !important; }
+#nprogress .peg { box-shadow: 0 0 10px $color-primary, 0 0 5px $color-primary !important; }
+#nprogress .spinner-icon { border-top-color: $color-primary !important; border-left-color: $color-primary !important; }

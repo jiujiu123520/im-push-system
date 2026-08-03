@@ -173,6 +173,46 @@ _stat_owner() {
     ls -ld "$target" 2>/dev/null | awk '{print $3}' || echo ""
 }
 
+# 跨平台解析符号链接（获取真实路径，兼容 readlink -f / realpath / Python 兜底）
+_readlink_f() {
+    local target="$1"
+    [[ -z "$target" ]] && { echo ""; return; }
+    # 优先 readlink -f（GNU coreutils、BusyBox）
+    if command -v readlink >/dev/null 2>&1; then
+        local resolved
+        resolved="$(readlink -f "$target" 2>/dev/null)" || true
+        if [[ -n "$resolved" && -e "$resolved" ]]; then
+            echo "$resolved"
+            return
+        fi
+        # BusyBox readlink 不支持 -f 时用 -e
+        resolved="$(readlink -e "$target" 2>/dev/null)" || true
+        if [[ -n "$resolved" && -e "$resolved" ]]; then
+            echo "$resolved"
+            return
+        fi
+    fi
+    # 兜底：realpath（部分系统自带）
+    if command -v realpath >/dev/null 2>&1; then
+        local resolved
+        resolved="$(realpath "$target" 2>/dev/null)" || true
+        if [[ -n "$resolved" ]]; then
+            echo "$resolved"
+            return
+        fi
+    fi
+    # 最终兜底：如果是普通文件直接返回绝对路径
+    if [[ -f "$target" ]]; then
+        # 转为绝对路径（cd 到父目录 pwd + 文件名）
+        local dir base
+        dir="$(cd "$(dirname "$target")" 2>/dev/null && pwd)" || dir="$(dirname "$target")"
+        base="$(basename "$target")"
+        echo "${dir%/}/${base}"
+    else
+        echo "$target"
+    fi
+}
+
 # ------------------------------------------------------------
 # 断点续装：进度文件 & 辅助函数
 # ------------------------------------------------------------
@@ -748,20 +788,71 @@ else
         if ! npm run build; then
             warn "标准构建失败（可能是 TypeScript 类型检查不通过），降级为直接 vite build（跳过类型检查）..."
             if npx vite build; then
-                warn "前端已构建完成（跳过了类型检查）。建议开发时运行 npm run type-check 排查类型问题。"
-                mark_done "step2b_frontend_build"
+                warn "管理后台已构建完成（跳过了类型检查）。建议开发时运行 npm run type-check 排查类型问题。"
             else
                 # vite build 也失败，属于真正的构建错误，但仍不阻断后端更新
-                error "前端构建失败！后端更新将继续，但管理后台可能仍是旧版本。"
+                error "管理后台构建失败！后端更新将继续，但管理后台可能仍是旧版本。"
                 error "请手动检查: cd ${PROJECT_DIR}/admin && npm run build"
-                cd "${PROJECT_DIR}"
-                # 不 mark_done，下次 --resume 会重试前端构建
             fi
         else
-            info "前端构建完成。"
-            mark_done "step2b_frontend_build"
+            info "管理后台构建完成。"
         fi
         cd "${PROJECT_DIR}"
+
+        # ==================== 用户端前端构建 ====================
+        if [[ -d "${PROJECT_DIR}/user" ]]; then
+            info "检测到用户端项目 (user/)，开始构建..."
+            cd "${PROJECT_DIR}/user"
+            # 检测依赖与权限
+            NEED_REINSTALL_USER=false
+            if [[ -d node_modules/.bin ]]; then
+                for bin_file in node_modules/.bin/*; do
+                    [[ -e "$bin_file" ]] || continue
+                    if ! [ -x "$bin_file" ]; then
+                        NEED_REINSTALL_USER=true
+                        break
+                    fi
+                done
+            fi
+            [[ "$NEED_REINSTALL_USER" == "true" ]] && rm -rf node_modules
+            if [[ ! -d node_modules ]]; then
+                info "安装用户端依赖 (npm install)..."
+                if ! npm install; then
+                    error "用户端 npm install 失败！请手动检查: cd ${PROJECT_DIR}/user && npm install"
+                    cd "${PROJECT_DIR}"
+                    # npm install 失败，跳过用户端构建，但不阻断后续步骤
+                else
+                    USER_BUILD_OK=1
+                fi
+            else
+                USER_BUILD_OK=1
+            fi
+            if [[ "${USER_BUILD_OK:-0}" == "1" ]]; then
+                if [[ -d node_modules/.bin ]]; then
+                    find node_modules/.bin -type l | while read -r link; do
+                        target=$(_readlink_f "$link")
+                        [[ -f "$target" ]] && chmod +x "$target" 2>/dev/null || true
+                    done
+                    find node_modules/.bin -type f -exec chmod +x {} \; 2>/dev/null || true
+                fi
+
+                info "构建用户端 (npm run build)..."
+                if ! npm run build; then
+                    warn "用户端标准构建失败，降级为直接 vite build（跳过类型检查）..."
+                    if npx vite build; then
+                        warn "用户端已构建完成（跳过了类型检查）。"
+                    else
+                        error "用户端构建失败！后端更新将继续，但用户端可能仍是旧版本。"
+                        error "请手动检查: cd ${PROJECT_DIR}/user && npm run build"
+                    fi
+                fi
+            fi
+            cd "${PROJECT_DIR}"
+        else
+            info "未检测到用户端项目 (user/)，跳过用户端构建。"
+        fi
+
+        mark_done "step2b_frontend_build"
     else
         warn "未找到 admin 目录，跳过前端构建。"
         mark_done "step2b_frontend_build"

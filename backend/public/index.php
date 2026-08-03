@@ -158,6 +158,16 @@ if ($runWs) {
         $router->post('/auth/reset-password', [\App\Controller\AuthController::class, 'resetPassword']);
         $router->post('/api/auth/reset-password', [\App\Controller\AuthController::class, 'resetPassword']);
 
+        // 通过 QQ 号（+邮箱验证码）重置密码
+        $router->post('/auth/reset-password-by-qq', [\App\Controller\AuthController::class, 'resetPasswordByQq']);
+        $router->post('/api/auth/reset-password-by-qq', [\App\Controller\AuthController::class, 'resetPasswordByQq']);
+        $router->post('/user-api/auth/reset-password-by-qq', [\App\Controller\AuthController::class, 'resetPasswordByQq']);
+
+        // 安全配置（改密方式开关等，登录/找回密码页用）
+        $router->get('/auth/security-config', [\App\Controller\AuthController::class, 'securityConfig']);
+        $router->get('/api/auth/security-config', [\App\Controller\AuthController::class, 'securityConfig']);
+        $router->get('/user-api/auth/security-config', [\App\Controller\AuthController::class, 'securityConfig']);
+
         // ------------------------------------------------------------
         // 任务4：管理员账号管理
         // ------------------------------------------------------------
@@ -351,6 +361,72 @@ $router->put('/admin/keys/{id}/subscribers/{device_id}/repair', [\App\Controller
         $router->put('/admin/audio/{id}',                     [\App\Controller\AudioController::class, 'update']);
         $router->delete('/admin/audio/{id}',                  [\App\Controller\AudioController::class, 'delete']);
         $router->post('/admin/audio/{id}/default',             [\App\Controller\AudioController::class, 'setDefault']);
+
+        // ============================================================
+        // 用户管理扩展：QQ 改绑/解绑 + 路径/安全/用户APP设置 + 公告 CRUD
+        // ============================================================
+        $router->put('/admin/users/{id}/qq-bind',    [\App\Controller\UserController::class, 'bindQq']);
+        $router->put('/admin/users/{id}/qq-unbind',  [\App\Controller\UserController::class, 'unbindQq']);
+        $router->put('/admin/users/{id}/reset-password-by-qq', [\App\Controller\UserController::class, 'adminResetPasswordByQq']);
+
+        $router->get('/admin/settings/paths',        [\App\Controller\SettingsController::class, 'getPaths']);
+        $router->put('/admin/settings/paths',        [\App\Controller\SettingsController::class, 'savePaths']);
+        $router->get('/admin/settings/security',     [\App\Controller\SettingsController::class, 'getSecurity']);
+        $router->put('/admin/settings/security',     [\App\Controller\SettingsController::class, 'saveSecurity']);
+        $router->get('/admin/settings/user-app',     [\App\Controller\SettingsController::class, 'getUserApp']);
+        $router->put('/admin/settings/user-app',     [\App\Controller\SettingsController::class, 'saveUserApp']);
+
+        // 用户公告 CRUD（管理员）
+        $router->get('/admin/notices',               [\App\Controller\NoticeController::class, 'index']);
+        $router->post('/admin/notices',              [\App\Controller\NoticeController::class, 'store']);
+        $router->get('/admin/notices/{id}',          [\App\Controller\NoticeController::class, 'show']);
+        $router->put('/admin/notices/{id}',          [\App\Controller\NoticeController::class, 'update']);
+        $router->delete('/admin/notices/{id}',       [\App\Controller\NoticeController::class, 'destroy']);
+        $router->put('/admin/notices/{id}/status',   [\App\Controller\NoticeController::class, 'toggleStatus']);
+
+        // ============================================================
+        // 用户端 API 路由（前缀 /user-api/，鉴权走 UserApiAuth）
+        // ============================================================
+        // Dashboard
+        $router->get('/user-api/dashboard/overview', [\App\Controller\UserConsole\DashboardController::class, 'overview']);
+        // 推送
+        $router->post('/user-api/push/send',         [\App\Controller\UserConsole\PushController::class, 'send']);
+        // 推送记录
+        $router->get('/user-api/push-logs',          [\App\Controller\UserConsole\PushLogController::class, 'index']);
+        $router->get('/user-api/push-logs/{id}',     [\App\Controller\UserConsole\PushLogController::class, 'show']);
+        // 设备
+        $router->get('/user-api/devices',            [\App\Controller\UserConsole\DeviceController::class, 'index']);
+        $router->get('/user-api/devices/{id}',       [\App\Controller\UserConsole\DeviceController::class, 'show']);
+        $router->put('/user-api/devices/{id}/status',[\App\Controller\UserConsole\DeviceController::class, 'updateStatus']);
+        $router->delete('/user-api/devices/{id}',    [\App\Controller\UserConsole\DeviceController::class, 'destroy']);
+        // Push Key
+        $router->get('/user-api/keys',               [\App\Controller\UserConsole\KeyController::class, 'index']);
+        $router->post('/user-api/keys',              [\App\Controller\UserConsole\KeyController::class, 'store']);
+        $router->put('/user-api/keys/{id}',          [\App\Controller\UserConsole\KeyController::class, 'update']);
+        $router->put('/user-api/keys/{id}/status',   [\App\Controller\UserConsole\KeyController::class, 'updateStatus']);
+        $router->delete('/user-api/keys/{id}',       [\App\Controller\UserConsole\KeyController::class, 'destroy']);
+        // 文档 + API Key
+        $router->get('/user-api/docs',               [\App\Controller\UserConsole\DocsController::class, 'index']);
+        $router->get('/user-api/docs/api-keys',      [\App\Controller\UserConsole\DocsController::class, 'userApiKeyList']);
+        $router->post('/user-api/docs/api-keys',     [\App\Controller\UserConsole\DocsController::class, 'createApiKey']);
+        $router->put('/user-api/docs/api-keys/{id}/status', [\App\Controller\UserConsole\DocsController::class, 'updateApiKeyStatus']);
+        $router->delete('/user-api/docs/api-keys/{id}', [\App\Controller\UserConsole\DocsController::class, 'deleteApiKey']);
+        // APP
+        $router->get('/user-api/app/info',           [\App\Controller\UserConsole\AppController::class, 'info']);
+        $router->get('/user-api/app/download-qr',    [\App\Controller\UserConsole\AppController::class, 'downloadQr']);
+        $router->post('/user-api/app/hbuilderx/generate', [\App\Controller\UserConsole\AppController::class, 'hbuilderxGenerate']);
+        // 公告
+        $router->get('/user-api/notices',            [\App\Controller\UserConsole\NoticeController::class, 'index']);
+        $router->get('/user-api/notices/dialogs',    [\App\Controller\UserConsole\NoticeController::class, 'dialogs']);
+        $router->get('/user-api/notices/{id}',       [\App\Controller\UserConsole\NoticeController::class, 'show']);
+        $router->post('/user-api/notices/{id}/read', [\App\Controller\UserConsole\NoticeController::class, 'markRead']);
+        $router->post('/user-api/notices/read-all',  [\App\Controller\UserConsole\NoticeController::class, 'markAllRead']);
+        // 个人中心
+        $router->get('/user-api/profile',            [\App\Controller\UserConsole\ProfileController::class, 'info']);
+        $router->put('/user-api/profile',            [\App\Controller\UserConsole\ProfileController::class, 'update']);
+        $router->put('/user-api/profile/password',   [\App\Controller\UserConsole\ProfileController::class, 'changePassword']);
+        $router->post('/user-api/profile/bind-qq',   [\App\Controller\UserConsole\ProfileController::class, 'bindQq']);
+        $router->post('/user-api/profile/unbind-qq', [\App\Controller\UserConsole\ProfileController::class, 'unbindQq']);
     };
 
     $server = new \App\HttpServer($routeRegistrar);

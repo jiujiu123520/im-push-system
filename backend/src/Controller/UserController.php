@@ -395,6 +395,105 @@ class UserController
         return ['id' => $id, 'message' => '密码重置成功'];
     }
 
+    /**
+     * 管理员为用户绑定/改绑 QQ
+     * PUT /admin/users/{id}/qq-bind
+     */
+    public function bindQq(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) return false;
+        $id = (int)($params['id'] ?? 0);
+        if ($id <= 0) {
+            Response::fail($context['response'], '无效的用户ID', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+        $row = Database::fetch('SELECT id, username FROM users WHERE id = ? LIMIT 1', [$id]);
+        if ($row === false) {
+            Response::fail($context['response'], '用户不存在', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+        $body = $this->parseBody($context);
+        $qq = trim((string)($body['qq'] ?? ''));
+        if ($qq === '') {
+            $qq = null;
+        } elseif (!ctype_digit($qq) || strlen($qq) < 5 || strlen($qq) > 11) {
+            Response::fail($context['response'], '请输入正确的 QQ 号（纯数字 5-11 位）');
+            return false;
+        }
+        // 唯一性：QQ 号不能被其他用户占用（NULL 不参与唯一）
+        if ($qq !== null) {
+            $dup = Database::fetch('SELECT id FROM users WHERE qq = ? AND id <> ? LIMIT 1', [$qq, $id]);
+            if ($dup) {
+                Response::fail($context['response'], '该 QQ 号已被其他账号绑定');
+                return false;
+            }
+        }
+        Database::execute('UPDATE users SET qq = ?, updated_at = NOW() WHERE id = ?', [$qq, $id]);
+        return ['id' => $id, 'qq' => $qq, 'bound' => $qq !== null];
+    }
+
+    /**
+     * 管理员为用户解绑 QQ（清空 qq=NULL）
+     * PUT /admin/users/{id}/qq-unbind
+     */
+    public function unbindQq(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) return false;
+        $id = (int)($params['id'] ?? 0);
+        if ($id <= 0) {
+            Response::fail($context['response'], '无效的用户ID', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+        $row = Database::fetch('SELECT id FROM users WHERE id = ? LIMIT 1', [$id]);
+        if ($row === false) {
+            Response::fail($context['response'], '用户不存在', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+        Database::execute('UPDATE users SET qq = NULL, updated_at = NOW() WHERE id = ?', [$id]);
+        return ['id' => $id, 'qq' => null, 'bound' => false];
+    }
+
+    /**
+     * 管理员通过用户的 QQ 号重置密码（不校验邮箱验证码，管理员有最高权限）
+     * PUT /admin/users/{id}/reset-password-by-qq
+     */
+    public function adminResetPasswordByQq(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) return false;
+        $id = (int)($params['id'] ?? 0);
+        if ($id <= 0) {
+            Response::fail($context['response'], '无效的用户ID', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+        $body = $this->parseBody($context);
+        $qq         = trim((string)($body['qq'] ?? ''));
+        $newPwd     = (string)($body['new_password'] ?? '');
+        $confirmPwd = (string)($body['confirm_password'] ?? '');
+        if ($newPwd === '' || strlen($newPwd) < 6 || strlen($newPwd) > 64) {
+            Response::fail($context['response'], '新密码长度需 6-64 位');
+            return false;
+        }
+        if ($confirmPwd !== '' && $newPwd !== $confirmPwd) {
+            Response::fail($context['response'], '两次输入的新密码不一致');
+            return false;
+        }
+        $row = Database::fetch('SELECT id, qq FROM users WHERE id = ? LIMIT 1', [$id]);
+        if ($row === false) {
+            Response::fail($context['response'], '用户不存在', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+        if ($qq !== '' && (string)($row['qq'] ?? '') !== $qq) {
+            Response::fail($context['response'], 'QQ 号与该用户绑定的不匹配');
+            return false;
+        }
+        $hash = password_hash($newPwd, PASSWORD_DEFAULT);
+        Database::execute('UPDATE users SET password_hash = ?, updated_at = NOW() WHERE id = ?', [$hash, $id]);
+        return ['id' => $id, 'message' => '密码已重置'];
+    }
+
     private function parseBody(array $context): array
     {
         $body = $context['post'] ?? [];

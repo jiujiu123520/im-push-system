@@ -1910,10 +1910,12 @@ timeout 600 composer install --no-dev --optimize-autoloader --no-interaction || 
 info "后端依赖安装完成。"
 
 # ============================================================
-# 步骤 5: 构建管理后台（npm install && npm run build）
+# 步骤 5: 构建前端（管理后台 + 用户端）
 # ============================================================
-step "5/7" "构建管理后台"
+step "5/7" "构建管理后台与用户端"
 
+# ========== 5.1 构建管理后台 ==========
+info "----- 构建管理后台 (admin/) -----"
 cd "${PROJECT_DIR}/admin"
 # 使用国内镜像加速（淘宝镜像）
 npm config set registry https://registry.npmmirror.com
@@ -1940,9 +1942,9 @@ if [[ "$NEED_REINSTALL" == "true" ]]; then
 fi
 
 # npm install 添加超时保护（10 分钟），防止网络问题导致卡死
-info "执行 npm install（超时 10 分钟）..."
+info "执行 admin npm install（超时 10 分钟）..."
 if ! timeout 600 npm install --no-audit --no-fund --loglevel=error 2>&1; then
-    error "npm install 失败（超时或网络问题）"
+    error "admin npm install 失败（超时或网络问题）"
     error "请手动执行: cd ${PROJECT_DIR}/admin && npm install"
     exit 1
 fi
@@ -1958,13 +1960,64 @@ if [[ -d node_modules/.bin ]]; then
 fi
 
 # npm run build 添加超时保护（5 分钟），防止构建卡死
-info "执行 npm run build（超时 5 分钟）..."
+info "执行 admin npm run build（超时 5 分钟）..."
 if ! timeout 300 npm run build 2>&1; then
-    error "npm run build 失败（超时或构建错误）"
+    error "admin npm run build 失败（超时或构建错误）"
     error "请手动执行: cd ${PROJECT_DIR}/admin && npm run build"
     exit 1
 fi
 info "管理后台构建完成。"
+
+# ========== 5.2 构建用户端（如存在） ==========
+if [[ -d "${PROJECT_DIR}/user" ]]; then
+    info "----- 构建用户端 (user/) -----"
+    cd "${PROJECT_DIR}/user"
+
+    NEED_REINSTALL_USER=false
+    if [[ -d node_modules/.bin ]]; then
+        for bin_file in node_modules/.bin/*; do
+            [[ -e "$bin_file" ]] || continue
+            if ! [ -x "$bin_file" ]; then
+                NEED_REINSTALL_USER=true
+                break
+            fi
+        done
+    fi
+    if [[ "$NEED_REINSTALL_USER" == "true" ]]; then
+        info "清理用户端 node_modules 并重新安装..."
+        rm -rf node_modules
+    fi
+
+    if [[ ! -d node_modules ]]; then
+        info "执行 user npm install（超时 10 分钟）..."
+        if ! timeout 600 npm install --no-audit --no-fund --loglevel=error 2>&1; then
+            warn "user npm install 失败，跳过用户端构建"
+            warn "请手动执行: cd ${PROJECT_DIR}/user && npm install"
+            USER_INSTALL_FAILED=1
+        fi
+    fi
+
+    if [[ "${USER_INSTALL_FAILED:-0}" != "1" ]]; then
+        if [[ -d node_modules/.bin ]]; then
+            find node_modules/.bin -type l | while read -r link; do
+                target=$(_readlink_f "$link")
+                [[ -f "$target" ]] && chmod +x "$target" 2>/dev/null || true
+            done
+            find node_modules/.bin -type f -exec chmod +x {} \; 2>/dev/null || true
+        fi
+
+        info "执行 user npm run build（超时 5 分钟）..."
+        if ! timeout 300 npm run build 2>&1; then
+            warn "user npm run build 失败，用户端可能为旧版本。请手动检查: cd ${PROJECT_DIR}/user && npm run build"
+        else
+            info "用户端构建完成。"
+        fi
+    fi
+else
+    info "未检测到用户端项目 (user/)，跳过用户端构建。"
+fi
+
+cd "${PROJECT_DIR}"
 
 # ============================================================
 # 步骤 6: 配置 systemd 服务与 Nginx

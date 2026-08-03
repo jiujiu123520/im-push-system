@@ -1055,4 +1055,237 @@ class SettingsController
 
         return $updated;
     }
+
+    /**
+     * 获取访问路径配置（管理端 / 用户端 路径与 API 前缀）
+     * GET /admin/settings/paths
+     */
+    public function getPaths(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) return false;
+        return $this->readJsonSetting('settings_paths', [
+            'admin_path'       => '/admin/',
+            'admin_api_prefix' => '/api/',
+            'user_path'        => '/user/',
+            'user_api_prefix'  => '/user-api/',
+        ]);
+    }
+
+    /**
+     * 保存访问路径配置（实时生效，无需重启）
+     * PUT /admin/settings/paths
+     */
+    public function savePaths(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) return false;
+        $response = $context['response'];
+        $body = $this->parseBody($context);
+        $allowed = ['admin_path', 'admin_api_prefix', 'user_path', 'user_api_prefix'];
+        $data = [];
+        foreach ($allowed as $k) {
+            if (array_key_exists($k, $body)) {
+                $v = trim((string)$body[$k]);
+                if ($v === '' || $v === '/') {
+                    Response::fail($response, "{$k} 不能为空或单斜杠", Response::CODE_BAD_REQUEST, 400);
+                    return false;
+                }
+                if (!str_starts_with($v, '/')) {
+                    $v = '/' . $v;
+                }
+                if (str_ends_with($k, '_path') && !str_ends_with($v, '/')) {
+                    $v = $v . '/';
+                }
+                if (str_ends_with($k, '_prefix') && str_ends_with($v, '/') && $v !== '/') {
+                    $v = rtrim($v, '/');
+                }
+                if (!preg_match('#^[A-Za-z0-9_\-/]+$#', $v)) {
+                    Response::fail($response, "{$k} 只允许字母数字 - _ / 组成", Response::CODE_BAD_REQUEST, 400);
+                    return false;
+                }
+                $data[$k] = $v;
+            }
+        }
+        if (count($data) === 0) {
+            Response::fail($response, '没有需要保存的字段', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+        $this->upsertJsonSetting('settings_paths', $data, '管理端/用户端 访问路径与API前缀配置');
+        return ['saved' => true, 'data' => $this->getPaths($context, $params)];
+    }
+
+    /**
+     * 获取安全配置（注册开关、改密方式、QQ绑定、频率限制）
+     * GET /admin/settings/security
+     */
+    public function getSecurity(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) return false;
+        return $this->readJsonSetting('settings_security', [
+            'allow_register'           => 1,
+            'password_reset_mode'      => 'both',
+            'require_email_for_reset'  => 1,
+            'qq_bind_enabled'          => 1,
+            'user_self_unbind_qq'      => 0,
+            'rate_limit_push_per_min'  => 20,
+            'rate_limit_push_per_hour' => 500,
+            'rate_limit_push_per_day'  => 3000,
+        ]);
+    }
+
+    /**
+     * 保存安全配置
+     * PUT /admin/settings/security
+     */
+    public function saveSecurity(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) return false;
+        $body = $this->parseBody($context);
+        $allowed = [
+            'allow_register'          => 'int',
+            'password_reset_mode'     => 'string',
+            'require_email_for_reset' => 'int',
+            'qq_bind_enabled'         => 'int',
+            'user_self_unbind_qq'     => 'int',
+            'rate_limit_push_per_min' => 'int',
+            'rate_limit_push_per_hour'=> 'int',
+            'rate_limit_push_per_day' => 'int',
+        ];
+        $data = [];
+        foreach ($allowed as $k => $type) {
+            if (array_key_exists($k, $body)) {
+                if ($type === 'int') {
+                    $data[$k] = (int)$body[$k] > 0 ? 1 : 0;
+                    if (str_starts_with($k, 'rate_limit')) {
+                        $data[$k] = max(0, min(100000, (int)$body[$k]));
+                    }
+                } else {
+                    $v = trim((string)$body[$k]);
+                    if (!in_array($v, ['qq_only', 'email_only', 'both'], true)) {
+                        $v = 'both';
+                    }
+                    $data[$k] = $v;
+                }
+            }
+        }
+        if (count($data) === 0) {
+            return $this->fail($context, '没有需要保存的字段');
+        }
+        $this->upsertJsonSetting('settings_security', $data, '用户端安全配置');
+        return ['saved' => true, 'data' => $this->getSecurity($context, $params)];
+    }
+
+    /**
+     * 获取用户端 APP 分发配置
+     * GET /admin/settings/user-app
+     */
+    public function getUserApp(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) return false;
+        return $this->readJsonSetting('settings_user_app', [
+            'apk_download_url' => '',
+            'ipa_download_url' => '',
+            'apk_version'      => '',
+            'ipa_version'      => '',
+            'update_log'       => '',
+            'force_update'     => 0,
+            'user_hbx_enabled' => 1,
+        ]);
+    }
+
+    /**
+     * 保存用户端 APP 分发配置
+     * PUT /admin/settings/user-app
+     */
+    public function saveUserApp(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) return false;
+        $body = $this->parseBody($context);
+        $allowed = [
+            'apk_download_url' => 'string',
+            'ipa_download_url' => 'string',
+            'apk_version'      => 'string',
+            'ipa_version'      => 'string',
+            'update_log'       => 'string',
+            'force_update'     => 'int',
+            'user_hbx_enabled' => 'int',
+        ];
+        $data = [];
+        foreach ($allowed as $k => $type) {
+            if (array_key_exists($k, $body)) {
+                if ($type === 'int') {
+                    $data[$k] = (int)$body[$k] > 0 ? 1 : 0;
+                } else {
+                    $data[$k] = trim((string)$body[$k]);
+                    if (str_contains($k, '_url') && $data[$k] !== '' && strlen($data[$k]) > 1024) {
+                        return $this->fail($context, "{$k} 过长");
+                    }
+                }
+            }
+        }
+        if (count($data) === 0) {
+            return $this->fail($context, '没有需要保存的字段');
+        }
+        $this->upsertJsonSetting('settings_user_app', $data, '用户端 APP 分发与打包配置');
+        return ['saved' => true, 'data' => $this->getUserApp($context, $params)];
+    }
+
+    private function readJsonSetting(string $key, array $defaults): array
+    {
+        try {
+            $row = Database::fetch(
+                'SELECT config_value FROM admin_settings WHERE config_key = ? LIMIT 1',
+                [$key]
+            );
+            if ($row !== false) {
+                $cfg = json_decode((string)$row['config_value'], true);
+                if (is_array($cfg)) {
+                    return array_merge($defaults, $cfg);
+                }
+            }
+        } catch (\Throwable $e) {
+        }
+        return $defaults;
+    }
+
+    private function upsertJsonSetting(string $key, array $patch, string $description): void
+    {
+        $existing = [];
+        try {
+            $row = Database::fetch(
+                'SELECT config_value FROM admin_settings WHERE config_key = ? LIMIT 1',
+                [$key]
+            );
+            if ($row !== false) {
+                $d = json_decode((string)$row['config_value'], true);
+                if (is_array($d)) $existing = $d;
+            }
+        } catch (\Throwable $e) {
+        }
+        $merged = array_merge($existing, $patch);
+        $json = json_encode($merged, JSON_UNESCAPED_UNICODE);
+        $now = date('Y-m-d H:i:s');
+        if ($row !== false) {
+            Database::execute(
+                'UPDATE admin_settings SET config_value = ?, description = ?, updated_at = ? WHERE config_key = ?',
+                [$json, $description, $now, $key]
+            );
+        } else {
+            Database::execute(
+                'INSERT INTO admin_settings (config_key, config_value, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+                [$key, $json, $description, $now, $now]
+            );
+        }
+    }
+
+    private function fail(array $context, string $msg, int $code = 400)
+    {
+        Response::fail($context['response'] ?? null, $msg, Response::CODE_BAD_REQUEST, $code);
+        return false;
+    }
 }

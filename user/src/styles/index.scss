@@ -1,0 +1,59 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+@use 'reset';
+
+// 覆盖 Element Plus 主色（用户端青蓝绿色系）
+:root {
+  --el-color-primary: #{$color-primary};
+  --el-color-primary-light-3: #{$color-primary-light-3};
+  --el-color-primary-light-5: #{$color-primary-light-5};
+  --el-color-primary-light-7: #{$color-primary-light-7};
+  --el-color-primary-light-8: #{mix($color-primary, #fff, 20%)};
+  --el-color-primary-light-9: #{$color-primary-light-9};
+  --el-color-primary-dark-2: #{$color-primary-dark-2};
+
+  --el-color-success: #{$color-success};
+  --el-color-warning: #{$color-warning};
+  --el-color-danger:  #{$color-danger};
+  --el-color-info:    #{$color-info};
+
+  --el-border-radius-base: #{$radius-sm};
+  --el-font-size-base: #{$font-size-base};
+}
+
+// 统一 Element Plus 卡片样式
+.el-card {
+  border-radius: $radius-lg;
+  border: 1px solid $border-light;
+  box-shadow: $shadow-sm;
+  @include transition;
+  &:hover { box-shadow: $shadow-md; }
+}
+
+// 统一按钮圆角
+.el-button {
+  border-radius: $radius-sm;
+  font-weight: 500;
+}
+
+// 统一 dialog
+.el-dialog {
+  border-radius: $radius-lg !important;
+  overflow: hidden;
+  .el-dialog__header { padding: $space-5 $space-6; border-bottom: 1px solid $border-light; }
+  .el-dialog__body   { padding: $space-5 $space-6; }
+  .el-dialog__footer { padding: $space-4 $space-6 $space-5; border-top: 1px solid $border-light; }
+}
+
+// 抽屉
+.el-drawer {
+  .el-drawer__header { padding: $space-5 $space-6; border-bottom: 1px solid $border-light; }
+  .el-drawer__body   { padding: $space-5 $space-6; }
+}
+
+// 表格头部背景
+.el-table th.el-table__cell {
+  background: darken(#fff, 1.5%);
+  color: var(--text-regular);
+  font-weight: 600;
+}

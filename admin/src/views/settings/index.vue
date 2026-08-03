@@ -665,6 +665,281 @@
         </el-form>
       </div>
 
+      <!-- g) 路径配置（实时生效） -->
+      <div class="setting-card" v-loading="loading">
+        <div class="card-head">
+          <div class="head-icon icon-paths">
+            <el-icon><LinkIcon /></el-icon>
+          </div>
+          <div class="head-text">
+            <h3 class="card-title">路径配置</h3>
+            <p class="card-sub">管理端 / 用户端访问路径，修改后实时生效（无需重启）</p>
+          </div>
+          <el-tag type="success" effect="light" size="small">
+            <el-icon><LightningIcon /></el-icon> 实时生效
+          </el-tag>
+        </div>
+
+        <el-form
+          ref="pathsFormRef"
+          :model="pathsForm"
+          :rules="pathsRules"
+          label-position="top"
+          class="setting-form"
+        >
+          <div class="form-row">
+            <el-form-item label="管理端访问路径" prop="admin_path">
+              <el-input v-model="pathsForm.admin_path" placeholder="/admin" />
+              <div class="form-tip">管理后台的访问路径，必须以 / 开头，如 /admin 或 /console</div>
+            </el-form-item>
+            <el-form-item label="用户端访问路径" prop="user_path">
+              <el-input v-model="pathsForm.user_path" placeholder="/user" />
+              <div class="form-tip">普通用户端的访问路径，必须以 / 开头，如 /user 或 /portal</div>
+            </el-form-item>
+          </div>
+          <div class="form-row">
+            <el-form-item label="管理端 API 前缀" prop="admin_api_prefix">
+              <el-input v-model="pathsForm.admin_api_prefix" placeholder="/admin-api" />
+              <div class="form-tip">管理后台接口的统一前缀，如 /admin-api（需与 Nginx 配置同步）</div>
+            </el-form-item>
+            <el-form-item label="用户端 API 前缀" prop="user_api_prefix">
+              <el-input v-model="pathsForm.user_api_prefix" placeholder="/user-api" />
+              <div class="form-tip">用户端接口的统一前缀，如 /user-api（需与 Nginx 配置同步）</div>
+            </el-form-item>
+          </div>
+
+          <el-alert type="warning" :closable="false" class="paths-tip-alert">
+            <template #title>
+              <div>
+                <strong>⚠️ 修改路径注意事项：</strong>
+                <div>· 修改后当前页面会刷新，请确保路径格式正确</div>
+                <div>· 若使用 Nginx 反向代理，请同步更新 <code>location</code> 路径匹配规则</div>
+                <div>· 修改 API 前缀后，用户 APP 需重新生成以使用新的接口地址</div>
+              </div>
+            </template>
+          </el-alert>
+
+          <div class="form-actions">
+            <el-button
+              type="primary"
+              :icon="CheckIcon"
+              :loading="saving.paths"
+              @click="savePathsConfig"
+            >
+              保存配置
+            </el-button>
+          </div>
+        </el-form>
+      </div>
+
+      <!-- h) 安全扩展配置 -->
+      <div class="setting-card" v-loading="loading">
+        <div class="card-head">
+          <div class="head-icon icon-security-ext">
+            <el-icon><ShieldIcon /></el-icon>
+          </div>
+          <div class="head-text">
+            <h3 class="card-title">安全扩展配置</h3>
+            <p class="card-sub">QQ 绑定开关、密码重置方式、会话过期策略</p>
+          </div>
+        </div>
+
+        <el-form
+          ref="securityExtFormRef"
+          :model="securityExtForm"
+          :rules="securityExtRules"
+          label-position="top"
+          class="setting-form"
+        >
+          <div class="sub-section-title">
+            <span class="title-bar"></span>
+            QQ 绑定与密码重置
+          </div>
+
+          <el-form-item label="允许用户绑定 QQ">
+            <div class="ssl-toggle-row">
+              <el-switch
+                v-model="securityExtForm.qq_bind_enabled"
+                :active-value="1"
+                :inactive-value="0"
+              />
+              <span class="ssl-toggle-hint">
+                {{ securityExtForm.qq_bind_enabled === 1 ? '已开启：用户可在个人中心绑定 QQ 号' : '已关闭：用户无法绑定 QQ' }}
+              </span>
+            </div>
+          </el-form-item>
+
+          <el-form-item label="管理员密码重置方式" prop="password_reset_mode">
+            <el-radio-group v-model="securityExtForm.password_reset_mode">
+              <el-radio value="email_only">仅邮箱验证码</el-radio>
+              <el-radio value="qq">仅 QQ 号验证</el-radio>
+              <el-radio value="qq_email">QQ 号 + 邮箱验证码</el-radio>
+            </el-radio-group>
+            <div class="form-tip">管理员通过「忘记密码」重置密码时的验证方式；选择 QQ 相关方式时，用户需事先在账号中绑定 QQ</div>
+          </el-form-item>
+
+          <div class="sub-section-title">
+            <span class="title-bar"></span>
+            会话与密码策略
+          </div>
+
+          <div class="form-row">
+            <el-form-item label="会话过期时间（小时）" prop="session_expire_hours">
+              <el-input-number
+                v-model="securityExtForm.session_expire_hours"
+                :min="1"
+                :max="24 * 30"
+                :step="1"
+                controls-position="right"
+                style="width: 100%"
+              />
+              <div class="form-tip">登录令牌的有效时长，超时后需重新登录</div>
+            </el-form-item>
+            <el-form-item label="禁止复用最近 N 次密码" prop="password_reuse_limit">
+              <el-input-number
+                v-model="securityExtForm.password_reuse_limit"
+                :min="0"
+                :max="10"
+                :step="1"
+                controls-position="right"
+                style="width: 100%"
+              />
+              <div class="form-tip">0 = 不限制；设置为 3 时新密码不能与最近 3 次相同</div>
+            </el-form-item>
+          </div>
+
+          <div class="form-actions">
+            <el-button
+              type="primary"
+              :icon="CheckIcon"
+              :loading="saving.securityExt"
+              @click="saveSecurityExtConfig"
+            >
+              保存配置
+            </el-button>
+          </div>
+        </el-form>
+      </div>
+
+      <!-- i) 用户 APP 配置 -->
+      <div class="setting-card" v-loading="loading">
+        <div class="card-head">
+          <div class="head-icon icon-userapp">
+            <el-icon><CellphoneIcon /></el-icon>
+          </div>
+          <div class="head-text">
+            <h3 class="card-title">用户 APP 配置</h3>
+            <p class="card-sub">用户端 APP 版本、注册开关、默认资源配额</p>
+          </div>
+        </div>
+
+        <el-form
+          ref="userAppFormRef"
+          :model="userAppForm"
+          :rules="userAppRules"
+          label-position="top"
+          class="setting-form"
+        >
+          <div class="sub-section-title">
+            <span class="title-bar"></span>
+            注册与配额
+          </div>
+          <el-form-item label="开放用户注册">
+            <div class="ssl-toggle-row">
+              <el-switch
+                v-model="userAppForm.user_register_enabled"
+                :active-value="1"
+                :inactive-value="0"
+              />
+              <span class="ssl-toggle-hint">
+                {{ userAppForm.user_register_enabled === 1 ? '已开放：任何人可通过注册页创建账号' : '已关闭：仅管理员可创建用户' }}
+              </span>
+            </div>
+          </el-form-item>
+          <div class="form-row">
+            <el-form-item label="默认每个用户 Push Key 数量上限" prop="user_default_key_limit">
+              <el-input-number
+                v-model="userAppForm.user_default_key_limit"
+                :min="1"
+                :max="500"
+                :step="1"
+                controls-position="right"
+                style="width: 100%"
+              />
+              <div class="form-tip">用户注册后默认可创建的 Push Key 数量（管理员可单独调整）</div>
+            </el-form-item>
+            <el-form-item label="默认每个用户设备数量上限" prop="user_default_device_limit">
+              <el-input-number
+                v-model="userAppForm.user_default_device_limit"
+                :min="1"
+                :max="10000"
+                :step="1"
+                controls-position="right"
+                style="width: 100%"
+              />
+              <div class="form-tip">用户可接入的最大设备数（0 = 不限制）</div>
+            </el-form-item>
+          </div>
+
+          <div class="sub-section-title">
+            <span class="title-bar"></span>
+            Android APK 版本信息
+          </div>
+          <div class="form-row">
+            <el-form-item label="APK 版本号" prop="apk_version">
+              <el-input v-model="userAppForm.apk_version" placeholder="如 1.0.0" maxlength="16" />
+            </el-form-item>
+            <el-form-item label="APK 文件大小（可选）" prop="apk_size">
+              <el-input v-model="userAppForm.apk_size" placeholder="如 12.5MB" />
+            </el-form-item>
+          </div>
+          <div class="form-row">
+            <el-form-item label="APK 下载地址" prop="apk_url">
+              <el-input v-model="userAppForm.apk_url" placeholder="https://.../app-release.apk" clearable />
+            </el-form-item>
+            <el-form-item label="APK MD5（可选）" prop="apk_md5">
+              <el-input v-model="userAppForm.apk_md5" placeholder="文件 MD5 校验值" maxlength="32" />
+            </el-form-item>
+          </div>
+          <el-form-item label="强制更新">
+            <div class="ssl-toggle-row">
+              <el-switch
+                v-model="userAppForm.apk_force_update"
+                :active-value="1"
+                :inactive-value="0"
+              />
+              <span class="ssl-toggle-hint">
+                {{ userAppForm.apk_force_update === 1 ? '启用：低于此版本的 APP 必须升级后才能使用' : '关闭：用户可自行选择是否更新' }}
+              </span>
+            </div>
+          </el-form-item>
+
+          <div class="sub-section-title">
+            <span class="title-bar"></span>
+            iOS IPA 版本信息
+          </div>
+          <div class="form-row">
+            <el-form-item label="IPA 版本号" prop="ipa_version">
+              <el-input v-model="userAppForm.ipa_version" placeholder="如 1.0.0" maxlength="16" />
+            </el-form-item>
+            <el-form-item label="IPA 下载地址" prop="ipa_url">
+              <el-input v-model="userAppForm.ipa_url" placeholder="https://.../manifest.plist 或 itms-services://" clearable />
+            </el-form-item>
+          </div>
+
+          <div class="form-actions">
+            <el-button
+              type="primary"
+              :icon="CheckIcon"
+              :loading="saving.userApp"
+              @click="saveUserAppConfig"
+            >
+              保存配置
+            </el-button>
+          </div>
+        </el-form>
+      </div>
+
       <!-- f) 并发压测推送 -->
       <div class="setting-card concurrent-test-card">
         <div class="card-head">
@@ -1231,7 +1506,10 @@ import {
   CircleCheck as CircleCheckIcon,
   CircleClose as CircleCloseIcon,
   Iphone as IphoneIcon,
-  DataAnalysis as DataAnalysisIcon
+  DataAnalysis as DataAnalysisIcon,
+  Link as LinkIcon,
+  Shield as ShieldIcon,
+  Cellphone as CellphoneIcon
 } from '@element-plus/icons-vue'
 import {
   getSettingsApi,
@@ -1249,7 +1527,16 @@ import {
   testApnsPushApi,
   getApnsHealthApi,
   resetApnsCircuitApi,
-  type ApnsHealthStats
+  getPathsConfigApi,
+  savePathsConfigApi,
+  getSecurityExtConfigApi,
+  saveSecurityExtConfigApi,
+  getUserAppConfigApi,
+  saveUserAppConfigApi,
+  type ApnsHealthStats,
+  type SettingsPaths,
+  type SettingsSecurityExt,
+  type SettingsUserApp
 } from '@/api/settings'
 import { concurrentTestPushApi } from '@/api/push'
 import type { ConcurrentTestResult } from '@/api/types'
@@ -1369,6 +1656,66 @@ const securityRules: FormRules = {
   aesKey: [{ required: true, message: 'AES 密钥不能为空', trigger: 'blur' }],
   passwordMinLength: [{ required: true, message: '请设置密码最小长度', trigger: 'blur' }],
   loginFailLimit: [{ required: true, message: '请设置锁定次数', trigger: 'blur' }]
+}
+
+// ---- 路径配置 ----
+const pathsFormRef = ref<FormInstance>()
+const pathsForm = reactive<SettingsPaths>({
+  admin_path: '/admin',
+  user_path: '/user',
+  admin_api_prefix: '/admin-api',
+  user_api_prefix: '/user-api'
+})
+const pathsRules: FormRules = {
+  admin_path: [
+    { required: true, message: '请输入管理端路径', trigger: 'blur' },
+    { pattern: /^\/[a-zA-Z0-9_-]*$/, message: '路径必须以 / 开头，仅支持字母、数字、下划线、短横线', trigger: 'blur' }
+  ],
+  user_path: [
+    { required: true, message: '请输入用户端路径', trigger: 'blur' },
+    { pattern: /^\/[a-zA-Z0-9_-]*$/, message: '路径必须以 / 开头，仅支持字母、数字、下划线、短横线', trigger: 'blur' }
+  ],
+  admin_api_prefix: [
+    { required: true, message: '请输入管理端 API 前缀', trigger: 'blur' },
+    { pattern: /^\/[a-zA-Z0-9_-]*$/, message: '必须以 / 开头，仅支持字母、数字、下划线、短横线', trigger: 'blur' }
+  ],
+  user_api_prefix: [
+    { required: true, message: '请输入用户端 API 前缀', trigger: 'blur' },
+    { pattern: /^\/[a-zA-Z0-9_-]*$/, message: '必须以 / 开头，仅支持字母、数字、下划线、短横线', trigger: 'blur' }
+  ]
+}
+
+// ---- 安全扩展配置 ----
+const securityExtFormRef = ref<FormInstance>()
+const securityExtForm = reactive<SettingsSecurityExt>({
+  qq_bind_enabled: 1,
+  password_reset_mode: 'email_only',
+  session_expire_hours: 24 * 7,
+  password_reuse_limit: 3
+})
+const securityExtRules: FormRules = {
+  password_reset_mode: [{ required: true, message: '请选择密码重置方式', trigger: 'change' }],
+  session_expire_hours: [{ required: true, message: '请输入会话过期时间', trigger: 'blur' }],
+  password_reuse_limit: [{ required: true, message: '请输入密码复用限制', trigger: 'blur' }]
+}
+
+// ---- 用户 APP 配置 ----
+const userAppFormRef = ref<FormInstance>()
+const userAppForm = reactive<SettingsUserApp>({
+  apk_version: '',
+  apk_url: '',
+  apk_size: '',
+  apk_md5: '',
+  apk_force_update: 0,
+  ipa_version: '',
+  ipa_url: '',
+  user_register_enabled: 1,
+  user_default_key_limit: 10,
+  user_default_device_limit: 100
+})
+const userAppRules: FormRules = {
+  user_default_key_limit: [{ required: true, message: '请输入 Key 数量上限', trigger: 'blur' }],
+  user_default_device_limit: [{ required: true, message: '请输入设备数量上限', trigger: 'blur' }]
 }
 
 // ---- 邮件通知配置 ----
@@ -1621,7 +1968,10 @@ const saving = reactive({
   captcha: false,
   mail: false,
   security: false,
-  apns: false
+  apns: false,
+  paths: false,
+  securityExt: false,
+  userApp: false
 })
 const testing = reactive({
   mail: false,
@@ -1845,6 +2195,19 @@ async function fetchSettings() {
       securityForm.passwordMinLength = s.security.passwordMinLength || 8
       securityForm.loginFailLimit = s.security.loginFailLimit || 5
     }
+
+    // 加载路径配置（若统一接口返回）
+    if (s?.settings_paths) {
+      Object.assign(pathsForm, s.settings_paths)
+    }
+    // 加载安全扩展配置
+    if (s?.settings_security) {
+      Object.assign(securityExtForm, s.settings_security)
+    }
+    // 加载用户 APP 配置
+    if (s?.settings_user_app) {
+      Object.assign(userAppForm, s.settings_user_app)
+    }
   } catch {
     // 接口未就绪时自动检测服务器地址
     const detected = detectServerUrls()
@@ -1969,6 +2332,120 @@ async function resetApnsCircuit() {
     ElMessage.error(err instanceof Error ? err.message : '重置熔断失败')
   } finally {
     resettingCircuit.value = false
+  }
+}
+
+// 加载安全扩展配置
+async function fetchSecurityExtConfig() {
+  try {
+    const res = await getSecurityExtConfigApi()
+    Object.assign(securityExtForm, res.data)
+  } catch {
+    // 使用默认值
+  }
+}
+
+// 保存安全扩展配置
+async function saveSecurityExtConfig() {
+  const formRef = securityExtFormRef.value
+  if (!formRef) return
+  try {
+    await formRef.validate()
+  } catch {
+    ElMessage.warning('请完善表单必填项')
+    return
+  }
+  saving.securityExt = true
+  try {
+    const res = await saveSecurityExtConfigApi({ ...securityExtForm })
+    ElMessage.success(res.data?.message || '安全扩展配置已保存')
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '保存失败')
+  } finally {
+    saving.securityExt = false
+  }
+}
+
+// 加载用户 APP 配置
+async function fetchUserAppConfig() {
+  try {
+    const res = await getUserAppConfigApi()
+    Object.assign(userAppForm, res.data)
+  } catch {
+    // 使用默认值
+  }
+}
+
+// 保存用户 APP 配置
+async function saveUserAppConfig() {
+  const formRef = userAppFormRef.value
+  if (!formRef) return
+  try {
+    await formRef.validate()
+  } catch {
+    ElMessage.warning('请完善表单必填项')
+    return
+  }
+  saving.userApp = true
+  try {
+    const res = await saveUserAppConfigApi({ ...userAppForm })
+    ElMessage.success(res.data?.message || '用户 APP 配置已保存')
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '保存失败')
+  } finally {
+    saving.userApp = false
+  }
+}
+
+// 加载路径配置
+async function fetchPathsConfig() {
+  try {
+    const res = await getPathsConfigApi()
+    Object.assign(pathsForm, res.data)
+  } catch {
+    // 使用默认值
+  }
+}
+
+// 保存路径配置
+async function savePathsConfig() {
+  const formRef = pathsFormRef.value
+  if (!formRef) return
+  try {
+    await formRef.validate()
+  } catch {
+    ElMessage.warning('请完善表单必填项')
+    return
+  }
+  // 额外校验：admin_path 与 user_path 不能相同，API 前缀也不能相同
+  if (pathsForm.admin_path === pathsForm.user_path) {
+    ElMessage.warning('管理端路径与用户端路径不能相同')
+    return
+  }
+  if (pathsForm.admin_api_prefix === pathsForm.user_api_prefix) {
+    ElMessage.warning('管理端 API 前缀与用户端 API 前缀不能相同')
+    return
+  }
+  saving.paths = true
+  try {
+    const res = await savePathsConfigApi({ ...pathsForm })
+    ElMessage.success(res.data?.message || '路径配置已保存，正在刷新页面...')
+    if (res.data?.need_reload_nginx) {
+      ElMessageBox.alert(
+        '路径配置已保存。由于路径或 API 前缀发生变更，若使用 Nginx 反向代理，请同步更新 Nginx 的 location 路径匹配规则后再重载 Nginx。\n\n3 秒后将自动跳转到新的管理端入口...',
+        '请同步更新 Nginx',
+        { confirmButtonText: '我知道了', type: 'warning', center: true }
+      )
+    }
+    // 3 秒后跳到新的管理端入口
+    setTimeout(() => {
+      const hash = (pathsForm.admin_path || '/admin').replace(/^\//, '')
+      window.location.href = window.location.pathname + '#/' + hash + '/'
+    }, 1500)
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '保存失败')
+  } finally {
+    saving.paths = false
   }
 }
 
@@ -2100,6 +2577,10 @@ onMounted(async () => {
   fetchMailConfig()
   fetchApnsConfig()
   fetchSystemInfo()
+  // 专用接口兜底加载：如果统一接口没返回 settings_paths/settings_security/settings_user_app，则通过专用接口加载
+  fetchPathsConfig()
+  fetchSecurityExtConfig()
+  fetchUserAppConfig()
   // 加载完成后对已配置的端口做一次可用性检测
   if (serverForm.frontendPort && serverForm.frontendPort > 0) {
     onPortChange('frontend', serverForm.frontendPort)

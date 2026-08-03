@@ -243,6 +243,19 @@ export const asyncRoutes: RouteRecordRaw[] = [
     ]
   },
   {
+    path: '/user-notices',
+    component: Layout,
+    meta: { title: '用户公告', icon: 'Bell', roles: ['admin', 'super_admin'] },
+    children: [
+      {
+        path: '',
+        name: 'UserNotices',
+        component: () => import('@/views/user-notices/index.vue'),
+        meta: { title: '用户公告', icon: 'Bell', cache: true, module: 'user-notices' }
+      }
+    ]
+  },
+  {
     path: '/settings',
     component: Layout,
     meta: { title: '系统设置', icon: 'Setting', roles: ['admin', 'super_admin'] },

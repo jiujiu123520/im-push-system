@@ -1,5 +1,5 @@
-import { get, post, put } from '@/utils/request'
-import type { Settings } from './types'
+import { get, post, put, del } from '@/utils/request'
+import type { Settings, PageQuery, PageResult } from './types'
 
 // 获取系统设置
 export function getSettingsApi() {
@@ -192,4 +192,145 @@ export function getApnsHealthApi() {
 // 重置 APNS 熔断状态
 export function resetApnsCircuitApi() {
   return post<{ message: string }>('/admin/settings/apns/reset-circuit')
+}
+
+// ==================== 路径配置（实时生效） ====================
+
+export interface SettingsPaths {
+  admin_path: string
+  user_path: string
+  admin_api_prefix: string
+  user_api_prefix: string
+}
+
+// 获取路径配置
+export function getPathsConfigApi() {
+  return get<SettingsPaths>('/admin/settings/paths')
+}
+
+// 保存路径配置
+export function savePathsConfigApi(data: SettingsPaths) {
+  return post<{ message: string; need_reload_nginx?: boolean }>('/admin/settings/paths', data)
+}
+
+// ==================== 安全配置扩展 ====================
+
+export interface SettingsSecurityExt {
+  qq_bind_enabled: number
+  password_reset_mode: 'qq' | 'qq_email' | 'email_only'
+  session_expire_hours: number
+  password_reuse_limit: number
+}
+
+// 获取安全扩展配置
+export function getSecurityExtConfigApi() {
+  return get<SettingsSecurityExt>('/admin/settings/security-ext')
+}
+
+// 保存安全扩展配置
+export function saveSecurityExtConfigApi(data: SettingsSecurityExt) {
+  return post<{ message: string }>('/admin/settings/security-ext', data)
+}
+
+// ==================== 用户 APP 配置 ====================
+
+export interface SettingsUserApp {
+  apk_version: string
+  apk_url: string
+  apk_size: string
+  apk_md5: string
+  apk_force_update: number
+  ipa_version: string
+  ipa_url: string
+  user_register_enabled: number
+  user_default_key_limit: number
+  user_default_device_limit: number
+}
+
+// 获取用户 APP 配置
+export function getUserAppConfigApi() {
+  return get<SettingsUserApp>('/admin/settings/user-app')
+}
+
+// 保存用户 APP 配置
+export function saveUserAppConfigApi(data: Partial<SettingsUserApp>) {
+  return post<{ message: string }>('/admin/settings/user-app', data)
+}
+
+// ==================== 用户公告 CRUD ====================
+
+export interface UserNoticeRecord {
+  id: number
+  title: string
+  content?: string
+  type: number // 1=普通 2=紧急 3=维护 4=新功能
+  level: number // 1=普通 2=重要 3=紧急
+  show_dialog: number
+  show_home: number
+  is_sticky: number
+  sort: number
+  status: number // 0=草稿 1=已发布
+  start_at?: string
+  end_at?: string
+  publish_at?: string
+  created_by?: number
+  updated_by?: number
+  created_at: string
+  updated_at: string
+  read_count?: number
+}
+
+export interface UserNoticeForm {
+  id?: number
+  title: string
+  content?: string
+  type?: number
+  level?: number
+  show_dialog?: number
+  show_home?: number
+  is_sticky?: number
+  sort?: number
+  status?: number
+  start_at?: string
+  end_at?: string
+}
+
+// 获取公告列表
+export function getUserNoticeListApi(params: PageQuery) {
+  return get<PageResult<UserNoticeRecord>>('/admin/user-notices', params)
+}
+
+// 获取公告详情
+export function getUserNoticeDetailApi(id: number) {
+  return get<UserNoticeRecord>(`/admin/user-notices/${id}`)
+}
+
+// 创建公告
+export function createUserNoticeApi(data: UserNoticeForm) {
+  return post<{ id: number; message: string }>('/admin/user-notices', data)
+}
+
+// 更新公告
+export function updateUserNoticeApi(id: number, data: UserNoticeForm) {
+  return put<{ message: string }>(`/admin/user-notices/${id}`, data)
+}
+
+// 删除公告
+export function deleteUserNoticeApi(id: number) {
+  return del<{ message: string }>(`/admin/user-notices/${id}`)
+}
+
+// 发布公告
+export function publishUserNoticeApi(id: number) {
+  return post<{ message: string }>(`/admin/user-notices/${id}/publish`)
+}
+
+// 撤回公告
+export function withdrawUserNoticeApi(id: number) {
+  return post<{ message: string }>(`/admin/user-notices/${id}/withdraw`)
+}
+
+// 置顶/取消置顶
+export function toggleUserNoticeStickyApi(id: number, is_sticky: number) {
+  return put<{ message: string }>(`/admin/user-notices/${id}/sticky`, { is_sticky })
 }
