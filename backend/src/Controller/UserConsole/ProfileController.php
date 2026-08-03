@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Controller\UserConsole;
 
+use App\Service\CaptchaService;
 use App\Service\Database;
 use App\Service\Jwt;
 use App\Service\UserService;
@@ -21,7 +22,7 @@ class ProfileController extends BaseUserController
         $userId = (int)$context['user_id'];
 
         $row = Database::fetch(
-            'SELECT id, username, phone, email, qq, avatar, status, created_at, updated_at
+            'SELECT id, username, nickname, phone, email, qq, avatar, status, created_at, updated_at
              FROM users WHERE id = ? LIMIT 1',
             [$userId]
         );
@@ -43,25 +44,49 @@ class ProfileController extends BaseUserController
         $userId = (int)$context['user_id'];
 
         $body = $this->parseBody($context);
-        $username = trim((string)($body['username'] ?? ''));
-        $avatar   = trim((string)($body['avatar'] ?? ''));
+        $nickname  = trim((string)($body['nickname'] ?? ''));
+        $email     = trim((string)($body['email'] ?? ''));
+        $emailCode = trim((string)($body['email_code'] ?? ''));
+        $avatar    = trim((string)($body['avatar'] ?? ''));
 
         $sets = [];
         $bind = [];
-        if ($username !== '') {
-            if (mb_strlen($username) < 2 || mb_strlen($username) > 32) {
-                return $this->fail($context, '昵称长度需 2-32 字符');
+
+        // 昵称
+        if ($nickname !== '') {
+            if (mb_strlen($nickname) < 1 || mb_strlen($nickname) > 32) {
+                return $this->fail($context, '昵称长度需 1-32 字符');
             }
-            $dup = Database::fetch('SELECT id FROM users WHERE username = ? AND id <> ? LIMIT 1', [$username, $userId]);
-            if ($dup) return $this->fail($context, '用户名已被占用');
-            $sets[] = 'username = ?';
-            $bind[] = $username;
+            $sets[] = 'nickname = ?';
+            $bind[] = $nickname;
         }
+
+        // 邮箱（需验证码）
+        if ($email !== '') {
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return $this->fail($context, '邮箱格式不正确');
+            }
+            if ($emailCode === '') {
+                return $this->fail($context, '修改邮箱需要输入验证码');
+            }
+            // 校验验证码
+            if (!CaptchaService::verifyCode('email', $email, $emailCode)) {
+                return $this->fail($context, '邮箱验证码错误或已过期');
+            }
+            // 唯一性校验
+            $dup = Database::fetch('SELECT id FROM users WHERE email = ? AND id <> ? LIMIT 1', [$email, $userId]);
+            if ($dup) return $this->fail($context, '该邮箱已被其他账号使用');
+            $sets[] = 'email = ?';
+            $bind[] = $email;
+        }
+
+        // 头像
         if ($avatar !== '') {
-            if (strlen($avatar) > 1024) return $this->fail($context, '头像 URL 过长');
+            if (strlen($avatar) > 512) return $this->fail($context, '头像 URL 过长');
             $sets[] = 'avatar = ?';
             $bind[] = $avatar;
         }
+
         if (empty($sets)) return $this->fail($context, '没有需要更新的字段');
 
         $sets[] = 'updated_at = NOW()';
@@ -158,5 +183,30 @@ class ProfileController extends BaseUserController
         }
         Database::execute('UPDATE users SET qq = NULL, updated_at = NOW() WHERE id = ?', [$userId]);
         return ['unbound' => true];
+    }
+
+    /**
+     * 退出所有登录（吊销当前 token 并标记用户需重新登录）
+     */
+    public function logoutAll(array $context, array $params)
+    {
+        $payload = $this->auth($context);
+        if ($payload === null) return false;
+        $userId = (int)$context['user_id'];
+
+        // 吊销当前 token
+        try {
+            $server = isset($context['header']) ? array_change_key_case($context['header']) : [];
+            $auth = $server['authorization'] ?? '';
+            if (is_string($auth) && str_starts_with(strtolower($auth), 'bearer ')) {
+                $tok = trim(substr($auth, 7));
+                if ($tok !== '') {
+                    Jwt::revoke($tok);
+                }
+            }
+        } catch (\Throwable $e) {
+        }
+
+        return ['logged_out' => true];
     }
 }

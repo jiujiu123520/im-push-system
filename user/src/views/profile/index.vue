@@ -102,7 +102,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { User, Message, Iphone, ChatDotRound, SwitchButton } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
-import { getProfileApi, updateProfileApi, changePasswordApi, bindQqApi } from '@/api/profile'
+import { getProfileApi, updateProfileApi, changePasswordApi, bindQqApi, logoutAllApi } from '@/api/profile'
 import { sendCodeApi } from '@/api/auth'
 import { validEmail, validPassword, validQq } from '@/utils/validate'
 
@@ -191,8 +191,13 @@ async function savePwd() {
 }
 
 async function logoutAll() {
-  try { ElMessage.success('已强制退出所有登录，正在重新登录')
-        await userStore.refreshUserInfo() } catch {}
+  try {
+    await logoutAllApi()
+    ElMessage.success('已退出所有登录')
+    await userStore.logout()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '操作失败')
+  }
 }
 
 async function submitBindQq() {

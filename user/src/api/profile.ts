@@ -27,3 +27,8 @@ export function bindQqApi(params: BindQqParams) {
 export function unbindQqApi() {
   return post<{ message: string }>('/user-api/profile/unbind-qq')
 }
+
+// 退出所有登录
+export function logoutAllApi() {
+  return post<{ logged_out: boolean }>('/user-api/profile/logout-all')
+}

@@ -427,6 +427,7 @@ $router->put('/admin/keys/{id}/subscribers/{device_id}/repair', [\App\Controller
         $router->put('/user-api/profile/password',   [\App\Controller\UserConsole\ProfileController::class, 'changePassword']);
         $router->post('/user-api/profile/bind-qq',   [\App\Controller\UserConsole\ProfileController::class, 'bindQq']);
         $router->post('/user-api/profile/unbind-qq', [\App\Controller\UserConsole\ProfileController::class, 'unbindQq']);
+        $router->post('/user-api/profile/logout-all', [\App\Controller\UserConsole\ProfileController::class, 'logoutAll']);
     };
 
     $server = new \App\HttpServer($routeRegistrar);

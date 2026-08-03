@@ -135,12 +135,12 @@ function handleRelogin() {
       // 使用 router.replace 而非 location.href，避免全量刷新时的重复跳转
       // 这里延迟一帧执行，确保 ElMessageBox 完全关闭
       setTimeout(() => {
-        location.href = '/#/login'
+        location.href = '/admin/#/login'
       }, 50)
     })
     .catch(() => {
       setTimeout(() => {
-        location.href = '/#/login'
+        location.href = '/admin/#/login'
       }, 50)
     })
   // ⚠ 重要：不再 reset isReloginTriggered 为 false
