@@ -252,10 +252,27 @@ class AuthController
     {
         $body = self::parseJsonBody($context);
 
+        // 兼容 account 与 username 两种字段名（admin 端统一使用 username，老 user 端可能传 account）
         $account      = (string)($body['account'] ?? '');
+        if ($account === '') {
+            $account  = (string)($body['username'] ?? '');
+        }
         $password     = (string)($body['password'] ?? '');
+
+        // 兼容前端传 {captcha} 简写（当未传 captcha_token/captcha_input 时，
+        // 尝试用 body.captcha 作为验证码输入；但 token 仍要求传，如不传则为空字符串，
+        // 由 UserService::login 根据 loginCaptchaEnabled 决定是否校验）
         $captchaToken = (string)($body['captcha_token'] ?? '');
+        if ($captchaToken === '') {
+            $captchaToken = (string)($body['captchaToken'] ?? '');
+        }
         $captchaInput = (string)($body['captcha_input'] ?? '');
+        if ($captchaInput === '') {
+            $captchaInput = (string)($body['captchaInput'] ?? '');
+        }
+        if ($captchaInput === '') {
+            $captchaInput = (string)($body['captcha'] ?? '');
+        }
 
         $result = UserService::login($account, $password, $captchaToken, $captchaInput);
 

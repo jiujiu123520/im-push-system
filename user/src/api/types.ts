@@ -18,9 +18,16 @@ export interface PageResult<T> {
 }
 
 // ==================== 认证相关 ====================
+// 后端 AuthController::login 兼容 username / account 双字段、
+// captcha_token / captchaToken / captcha 多种写法；此处统一按 admin 端的风格，
+// 使用 username + captcha_token + captcha_input，请求发送时再由 auth.ts -> loginApi
+// 做一层映射（account = username），与后端路由设计保持一致。
 export interface LoginParams {
   username: string
   password: string
+  captcha_token?: string
+  captcha_input?: string
+  // 兼容旧字段（老代码可能仍在传 captcha，保持不报错）
   captcha?: string
 }
 

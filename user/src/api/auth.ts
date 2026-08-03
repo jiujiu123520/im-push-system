@@ -3,14 +3,37 @@ import type {
   LoginParams, RegisterParams, SendCodeParams, ResetPasswordParams,
   ResetPasswordByQqParams, LoginData, UserInfo, SecurityConfig
 } from './types'
+import type { AxiosRequestConfig } from 'axios'
 
 // 注意：
 // 认证接口（登录/注册/验证码）走后端公开路由 /auth/*
 // 私有接口走 /user-api/* 前缀（经过 UserApiAuth 鉴权）
 
 // 登录
+// 后端 AuthController::login 读取的字段是 {account, password, captcha_token, captcha_input}，
+// 这里将前端的 username 映射成 account，同时兼容 captcha 简写 / 驼峰等写法，
+// 保证与 UserService::login 的参数链路一致。
 export function loginApi(params: LoginParams) {
-  return post<LoginData>('/auth/login', params)
+  return post<LoginData>('/auth/login', {
+    account: params.username ?? '',
+    password: params.password ?? '',
+    captcha_token: params.captcha_token ?? params.captchaToken ?? '',
+    captcha_input: params.captcha_input ?? params.captchaInput ?? params.captcha ?? ''
+  })
+}
+
+// 获取图形验证码（后端路由 GET /captcha/image，返回 {token, image, enabled, loginEnabled, smsEnabled, emailEnabled}）
+// - enabled=false：整个验证码功能关闭，登录/注册都不需要验证码
+// - loginEnabled=false：仅登录不需要图形验证码（注册仍可能需要）
+export function getCaptchaApi(config?: AxiosRequestConfig) {
+  return get<{
+    token: string
+    image: string
+    enabled: boolean
+    loginEnabled?: boolean
+    smsEnabled?: boolean
+    emailEnabled?: boolean
+  }>('/captcha/image', undefined, config)
 }
 
 // 注册
