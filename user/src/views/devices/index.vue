@@ -44,7 +44,7 @@
         </el-table-column>
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
-            <el-switch v-model="row.status" :active-value="1" :inactive-value="0" @change="toggleStatus(row)" />
+            <el-switch v-model="row.status" :active-value="1" :inactive-value="0" @change="toggleStatus(row as Device)" />
           </template>
         </el-table-column>
         <el-table-column label="订阅 Key" width="160" align="center">
@@ -66,8 +66,8 @@
         <el-table-column prop="created_at" label="添加时间" width="170" align="center" />
         <el-table-column label="操作" width="160" align="center" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="showDetail(row)">详情</el-button>
-            <el-popconfirm title="确定删除该设备？" @confirm="del(row)">
+            <el-button link type="primary" @click="showDetail(row as Device)">详情</el-button>
+            <el-popconfirm title="确定删除该设备？" @confirm="del(row as Device)">
               <template #reference><el-button link type="danger">删除</el-button></template>
             </el-popconfirm>
           </template>

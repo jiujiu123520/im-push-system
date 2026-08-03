@@ -48,7 +48,7 @@
         <el-table-column prop="created_at" label="创建时间" width="180" align="center" />
         <el-table-column label="操作" width="160" align="center" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="showDetail(row)">详情</el-button>
+            <el-button link type="primary" @click="showDetail(row as PushLog)">详情</el-button>
           </template>
         </el-table-column>
       </el-table>

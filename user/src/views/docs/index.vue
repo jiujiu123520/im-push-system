@@ -72,13 +72,13 @@
             </el-table-column>
             <el-table-column label="状态" width="100" align="center">
               <template #default="{ row }">
-                <el-switch v-model="row.status" :active-value="1" :inactive-value="0" @change="toggleKeyStatus(row)" />
+                <el-switch v-model="row.status" :active-value="1" :inactive-value="0" @change="toggleKeyStatus(row as ApiKey)" />
               </template>
             </el-table-column>
             <el-table-column prop="created_at" label="创建时间" width="170" align="center" />
             <el-table-column label="操作" width="100" align="center" fixed="right">
               <template #default="{ row }">
-                <el-popconfirm title="确定删除？此 Key 立即失效" @confirm="delApiKey(row)">
+                <el-popconfirm title="确定删除？此 Key 立即失效" @confirm="delApiKey(row as ApiKey)">
                   <template #reference><el-button link type="danger">删除</el-button></template>
                 </el-popconfirm>
               </template>
@@ -166,7 +166,7 @@ async function loadKeys(page = qk.page) {
     kTotal.value = r.data?.total || 0
   } finally { loadingKeys.value = false }
 }
-function openCreate() { dlgForm.name = ''; dlgForm.expires_days = 0; dlgVisible = true }
+function openCreate() { dlgForm.name = ''; dlgForm.expires_days = 0; dlgVisible.value = true }
 async function saveApiKey() {
   await dlgFormRef.value?.validate(async (ok) => {
     if (!ok) return

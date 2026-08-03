@@ -140,8 +140,7 @@ async function submit() {
       ElMessage.success(r.data?.message || '推送任务已创建')
       if (r.data?.log_id) {
         setTimeout(() => {
-          ElMessage({ message: '查看推送记录 →', type: 'success', duration: 2500,
-            onClick: () => window.open('#/push-logs', '_self') })
+          ElMessage.success('推送成功，可在推送记录中查看')
         }, 300)
       }
     } catch (e: any) { ElMessage.error(e?.message || '推送失败')

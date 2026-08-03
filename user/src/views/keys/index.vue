@@ -28,14 +28,14 @@
         <el-table-column prop="subscriber_count" label="订阅设备" width="110" align="center" />
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
-            <el-switch v-model="row.status" :active-value="1" :inactive-value="0" @change="toggleStatus(row)" />
+            <el-switch v-model="row.status" :active-value="1" :inactive-value="0" @change="toggleStatus(row as PushKey)" />
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="180" align="center" />
         <el-table-column label="操作" width="200" align="center" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-popconfirm title="确定删除此 Key？删除后订阅的设备将无法接收推送" @confirm="del(row)">
+            <el-button link type="primary" @click="openEdit(row as PushKey)">编辑</el-button>
+            <el-popconfirm title="确定删除此 Key？删除后订阅的设备将无法接收推送" @confirm="del(row as PushKey)">
               <template #reference><el-button link type="danger">删除</el-button></template>
             </el-popconfirm>
           </template>

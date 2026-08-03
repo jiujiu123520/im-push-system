@@ -94,7 +94,7 @@
           <div class="qr-wrap">
             <div v-html="qrSvg || placeholderSvg" class="qr-svg"></div>
             <div class="qr-sub">
-              <div v-if="qrUrl">扫码或 <el-button link type="primary" @click="() => window.open(qrUrl,'_blank')">点击下载</el-button></div>
+              <div v-if="qrUrl">扫码或 <el-button link type="primary" @click="openUrl(qrUrl)">点击下载</el-button></div>
               <div v-else>管理员未配置下载链接</div>
             </div>
           </div>
@@ -150,6 +150,9 @@ async function loadInfo() {
 function downloadApk() {
   if (info.value.apk_download_url) window.open(info.value.apk_download_url, '_blank')
   else ElMessage.warning('管理员尚未配置 APK 下载地址')
+}
+function openUrl(url: string) {
+  window.open(url, '_blank')
 }
 async function generate() {
   if (!hb.app_name.trim()) return ElMessage.warning('请填写 APP 名称')
