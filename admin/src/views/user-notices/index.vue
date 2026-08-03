@@ -141,7 +141,7 @@
             <el-switch
               :model-value="row.is_sticky === 1"
               :loading="togglingStickyId === row.id"
-              @change="(v) => onToggleSticky(row as UserNoticeRecord, v)"
+              @change="(v) => onToggleSticky(row as UserNoticeRecord, !!v)"
             />
           </template>
         </el-table-column>
