@@ -220,6 +220,7 @@ export interface Notice {
   id: number
   title: string
   content?: string
+  summary?: string  // 列表接口返回的截断内容（LEFT(content,300)）
   type: 1 | 2 | 3 | 4
   level: 1 | 2 | 3
   show_dialog: 0 | 1

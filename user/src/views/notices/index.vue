@@ -37,7 +37,7 @@
             <span v-if="!isRead(n.id)" class="dot" />
           </div>
         </div>
-        <div v-if="n.content" class="content-preview" v-html="stripHtml(n.content).slice(0,120) + (stripHtml(n.content).length > 120 ? '…' : '')"></div>
+        <div v-if="n.summary || n.content" class="content-preview" v-html="stripHtml(n.summary || n.content).slice(0,120) + (stripHtml(n.summary || n.content).length > 120 ? '…' : '')"></div>
         <div class="foot">
           <el-button type="primary" link @click="openDetail(n)">查看详情</el-button>
           <el-button link @click.stop="markOneRead(n)">标为已读</el-button>
@@ -59,7 +59,7 @@
           <el-tag v-else type="info">普通</el-tag>
           <span class="meta-time">发布于 {{ current.publish_at || current.created_at }}</span>
         </div>
-        <div class="detail-content" v-html="current.content || '（无详细内容）'"></div>
+        <div class="detail-content" v-loading="detailLoading" v-html="current.content || current.summary || '（无详细内容）'"></div>
       </template>
     </el-drawer>
   </div>
@@ -68,7 +68,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getNoticeListApi, markNoticeReadApi, markAllNoticeReadApi } from '@/api/notice'
+import { getNoticeListApi, getNoticeDetailApi, markNoticeReadApi, markAllNoticeReadApi } from '@/api/notice'
 import type { Notice } from '@/api/types'
 
 const list = ref<Notice[]>([])
@@ -78,6 +78,7 @@ const q = reactive({ page: 1, pageSize: 10 })
 const tab = ref('all')
 const detailVisible = ref(false)
 const current = ref<Notice | null>(null)
+const detailLoading = ref(false)
 const readSet = reactive<Set<number>>(new Set(JSON.parse(localStorage.getItem('user_notice_read') || '[]')))
 
 const unread = computed(() => list.value.filter((n) => !readSet.has(n.id)).length)
@@ -104,8 +105,22 @@ async function loadList(page = q.page) {
 function persist() {
   localStorage.setItem('user_notice_read', JSON.stringify([...readSet]))
 }
-function openDetail(n: Notice) {
-  current.value = n; detailVisible.value = true; markOneRead(n)
+async function openDetail(n: Notice) {
+  current.value = n
+  detailVisible.value = true
+  markOneRead(n)
+  // 列表只有 summary（截断），调用详情接口拿完整 content
+  try {
+    detailLoading.value = true
+    const r = await getNoticeDetailApi(n.id)
+    if (r.data) {
+      current.value = { ...n, ...r.data }
+    }
+  } catch {
+    // 详情接口失败时保留列表 summary
+  } finally {
+    detailLoading.value = false
+  }
 }
 async function markOneRead(n: Notice) {
   if (readSet.has(n.id)) return
