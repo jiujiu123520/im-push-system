@@ -22,21 +22,21 @@ class DashboardController extends BaseUserController
         $today = date('Y-m-d');
         $yesterday = date('Y-m-d', strtotime('-1 day'));
 
-        // 今日/昨日推送量（push_logs 通过 api_keys.user_id 关联；或 user_id 直接在 push_keys 上的设备推送）
+        // 今日/昨日推送量（push_logs 通过 api_keys.user_id 或 detail.user_id 关联）
         $todayPush = (int)(Database::fetch(
             "SELECT COALESCE(SUM(pl.success_count + pl.fail_count), 0) cnt
              FROM push_logs pl
              LEFT JOIN api_keys ak ON ak.id = pl.api_key_id
-             WHERE DATE(pl.created_at) = ? AND ak.user_id = ?",
-            [$today, $userId]
+             WHERE DATE(pl.created_at) = ? AND (ak.user_id = ? OR JSON_EXTRACT(COALESCE(pl.detail,'{}'), '$.user_id') = ?)",
+            [$today, $userId, $userId]
         )['cnt'] ?? 0);
 
         $yesterdayPush = (int)(Database::fetch(
             "SELECT COALESCE(SUM(pl.success_count + pl.fail_count), 0) cnt
              FROM push_logs pl
              LEFT JOIN api_keys ak ON ak.id = pl.api_key_id
-             WHERE DATE(pl.created_at) = ? AND ak.user_id = ?",
-            [$yesterday, $userId]
+             WHERE DATE(pl.created_at) = ? AND (ak.user_id = ? OR JSON_EXTRACT(COALESCE(pl.detail,'{}'), '$.user_id') = ?)",
+            [$yesterday, $userId, $userId]
         )['cnt'] ?? 0);
 
         // 自己的 Key 数（push_keys = 用户自己的推送Key）
@@ -88,8 +88,8 @@ class DashboardController extends BaseUserController
                 "SELECT COALESCE(SUM(pl.success_count + pl.fail_count), 0) cnt
                  FROM push_logs pl
                  LEFT JOIN api_keys ak ON ak.id = pl.api_key_id
-                 WHERE DATE(pl.created_at) = ? AND ak.user_id = ?",
-                [$d, $userId]
+                 WHERE DATE(pl.created_at) = ? AND (ak.user_id = ? OR JSON_EXTRACT(COALESCE(pl.detail,'{}'), '$.user_id') = ?)",
+                [$d, $userId, $userId]
             )['cnt'] ?? 0);
             $series[] = ['date' => $d, 'count' => $cnt];
         }

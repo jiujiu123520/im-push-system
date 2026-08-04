@@ -109,10 +109,10 @@ import {
 } from '@/api/device'
 import type { Device } from '@/api/types'
 
-// 补一个 element-plus 未提供的组件，避免未使用变量告警
+// 在线/离线状态圆点组件
 const ElDot = {
   props: { type: { type: String, default: 'primary' } },
-  template: `<span :class="['el-badge__dot','mt-1','is-dot', {[type]: type}]" style="position:static;display:inline-block;width:8px;height:8px;vertical-align:middle"></span>`
+  template: `<span :style="{ background: type === 'success' ? '#22c55e' : type === 'danger' ? '#ef4444' : type === 'warning' ? '#f59e0b' : '#94a3b8' }" style="position:static;display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:middle"></span>`
 }
 
 const loading = ref(false)

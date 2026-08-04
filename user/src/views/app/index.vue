@@ -64,21 +64,6 @@
                   <el-input v-model="hb.package_id" placeholder="如：com.example.push" />
                 </el-form-item>
               </el-col>
-              <el-col :xs="24" :sm="24" :md="12">
-                <el-form-item label="版本名">
-                  <el-input v-model="hb.version_name" placeholder="如：1.0.0" />
-                </el-form-item>
-              </el-col>
-              <el-col :xs="24" :sm="24" :md="12">
-                <el-form-item label="版本号">
-                  <el-input-number v-model="hb.version_code" :min="1" :max="99999" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="24">
-                <el-form-item label="APP 描述">
-                  <el-input v-model="hb.app_description" type="textarea" :rows="2" maxlength="120" show-word-limit />
-                </el-form-item>
-              </el-col>
             </el-row>
             <el-button type="primary" :loading="genLoading" @click="generate">
               <el-icon><MagicStick /></el-icon> 生成并下载 ZIP
@@ -116,10 +101,10 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Cellphone, Iphone, Download, MagicStick } from '@element-plus/icons-vue'
 import { getAppInfoApi, getAppDownloadQrApi, generateHBuilderXApi } from '@/api/app'
+import { getToken } from '@/utils/auth'
 import type { AppInfo, HBuilderXGenerateParams } from '@/api/types'
 
 const info = ref<any>({})
-const qrSvg = ref('')
 const qrUrl = ref('')
 const genLoading = ref(false)
 
@@ -149,7 +134,7 @@ async function generate() {
   genLoading.value = true
   try {
     // Backend returns ZIP binary, use fetch to get blob
-    const token = localStorage.getItem('user_token') || ''
+    const token = getToken() || ''
     const resp = await fetch('/api/user-api/app/hbuilderx/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },

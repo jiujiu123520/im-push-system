@@ -48,6 +48,14 @@
               <div v-if="payloadError" class="err">{{ payloadError }}</div>
             </el-form-item>
           </el-col>
+          <el-col :span="24">
+            <el-form-item label="推送优先级">
+              <el-radio-group v-model="form.priority">
+                <el-radio label="normal">普通</el-radio>
+                <el-radio label="high">高优先级</el-radio>
+              </el-radio-group>
+            </el-form-item>
+          </el-col>
         </el-row>
         <el-form-item>
           <el-button type="primary" :loading="loading" @click="submit">立即推送</el-button>
@@ -80,7 +88,8 @@ const form = reactive({
   content: '',
   target_type: 'broadcast' as 'broadcast' | 'key' | 'device',
   target_value: '',
-  payload: undefined as Record<string, any> | undefined
+  payload: undefined as Record<string, any> | undefined,
+  priority: 'normal' as 'normal' | 'high'
 })
 const rules: FormRules = {
   title:  [{ required: true, message: '请输入标题', trigger: 'blur' },
@@ -115,6 +124,7 @@ async function loadDevices() {
 function resetForm() {
   form.title = ''; form.content = ''
   form.target_type = 'broadcast'; form.target_value = ''
+  form.priority = 'normal'
   payloadText.value = ''; payloadError.value = ''
   formRef.value?.resetFields()
 }
@@ -123,16 +133,23 @@ async function submit() {
     if (!ok || payloadError.value) return
     loading.value = true
     try {
-      // For 'key' target: use selected key_value; for 'device': use selected device_id
       const params: any = {
         target_type: form.target_type,
         target_value: form.target_value,
         title: form.title,
         content: form.content,
-        payload: form.payload
+        payload: form.payload,
+        priority: form.priority
       }
       const r = await sendPushApi(params)
-      ElMessage.success('推送任务已完成')
+      const d = r.data
+      if (d?.status === 1) {
+        ElMessage.success(`推送成功（成功 ${d.success_count} 台）`)
+      } else if (d?.status === 2) {
+        ElMessage.warning(`部分成功（成功 ${d.success_count}，失败 ${d.fail_count}）`)
+      } else {
+        ElMessage.error(d?.fail_reason || d?.message || '推送失败')
+      }
     } catch (e: any) { ElMessage.error(e?.message || '推送失败')
     } finally { loading.value = false }
   })

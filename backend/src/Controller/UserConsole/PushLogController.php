@@ -83,6 +83,7 @@ class PushLogController extends BaseUserController
         if ($row === false) return $this->fail($context, '记录不存在', 404, 404);
 
         $row['detail']      = $this->tryJsonDecode($row['detail'] ?? null);
+        unset($row['detail']['user_id']);
         $row['fail_detail'] = $row['detail']['fail_detail'] ?? [];
         $row['push_detail'] = $row['detail']['push_detail'] ?? [];
         return $row;

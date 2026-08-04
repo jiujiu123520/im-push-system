@@ -41,7 +41,7 @@ class NoticeController extends BaseUserController
             $userId = (int)($context['user_id'] ?? 0);
         }
         $srv = new UserNoticeService();
-        return ['list' => $srv->getDialogNotices($userId)];
+        return $srv->getDialogNotices($userId);
     }
 
     public function show(array $context, array $params)

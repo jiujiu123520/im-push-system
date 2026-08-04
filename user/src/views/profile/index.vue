@@ -181,7 +181,7 @@ async function savePwd() {
     if (!ok) return
     savingPwd.value = true
     try {
-      await changePasswordApi({ old_password: pwd.old_password, new_password: pwd.new_password })
+      await changePasswordApi({ old_password: pwd.old_password, new_password: pwd.new_password, confirm_password: pwd.confirm_password })
       ElMessage.success('密码修改成功，请重新登录')
       pwd.old_password = pwd.new_password = pwd.confirm_password = ''
       setTimeout(() => userStore.logout(), 600)
