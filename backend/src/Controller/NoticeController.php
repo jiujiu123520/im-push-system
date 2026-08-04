@@ -26,6 +26,25 @@ class NoticeController
     private const PER_PAGE = 20;
 
     /**
+     * 从 context 中解析 JSON body（兼容 Swoole 上下文）
+     */
+    private function parseBody(array $context): array
+    {
+        $data = $context['post'] ?? [];
+        if (!empty($data)) {
+            return $data;
+        }
+        $raw = $context['raw'] ?? '';
+        if ($raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+        return [];
+    }
+
+    /**
      * 列表（GET /admin/user-notices）
      */
     public function index(array $context, array $params): array
@@ -35,8 +54,7 @@ class NoticeController
             return [];
         }
 
-        $request  = $context['request'];
-        $query    = $request->get ?? [];
+        $query    = $context['get'] ?? [];
         $page     = max(1, (int)($query['page'] ?? 1));
         $perPage  = max(1, min(200, (int)($query['pageSize'] ?? $query['per_page'] ?? self::PER_PAGE)));
 
@@ -82,12 +100,7 @@ class NoticeController
         if ($admin === null) {
             return false;
         }
-        $body = $context['parsed_body'] ?? [];
-        if (empty($body)) {
-            $raw = file_get_contents('php://input') ?: '';
-            $decoded = json_decode($raw, true);
-            if (is_array($decoded)) $body = $decoded;
-        }
+        $body = $this->parseBody($context);
 
         $adminId = (int)($admin['admin_id'] ?? 0);
         try {
@@ -114,12 +127,7 @@ class NoticeController
             Response::fail($context['response'], '无效的 ID', Response::CODE_BAD_REQUEST, 400);
             return false;
         }
-        $body = $context['parsed_body'] ?? [];
-        if (empty($body)) {
-            $raw = file_get_contents('php://input') ?: '';
-            $decoded = json_decode($raw, true);
-            if (is_array($decoded)) $body = $decoded;
-        }
+        $body = $this->parseBody($context);
 
         $adminId = (int)($admin['admin_id'] ?? 0);
         $svc = new UserNoticeService();
@@ -218,12 +226,7 @@ class NoticeController
             Response::fail($context['response'], '无效的 ID', Response::CODE_BAD_REQUEST, 400);
             return false;
         }
-        $body = $context['parsed_body'] ?? [];
-        if (empty($body)) {
-            $raw = file_get_contents('php://input') ?: '';
-            $decoded = json_decode($raw, true);
-            if (is_array($decoded)) $body = $decoded;
-        }
+        $body = $this->parseBody($context);
         $isSticky = (int)($body['is_sticky'] ?? 0);
         if (!in_array($isSticky, [0, 1], true)) $isSticky = 0;
 
