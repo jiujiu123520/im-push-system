@@ -128,6 +128,7 @@ class WebSocketServer
      *   - max_wait_time: reload 时等待连接关闭的最大时间
      *   - send_yield: 当发送队列满时让出协程,避免阻塞 worker
      *   - socket_buffer_size: 单连接发送缓冲区大小(字节)，Swoole 5.x 替代 send_buffer_size
+     *   注：reloadable 在 Swoole 5.x 已移除，worker 默认即可被 reload
      *
      * @return void
      */
@@ -150,7 +151,6 @@ class WebSocketServer
             'max_conn'               => 10000,     // 单 worker 最大并发连接数
             'max_request'            => 0,         // WebSocket 长连接不重启 worker,避免连接断开
             'max_wait_time'          => 60,       // reload 时等待连接关闭的最大秒数
-            'reloadable'             => true,      // worker 可被 reload 重启
             'send_yield'             => true,      // 发送队列满时让出协程,避免阻塞
             'socket_buffer_size'     => 1048576,  // 1MB 单连接发送缓冲区（Swoole 5.x 替代 send_buffer_size）
             // 鉴权超时定时器依赖,允许毫秒级 Timer

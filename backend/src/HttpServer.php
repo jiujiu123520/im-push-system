@@ -61,7 +61,7 @@ class HttpServer
      *   - max_conn: 单 worker 最大连接数,防止 fd 耗尽
      *   - max_request: 每个 worker 处理 N 次请求后重启,释放内存避免泄漏
      *   - max_wait_time: reload 时 worker 等待请求结束的最大时间
-     *   - reloadable: worker 可被 reload 重启
+     *   注：reloadable 在 Swoole 5.x 已移除，worker 默认即可被 reload
      *
      * @return void
      */
