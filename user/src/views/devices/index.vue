@@ -138,7 +138,7 @@ async function loadList(page = query.page) {
 }
 async function toggleStatus(row: Device) {
   try {
-    await updateDeviceStatusApi(row.id, row.status)
+    await updateDeviceStatusApi(row.id, row.status as 1 | 2)
     ElMessage.success(row.status === 1 ? '已启用' : '已禁用')
   } catch (e: any) {
     ElMessage.error(e?.message || '操作失败')

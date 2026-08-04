@@ -70,7 +70,7 @@ async function loadUnread() {
     // 简单估算未读：取前 50 条公告，未读数量待后端扩展；这里用 localStorage 近似
     const read: number[] = JSON.parse(localStorage.getItem('user_notice_read') || '[]')
     const res = await getNoticeListApi({ page: 1, pageSize: 50 })
-    const items: any[] = res.data?.items || []
+    const items: any[] = res.data?.list || []
     unreadCount.value = items.filter((n) => !read.includes(n.id)).length
   } catch {}
 }

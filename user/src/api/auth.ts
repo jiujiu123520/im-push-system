@@ -17,8 +17,8 @@ export function loginApi(params: LoginParams) {
   return post<LoginData>('/auth/login', {
     account: params.username ?? '',
     password: params.password ?? '',
-    captcha_token: params.captcha_token ?? params.captchaToken ?? '',
-    captcha_input: params.captcha_input ?? params.captchaInput ?? params.captcha ?? ''
+    captcha_token: params.captcha_token ?? (params as any).captchaToken ?? '',
+    captcha_input: params.captcha_input ?? (params as any).captchaInput ?? params.captcha ?? ''
   })
 }
 
