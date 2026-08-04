@@ -135,7 +135,8 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Cellphone, Iphone, Download, MagicStick } from '@element-plus/icons-vue'
-import { getAppInfoApi, getAppDownloadQrApi, generateHBuilderXApi } from '@/api/app'
+import { getAppInfoApi, getAppDownloadQrApi, getHBuilderXTemplatesApi, generateHBuilderXApi } from '@/api/app'
+import type { HBuilderXTemplate } from '@/api/app'
 import { getToken } from '@/utils/auth'
 import type { AppInfo, HBuilderXGenerateParams } from '@/api/types'
 
@@ -150,10 +151,10 @@ const info = ref<any>({})
 const qrUrl = ref('')
 const genLoading = ref(false)
 
-// 模板列表
+// 模板列表（从后端获取）
 const templates = ref<Template[]>([
-  { id: 'new', name: '新版模板', description: '推荐使用，基于最新 uni-app 架构，UI 更美观，性能更好', available: true },
-  { id: 'old', name: '旧版模板', description: '兼容旧版 APP 源码，适合已使用旧版模板的用户', available: false },
+  { id: 'new', name: '新版模板', description: '加载中...', available: true },
+  { id: 'old', name: '旧版模板', description: '加载中...', available: false },
 ])
 
 const hb = reactive<any>({
@@ -169,6 +170,19 @@ async function loadInfo() {
   try {
     const r2 = await getAppDownloadQrApi()
     qrUrl.value = r2.data?.apk_url || ''
+  } catch {}
+  // 从后端获取模板列表
+  try {
+    const r3 = await getHBuilderXTemplatesApi()
+    if (r3.data?.templates && Array.isArray(r3.data.templates) && r3.data.templates.length > 0) {
+      templates.value = r3.data.templates
+      // 如果当前选中的模板不可用，切换到第一个可用的模板
+      const current = templates.value.find(t => t.id === hb.template)
+      if (!current || !current.available) {
+        const firstAvailable = templates.value.find(t => t.available)
+        if (firstAvailable) hb.template = firstAvailable.id
+      }
+    }
   } catch {}
 }
 

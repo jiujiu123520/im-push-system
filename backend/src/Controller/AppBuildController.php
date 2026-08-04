@@ -1905,6 +1905,20 @@ class AppBuildController
     }
 
     /**
+     * GET /admin/app-build/hbuilderx/templates
+     * 获取可用 HBuilderX 模板列表
+     */
+    public function hbuilderxTemplates(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+        $service = new \App\Service\HBuilderXService();
+        return ['templates' => $service->getAvailableTemplates()];
+    }
+
+    /**
      * POST /admin/app-build/hbuilderx/generate
      * 生成 HBuilderX 项目压缩包
      *
@@ -1929,6 +1943,8 @@ class AppBuildController
         $wsUrl = trim((string)($data['ws_url'] ?? ''));
         $iconBase64 = (string)($data['icon_base64'] ?? '');
         $version = trim((string)($data['version'] ?? '1.0.0'));
+        $template = trim((string)($data['template'] ?? 'new'));
+        if (!in_array($template, ['new', 'old'], true)) $template = 'new';
 
         if ($appName === '') {
             Response::fail($response, '应用名称不能为空', Response::CODE_BAD_REQUEST);
@@ -1938,12 +1954,14 @@ class AppBuildController
         // 剥离 data URL 前缀
         $iconBase64 = preg_replace('/^data:image\/[a-z]+;base64,/i', '', $iconBase64);
 
-        // 项目根目录
+        // 项目根目录，根据模板选择目录
         $projectRoot = dirname(__DIR__, 3);
-        $templateDir = $projectRoot . '/build/hbuilderx';
+        $templateDir = ($template === 'old')
+            ? $projectRoot . '/build/hbuilderx-old'
+            : $projectRoot . '/build/hbuilderx';
 
         if (!is_dir($templateDir)) {
-            Response::fail($response, 'HBuilderX 模板目录不存在', Response::CODE_INTERNAL);
+            Response::fail($response, 'HBuilderX 模板目录不存在：' . $templateDir, Response::CODE_INTERNAL);
             return false;
         }
 

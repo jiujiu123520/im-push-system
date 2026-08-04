@@ -84,6 +84,7 @@ if ($runWs) {
         $router->get('/admin/app-build/runs', [\App\Controller\AppBuildController::class, 'runs']);
         $router->get('/admin/app-build/random-config', [\App\Controller\AppBuildController::class, 'randomConfig']);
         $router->get('/admin/app-build/generate-icon', [\App\Controller\AppBuildController::class, 'generateIcon']);
+        $router->get('/admin/app-build/hbuilderx/templates', [\App\Controller\AppBuildController::class, 'hbuilderxTemplates']);
         $router->post('/admin/app-build/hbuilderx/generate', [\App\Controller\AppBuildController::class, 'generateHBuilderX']);
         $router->post('/admin/app-build/ios/generate', [\App\Controller\AppBuildController::class, 'generateIosSource']);
         $router->get('/admin/app-build/status/{build_id}', [\App\Controller\AppBuildController::class, 'status']);
@@ -416,6 +417,7 @@ $router->put('/admin/keys/{id}/subscribers/{device_id}/repair', [\App\Controller
         // APP
         $router->get('/user-api/app/info',           [\App\Controller\UserConsole\AppController::class, 'info']);
         $router->get('/user-api/app/download-qr',    [\App\Controller\UserConsole\AppController::class, 'downloadQr']);
+        $router->get('/user-api/app/hbuilderx/templates', [\App\Controller\UserConsole\AppController::class, 'hbuilderxTemplates']);
         $router->post('/user-api/app/hbuilderx/generate', [\App\Controller\UserConsole\AppController::class, 'hbuilderxGenerate']);
         // 公告
         $router->get('/user-api/notices',            [\App\Controller\UserConsole\NoticeController::class, 'index']);

@@ -55,16 +55,10 @@
                         <text class="clear-btn" @click="clearMessages">清空</text>
                     </view>
                 </view>
-                <!-- 搜索框 -->
-                <view class="search-bar">
-                    <text class="search-icon">🔍</text>
-                    <input class="search-input" v-model="searchKeyword" placeholder="搜索消息标题或内容..." confirm-type="search" @confirm="handleSearch" @input="handleSearch" />
-                    <text v-if="searchKeyword" class="search-clear" @click="clearSearch">✕</text>
-                </view>
                 <scroll-view
                     scroll-y
                     class="message-list"
-                    v-if="filteredMessages.length > 0"
+                    v-if="messages.length > 0"
                     :scroll-top="scrollTop"
                     :key="'msg-list-' + messages.length"
                     enhanced
@@ -72,7 +66,7 @@
                     :lower-threshold="80"
                     @scrolltolower="loadMoreMessages"
                 >
-                    <view v-for="(msg) in filteredMessages" :key="msg.id" class="message-item">
+                    <view v-for="(msg) in messages" :key="msg.id" class="message-item">
                 <view class="message-header">
                     <text class="message-title">{{ msg.title }}</text>
                     <text class="message-copy-btn" @click="copyMessage(msg)">复制</text>
@@ -498,7 +492,6 @@ export default {
             wsUrl: '',
             bindDeviceIdInput: '',
             messages: [],
-            searchKeyword: '',           // 消息搜索关键词
             scrollTop: 0,
             // 分页状态
             loadingMore: false,           // 是否正在加载更多
@@ -553,16 +546,6 @@ export default {
     computed: {
         deviceIdShort() {
             return this.deviceId ? this.deviceId.substring(0, 8) : '--'
-        },
-        // 根据搜索关键词过滤消息列表（匹配标题或内容，不区分大小写）
-        filteredMessages() {
-            const kw = (this.searchKeyword || '').trim().toLowerCase()
-            if (!kw) return this.messages
-            return this.messages.filter(msg => {
-                const title = (msg.title || '').toLowerCase()
-                const content = (msg.content || '').toLowerCase()
-                return title.indexOf(kw) !== -1 || content.indexOf(kw) !== -1
-            })
         },
         // 上次刷新时间的友好显示（如"刚刚"、"2分钟前"）
         refreshTimeAgo() {
@@ -720,15 +703,6 @@ export default {
         switchTab(tab) {
             this.currentTab = tab
         },
-        // ============== 消息搜索 ==============
-        // 搜索逻辑由 computed filteredMessages 自动处理
-        handleSearch() {
-            // 搜索逻辑由 computed filteredMessages 自动处理
-        },
-        // 清空搜索关键词
-        clearSearch() {
-            this.searchKeyword = '';
-        },
         // ============== 数据刷新机制 ==============
         // 启动自动刷新定时器（每 60 秒静默同步一次）
         startAutoRefresh() {
@@ -755,14 +729,14 @@ export default {
             // 节流：3 秒内只允许触发一次
             const now = Date.now()
             if (now - this._lastRefreshAt < 3000) {
-                uni.showToast({ title: '刚刷新过，请稍候', icon: 'none', duration: 2500 })
+                uni.showToast({ title: '刚刷新过，请稍候', icon: 'none', duration: 1000 })
                 return
             }
             this.refreshData(false).then((newCount) => {
                 if (newCount > 0) {
-                    uni.showToast({ title: '新增 ' + newCount + ' 条消息', icon: 'success', duration: 2500 })
+                    uni.showToast({ title: '新增 ' + newCount + ' 条消息', icon: 'success' })
                 } else {
-                    uni.showToast({ title: '已是最新', icon: 'none', duration: 2500 })
+                    uni.showToast({ title: '已是最新', icon: 'none', duration: 1000 })
                 }
             })
         },
@@ -930,7 +904,7 @@ export default {
                 'single_loop': '单曲循环',
                 'single': '播放一次'
             }
-            uni.showToast({ title: '已切换为：' + modeText[mode], icon: 'none', duration: 2500 })
+            uni.showToast({ title: '已切换为：' + modeText[mode], icon: 'none' })
         },
         onAudioToggle(e) {
             this.audioEnabled = e.detail.value
@@ -947,7 +921,7 @@ export default {
         addAudioUrl() {
             const url = this.newAudioUrl.trim()
             if (!url) {
-                uni.showToast({ title: '请输入音频地址', icon: 'none', duration: 2500 })
+                uni.showToast({ title: '请输入音频地址', icon: 'none' })
                 return
             }
             // 从 URL 中提取文件名作为名称
@@ -959,7 +933,7 @@ export default {
             this.audioList.push({ url, name })
             this.saveAudioConfig()
             this.newAudioUrl = ''
-            uni.showToast({ title: '添加成功', icon: 'success', duration: 2500 })
+            uni.showToast({ title: '添加成功', icon: 'success' })
             // 如果是第一首，初始化播放器
             if (this.audioList.length === 1 && this.audioEnabled) {
                 this.currentAudioSource = 'local'
@@ -1015,7 +989,7 @@ export default {
                         }
                         this.audioList = []
                         this.saveAudioConfig()
-                        uni.showToast({ title: '已清空', icon: 'success', duration: 2500 })
+                        uni.showToast({ title: '已清空', icon: 'success' })
                     }
                 }
             })
@@ -1044,7 +1018,7 @@ export default {
             })
             this.audioContext.onError((err) => {
                 console.error('音频播放错误', err)
-                uni.showToast({ title: '播放失败：' + (err.errMsg || '未知错误'), icon: 'none', duration: 2500 })
+                uni.showToast({ title: '播放失败：' + (err.errMsg || '未知错误'), icon: 'none' })
                 // 播放失败时，列表循环模式跳下一首
                 if (this.playMode === 'list_loop') {
                     setTimeout(() => {
@@ -1384,7 +1358,6 @@ export default {
         },
         // 上拉加载更多历史消息
         loadMoreMessages() {
-            if (this.searchKeyword) return // 搜索中不触发加载更多
             if (this.loadingMore || !this.hasMore) return
             if (!this.oldestDbId) {
                 this.hasMore = false
@@ -2320,7 +2293,7 @@ export default {
                     uni.showToast({
                         title: '通知栏未显示（消息已保存到列表）',
                         icon: 'none',
-                        duration: 2500
+                        duration: 2000
                     })
                 } catch (_) {}
                 return false
@@ -2452,18 +2425,18 @@ export default {
         handleChangeWsUrl() {
             const inputWs = (this.wsUrl || '').trim()
             if (!inputWs) {
-                uni.showToast({ title: 'WebSocket 地址不能为空', icon: 'none', duration: 2500 })
+                uni.showToast({ title: 'WebSocket 地址不能为空', icon: 'none' })
                 return
             }
             if (!/^wss?:\/\/.+/.test(inputWs)) {
-                uni.showToast({ title: '地址需以 ws:// 或 wss:// 开头', icon: 'none', duration: 2500 })
+                uni.showToast({ title: '地址需以 ws:// 或 wss:// 开头', icon: 'none' })
                 return
             }
             uni.setStorageSync('push_ws', inputWs)
             this.wsUrl = inputWs
             this.form.wsUrl = inputWs
             this.showSettings = false
-            uni.showToast({ title: '已应用，正在重连...', icon: 'none', duration: 2500 })
+            uni.showToast({ title: '已应用，正在重连...', icon: 'none' })
             this.closeSocket()
             this.reconnectDelay = 3000
             this.connectWebSocket()
@@ -2500,7 +2473,7 @@ export default {
                         uni.removeStorageSync('push_total_count')
                         this.messages = []
                         this.todayCount = 0
-                        uni.showToast({ title: '缓存已清除', icon: 'success', duration: 2500 })
+                        uni.showToast({ title: '缓存已清除', icon: 'success' })
                     }
                 }
             })
@@ -2521,7 +2494,7 @@ export default {
             uni.setClipboardData({
                 data: info,
                 success: () => {
-                    uni.showToast({ title: '设备信息已复制', icon: 'success', duration: 2500 })
+                    uni.showToast({ title: '设备信息已复制', icon: 'success' })
                 }
             })
         },
@@ -2550,13 +2523,13 @@ export default {
                     }
                     this.bindDeviceIdInput = text
                     if (text) {
-                        uni.showToast({ title: '已粘贴', icon: 'success', duration: 2500 })
+                        uni.showToast({ title: '已粘贴', icon: 'success' })
                     } else {
-                        uni.showToast({ title: '剪贴板为空', icon: 'none', duration: 2500 })
+                        uni.showToast({ title: '剪贴板为空', icon: 'none' })
                     }
                 },
                 fail: () => {
-                    uni.showToast({ title: '读取剪贴板失败', icon: 'none', duration: 2500 })
+                    uni.showToast({ title: '读取剪贴板失败', icon: 'none' })
                 }
             })
         },
@@ -2564,11 +2537,11 @@ export default {
         applyBoundDeviceId() {
             const newDeviceId = (this.bindDeviceIdInput || '').trim()
             if (!newDeviceId) {
-                uni.showToast({ title: '请输入设备 ID', icon: 'none', duration: 2500 })
+                uni.showToast({ title: '请输入设备 ID', icon: 'none' })
                 return
             }
             if (newDeviceId === this.deviceId) {
-                uni.showToast({ title: '与当前设备 ID 相同', icon: 'none', duration: 2500 })
+                uni.showToast({ title: '与当前设备 ID 相同', icon: 'none' })
                 return
             }
             // 基本校验：长度和字符（允许：字母数字下划线短横线）
@@ -2604,7 +2577,7 @@ export default {
                     this.deviceId = newDeviceId
                     // 先关闭当前连接
                     this.closeSocket()
-                    uni.showToast({ title: '已绑定，正在同步消息...', icon: 'none', duration: 2500 })
+                    uni.showToast({ title: '已绑定，正在同步消息...', icon: 'none' })
                     // 同步该设备的历史消息
                     this.syncDeviceHistoryMessages(newDeviceId)
                     // 稍等片刻后重连（让 closeSocket 完成）
@@ -2636,14 +2609,14 @@ export default {
                 success: (res) => {
                     if (res.statusCode !== 200 || !res.data || res.data.code !== 0) {
                         console.warn('[Sync] 同步失败:', res.data?.message || res.statusCode)
-                        uni.showToast({ title: '历史消息同步失败', icon: 'none', duration: 2500 })
+                        uni.showToast({ title: '历史消息同步失败', icon: 'none' })
                         return
                     }
                     const data = res.data.data || {}
                     const list = data.list || []
                     if (list.length === 0) {
                         console.log('[Sync] 该设备暂无历史消息')
-                        uni.showToast({ title: '已绑定，正在重连...', icon: 'none', duration: 2500 })
+                        uni.showToast({ title: '已绑定，正在重连...', icon: 'none' })
                         return
                     }
                     // 将后端历史消息合并到本地消息列表
@@ -2674,17 +2647,16 @@ export default {
                         console.log('[Sync] 同步完成，新增', newMsgs.length, '条历史消息')
                         uni.showToast({
                             title: '已同步 ' + newMsgs.length + ' 条历史消息',
-                            icon: 'none',
-                            duration: 2500
+                            icon: 'none'
                         })
                     } else {
                         console.log('[Sync] 历史消息已全部存在，无需合并')
-                        uni.showToast({ title: '已绑定，正在重连...', icon: 'none', duration: 2500 })
+                        uni.showToast({ title: '已绑定，正在重连...', icon: 'none' })
                     }
                 },
                 fail: (err) => {
                     console.error('[Sync] 同步请求失败', err)
-                    uni.showToast({ title: '历史消息同步失败', icon: 'none', duration: 2500 })
+                    uni.showToast({ title: '历史消息同步失败', icon: 'none' })
                 }
             })
         },
@@ -2702,7 +2674,7 @@ export default {
                     this.initDeviceId()
                     this.bindDeviceIdInput = this.deviceId
                     this.closeSocket()
-                    uni.showToast({ title: '已恢复，正在重连...', icon: 'none', duration: 2500 })
+                    uni.showToast({ title: '已恢复，正在重连...', icon: 'none' })
                     setTimeout(() => {
                         this.connectWebSocket()
                     }, 800)
@@ -2797,7 +2769,7 @@ export default {
                         } catch (e) {}
                     }
                     if (!launched) {
-                        uni.showToast({ title: '无法打开通知设置，请手动前往系统设置', icon: 'none', duration: 2500 })
+                        uni.showToast({ title: '无法打开通知设置，请手动前往系统设置', icon: 'none' })
                     }
                     return
                 }
@@ -2838,7 +2810,7 @@ export default {
                             } catch (e) {}
                         }
                         if (!launched) {
-                            uni.showToast({ title: '未找到自启动设置页，已跳转应用详情', icon: 'none', duration: 2500 })
+                            uni.showToast({ title: '未找到自启动设置页，已跳转应用详情', icon: 'none' })
                             const fallback = new Intent()
                             fallback.setAction(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                             fallback.setData(Uri.fromParts('package', packageName, null))
@@ -2857,11 +2829,11 @@ export default {
                 }
             } catch (e) {
                 console.error('打开权限设置失败', e)
-                uni.showToast({ title: '打开设置失败：' + e.message, icon: 'none', duration: 2500 })
+                uni.showToast({ title: '打开设置失败：' + e.message, icon: 'none' })
             }
             // #endif
             // #ifndef APP-PLUS
-            uni.showToast({ title: '此功能仅在 APP 端可用', icon: 'none', duration: 2500 })
+            uni.showToast({ title: '此功能仅在 APP 端可用', icon: 'none' })
             // #endif
         },
         getDeviceBrand() {
@@ -2944,7 +2916,7 @@ export default {
 
                 const cfg = configs[type]
                 if (!cfg) {
-                    uni.showToast({ title: '未知权限类型：' + type, icon: 'none', duration: 2500 })
+                    uni.showToast({ title: '未知权限类型：' + type, icon: 'none' })
                     return
                 }
 
@@ -2984,7 +2956,7 @@ export default {
 
                 if (!launched) {
                     const Settings = plus.android.importClass('android.provider.Settings')
-                    uni.showToast({ title: '未找到' + cfg.title + '设置页，已跳转应用详情', icon: 'none', duration: 2500 })
+                    uni.showToast({ title: '未找到' + cfg.title + '设置页，已跳转应用详情', icon: 'none' })
                     const fallback = new Intent()
                     fallback.setAction(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                     fallback.setData(Uri.fromParts('package', packageName, null))
@@ -3004,11 +2976,11 @@ export default {
                 }
             } catch (e) {
                 console.error('打开小米权限设置失败', e)
-                uni.showToast({ title: '打开设置失败：' + e.message, icon: 'none', duration: 2500 })
+                uni.showToast({ title: '打开设置失败：' + e.message, icon: 'none' })
             }
             // #endif
             // #ifndef APP-PLUS
-            uni.showToast({ title: '此功能仅在 APP 端可用', icon: 'none', duration: 2500 })
+            uni.showToast({ title: '此功能仅在 APP 端可用', icon: 'none' })
             // #endif
         },
         registerNetworkListener() {
@@ -3274,7 +3246,7 @@ export default {
                 if (authFailReason && authFailReason.indexOf('推送 Key 无效或已禁用') !== -1) {
                     console.warn('推送 Key 无效或已禁用，停止重连并清除本地 Key')
                     this.showDisconnectBanner = false
-                    uni.showToast({ title: '推送 Key 无效或已禁用', icon: 'none', duration: 2500 })
+                    uni.showToast({ title: '推送 Key 无效或已禁用', icon: 'none' })
                     this.stopForegroundService()
                     uni.removeStorageSync('push_key')
                     uni.removeStorageSync('push_server')
@@ -3287,7 +3259,7 @@ export default {
                 if (code === 4003 || reason === 'blacklisted' || (authFailReason && authFailReason.indexOf('拉黑') !== -1)) {
                     console.warn('设备已被拉黑，停止重连')
                     this.showDisconnectBanner = false
-                    uni.showToast({ title: '设备已被拉黑', icon: 'none', duration: 2500 })
+                    uni.showToast({ title: '设备已被拉黑', icon: 'none' })
                     this.stopForegroundService()
                     return
                 }
@@ -3592,7 +3564,7 @@ export default {
                 uni.showToast({
                     title: title,
                     icon: 'none',
-                    duration: 2500
+                    duration: 2000
                 })
             }
         },
@@ -3612,7 +3584,7 @@ export default {
                         this.hasMore = true
                         this.oldestDbId = 0
                         this.saveMessages()
-                        uni.showToast({ title: '已清空', icon: 'success', duration: 2500 })
+                        uni.showToast({ title: '已清空', icon: 'success' })
                     }
                 }
             })
@@ -3623,10 +3595,10 @@ export default {
             uni.setClipboardData({
                 data: text,
                 success: () => {
-                    uni.showToast({ title: '已复制消息', icon: 'success', duration: 2500 })
+                    uni.showToast({ title: '已复制消息', icon: 'success', duration: 1500 })
                 },
                 fail: () => {
-                    uni.showToast({ title: '复制失败', icon: 'none', duration: 2500 })
+                    uni.showToast({ title: '复制失败', icon: 'none', duration: 1500 })
                 }
             })
         },
@@ -3859,33 +3831,6 @@ export default {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
-}
-
-/* 搜索框 */
-.search-bar {
-    display: flex;
-    align-items: center;
-    background: #fff;
-    border-radius: 10px;
-    padding: 8px 12px;
-    margin: 8px 0 12px;
-    border: 1px solid #e8e8e8;
-}
-.search-icon {
-    font-size: 16px;
-    margin-right: 8px;
-    color: #999;
-}
-.search-input {
-    flex: 1;
-    font-size: 14px;
-    color: #333;
-    height: 32px;
-}
-.search-clear {
-    font-size: 16px;
-    color: #ccc;
-    padding: 0 8px;
 }
 
 .section-title {
@@ -4506,15 +4451,14 @@ export default {
 }
 
 .settings-dialog {
-    width: 88%;
-    max-width: 360px;
+    width: 100%;
+    max-width: 400px;
     max-height: 80vh;
-    background: #fff;
+    background: white;
     border-radius: 16px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
 }
 
 .settings-header {
@@ -4522,36 +4466,35 @@ export default {
     justify-content: space-between;
     align-items: center;
     padding: 16px 20px;
-    border-bottom: 1px solid #f0f0f0;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-bottom: 1px solid #eee;
 }
 
 .settings-title {
     font-size: 18px;
     font-weight: 600;
-    color: #fff;
+    color: #333;
 }
 
 .close-btn {
     font-size: 20px;
-    color: #fff;
-    padding: 4px 8px;
+    color: #999;
+    padding: 4px;
 }
 
 .settings-content {
-    padding: 16px 20px;
-    overflow-y: auto;
     flex: 1;
+    height: 0;
     min-height: 0;
+    overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    padding: 20px;
 }
 
 .setting-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 14px 0;
-    border-bottom: 1px solid #f5f5f5;
+    background: #f9f9f9;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
 }
 
 .setting-label {
@@ -4572,7 +4515,6 @@ export default {
 .setting-item-column {
     display: flex;
     flex-direction: column;
-    align-items: stretch;
 }
 
 .setting-input {
@@ -4650,11 +4592,9 @@ export default {
 }
 
 .settings-footer {
-    padding: 12px 20px;
+    padding: 12px 20px 20px;
     border-top: 1px solid #f0f0f0;
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
+    background: white;
     flex-shrink: 0;
 }
 

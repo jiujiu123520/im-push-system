@@ -427,6 +427,32 @@ cat ~/.ssh/github_actions_key</pre>
                 </el-radio-button>
               </el-radio-group>
             </el-form-item>
+            <!-- HBuilderX 模板选择 -->
+            <el-form-item v-if="form.buildMethod === 'hbuilderx'" label="APP 模板">
+              <div class="hbx-tpl-list">
+                <div
+                  v-for="tpl in hbuilderxTemplates"
+                  :key="tpl.id"
+                  class="hbx-tpl-item"
+                  :class="{ active: form.hbuilderxTemplate === tpl.id, disabled: !tpl.available }"
+                  @click="tpl.available && (form.hbuilderxTemplate = tpl.id)"
+                >
+                  <div class="hbx-tpl-radio">
+                    <span class="radio-outer">
+                      <span v-if="form.hbuilderxTemplate === tpl.id" class="radio-inner"></span>
+                    </span>
+                  </div>
+                  <div class="hbx-tpl-info">
+                    <div class="hbx-tpl-name">
+                      {{ tpl.name }}
+                      <el-tag v-if="tpl.id === 'new'" size="small" type="success" effect="plain">推荐</el-tag>
+                      <el-tag v-if="!tpl.available" size="small" type="info" effect="plain">未安装</el-tag>
+                    </div>
+                    <div class="hbx-tpl-desc">{{ tpl.description }}</div>
+                  </div>
+                </div>
+              </div>
+            </el-form-item>
             <el-alert
               v-if="form.buildMethod === 'ios_source'"
               type="warning"
@@ -720,8 +746,10 @@ import {
   downloadBuildLogApi,
   getAppBuildConfigStatusApi,
   generateHBuilderXProjectApi,
-  generateIosSourceApi
+  generateIosSourceApi,
+  getHBuilderXTemplatesApi
 } from '@/api/appBuild'
+import type { HBuilderXTemplate } from '@/api/appBuild'
 import { getKeyListApi } from '@/api/key'
 import { getSettingsApi } from '@/api/settings'
 import type { AppBuildRecord } from '@/api/types'
@@ -738,6 +766,7 @@ interface BuildForm {
   platform: 'android' | 'ios'
   buildType: 'release' | 'debug'
   buildMethod: 'github' | 'hbuilderx' | 'ios_source'
+  hbuilderxTemplate: string
 }
 
 const formRef = ref<FormInstance>()
@@ -748,6 +777,9 @@ const generatingIcon = ref(false)
 const iconMode = ref<'upload' | 'auto'>('auto')
 const iconChar = ref('推')
 const iconGradient = reactive({ start: '#667eea', end: '#764ba2' })
+
+// HBuilderX 模板列表
+const hbuilderxTemplates = ref<HBuilderXTemplate[]>([])
 
 // ---- GitHub Actions 配置状态 ----
 const configCollapse = ref<string[]>([])  // 默认折叠
@@ -830,7 +862,8 @@ const form = reactive<BuildForm>({
   version: '1.0.0',
   platform: 'android',
   buildType: 'release',
-  buildMethod: 'github'
+  buildMethod: 'github',
+  hbuilderxTemplate: 'new'
 })
 
 const rules: FormRules = {
@@ -1124,7 +1157,8 @@ async function handleGenerate() {
         ws_url: form.websocketAddress,
         package_name: form.packageName,
         icon_base64: form.appIcon,
-        version: form.version
+        version: form.version,
+        template: form.hbuilderxTemplate
       })
       const blob = new Blob([res.data], { type: 'application/zip' })
       const url = URL.createObjectURL(blob)
@@ -1328,10 +1362,27 @@ onMounted(async () => {
   ])
 
   fetchHistory()
+  fetchHBuilderXTemplates()
 
   // 自动填充所有参数
   await autoFillAllParams()
 })
+
+// 加载 HBuilderX 模板列表
+async function fetchHBuilderXTemplates() {
+  try {
+    const res = await getHBuilderXTemplatesApi()
+    if (res.data?.templates && Array.isArray(res.data.templates)) {
+      hbuilderxTemplates.value = res.data.templates
+      // 如果当前选中的模板不可用，切换到第一个可用的
+      const current = hbuilderxTemplates.value.find(t => t.id === form.hbuilderxTemplate)
+      if (!current || !current.available) {
+        const firstAvailable = hbuilderxTemplates.value.find(t => t.available)
+        if (firstAvailable) form.hbuilderxTemplate = firstAvailable.id
+      }
+    }
+  } catch {}
+}
 
 // 自动填充所有参数
 async function autoFillAllParams() {
@@ -2392,6 +2443,56 @@ onBeforeUnmount(() => {
   }
   .log-meta {
     background: rgba(255, 255, 255, 0.02);
+  }
+}
+
+/* HBuilderX 模板选择 */
+.hbx-tpl-list {
+  display: flex; flex-direction: column; gap: 12px; width: 100%;
+}
+.hbx-tpl-item {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 16px; border-radius: 8px;
+  border: 2px solid var(--el-border-color-lighter, #e4e7ed);
+  background: var(--el-fill-color-light, #f5f7fa);
+  cursor: pointer; transition: all 0.2s ease;
+  &:hover:not(.disabled) {
+    border-color: var(--el-color-primary, #409eff);
+    background: rgba(64, 158, 255, 0.04);
+  }
+  &.active {
+    border-color: var(--el-color-primary, #409eff);
+    background: rgba(64, 158, 255, 0.06);
+    box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.1);
+  }
+  &.disabled {
+    opacity: 0.55; cursor: not-allowed;
+  }
+}
+.hbx-tpl-radio {
+  padding-top: 2px;
+  .radio-outer {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 2px solid #d1d5db; background: #fff; transition: border-color 0.2s;
+  }
+  .radio-inner {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--el-color-primary, #409eff);
+  }
+  .hbx-tpl-item.active & .radio-outer {
+    border-color: var(--el-color-primary, #409eff);
+  }
+}
+.hbx-tpl-info {
+  flex: 1; min-width: 0;
+  .hbx-tpl-name {
+    font-weight: 600; font-size: 14px; color: var(--el-text-color-primary, #303133);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .hbx-tpl-desc {
+    margin-top: 4px; font-size: 12px; color: var(--el-text-color-secondary, #909399);
+    line-height: 1.5;
   }
 }
 </style>

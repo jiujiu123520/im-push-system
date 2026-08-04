@@ -64,6 +64,18 @@ class AppController extends BaseUserController
         ];
     }
 
+    /**
+     * GET /user-api/app/hbuilderx/templates
+     * 获取可用 HBuilderX 模板列表
+     */
+    public function hbuilderxTemplates(array $context, array $params)
+    {
+        $payload = $this->auth($context);
+        if ($payload === null) return false;
+        $service = new \App\Service\HBuilderXService();
+        return ['templates' => $service->getAvailableTemplates()];
+    }
+
     public function downloadQr(array $context, array $params)
     {
         $info = $this->info($context, $params);

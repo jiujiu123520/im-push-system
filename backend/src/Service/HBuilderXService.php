@@ -7,33 +7,35 @@ namespace App\Service;
  * HBuilderX uni-app 项目生成服务
  *
  * 根据用户输入的 app_name / package_id / api_base_url / ws_url / icon_base64，
- * 从后端内置的模板（backend/storage/hbuilderx-template/）生成可下载的 ZIP。
+ * 从项目内置的模板目录（build/hbuilderx/ 或 build/hbuilderx-old/）生成可下载的 ZIP。
  *
- * 如果模板目录不存在，则生成一个最小可运行模板（pages.json/manifest.json/main/App.vue/）。
+ * 模板目录结构：
+ *   - build/hbuilderx/      → 新版模板（改进 UI：搜索、美化设置、提示适配）
+ *   - build/hbuilderx-old/  → 旧版模板（兼容旧版 APP 源码）
  */
 class HBuilderXService
 {
     /**
-     * 返回模板目录路径（不存在时创建）
+     * 项目根目录（build/ 所在层级）
+     */
+    private function projectRoot(): string
+    {
+        return dirname(BASE_PATH);
+    }
+
+    /**
+     * 返回模板目录路径
      *
      * @param string $template 模板类型：new（新版）/ old（旧版），默认 new
+     * @return string 模板目录绝对路径（不保证存在）
      */
     public function getTemplateDir(string $template = 'new'): string
     {
-        // 支持多模板：hbuilderx-template-new / hbuilderx-template-old
-        // 兼容旧版：如果指定模板目录不存在，回退到 hbuilderx-template
-        $suffix = ($template === 'old') ? '-old' : '-new';
-        $dir = BASE_PATH . '/storage/hbuilderx-template' . $suffix;
-        if (!is_dir($dir)) {
-            // 回退到旧版单模板目录（兼容）
-            $fallback = BASE_PATH . '/storage/hbuilderx-template';
-            if ($template === 'new' && is_dir($fallback) && $this->dirHasFiles($fallback)) {
-                $dir = $fallback;
-            } else {
-                @mkdir($dir, 0755, true);
-            }
+        $root = $this->projectRoot();
+        if ($template === 'old') {
+            return $root . '/build/hbuilderx-old';
         }
-        return $dir;
+        return $root . '/build/hbuilderx';
     }
 
     /**
@@ -41,26 +43,23 @@ class HBuilderXService
      */
     public function getAvailableTemplates(): array
     {
-        $templates = [];
-        $newDir = BASE_PATH . '/storage/hbuilderx-template-new';
-        $oldDir = BASE_PATH . '/storage/hbuilderx-template-old';
-        $legacyDir = BASE_PATH . '/storage/hbuilderx-template';
+        $newDir = $this->getTemplateDir('new');
+        $oldDir = $this->getTemplateDir('old');
 
-        // 新版模板
-        $templates[] = [
-            'id'          => 'new',
-            'name'        => '新版模板',
-            'description' => '推荐使用，基于最新 uni-app 架构，UI 更美观，性能更好',
-            'available'   => is_dir($newDir) ? $this->dirHasFiles($newDir) : (is_dir($legacyDir) ? $this->dirHasFiles($legacyDir) : true),
+        return [
+            [
+                'id'          => 'new',
+                'name'        => '新版模板',
+                'description' => '推荐使用，改进 UI：消息模糊搜索、设置组件美化、提示适配、无限滚动优化',
+                'available'   => is_dir($newDir) && $this->dirHasFiles($newDir),
+            ],
+            [
+                'id'          => 'old',
+                'name'        => '旧版模板',
+                'description' => '兼容旧版 APP 源码，适合已使用旧版模板的用户',
+                'available'   => is_dir($oldDir) && $this->dirHasFiles($oldDir),
+            ],
         ];
-        // 旧版模板
-        $templates[] = [
-            'id'          => 'old',
-            'name'        => '旧版模板',
-            'description' => '兼容旧版 APP 源码，适合已使用旧版模板的用户',
-            'available'   => is_dir($oldDir) ? $this->dirHasFiles($oldDir) : false,
-        ];
-        return $templates;
     }
 
     /**
@@ -74,8 +73,8 @@ class HBuilderXService
         $userId    = (int)($params['user_id'] ?? 0);
         $appName   = trim((string)($params['app_name'] ?? 'Push 推送'));
         $pkgId     = trim((string)($params['package_id'] ?? 'com.example.push'));
-        $apiBase   = rtrim((string)($params['api_base_url'] ?? ''), '/') . '/';
-        $wsUrl     = rtrim((string)($params['ws_url'] ?? ''), '/') . '/';
+        $apiBase   = rtrim((string)($params['api_base_url'] ?? ''), '/');
+        $wsUrl     = rtrim((string)($params['ws_url'] ?? ''), '/');
         $iconB64   = trim((string)($params['icon_base64'] ?? ''));
         $template  = trim((string)($params['template'] ?? 'new'));
         if (!in_array($template, ['new', 'old'], true)) $template = 'new';
@@ -87,27 +86,33 @@ class HBuilderXService
         @mkdir($tmpDir, 0755, true);
 
         $templateDir = $this->getTemplateDir($template);
-        $hasTemplate = $this->dirHasFiles($templateDir);
-        if ($hasTemplate) {
-            $this->copyDir($templateDir, $tmpDir);
-        } else {
-            $this->scaffoldMinimalTemplate($tmpDir);
-        }
+        $hasTemplate = is_dir($templateDir) && $this->dirHasFiles($templateDir);
 
-        // 把 manifest.json / pages.json / main.js / App.vue / static/config.js 等写入
-        $this->writeManifest($tmpDir, $appName, $pkgId);
-        $this->writePagesJson($tmpDir);
-        $this->writeMainJs($tmpDir);
-        $this->writeAppVue($tmpDir, $appName);
-        $this->writeConfig($tmpDir, $apiBase, $wsUrl);
-        $this->writeIndexHtml($tmpDir, $appName);
-        $this->writePageScaffolds($tmpDir);
+        if ($hasTemplate) {
+            // 有真实模板：复制模板文件，只注入动态配置
+            $this->copyDir($templateDir, $tmpDir);
+            $this->injectManifest($tmpDir, $appName, $pkgId);
+            $this->writeConfig($tmpDir, $apiBase, $wsUrl);
+        } else {
+            // 无模板：走最小脚手架兜底
+            $this->scaffoldMinimalTemplate($tmpDir);
+            $this->writeManifest($tmpDir, $appName, $pkgId);
+            $this->writePagesJson($tmpDir);
+            $this->writeMainJs($tmpDir);
+            $this->writeAppVue($tmpDir, $appName);
+            $this->writeConfig($tmpDir, $apiBase, $wsUrl);
+            $this->writeIndexHtml($tmpDir, $appName);
+            $this->writePageScaffolds($tmpDir);
+        }
 
         if ($iconB64 !== '') {
             $this->writeIcon($tmpDir, $iconB64);
         }
 
-        // ZIP
+        // 生成 README
+        $this->writeReadme($tmpDir, $appName, $template);
+
+        // ZIP 打包
         $zipPath = $tmpDir . '.zip';
         if (file_exists($zipPath)) @unlink($zipPath);
         $zip = new \ZipArchive();
@@ -124,6 +129,95 @@ class HBuilderXService
 
         return $zipPath;
     }
+
+    /**
+     * 向已有模板的 manifest.json 注入动态参数（app_name, package_id）
+     * 保留模板原有的权限、图标、模块等配置
+     */
+    private function injectManifest(string $dir, string $appName, string $pkgId): void
+    {
+        $path = $dir . '/manifest.json';
+        if (!file_exists($path)) {
+            // 模板没有 manifest.json，走完整生成
+            $this->writeManifest($dir, $appName, $pkgId);
+            return;
+        }
+
+        $json = file_get_contents($path);
+        $arr = json_decode($json, true);
+        if (!is_array($arr)) {
+            $this->writeManifest($dir, $appName, $pkgId);
+            return;
+        }
+
+        // 只修改动态字段，保留模板原有配置
+        $arr['name'] = $appName;
+        $arr['appid'] = '__UNI__' . substr(md5($pkgId . '|' . $appName), 0, 7);
+        $arr['description'] = $appName . ' - 即时消息推送客户端';
+
+        // 注入 package_id
+        if (isset($arr['app-plus']['distribute']['android'])) {
+            $arr['app-plus']['distribute']['android']['package'] = $pkgId;
+        }
+        if (isset($arr['app-plus']['distribute']['ios'])) {
+            $arr['app-plus']['distribute']['ios']['bundleid'] = $pkgId;
+        }
+
+        file_put_contents($path, json_encode($arr, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * 重写 config.js（与模板的 APP_CONFIG 格式一致）
+     */
+    private function writeConfig(string $dir, string $apiBase, string $wsUrl): void
+    {
+        $static = $dir . '/static';
+        if (!is_dir($static)) @mkdir($static, 0755, true);
+        // 转义单引号
+        $apiBase = str_replace("'", "\\'", $apiBase);
+        $wsUrl = str_replace("'", "\\'", $wsUrl);
+        $code = <<<"JS"
+// 应用配置（由后端动态注入）
+export const APP_CONFIG = {
+    default_key: '',
+    server_url: '{$apiBase}',
+    ws_url: '{$wsUrl}',
+    version_name: '1.0.0'
+}
+JS;
+        file_put_contents($static . '/config.js', $code);
+    }
+
+    /**
+     * 生成 README 打包说明
+     */
+    private function writeReadme(string $dir, string $appName, string $template): void
+    {
+        $templateName = $template === 'old' ? '旧版' : '新版';
+        $readme = <<<"TXT"
+{$appName} - HBuilderX 源码包（{$templateName}模板）
+========================================
+
+使用说明：
+1. 下载并安装 HBuilderX（https://www.dcloud.io/hbuilderx.html）
+2. 打开 HBuilderX → 文件 → 导入 → 从本地导入 → 选择本目录
+3. 打开 manifest.json 配置应用信息（图标、版本等已预填）
+4. 发行 → 原生App-云打包（选择 Android/iOS）
+5. 等待打包完成后下载 APK/IPA
+
+配置信息：
+- 服务器地址和 WebSocket 地址已写入 static/config.js
+- 如需修改，编辑 static/config.js 中的 APP_CONFIG
+
+注意：
+- 需要 HBuilderX 3.6.0+
+- 云打包需要 DCloud 账号
+- iOS 打包需要 Apple Developer 账号
+TXT;
+        file_put_contents($dir . '/README.txt', $readme);
+    }
+
+    // ---------- 兜底方法（无模板时使用） ----------
 
     private function writeManifest(string $dir, string $appName, string $pkgId): void
     {
@@ -145,19 +239,14 @@ class HBuilderXService
                     'Push' => ['description' => '推送消息'],
                 ],
                 'distribute' => [
-                    'android' => ['permissions' => ['<uses-permission android:name="android.permission.INTERNET"/>']],
-                    'ios'     => ['dSYMs' => false],
-                    'android' => ['package' => $pkgId],
-                    'ios'     => ['bundleid' => $pkgId],
+                    'android' => ['permissions' => ['<uses-permission android:name="android.permission.INTERNET"/>'], 'package' => $pkgId],
+                    'ios'     => ['dSYMs' => false, 'bundleid' => $pkgId],
                 ],
             ],
             'quickapp'    => [],
             'mp-weixin'   => ['appid' => '', 'setting' => ['urlCheck' => false]],
             'h5'          => ['router' => ['base' => './'], 'title' => $appName],
         ];
-        // merge android/ios 避免重复键
-        $arr['app-plus']['distribute']['android']['package'] = $pkgId;
-        $arr['app-plus']['distribute']['ios']['bundleid']     = $pkgId;
         file_put_contents($path, json_encode($arr, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 
@@ -166,24 +255,14 @@ class HBuilderXService
         $path = $dir . '/pages.json';
         $arr = [
             'pages' => [
-                ['path' => 'pages/login/index',       'style' => ['navigationBarTitleText' => '登录']],
-                ['path' => 'pages/register/index',    'style' => ['navigationBarTitleText' => '注册']],
-                ['path' => 'pages/dashboard/index',   'style' => ['navigationBarTitleText' => '首页']],
-                ['path' => 'pages/push/index',        'style' => ['navigationBarTitleText' => '推送消息']],
-                ['path' => 'pages/push-logs/index',   'style' => ['navigationBarTitleText' => '推送记录']],
-                ['path' => 'pages/devices/index',     'style' => ['navigationBarTitleText' => '设备管理']],
-                ['path' => 'pages/keys/index',        'style' => ['navigationBarTitleText' => 'Key 管理']],
-                ['path' => 'pages/api-keys/index',    'style' => ['navigationBarTitleText' => 'API 文档']],
-                ['path' => 'pages/app/index',         'style' => ['navigationBarTitleText' => 'APP 下载']],
-                ['path' => 'pages/profile/index',     'style' => ['navigationBarTitleText' => '个人中心']],
-                ['path' => 'pages/notices/index',     'style' => ['navigationBarTitleText' => '系统公告']],
-                ['path' => 'pages/reset-password/index','style' => ['navigationBarTitleText' => '重置密码']],
+                ['path' => 'pages/index/index',  'style' => ['navigationBarTitleText' => '消息推送', 'navigationBarBackgroundColor' => '#667eea', 'navigationBarTextStyle' => 'white']],
+                ['path' => 'pages/home/index',   'style' => ['navigationBarTitleText' => '消息推送', 'navigationBarBackgroundColor' => '#667eea', 'navigationBarTextStyle' => 'white', 'enablePullDownRefresh' => true]],
             ],
             'globalStyle' => [
                 'navigationBarTextStyle' => 'black',
-                'navigationBarTitleText' => '推送控制台',
-                'navigationBarBackgroundColor' => '#ffffff',
-                'backgroundColor'         => '#f5f6fb',
+                'navigationBarTitleText' => '消息推送',
+                'navigationBarBackgroundColor' => '#F8F8F8',
+                'backgroundColor' => '#F8F8F8',
             ],
         ];
         file_put_contents($path, json_encode($arr, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
@@ -192,26 +271,13 @@ class HBuilderXService
     private function writeMainJs(string $dir): void
     {
         $code = <<<'JS'
-import App from './App'
-import config from './static/config.js'
-
-// #ifndef VUE3
-import Vue from 'vue'
-Vue.config.productionTip = false
-Vue.prototype.$config = config
-App.mpType = 'app'
-const app = new Vue({ ...App })
-app.$mount()
-// #endif
-
-// #ifdef VUE3
 import { createSSRApp } from 'vue'
+import App from './App.vue'
+
 export function createApp() {
-  const app = createSSRApp(App)
-  app.config.globalProperties.$config = config
-  return { app }
+    const app = createSSRApp(App)
+    return { app }
 }
-// #endif
 JS;
         file_put_contents($dir . '/main.js', $code);
     }
@@ -219,36 +285,13 @@ JS;
     private function writeAppVue(string $dir, string $appName): void
     {
         $code = <<<"VUE"
+<template><App /></template>
 <script>
-export default {
-  onLaunch() {
-    console.log('{$appName} 启动')
-  },
-  onShow() {},
-  onHide() {},
-}
+import App from './App.vue'
+export default { components: { App } }
 </script>
-<style>
-page {
-  background: #f5f6fb;
-  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-}
-</style>
 VUE;
         file_put_contents($dir . '/App.vue', $code);
-    }
-
-    private function writeConfig(string $dir, string $apiBase, string $wsUrl): void
-    {
-        $static = $dir . '/static';
-        if (!is_dir($static)) @mkdir($static, 0755, true);
-        $code = <<<"JS"
-export default {
-  apiBaseUrl: '{$apiBase}',
-  wsUrl:      '{$wsUrl}',
-}
-JS;
-        file_put_contents($static . '/config.js', $code);
     }
 
     private function writeIndexHtml(string $dir, string $appName): void
@@ -271,47 +314,57 @@ HTML;
 
     private function writePageScaffolds(string $dir): void
     {
-        $pages = [
-            'login' => $this->pagePlaceholder('登录', '请输入账号和密码'),
-            'register' => $this->pagePlaceholder('注册', '填写账号、密码、验证码完成注册'),
-            'dashboard' => $this->pagePlaceholder('首页', '概览数据与快捷入口'),
-            'push' => $this->pagePlaceholder('推送消息', '选择目标与内容进行推送'),
-            'push-logs' => $this->pagePlaceholder('推送记录', '查看历史推送记录'),
-            'devices' => $this->pagePlaceholder('设备管理', '管理绑定的设备'),
-            'keys' => $this->pagePlaceholder('Key 管理', '创建与管理推送 Key'),
-            'api-keys' => $this->pagePlaceholder('API 文档', '开放 API 使用说明与 Key 管理'),
-            'app' => $this->pagePlaceholder('APP 下载', '扫码下载最新客户端'),
-            'profile' => $this->pagePlaceholder('个人中心', '修改资料、密码与 QQ 绑定'),
-            'notices' => $this->pagePlaceholder('系统公告', '查看官方公告'),
-            'reset-password' => $this->pagePlaceholder('重置密码', '通过安全码/QQ/邮箱找回密码'),
-        ];
-        foreach ($pages as $name => $content) {
-            $pDir = $dir . '/pages/' . $name;
-            if (!is_dir($pDir)) @mkdir($pDir, 0755, true);
-            file_put_contents($pDir . '/index.vue', $content);
-        }
-    }
-
-    private function pagePlaceholder(string $title, string $desc): string
-    {
-        return <<<"VUE"
+        // 兜底：生成最小登录页
+        $loginDir = $dir . '/pages/index';
+        if (!is_dir($loginDir)) @mkdir($loginDir, 0755, true);
+        $login = <<<"VUE"
 <template>
-  <view class="page">
-    <view class="title">{$title}</view>
-    <view class="desc">{$desc}</view>
-    <view class="tip">请根据项目实际需求，在此页面基础上完成交互与业务逻辑对接。</view>
+  <view class="container">
+    <view class="login-page">
+      <view class="login-container">
+        <view class="logo-section">
+          <text class="logo-text">📨</text>
+          <text class="app-title">消息推送</text>
+        </view>
+        <view class="login-form">
+          <view class="form-group">
+            <text class="form-label">推送 Key</text>
+            <input class="form-input" v-model="form.key" placeholder="请输入推送 Key" />
+          </view>
+          <view class="form-group">
+            <text class="form-label">服务器地址</text>
+            <input class="form-input" v-model="form.serverUrl" placeholder="http://example.com" />
+          </view>
+          <button class="btn-primary" @click="handleLogin">进入应用</button>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 <script>
-export default { data() { return {} } }
+import { APP_CONFIG } from '@/config.js'
+export default {
+  data() { return { form: { key: '', serverUrl: '' } } },
+  onLoad() {
+    const savedKey = uni.getStorageSync('push_key')
+    const savedServer = uni.getStorageSync('push_server')
+    if (savedKey && savedServer) { uni.redirectTo({ url: '/pages/home/index' }); return }
+    this.form.key = APP_CONFIG.default_key
+    this.form.serverUrl = APP_CONFIG.server_url
+  },
+  methods: {
+    handleLogin() {
+      if (!this.form.key.trim()) { uni.showToast({ title: '请输入推送 Key', icon: 'none', duration: 2500 }); return }
+      if (!this.form.serverUrl.trim()) { uni.showToast({ title: '请输入服务器地址', icon: 'none', duration: 2500 }); return }
+      uni.setStorageSync('push_key', this.form.key.trim())
+      uni.setStorageSync('push_server', this.form.serverUrl.trim())
+      uni.redirectTo({ url: '/pages/home/index' })
+    }
+  }
+}
 </script>
-<style scoped>
-.page { padding: 40rpx; }
-.title { font-size: 40rpx; font-weight: 600; color: #1f2937; margin-bottom: 20rpx; }
-.desc  { font-size: 28rpx; color: #4b5563; margin-bottom: 20rpx; }
-.tip   { font-size: 24rpx; color: #9ca3af; }
-</style>
 VUE;
+        file_put_contents($loginDir . '/index.vue', $login);
     }
 
     private function writeIcon(string $dir, string $iconB64): void
@@ -333,7 +386,6 @@ VUE;
     private function scaffoldMinimalTemplate(string $dir): void
     {
         if (!is_dir($dir)) @mkdir($dir, 0755, true);
-        // 目录结构（pages/static 会由 write* 方法创建）；这里只写 README
         @mkdir($dir . '/uni_modules', 0755, true);
         file_put_contents(
             $dir . '/package.json',
