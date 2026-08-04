@@ -354,8 +354,18 @@
           </template>
           <!-- Key：归属用户（user_id > 0 显示用户名，否则为管理员全局 Key） -->
           <template v-else-if="col.slot === 'userBind'" #default="{ row }">
-            <el-tag v-if="row.username" size="small" type="info" effect="plain" round>{{ row.username }}</el-tag>
-            <el-tag v-else size="small" type="warning" effect="plain" round>管理员(全局)</el-tag>
+            <el-tooltip
+              :content="row.username ? `归属用户：${row.username}（该 Key 由用户端创建，仅该用户可见可用）` : '管理员(全局)：该 Key 由管理员创建，所有管理员可管理'"
+              placement="top"
+              :show-after="200"
+            >
+              <el-tag v-if="row.username" size="small" type="primary" effect="dark" round>
+                <el-icon style="vertical-align: middle; margin-right: 2px;"><UserIcon /></el-icon>{{ row.username }}
+              </el-tag>
+              <el-tag v-else size="small" type="warning" effect="dark" round>
+                <el-icon style="vertical-align: middle; margin-right: 2px;"><AvatarIcon /></el-icon>管理员(全局)
+              </el-tag>
+            </el-tooltip>
           </template>
           <!-- Key：订阅数（点击弹出明细） -->
           <template v-else-if="col.prop === 'subscribed_total' && currentModule === 'keys'" #default="{ row }">
@@ -1079,7 +1089,9 @@ import {
   Unlock as UnlockIcon,
   View as ViewIcon,
   Refresh as RefreshIcon,
-  SwitchButton as SwitchButtonIcon
+  SwitchButton as SwitchButtonIcon,
+  User as UserIcon,
+  Avatar as AvatarIcon
 } from '@element-plus/icons-vue'
 import { exportPushLogsApi, getPushLogListApi, sendPushApi, retryPushApi, getPushLogDetailApi, deletePushLogApi } from '@/api/push'
 import { getZombieConnectionsApi, deleteZombieConnectionApi, cleanupZombieConnectionsApi } from '@/api/connection'
