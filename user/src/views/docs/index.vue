@@ -11,7 +11,7 @@
           </template>
           <el-alert type="info" :closable="false" style="margin-bottom:16px" show-icon>
             <template #title>
-              <div>接口 Base URL：<code class="inline-code">{{ window.location.origin + '/api' }}</code>，请求头需携带
+              <div>接口 Base URL：<code class="inline-code">{{ baseUrl }}</code>，请求头需携带
                 <code class="inline-code">X-Api-Key: &lt;你的 API Key&gt;</code> 鉴权。
                 <el-button link type="primary" @click="goApiKeys">前往创建 API Key →</el-button>
               </div>
@@ -109,6 +109,7 @@ import {
 import type { ApiKey } from '@/api/types'
 
 const tab = ref('docs')
+const baseUrl = location.origin + '/api'
 const docs = ref<{ sections: any[]; base_url_hint: string }>({ sections: [], base_url_hint: '' })
 async function loadDocs() {
   try {
