@@ -37,7 +37,7 @@
             <span v-if="!isRead(n.id)" class="dot" />
           </div>
         </div>
-        <div v-if="n.summary || n.content" class="content-preview" v-html="stripHtml(n.summary || n.content).slice(0,120) + (stripHtml(n.summary || n.content).length > 120 ? '…' : '')"></div>
+        <div v-if="n.summary || n.content" class="content-preview" v-html="stripHtml(n.summary || n.content || '').slice(0,120) + (stripHtml(n.summary || n.content || '').length > 120 ? '…' : '')"></div>
         <div class="foot">
           <el-button type="primary" link @click="openDetail(n)">查看详情</el-button>
           <el-button link @click.stop="markOneRead(n)">标为已读</el-button>
