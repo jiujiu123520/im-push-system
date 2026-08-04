@@ -332,6 +332,9 @@ export interface ApiKeyRecord {
   expire_at?: string
   createdAt?: string
   created_at?: string
+  user_id?: number | null
+  username?: string | null
+  description?: string
 }
 
 export interface ApiKeyForm {
