@@ -161,6 +161,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { getCaptchaApi } from '@/api/auth'
+import { resetReloginFlag } from '@/utils/request'
 import type { LoginParams } from '@/api/types'
 
 const route = useRoute()
@@ -323,6 +324,7 @@ function handleRegister() {
 }
 
 onMounted(() => {
+  resetReloginFlag()
   fetchCaptcha()
 })
 </script>

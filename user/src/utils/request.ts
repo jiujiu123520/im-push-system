@@ -28,6 +28,10 @@ const service: AxiosInstance = axios.create({
 
 let isReloginTriggered = false
 
+// 静默认证标志：路由守卫调用 getUserInfo() 时设为 true，
+// 401 时不弹 ElMessageBox，由路由守卫自行处理跳转
+let isSilentAuth = false
+
 // 公开接口白名单：不需要 token，也不受 isReloginTriggered 拦截
 const PUBLIC_URLS = ['/captcha', '/auth/login', '/auth/register', '/auth/send-code',
   '/auth/reset-password', '/auth/reset-password-by-qq']
@@ -35,6 +39,11 @@ const PUBLIC_URLS = ['/captcha', '/auth/login', '/auth/register', '/auth/send-co
 // 对外暴露：重置登录重入标志（登录页挂载/刷新验证码时调用）
 export function resetReloginFlag() {
   isReloginTriggered = false
+}
+
+// 对外暴露：设置静默认证标志（路由守卫 getUserInfo 前调用）
+export function setSilentAuth(v: boolean) {
+  isSilentAuth = v
 }
 
 // 请求拦截器
@@ -125,6 +134,11 @@ function handleRelogin() {
     ElMessageBox.close()
   } catch {}
   removeToken()
+
+  // 静默认证模式（路由守卫 getUserInfo 401）：不弹窗，由路由守卫自行跳转
+  if (isSilentAuth) {
+    return
+  }
 
   ElMessageBox.confirm('登录状态已失效，请重新登录', '提示', {
     confirmButtonText: '重新登录',

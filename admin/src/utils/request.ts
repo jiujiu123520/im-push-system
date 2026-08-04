@@ -26,11 +26,35 @@ const service: AxiosInstance = axios.create({
 // 触发一次后本页生命周期内不再重复执行，直到用户刷新页面重新登录
 let isReloginTriggered = false
 
+// 静默认证标志：路由守卫调用 getUserInfo() 时设为 true，
+// 401 时不弹 ElMessageBox，由路由守卫自行处理跳转
+let isSilentAuth = false
+
+// 公开接口白名单：不需要 token，也不受 isReloginTriggered 拦截
+const PUBLIC_URLS = ['/captcha', '/admin/login', '/admin/register', '/admin/send-code',
+  '/admin/reset-password', '/admin/reset-password-by-qq']
+
+// 对外暴露：重置登录重入标志（登录页挂载/刷新验证码时调用）
+export function resetReloginFlag() {
+  isReloginTriggered = false
+}
+
+// 对外暴露：设置静默认证标志（路由守卫 getUserInfo 前调用）
+export function setSilentAuth(v: boolean) {
+  isSilentAuth = v
+}
+
 // 请求拦截器
 service.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // 已触发重登：阻断后续所有请求（避免继续携带失效 token、避免 NProgress 卡死）
-    if (isReloginTriggered) {
+    const url = config.url || ''
+    const isPublic = PUBLIC_URLS.some((u) => url.includes(u))
+    // 访问公开接口（登录/验证码/注册）时：自动解除 isReloginTriggered 锁，
+    // 避免 401 → 跳登录页 → 验证码/登录请求被自己的拦截器拒掉 的死循环
+    if (isPublic && isReloginTriggered) {
+      isReloginTriggered = false
+    }
+    if (isReloginTriggered && !isPublic) {
       return Promise.reject(new Error('正在重新登录'))
     }
     NProgress.start()
@@ -123,6 +147,11 @@ function handleRelogin() {
   // 3. 立即清除 Token
   removeToken()
 
+  // 静默认证模式（路由守卫 getUserInfo 401）：不弹窗，由路由守卫自行跳转
+  if (isSilentAuth) {
+    return
+  }
+
   // 4. 弹框提示用户（唯一一次），之后立即跳转；取消也直接跳转
   ElMessageBox.confirm('登录状态已失效，请重新登录', '提示', {
     confirmButtonText: '重新登录',
@@ -132,8 +161,6 @@ function handleRelogin() {
     closeOnPressEscape: false
   })
     .then(() => {
-      // 使用 router.replace 而非 location.href，避免全量刷新时的重复跳转
-      // 这里延迟一帧执行，确保 ElMessageBox 完全关闭
       setTimeout(() => {
         location.href = '/admin/#/login'
       }, 50)
@@ -143,8 +170,6 @@ function handleRelogin() {
         location.href = '/admin/#/login'
       }, 50)
     })
-  // ⚠ 重要：不再 reset isReloginTriggered 为 false
-  // 之前的 finally 重置后，并发 401 触发第二次弹框 = 表现为"登录两次"
 }
 
 // 封装请求方法

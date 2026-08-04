@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-rou
 import NProgress from 'nprogress'
 import { ElMessage } from 'element-plus'
 import { getToken } from '@/utils/auth'
+import { setSilentAuth } from '@/utils/request'
 import { useUserStore } from '@/stores/user'
 
 const Layout = () => import('@/layout/index.vue')
@@ -193,7 +194,13 @@ router.beforeEach(async (to, _from, next) => {
     try {
       const userStore = useUserStore()
       if (!userStore.userInfo) {
-        await userStore.getUserInfo()
+        // 静默模式：401 时不弹窗，由路由守卫自行处理跳转
+        setSilentAuth(true)
+        try {
+          await userStore.getUserInfo()
+        } finally {
+          setSilentAuth(false)
+        }
       }
       // 用户端路由简单：统一把 asyncRoutes 全量 addRoute
       asyncRoutes.forEach((route) => {
@@ -204,7 +211,6 @@ router.beforeEach(async (to, _from, next) => {
     } catch (err) {
       routesGenerated = false
       useUserStore().resetState()
-      ElMessage.error(err instanceof Error ? err.message : '路由初始化失败')
       next(`/login?redirect=${to.path}`)
     }
     return

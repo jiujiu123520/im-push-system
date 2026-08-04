@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-rou
 import NProgress from 'nprogress'
 import { ElMessage } from 'element-plus'
 import { getToken } from '@/utils/auth'
+import { setSilentAuth } from '@/utils/request'
 import { useUserStore } from '@/stores/user'
 import { usePermissionStore } from '@/stores/permission'
 
@@ -312,9 +313,14 @@ router.beforeEach(async (to, _from, next) => {
       const userStore = useUserStore()
       const permissionStore = usePermissionStore()
 
-      // 获取用户信息
+      // 获取用户信息（静默模式：401 时不弹窗，由路由守卫自行处理跳转）
       if (!userStore.roles.length) {
-        await userStore.getUserInfo()
+        setSilentAuth(true)
+        try {
+          await userStore.getUserInfo()
+        } finally {
+          setSilentAuth(false)
+        }
       }
 
       // 生成路由
@@ -330,7 +336,6 @@ router.beforeEach(async (to, _from, next) => {
     } catch (err) {
       routesGenerated = false
       useUserStore().resetState()
-      ElMessage.error(err instanceof Error ? err.message : '路由初始化失败')
       next(`/login?redirect=${to.path}`)
     }
     return
