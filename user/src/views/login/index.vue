@@ -56,6 +56,7 @@ import { User, Lock, Picture, Loading } from '@element-plus/icons-vue'
 import { getCaptchaApi } from '@/api/auth'
 import { useUserStore } from '@/stores/user'
 import { validUsername, validPassword } from '@/utils/validate'
+import { resetReloginFlag } from '@/utils/request'
 import type { LoginParams } from '@/api/types'
 
 const router = useRouter()
@@ -182,6 +183,7 @@ async function submit() {
 }
 
 onMounted(() => {
+  resetReloginFlag()
   fetchCaptcha()
 })
 </script>

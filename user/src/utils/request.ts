@@ -32,11 +32,21 @@ let isReloginTriggered = false
 const PUBLIC_URLS = ['/captcha', '/auth/login', '/auth/register', '/auth/send-code',
   '/auth/reset-password', '/auth/reset-password-by-qq']
 
+// 对外暴露：重置登录重入标志（登录页挂载/刷新验证码时调用）
+export function resetReloginFlag() {
+  isReloginTriggered = false
+}
+
 // 请求拦截器
 service.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const url = config.url || ''
     const isPublic = PUBLIC_URLS.some((u) => url.includes(u))
+    // 访问公开接口（登录/验证码/注册）时：自动解除 isReloginTriggered 锁，
+    // 避免 401 → 跳登录页 → 验证码/登录请求被自己的拦截器拒掉 的死循环
+    if (isPublic && isReloginTriggered) {
+      isReloginTriggered = false
+    }
     if (isReloginTriggered && !isPublic) {
       return Promise.reject(new Error('正在重新登录'))
     }
