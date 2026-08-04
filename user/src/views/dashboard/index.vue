@@ -76,7 +76,7 @@ const stats = computed(() => [
     bg: 'linear-gradient(135deg,#eff6ff,#dbeafe)',   iconBg: 'linear-gradient(135deg,#3b82f6,#60a5fa)' },
   { label: '在线设备',    value: overview.value.online_devices,    hint: '实时在线', icon: Monitor,
     bg: 'linear-gradient(135deg,#ecfdf5,#d1fae5)',   iconBg: 'linear-gradient(135deg,#10b981,#34d399)' },
-  { label: '今日推送',    value: overview.value.today_push,hint: '较昨日 '+compareYesterday, icon: DataLine,
+  { label: '今日推送',    value: overview.value.today_push, hint: '较昨日 ' + compareYesterday.value, icon: DataLine,
     bg: 'linear-gradient(135deg,#fef3c7,#fde68a)',   iconBg: 'linear-gradient(135deg,#f59e0b,#fbbf24)' },
   { label: 'Push Key',    value: overview.value.total_keys,       hint: '可用数量', icon: Key,
     bg: 'linear-gradient(135deg,#f0f9ff,#bae6fd)',   iconBg: 'linear-gradient(135deg,#0ea5e9,#38bdf8)' },
