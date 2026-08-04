@@ -252,9 +252,10 @@ class UserNoticeService
         $isSticky    = (int)($data['is_sticky']   ?? 0);
         $sort        = (int)($data['sort']        ?? 0);
         $status      = (int)($data['status']      ?? 1);
-        $startAt     = $data['start_at'] ?? null;
-        $endAt       = $data['end_at']   ?? null;
-        $publishAt   = $data['publish_at'] ?? ($status === 1 ? date('Y-m-d H:i:s') : null);
+        // 空字符串转 null，避免 MySQL DATETIME 严格模式报错
+        $startAt     = !empty($data['start_at']) ? $data['start_at'] : null;
+        $endAt       = !empty($data['end_at'])   ? $data['end_at']   : null;
+        $publishAt   = !empty($data['publish_at']) ? $data['publish_at'] : ($status === 1 ? date('Y-m-d H:i:s') : null);
 
         return (int)Database::insert(
             'INSERT INTO user_notices
@@ -279,10 +280,16 @@ class UserNoticeService
             'title', 'content', 'type', 'level', 'show_dialog', 'show_home',
             'is_sticky', 'sort', 'status', 'start_at', 'end_at', 'publish_at',
         ];
+        // DATETIME 字段：空字符串转 null，避免 MySQL 严格模式报错
+        $dateFields = ['start_at', 'end_at', 'publish_at'];
         foreach ($fields as $f) {
             if (array_key_exists($f, $data)) {
+                $val = $data[$f];
+                if (in_array($f, $dateFields, true) && $val === '') {
+                    $val = null;
+                }
                 $sets[] = "`{$f}` = ?";
-                $bind[] = $data[$f];
+                $bind[] = $val;
             }
         }
         if (empty($sets)) return true;
