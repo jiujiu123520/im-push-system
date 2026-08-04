@@ -86,6 +86,12 @@
         stripe
       >
         <el-table-column type="index" label="#" width="60" align="center" />
+        <el-table-column label="归属用户" width="140">
+          <template #default="{ row }">
+            <el-tag v-if="row.username" size="small" type="info">{{ row.username }}</el-tag>
+            <el-tag v-else size="small" type="warning">管理员(全局)</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="name" label="名称" min-width="160">
           <template #default="{ row }">
             <div class="name-cell">

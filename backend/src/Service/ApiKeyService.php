@@ -172,16 +172,19 @@ class ApiKeyService
         $where  = '';
         $params = [];
         if ($keyword !== '') {
-            $where  = ' WHERE name LIKE ? OR key_value LIKE ?';
+            $where  = ' WHERE ak.name LIKE ? OR ak.key_value LIKE ?';
             $params = ["%{$keyword}%", "%{$keyword}%"];
         }
 
         $list = Database::fetchAll(
-            "SELECT * FROM api_keys{$where} ORDER BY id DESC LIMIT {$perPage} OFFSET {$offset}",
+            "SELECT ak.*, u.username AS username
+             FROM api_keys ak
+             LEFT JOIN users u ON u.id = ak.user_id
+             {$where} ORDER BY ak.id DESC LIMIT {$perPage} OFFSET {$offset}",
             $params
         );
 
-        $total = (int)(Database::fetch("SELECT COUNT(*) AS total FROM api_keys{$where}", $params)['total'] ?? 0);
+        $total = (int)(Database::fetch("SELECT COUNT(*) AS total FROM api_keys ak{$where}", $params)['total'] ?? 0);
 
         return [
             'list'        => $list,
