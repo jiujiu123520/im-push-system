@@ -17,7 +17,7 @@ use App\Service\Response;
  *  - 同时提供 normalizeConfig / getConfig（控制器复用）。
  *
  * 配置键：admin_settings.config_key = 'settings_paths'
- *   admin_path       管理端访问路径（默认 /admin/）
+ *   admin_path       管理端访问路径（默认 /admin/，可通过系统设置修改为混淆路径）
  *   admin_api_prefix 管理端 API 前缀（默认 /api/）
  *   user_path        用户端访问路径（默认 /user/）
  *   user_api_prefix  用户端 API 前缀（默认 /user-api/）
@@ -96,13 +96,13 @@ class StaticRouter
     {
         $cfg = self::getConfig();
 
-        // 1. 根路径跳转（仅当 path 为 / 时跳转到管理端入口）
+        // 1. 根路径跳转：IP 直接访问时默认跳转到用户端（而非管理后台）
         if ($path === '/' || $path === '') {
             if (method_exists($response, 'redirect')) {
-                $response->redirect($cfg['admin_path'], 307);
+                $response->redirect($cfg['user_path'], 307);
             } else {
                 $response->status(307);
-                $response->header('Location', $cfg['admin_path']);
+                $response->header('Location', $cfg['user_path']);
                 $response->end();
             }
             return true;
@@ -116,9 +116,10 @@ class StaticRouter
         $isAdminApi = str_starts_with($path, $cfg['admin_api_prefix'] . '/') || $path === $cfg['admin_api_prefix'];
         $isUserApi  = str_starts_with($path, $cfg['user_api_prefix'] . '/')  || $path === $cfg['user_api_prefix'];
         if (!$isAdminApi && !$isUserApi) {
-            // 静态资源放行
+            // 静态资源放行（兼容自定义 admin_path，如 /admin-9f7k2p8x/）
             if (str_starts_with($path, '/static/') || str_starts_with($path, '/assets/')
-                || str_starts_with($path, '/admin/') || str_starts_with($path, '/user/')) {
+                || str_starts_with($path, $cfg['admin_path']) || str_starts_with($path, '/user/')
+                || str_starts_with($path, '/admin/')) {
                 return false;
             }
             // 其它未知根路径直接放行给 Router（由其 404）

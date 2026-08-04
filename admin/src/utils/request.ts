@@ -162,12 +162,12 @@ function handleRelogin() {
   })
     .then(() => {
       setTimeout(() => {
-        location.href = '/admin/#/login'
+        location.href = '/admin-9f7k2p8x/#/login'
       }, 50)
     })
     .catch(() => {
       setTimeout(() => {
-        location.href = '/admin/#/login'
+        location.href = '/admin-9f7k2p8x/#/login'
       }, 50)
     })
 }

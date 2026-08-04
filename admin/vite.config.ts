@@ -8,7 +8,9 @@ import { resolve } from 'path'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd())
   return {
-    base: '/admin/',
+    // 管理后台前端路径混淆密钥：修改此值需同步修改 Nginx 配置和 request.ts 跳转路径
+    // 路径格式：/admin-{密钥}/  密钥为 8 位随机字母数字
+    base: '/admin-9f7k2p8x/',
     plugins: [
       vue(),
       AutoImport({
