@@ -352,6 +352,11 @@
             </span>
             <span v-else style="color: #909399;">默认 5 分钟</span>
           </template>
+          <!-- Key：归属用户（user_id > 0 显示用户名，否则为管理员全局 Key） -->
+          <template v-else-if="col.slot === 'userBind'" #default="{ row }">
+            <el-tag v-if="row.username" size="small" type="info" effect="plain" round>{{ row.username }}</el-tag>
+            <el-tag v-else size="small" type="warning" effect="plain" round>管理员(全局)</el-tag>
+          </template>
           <!-- Key：订阅数（点击弹出明细） -->
           <template v-else-if="col.prop === 'subscribed_total' && currentModule === 'keys'" #default="{ row }">
             <el-tag
@@ -1113,7 +1118,7 @@ interface ColumnConfig {
         | 'targetType' | 'targetValue' | 'count' | 'email' | 'phone' | 'qq'
         | 'notifyEnabled' | 'notifyEmail' | 'notifyInterval'
         | 'failReason' | 'elapsedMs' | 'deviceText'
-        | 'idleSeconds'
+        | 'idleSeconds' | 'userBind'
 }
 
 // 各模块配置
@@ -1157,6 +1162,7 @@ const moduleConfigs: Record<string, {
     columns: [
       { prop: 'key_value', label: 'AppKey', width: 220 },
       { prop: 'name', label: '名称', width: 160 },
+      { prop: 'username', label: '归属用户', width: 140, slot: 'userBind' },
       { prop: 'subscribed_total', label: '订阅数', width: 120 },
       { prop: 'online_count', label: '在线设备', width: 110 },
       { prop: 'max_devices', label: '最大设备数', width: 110 },

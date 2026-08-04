@@ -37,13 +37,16 @@ class PushKeyController
         $where  = '';
         $sqlParams = [];
         if ($keyword !== '') {
-            $where  = ' WHERE name LIKE ? OR key_value LIKE ?';
-            $sqlParams = ["%{$keyword}%", "%{$keyword}%"];
+            $where  = ' WHERE pk.name LIKE ? OR pk.key_value LIKE ? OR u.username LIKE ?';
+            $sqlParams = ["%{$keyword}%", "%{$keyword}%", "%{$keyword}%"];
         }
 
         $list = Database::fetchAll(
-            "SELECT id, key_value, name, max_devices, status, created_at, updated_at
-             FROM push_keys{$where} ORDER BY id DESC LIMIT " . self::PER_PAGE . " OFFSET " . $offset,
+            "SELECT pk.id, pk.key_value, pk.name, pk.user_id, pk.max_devices, pk.status, pk.created_at, pk.updated_at,
+                    u.username
+             FROM push_keys pk
+             LEFT JOIN users u ON u.id = pk.user_id
+             {$where} ORDER BY pk.id DESC LIMIT " . self::PER_PAGE . " OFFSET " . $offset,
             $sqlParams
         );
 
@@ -89,7 +92,7 @@ class PushKeyController
         }
 
         $total = (int)(Database::fetch(
-            "SELECT COUNT(*) AS total FROM push_keys{$where}",
+            "SELECT COUNT(*) AS total FROM push_keys pk LEFT JOIN users u ON u.id = pk.user_id{$where}",
             $sqlParams
         )['total'] ?? 0);
 
@@ -647,11 +650,25 @@ class PushKeyController
         $notifyEnabled = (int)($body['notify_enabled'] ?? $body['notifyEnabled'] ?? 0);
         $notifyInterval = (int)($body['notify_interval'] ?? $body['notifyInterval'] ?? 300);
 
+        // 归属用户：管理员创建的 Key 默认为全局 Key（user_id=0）；
+        // 若 body 中显式指定 user_id（管理员为指定用户创建），则使用该值。
+        $userId = (int)($body['user_id'] ?? $body['userId'] ?? 0);
+        if ($userId > 0) {
+            // 校验用户是否存在
+            $existsUser = Database::fetch('SELECT id FROM users WHERE id = ? LIMIT 1', [$userId]);
+            if ($existsUser === false) {
+                Response::fail($context['response'], '指定的归属用户不存在', Response::CODE_BAD_REQUEST, 400);
+                return false;
+            }
+        } else {
+            $userId = 0;
+        }
+
         // 先插入基本字段（确保兼容旧表结构）
         $id = Database::insert(
             'INSERT INTO push_keys (key_value, name, max_devices, user_id, status)
              VALUES (?, ?, ?, ?, 1)',
-            [$keyValue, $name, $maxDevices, (int)($admin['admin_id'] ?? 0)]
+            [$keyValue, $name, $maxDevices, $userId]
         );
 
         // 尝试更新通知字段（如果表中有这些列）
@@ -708,6 +725,20 @@ class PushKeyController
         }
         if (isset($body['status'])) {
             $basicData['status'] = (int)$body['status'];
+        }
+        // 归属用户改绑：支持 user_id / userId 字段，0=全局 Key
+        if (array_key_exists('user_id', $body) || array_key_exists('userId', $body)) {
+            $newUserId = (int)($body['user_id'] ?? $body['userId'] ?? 0);
+            if ($newUserId > 0) {
+                $existsUser = Database::fetch('SELECT id FROM users WHERE id = ? LIMIT 1', [$newUserId]);
+                if ($existsUser === false) {
+                    Response::fail($context['response'], '指定的归属用户不存在', Response::CODE_BAD_REQUEST, 400);
+                    return false;
+                }
+            } else {
+                $newUserId = 0;
+            }
+            $basicData['user_id'] = $newUserId;
         }
 
         if (!empty($basicData)) {
@@ -831,8 +862,11 @@ class PushKeyController
     private function fetchKeyById(int $id): ?array
     {
         $row = Database::fetch(
-            'SELECT id, key_value, name, max_devices, status, created_at, updated_at
-             FROM push_keys WHERE id = ? LIMIT 1',
+            'SELECT pk.id, pk.key_value, pk.name, pk.user_id, pk.max_devices, pk.status, pk.created_at, pk.updated_at,
+                    u.username
+             FROM push_keys pk
+             LEFT JOIN users u ON u.id = pk.user_id
+             WHERE pk.id = ? LIMIT 1',
             [$id]
         );
 
