@@ -4,11 +4,17 @@ import type { PageQuery, PageResult, PushKey } from './types'
 export interface KeyStoreParams {
   name: string
   max_devices?: number
+  notify_enabled?: 0 | 1
+  notify_email?: string
+  notify_interval?: number
 }
 
 export interface KeyUpdateParams {
   name?: string
   max_devices?: number
+  notify_enabled?: 0 | 1
+  notify_email?: string
+  notify_interval?: number
 }
 
 // 用户端 Push Key 列表

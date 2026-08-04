@@ -170,6 +170,9 @@ export interface PushKey {
   max_devices: number
   subscribed_total: number
   online_count: number
+  notify_enabled?: number  // 0 or 1，掉线邮件通知开关
+  notify_email?: string   // 掉线通知邮箱
+  notify_interval?: number // 通知冷却间隔秒数
   created_at: string
   updated_at: string
 }

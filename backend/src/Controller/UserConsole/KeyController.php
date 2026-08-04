@@ -29,7 +29,8 @@ class KeyController extends BaseUserController
         }
         $total = (int)(Database::fetch("SELECT COUNT(*) cnt FROM push_keys {$where}", $bind)['cnt'] ?? 0);
         $list = Database::fetchAll(
-            "SELECT id, key_value, name, status, max_devices, created_at, updated_at
+            "SELECT id, key_value, name, status, max_devices, created_at, updated_at,
+                    notify_enabled, notify_email, notify_interval
              FROM push_keys {$where}
              ORDER BY id DESC LIMIT {$perPage} OFFSET {$offset}",
             $bind
@@ -71,6 +72,13 @@ class KeyController extends BaseUserController
         $maxDevices = max(1, min(10000, $maxDevices));
         if ($name === '') return $this->fail($context, 'Key 名称不能为空');
 
+        // 掉线通知字段
+        $notifyEnabled  = (int)($body['notify_enabled'] ?? 0);
+        if (!in_array($notifyEnabled, [0, 1], true)) $notifyEnabled = 0;
+        $notifyEmail    = trim((string)($body['notify_email'] ?? ''));
+        $notifyInterval = (int)($body['notify_interval'] ?? 300);
+        $notifyInterval = max(30, min(86400, $notifyInterval));
+
         // 生成 key_value：确保唯一
         for ($i = 0; $i < 5; $i++) {
             $keyValue = 'pk_' . bin2hex(random_bytes(12));
@@ -79,16 +87,22 @@ class KeyController extends BaseUserController
         }
 
         $id = Database::insert(
-            'INSERT INTO push_keys (key_value, name, user_id, status, max_devices, created_at, updated_at)
-             VALUES (?, ?, ?, 1, ?, NOW(), NOW())',
-            [$keyValue, $name, $userId, $maxDevices]
+            'INSERT INTO push_keys (key_value, name, user_id, status, max_devices,
+                                    notify_enabled, notify_email, notify_interval,
+                                    created_at, updated_at)
+             VALUES (?, ?, ?, 1, ?, ?, ?, ?, NOW(), NOW())',
+            [$keyValue, $name, $userId, $maxDevices,
+             $notifyEnabled, $notifyEmail !== '' ? $notifyEmail : null, $notifyInterval]
         );
         return [
-            'id'         => (int)$id,
-            'key_value'  => $keyValue,
-            'name'       => $name,
-            'max_devices'=> $maxDevices,
-            'status'     => 1,
+            'id'              => (int)$id,
+            'key_value'       => $keyValue,
+            'name'            => $name,
+            'max_devices'     => $maxDevices,
+            'notify_enabled'  => $notifyEnabled,
+            'notify_email'    => $notifyEmail,
+            'notify_interval' => $notifyInterval,
+            'status'          => 1,
         ];
     }
 
@@ -112,11 +126,41 @@ class KeyController extends BaseUserController
         $maxDevices = max(1, min(10000, $maxDevices));
         if ($name === '') return $this->fail($context, 'Key 名称不能为空');
 
+        // 掉线通知字段
+        $notifyEnabled  = isset($body['notify_enabled']) ? (int)$body['notify_enabled'] : null;
+        if ($notifyEnabled !== null && !in_array($notifyEnabled, [0, 1], true)) $notifyEnabled = null;
+        $notifyEmail    = array_key_exists('notify_email', $body) ? trim((string)$body['notify_email']) : null;
+        $notifyInterval = isset($body['notify_interval']) ? (int)$body['notify_interval'] : null;
+        if ($notifyInterval !== null) $notifyInterval = max(30, min(86400, $notifyInterval));
+
+        $sets = ['name = ?', 'max_devices = ?', 'updated_at = NOW()'];
+        $bind = [$name, $maxDevices];
+        if ($notifyEnabled !== null) {
+            $sets[] = 'notify_enabled = ?';
+            $bind[] = $notifyEnabled;
+        }
+        if ($notifyEmail !== null) {
+            $sets[] = 'notify_email = ?';
+            $bind[] = $notifyEmail !== '' ? $notifyEmail : null;
+        }
+        if ($notifyInterval !== null) {
+            $sets[] = 'notify_interval = ?';
+            $bind[] = $notifyInterval;
+        }
+        $bind[] = $id;
+
         Database::execute(
-            'UPDATE push_keys SET name = ?, max_devices = ?, updated_at = NOW() WHERE id = ?',
-            [$name, $maxDevices, $id]
+            'UPDATE push_keys SET ' . implode(', ', $sets) . ' WHERE id = ?',
+            $bind
         );
-        return [
+
+        $final = Database::fetch(
+            'SELECT id, key_value, name, status, max_devices,
+                    notify_enabled, notify_email, notify_interval
+             FROM push_keys WHERE id = ? LIMIT 1',
+            [$id]
+        );
+        return $final ?: [
             'id'          => $id,
             'key_value'   => (string)$row['key_value'],
             'name'        => $name,

@@ -377,12 +377,14 @@ $router->put('/admin/keys/{id}/subscribers/{device_id}/repair', [\App\Controller
         $router->put('/admin/settings/user-app',     [\App\Controller\SettingsController::class, 'saveUserApp']);
 
         // 用户公告 CRUD（管理员）
-        $router->get('/admin/notices',               [\App\Controller\NoticeController::class, 'index']);
-        $router->post('/admin/notices',              [\App\Controller\NoticeController::class, 'store']);
-        $router->get('/admin/notices/{id}',          [\App\Controller\NoticeController::class, 'show']);
-        $router->put('/admin/notices/{id}',          [\App\Controller\NoticeController::class, 'update']);
-        $router->delete('/admin/notices/{id}',       [\App\Controller\NoticeController::class, 'destroy']);
-        $router->put('/admin/notices/{id}/status',   [\App\Controller\NoticeController::class, 'toggleStatus']);
+        $router->get('/admin/user-notices',              [\App\Controller\NoticeController::class, 'index']);
+        $router->post('/admin/user-notices',             [\App\Controller\NoticeController::class, 'store']);
+        $router->get('/admin/user-notices/{id}',         [\App\Controller\NoticeController::class, 'show']);
+        $router->put('/admin/user-notices/{id}',         [\App\Controller\NoticeController::class, 'update']);
+        $router->delete('/admin/user-notices/{id}',      [\App\Controller\NoticeController::class, 'destroy']);
+        $router->post('/admin/user-notices/{id}/publish',  [\App\Controller\NoticeController::class, 'publish']);
+        $router->post('/admin/user-notices/{id}/withdraw', [\App\Controller\NoticeController::class, 'withdraw']);
+        $router->put('/admin/user-notices/{id}/sticky',    [\App\Controller\NoticeController::class, 'toggleSticky']);
 
         // ============================================================
         // 用户端 API 路由（前缀 /user-api/，鉴权走 UserApiAuth）

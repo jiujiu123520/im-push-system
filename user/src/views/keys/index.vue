@@ -48,14 +48,34 @@
     </el-card>
 
     <!-- 创建/编辑 Dialog -->
-    <el-dialog v-model="dialogVisible" :title="editId ? '编辑 Key' : '新建 Push Key'" width="min(480px,92vw)">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
+    <el-dialog v-model="dialogVisible" :title="editId ? '编辑 Key' : '新建 Push Key'" width="min(520px,92vw)">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
         <el-form-item label="Key 名称" prop="name">
           <el-input v-model="form.name" placeholder="给 Key 起个名字，比如 业务告警、通知消息等" maxlength="50" show-word-limit />
         </el-form-item>
         <el-form-item label="最大设备数" prop="max_devices">
           <el-input-number v-model="form.max_devices" :min="1" :max="10000" />
           <div style="color:var(--text-secondary);font-size:12px;margin-top:4px">限制此 Key 可订阅的设备数量</div>
+        </el-form-item>
+        <el-divider content-position="left" style="margin: 4px 0 8px;">设备掉线通知</el-divider>
+        <el-form-item label="启用通知" prop="notify_enabled">
+          <el-switch v-model="form.notify_enabled" :active-value="1" :inactive-value="0" />
+          <span style="color:var(--text-secondary);font-size:12px;margin-left:10px">
+            订阅设备离线时发送邮件提醒
+          </span>
+        </el-form-item>
+        <el-form-item label="通知邮箱" prop="notify_email" v-if="form.notify_enabled === 1">
+          <el-input v-model="form.notify_email" placeholder="多个邮箱用英文逗号或分号分隔" maxlength="320" />
+          <div style="color:var(--text-secondary);font-size:12px;margin-top:4px">
+            例如：me@example.com,admin@test.com；留空则使用账号绑定邮箱
+          </div>
+        </el-form-item>
+        <el-form-item label="通知间隔" prop="notify_interval" v-if="form.notify_enabled === 1">
+          <el-input-number v-model="form.notify_interval" :min="30" :max="86400" :step="30" />
+          <span style="color:var(--text-secondary);font-size:12px;margin-left:8px">秒（同一次掉线冷却）</span>
+          <div style="color:var(--text-secondary);font-size:12px;margin-top:4px">
+            默认 300 秒 = 5 分钟
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -82,10 +102,44 @@ const query = reactive({ page: 1, pageSize: 10, keyword: '' })
 const dialogVisible = ref(false)
 const editId = ref<number | null>(null)
 const formRef = ref<FormInstance>()
-const form = reactive({ name: '', max_devices: 10 })
+const form = reactive({
+  name: '',
+  max_devices: 10,
+  notify_enabled: 0 as 0 | 1,
+  notify_email: '',
+  notify_interval: 300
+})
 const rules: FormRules = {
   name: [{ required: true, message: '请输入 Key 名称', trigger: 'blur' },
-         { min: 1, max: 50, message: '长度 1-50', trigger: 'blur' }]
+         { min: 1, max: 50, message: '长度 1-50', trigger: 'blur' }],
+  notify_email: [
+    {
+      validator: (_rule, value, cb) => {
+        if (form.notify_enabled !== 1 || !value) return cb()
+        // 支持多个邮箱逗号/分号分隔
+        const parts = String(value).split(/[,;]+/).map((s) => s.trim()).filter(Boolean)
+        const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+        for (const p of parts) {
+          if (!re.test(p)) return cb(new Error(`邮箱格式不正确：${p}`))
+        }
+        cb()
+      },
+      trigger: 'blur'
+    }
+  ],
+  notify_interval: [
+    {
+      validator: (_rule, value, cb) => {
+        if (form.notify_enabled !== 1) return cb()
+        const v = Number(value)
+        if (!Number.isFinite(v) || v < 30 || v > 86400) {
+          return cb(new Error('通知间隔需在 30 ~ 86400 秒之间'))
+        }
+        cb()
+      },
+      trigger: 'blur'
+    }
+  ]
 }
 
 async function loadList(page = query.page) {
@@ -97,18 +151,41 @@ async function loadList(page = query.page) {
     total.value = r.data?.total || 0
   } finally { loading.value = false }
 }
-function openCreate() { editId.value = null; form.name = ''; form.max_devices = 10; dialogVisible.value = true }
-function openEdit(row: PushKey) { editId.value = row.id; form.name = row.name; form.max_devices = row.max_devices || 10; dialogVisible.value = true }
+function openCreate() {
+  editId.value = null
+  form.name = ''
+  form.max_devices = 10
+  form.notify_enabled = 0
+  form.notify_email = ''
+  form.notify_interval = 300
+  dialogVisible.value = true
+}
+function openEdit(row: PushKey) {
+  editId.value = row.id
+  form.name = row.name
+  form.max_devices = row.max_devices || 10
+  form.notify_enabled = (row.notify_enabled as 0 | 1) ?? 0
+  form.notify_email = row.notify_email ?? ''
+  form.notify_interval = row.notify_interval ?? 300
+  dialogVisible.value = true
+}
 async function save() {
   await formRef.value?.validate(async (ok) => {
     if (!ok) return
     saving.value = true
     try {
+      const payload = {
+        name: form.name,
+        max_devices: form.max_devices,
+        notify_enabled: form.notify_enabled,
+        notify_email: form.notify_email,
+        notify_interval: form.notify_interval
+      }
       if (editId.value) {
-        await updateKeyApi(editId.value, { name: form.name, max_devices: form.max_devices })
+        await updateKeyApi(editId.value, payload)
         ElMessage.success('编辑成功')
       } else {
-        await createKeyApi({ name: form.name, max_devices: form.max_devices })
+        await createKeyApi(payload)
         ElMessage.success('创建成功')
       }
       dialogVisible.value = false
