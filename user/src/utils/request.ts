@@ -28,10 +28,16 @@ const service: AxiosInstance = axios.create({
 
 let isReloginTriggered = false
 
+// 公开接口白名单：不需要 token，也不受 isReloginTriggered 拦截
+const PUBLIC_URLS = ['/captcha', '/auth/login', '/auth/register', '/auth/send-code',
+  '/auth/reset-password', '/auth/reset-password-by-qq']
+
 // 请求拦截器
 service.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    if (isReloginTriggered) {
+    const url = config.url || ''
+    const isPublic = PUBLIC_URLS.some((u) => url.includes(u))
+    if (isReloginTriggered && !isPublic) {
       return Promise.reject(new Error('正在重新登录'))
     }
     NProgress.start()
@@ -118,11 +124,13 @@ function handleRelogin() {
     closeOnPressEscape: false
   })
     .then(() => {
+      isReloginTriggered = false
       setTimeout(() => {
         location.href = '/user/#/login'
       }, 50)
     })
     .catch(() => {
+      isReloginTriggered = false
       setTimeout(() => {
         location.href = '/user/#/login'
       }, 50)
