@@ -161,13 +161,16 @@ function handleRelogin() {
     closeOnPressEscape: false
   })
     .then(() => {
+      // 动态获取当前管理后台路径（适配任意 admin_path 配置）
+      const adminBase = window.location.pathname.replace(/[^/]*$/, '')
       setTimeout(() => {
-        location.href = '/admin-9f7k2p8x/#/login'
+        window.location.href = adminBase + '#/login'
       }, 50)
     })
     .catch(() => {
+      const adminBase = window.location.pathname.replace(/[^/]*$/, '')
       setTimeout(() => {
-        location.href = '/admin-9f7k2p8x/#/login'
+        window.location.href = adminBase + '#/login'
       }, 50)
     })
 }

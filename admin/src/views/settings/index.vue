@@ -689,8 +689,8 @@
         >
           <div class="form-row">
             <el-form-item label="管理端访问路径" prop="admin_path">
-              <el-input v-model="pathsForm.admin_path" placeholder="/admin" />
-              <div class="form-tip">管理后台的访问路径，必须以 / 开头，如 /admin 或 /console</div>
+              <el-input v-model="pathsForm.admin_path" placeholder="/admin-9f7k2p8x" />
+              <div class="form-tip">管理后台访问路径，必须以 / 开头。建议使用混淆路径（如 /admin-9f7k2p8x）防止被直接访问。修改后 Nginx 配置将自动更新并重载</div>
             </el-form-item>
             <el-form-item label="用户端访问路径" prop="user_path">
               <el-input v-model="pathsForm.user_path" placeholder="/user" />
@@ -712,9 +712,10 @@
             <template #title>
               <div>
                 <strong>⚠️ 修改路径注意事项：</strong>
-                <div>· 修改后当前页面会刷新，请确保路径格式正确</div>
-                <div>· 若使用 Nginx 反向代理，请同步更新 <code>location</code> 路径匹配规则</div>
+                <div>· 修改管理端路径后，Nginx 配置将<strong>自动更新并重载</strong>，无需手动操作</div>
+                <div>· 修改后当前页面会刷新到新路径，请确保路径格式正确</div>
                 <div>· 修改 API 前缀后，用户 APP 需重新生成以使用新的接口地址</div>
+                <div>· 旧的管理端路径将自动失效（返回 404）</div>
               </div>
             </template>
           </el-alert>
@@ -2428,18 +2429,24 @@ async function savePathsConfig() {
   saving.paths = true
   try {
     const res = await savePathsConfigApi({ ...pathsForm })
-    ElMessage.success(res.data?.message || '路径配置已保存，正在刷新页面...')
+    const nginxMsg = res.data?.nginx_message
+    if (nginxMsg) {
+      ElMessage.success(nginxMsg)
+    } else {
+      ElMessage.success(res.data?.message || '路径配置已保存')
+    }
     if (res.data?.need_reload_nginx) {
       ElMessageBox.alert(
-        '路径配置已保存。由于路径或 API 前缀发生变更，若使用 Nginx 反向代理，请同步更新 Nginx 的 location 路径匹配规则后再重载 Nginx。\n\n3 秒后将自动跳转到新的管理端入口...',
-        '请同步更新 Nginx',
-        { confirmButtonText: '我知道了', type: 'warning', center: true }
+        (nginxMsg || '管理端路径已变更，Nginx 已自动更新并重载') + '\n\n3 秒后将自动跳转到新的管理端入口...',
+        '路径已更新',
+        { confirmButtonText: '我知道了', type: 'success', center: true }
       )
     }
     // 3 秒后跳到新的管理端入口
     setTimeout(() => {
-      const hash = (pathsForm.admin_path || '/admin').replace(/^\//, '')
-      window.location.href = window.location.pathname + '#/' + hash + '/'
+      const newPath = (pathsForm.admin_path || '/admin/').replace(/^\//, '')
+      // 构建新路径：/new-path/#/
+      window.location.href = '/' + newPath + '#/'
     }, 1500)
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : '保存失败')

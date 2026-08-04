@@ -1075,6 +1075,12 @@ class SettingsController
     /**
      * 保存访问路径配置（实时生效，无需重启）
      * PUT /admin/settings/paths
+     *
+     * 当 admin_path 变更时，自动更新 Nginx 配置并 reload：
+     * 1. 读取 deploy/nginx/push.conf 模板
+     * 2. 用正则替换管理后台 location 块（旧路径 → 新路径）
+     * 3. 写入 /etc/nginx/sites-available/push.conf
+     * 4. nginx -t && nginx -s reload
      */
     public function savePaths(array $context, array $params)
     {
@@ -1111,8 +1117,100 @@ class SettingsController
             Response::fail($response, '没有需要保存的字段', Response::CODE_BAD_REQUEST, 400);
             return false;
         }
+
+        // 读取旧配置，判断 admin_path 是否变更
+        $oldConfig = $this->readJsonSetting('settings_paths', [
+            'admin_path' => '/admin/',
+        ]);
+        $oldAdminPath = $oldConfig['admin_path'] ?? '/admin/';
+
         $this->upsertJsonSetting('settings_paths', $data, '管理端/用户端 访问路径与API前缀配置');
-        return ['saved' => true, 'data' => $this->getPaths($context, $params)];
+
+        $needReloadNginx = false;
+        $nginxMessage = '';
+
+        // admin_path 变更时自动更新 Nginx 配置
+        if (isset($data['admin_path']) && $data['admin_path'] !== $oldAdminPath) {
+            $newAdminPath = $data['admin_path'];
+            $nginxResult = $this->updateNginxAdminPath($oldAdminPath, $newAdminPath);
+            $needReloadNginx = $nginxResult['reloaded'];
+            $nginxMessage = $nginxResult['message'];
+        }
+
+        return [
+            'saved' => true,
+            'data' => $this->getPaths($context, $params),
+            'need_reload_nginx' => $needReloadNginx,
+            'nginx_message' => $nginxMessage,
+        ];
+    }
+
+    /**
+     * 更新 Nginx 配置中的管理后台路径
+     * 自动替换 location 块并 reload Nginx
+     */
+    private function updateNginxAdminPath(string $oldPath, string $newPath): array
+    {
+        $nginxConfPath = '/etc/nginx/sites-available/push.conf';
+        $templatePath = BASE_PATH . '/deploy/nginx/push.conf';
+
+        // 1. 读取当前 Nginx 配置（优先读实际部署的，回退到模板）
+        $conf = @file_get_contents($nginxConfPath);
+        if ($conf === false) {
+            $conf = @file_get_contents($templatePath);
+        }
+        if ($conf === false) {
+            return ['reloaded' => false, 'message' => '无法读取 Nginx 配置文件，请手动更新 Nginx'];
+        }
+
+        // 2. 规范化路径（去掉首尾斜杠用于正则匹配）
+        $oldPathTrim = trim($oldPath, '/');
+        $newPathTrim = trim($newPath, '/');
+
+        // 3. 替换 Nginx 配置中的管理后台 location 块
+        // 匹配 pattern: location = /admin-xxx { ... } 和 location ^~ /admin-xxx/ { ... }
+        // 以及 try_files 中的 fallback 路径
+
+        // 替换 location = /oldpath { return 404; }
+        $conf = preg_replace(
+            '#location\s*=\s*/' . preg_quote($oldPathTrim, '#') . '\s*\{#',
+            'location = /' . $newPathTrim . ' {',
+            $conf
+        );
+
+        // 替换 location ^~ /oldpath/ {
+        $conf = preg_replace(
+            '#location\s*\^~\s*/' . preg_quote($oldPathTrim, '#') . '/\s*\{#',
+            'location ^~ /' . $newPathTrim . '/ {',
+            $conf
+        );
+
+        // 替换 try_files 中的 fallback 路径 /oldpath/index.html
+        $conf = str_replace(
+            '/' . $oldPathTrim . '/index.html',
+            '/' . $newPathTrim . '/index.html',
+            $conf
+        );
+
+        // 4. 写入 Nginx 配置文件
+        $written = @file_put_contents($nginxConfPath, $conf);
+        if ($written === false) {
+            return ['reloaded' => false, 'message' => 'Nginx 配置写入失败，请检查权限或手动更新'];
+        }
+
+        // 5. nginx -t 测试配置
+        $testOutput = @shell_exec('nginx -t 2>&1');
+        if (strpos((string)$testOutput, 'successful') === false) {
+            return ['reloaded' => false, 'message' => 'Nginx 配置测试失败：' . trim((string)$testOutput)];
+        }
+
+        // 6. reload Nginx
+        @shell_exec('nginx -s reload 2>&1');
+
+        return [
+            'reloaded' => true,
+            'message' => "管理后台路径已从 /{$oldPathTrim}/ 更新为 /{$newPathTrim}/，Nginx 已自动重载",
+        ];
     }
 
     /**

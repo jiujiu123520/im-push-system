@@ -8,9 +8,10 @@ import { resolve } from 'path'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd())
   return {
-    // 管理后台前端路径混淆密钥：修改此值需同步修改 Nginx 配置和 request.ts 跳转路径
-    // 路径格式：/admin-{密钥}/  密钥为 8 位随机字母数字
-    base: '/admin-9f7k2p8x/',
+    // 使用相对路径，一次构建即可适配任意管理后台路径（如 /admin/、/admin-9f7k2p8x/）
+    // 修改管理后台路径只需更新 Nginx location + 后端 settings_paths.admin_path，无需重新构建前端
+    // Vue Router 使用 createWebHashHistory()，自动适配当前路径，无尾斜杠问题
+    base: './',
     plugins: [
       vue(),
       AutoImport({
