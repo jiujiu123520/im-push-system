@@ -92,7 +92,7 @@ class KeyController extends BaseUserController
                                     created_at, updated_at)
              VALUES (?, ?, ?, 1, ?, ?, ?, ?, NOW(), NOW())',
             [$keyValue, $name, $userId, $maxDevices,
-             $notifyEnabled, $notifyEmail !== '' ? $notifyEmail : null, $notifyInterval]
+             $notifyEnabled, $notifyEmail !== '' ? $notifyEmail : '', $notifyInterval]
         );
         return [
             'id'              => (int)$id,
@@ -141,7 +141,7 @@ class KeyController extends BaseUserController
         }
         if ($notifyEmail !== null) {
             $sets[] = 'notify_email = ?';
-            $bind[] = $notifyEmail !== '' ? $notifyEmail : null;
+            $bind[] = $notifyEmail !== '' ? $notifyEmail : '';
         }
         if ($notifyInterval !== null) {
             $sets[] = 'notify_interval = ?';
