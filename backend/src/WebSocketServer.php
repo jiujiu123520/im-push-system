@@ -127,7 +127,7 @@ class WebSocketServer
      *   - max_request: 每个 worker 处理 N 次请求后重启(WebSocket 推荐设为 0 不重启,避免长连接断开)
      *   - max_wait_time: reload 时等待连接关闭的最大时间
      *   - send_yield: 当发送队列满时让出协程,避免阻塞 worker
-     *   - send_buffer_size: 单连接发送缓冲区大小(字节)
+     *   - socket_buffer_size: 单连接发送缓冲区大小(字节)，Swoole 5.x 替代 send_buffer_size
      *
      * @return void
      */
@@ -152,7 +152,7 @@ class WebSocketServer
             'max_wait_time'          => 60,       // reload 时等待连接关闭的最大秒数
             'reloadable'             => true,      // worker 可被 reload 重启
             'send_yield'             => true,      // 发送队列满时让出协程,避免阻塞
-            'send_buffer_size'       => 1048576,  // 1MB 单连接发送缓冲区
+            'socket_buffer_size'     => 1048576,  // 1MB 单连接发送缓冲区（Swoole 5.x 替代 send_buffer_size）
             // 鉴权超时定时器依赖,允许毫秒级 Timer
             'enable_coroutine'       => true,
             // Swoole 内置心跳检测：600 秒（10 分钟）无数据则关闭连接
