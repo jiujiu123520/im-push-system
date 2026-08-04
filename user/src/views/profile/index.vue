@@ -106,7 +106,7 @@
             <el-tab-pane label="安全设置" name="sec">
               <div class="form-section">
                 <div class="form-section-title">
-                  <el-icon><Shield /></el-icon>
+                  <el-icon><Lock /></el-icon>
                   <span>登录管理</span>
                 </div>
                 <div class="sec-item">
@@ -145,7 +145,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { User, Message, Iphone, ChatDotRound, SwitchButton, EditPen, Lock, Check, Shield } from '@element-plus/icons-vue'
+import { User, Message, Iphone, ChatDotRound, SwitchButton, EditPen, Lock, Check } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { getProfileApi, updateProfileApi, changePasswordApi, bindQqApi, logoutAllApi } from '@/api/profile'
 import { sendCodeApi } from '@/api/auth'
