@@ -12,11 +12,25 @@
             </div>
           </div>
           <div class="meta-list">
-            <div class="meta"><el-icon><User /></el-icon><span>用户名：</span><b>{{ userStore.username }}</b></div>
-            <div class="meta"><el-icon><Message /></el-icon><span>邮箱：</span><b>{{ userStore.email || '未绑定' }}</b></div>
-            <div class="meta"><el-icon><Iphone /></el-icon><span>手机号：</span><b>{{ userStore.phone || '未绑定' }}</b></div>
-            <div class="meta"><el-icon><ChatDotRound /></el-icon><span>QQ：</span>
-              <b>{{ maskedQq || '未绑定' }}</b>
+            <div class="meta">
+              <el-icon class="meta-icon"><User /></el-icon>
+              <span class="meta-label">用户名</span>
+              <b class="meta-value">{{ userStore.username }}</b>
+            </div>
+            <div class="meta">
+              <el-icon class="meta-icon"><Message /></el-icon>
+              <span class="meta-label">邮箱</span>
+              <b class="meta-value">{{ userStore.email || '未绑定' }}</b>
+            </div>
+            <div class="meta">
+              <el-icon class="meta-icon"><Iphone /></el-icon>
+              <span class="meta-label">手机号</span>
+              <b class="meta-value">{{ userStore.phone || '未绑定' }}</b>
+            </div>
+            <div class="meta">
+              <el-icon class="meta-icon"><ChatDotRound /></el-icon>
+              <span class="meta-label">QQ</span>
+              <b class="meta-value">{{ maskedQq || '未绑定' }}</b>
               <el-button v-if="!userStore.qq" link type="primary" size="small" @click="bindQqDlg = true">绑定</el-button>
               <el-tooltip v-if="userStore.qq" content="如需解绑请联系管理员" placement="right">
                 <el-tag size="small" type="warning" effect="light" style="margin-left:6px">不可自行解绑</el-tag>
@@ -25,58 +39,89 @@
           </div>
         </el-card>
       </el-col>
+
       <el-col :xs="24" :sm="24" :md="16">
-        <el-tabs v-model="tab" class="tabs">
-          <el-tab-pane label="基本资料" name="basic">
-            <el-form :model="form" label-width="100px" label-position="right">
-              <el-form-item label="昵称">
-                <el-input v-model="form.nickname" placeholder="给自己起个昵称" maxlength="30" />
-              </el-form-item>
-              <el-form-item label="邮箱">
-                <el-row :gutter="12" style="width:100%">
-                  <el-col :span="16"><el-input v-model="form.email" placeholder="新邮箱地址" maxlength="64" /></el-col>
-                  <el-col :span="8">
-                    <el-button :disabled="!canSendMail" @click="sendMailCode">
-                      {{ mailCountdown > 0 ? mailCountdown + 's' : '获取验证码' }}
+        <el-card shadow="never" class="settings-card">
+          <el-tabs v-model="tab" class="tabs">
+            <!-- 基本资料 -->
+            <el-tab-pane label="基本资料" name="basic">
+              <div class="form-section">
+                <div class="form-section-title">
+                  <el-icon><EditPen /></el-icon>
+                  <span>个人信息</span>
+                </div>
+                <el-form :model="form" label-width="100px" label-position="right" class="settings-form">
+                  <el-form-item label="昵称">
+                    <el-input v-model="form.nickname" placeholder="给自己起个昵称" maxlength="30" show-word-limit />
+                  </el-form-item>
+                  <el-form-item label="邮箱">
+                    <el-row :gutter="12" style="width:100%">
+                      <el-col :span="16"><el-input v-model="form.email" placeholder="新邮箱地址" maxlength="64" /></el-col>
+                      <el-col :span="8">
+                        <el-button :disabled="!canSendMail" @click="sendMailCode" style="width:100%">
+                          {{ mailCountdown > 0 ? mailCountdown + 's' : '获取验证码' }}
+                        </el-button>
+                      </el-col>
+                    </el-row>
+                  </el-form-item>
+                  <el-form-item label="邮箱验证码">
+                    <el-input v-model="form.email_code" placeholder="邮箱验证码" maxlength="6" />
+                  </el-form-item>
+                  <el-form-item>
+                    <el-button type="primary" :loading="savingBasic" @click="saveBasic">
+                      <el-icon><Check /></el-icon> 保存修改
                     </el-button>
-                  </el-col>
-                </el-row>
-              </el-form-item>
-              <el-form-item label="邮箱验证码">
-                <el-input v-model="form.email_code" placeholder="邮箱验证码" maxlength="6" />
-              </el-form-item>
-              <el-form-item>
-                <el-button type="primary" :loading="savingBasic" @click="saveBasic">保存修改</el-button>
-              </el-form-item>
-            </el-form>
-          </el-tab-pane>
-          <el-tab-pane label="修改密码" name="pwd">
-            <el-form :model="pwd" ref="pwdFormRef" :rules="pwdRules" label-width="120px" label-position="right">
-              <el-form-item label="当前密码" prop="old_password">
-                <el-input v-model="pwd.old_password" type="password" show-password maxlength="64" />
-              </el-form-item>
-              <el-form-item label="新密码" prop="new_password">
-                <el-input v-model="pwd.new_password" type="password" show-password maxlength="64" />
-              </el-form-item>
-              <el-form-item label="确认新密码" prop="confirm_password">
-                <el-input v-model="pwd.confirm_password" type="password" show-password maxlength="64" />
-              </el-form-item>
-              <el-form-item>
-                <el-button type="primary" :loading="savingPwd" @click="savePwd">修改密码</el-button>
-              </el-form-item>
-            </el-form>
-          </el-tab-pane>
-          <el-tab-pane label="安全设置" name="sec">
-            <el-descriptions :column="1" border>
-              <el-descriptions-item label="登录令牌">
-                <el-button type="danger" plain @click="logoutAll">
-                  <el-icon><SwitchButton /></el-icon> 退出所有登录
-                </el-button>
-                <div class="hint">强制所有设备上的该账号立即重新登录。</div>
-              </el-descriptions-item>
-            </el-descriptions>
-          </el-tab-pane>
-        </el-tabs>
+                  </el-form-item>
+                </el-form>
+              </div>
+            </el-tab-pane>
+
+            <!-- 修改密码 -->
+            <el-tab-pane label="修改密码" name="pwd">
+              <div class="form-section">
+                <div class="form-section-title">
+                  <el-icon><Lock /></el-icon>
+                  <span>安全密码</span>
+                </div>
+                <el-form :model="pwd" ref="pwdFormRef" :rules="pwdRules" label-width="120px" label-position="right" class="settings-form">
+                  <el-form-item label="当前密码" prop="old_password">
+                    <el-input v-model="pwd.old_password" type="password" show-password maxlength="64" placeholder="请输入当前密码" />
+                  </el-form-item>
+                  <el-form-item label="新密码" prop="new_password">
+                    <el-input v-model="pwd.new_password" type="password" show-password maxlength="64" placeholder="6-64 位新密码" />
+                  </el-form-item>
+                  <el-form-item label="确认新密码" prop="confirm_password">
+                    <el-input v-model="pwd.confirm_password" type="password" show-password maxlength="64" placeholder="请再次输入新密码" />
+                  </el-form-item>
+                  <el-form-item>
+                    <el-button type="primary" :loading="savingPwd" @click="savePwd">
+                      <el-icon><Check /></el-icon> 修改密码
+                    </el-button>
+                  </el-form-item>
+                </el-form>
+              </div>
+            </el-tab-pane>
+
+            <!-- 安全设置 -->
+            <el-tab-pane label="安全设置" name="sec">
+              <div class="form-section">
+                <div class="form-section-title">
+                  <el-icon><Shield /></el-icon>
+                  <span>登录管理</span>
+                </div>
+                <div class="sec-item">
+                  <div class="sec-info">
+                    <div class="sec-name">退出所有登录</div>
+                    <div class="sec-desc">强制所有设备上的该账号立即重新登录，建议在密码修改后或发现异常时使用</div>
+                  </div>
+                  <el-button type="danger" plain @click="logoutAll">
+                    <el-icon><SwitchButton /></el-icon> 退出所有登录
+                  </el-button>
+                </div>
+              </div>
+            </el-tab-pane>
+          </el-tabs>
+        </el-card>
       </el-col>
     </el-row>
 
@@ -100,7 +145,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { User, Message, Iphone, ChatDotRound, SwitchButton } from '@element-plus/icons-vue'
+import { User, Message, Iphone, ChatDotRound, SwitchButton, EditPen, Lock, Check, Shield } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { getProfileApi, updateProfileApi, changePasswordApi, bindQqApi, logoutAllApi } from '@/api/profile'
 import { sendCodeApi } from '@/api/auth'
@@ -232,11 +277,57 @@ onBeforeUnmount(() => { if (mailTimer) clearInterval(mailTimer) })
     .id   { font-size: $font-size-xs; color: var(--text-secondary); margin-top: 2px; } }
 }
 .meta-list { padding: 0 $space-5 $space-5; }
-.meta { display: flex; align-items: center; gap: $space-2; padding: $space-2 0; color: var(--text-regular);
+.meta {
+  display: flex; align-items: center; gap: $space-2;
+  padding: $space-3 0; color: var(--text-regular);
   font-size: $font-size-sm;
-  span { color: var(--text-secondary); }
-  b { color: var(--text-primary); font-weight: 500; }
-  .el-icon { color: var(--text-secondary); } }
-.tabs { :deep(.el-tabs__nav-wrap::after) { background: var(--border-light); } }
-.hint { margin-top: 6px; font-size: $font-size-xs; color: var(--text-secondary); }
+  border-bottom: 1px solid var(--border-lighter, #f3f4f6);
+  &:last-child { border-bottom: none; }
+  .meta-icon { color: var(--text-secondary); font-size: 16px; }
+  .meta-label { color: var(--text-secondary); min-width: 56px; }
+  .meta-value { color: var(--text-primary); font-weight: 500; flex: 1; }
+}
+
+// 设置卡片
+.settings-card {
+  :deep(.el-card__body) { padding: 0; }
+}
+.tabs {
+  :deep(.el-tabs__nav-wrap) { padding: 0 $space-5; }
+  :deep(.el-tabs__nav-wrap::after) { background: var(--border-light); }
+  :deep(.el-tabs__content) { padding: $space-5; }
+}
+
+.form-section {
+  max-width: 600px;
+}
+.form-section-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: $font-size-md; font-weight: 600; color: var(--text-primary);
+  margin-bottom: $space-5; padding-bottom: $space-3;
+  border-bottom: 2px solid var(--border-lighter, #f3f4f6);
+  .el-icon { color: var(--color-primary, #0ea5e9); }
+}
+.settings-form {
+  :deep(.el-form-item) { margin-bottom: $space-5; }
+}
+
+// 安全设置项
+.sec-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: $space-4 $space-5;
+  border-radius: $radius-md;
+  background: linear-gradient(135deg, #fef2f2, #fff5f5);
+  border: 1px solid #fecaca;
+  .sec-info {
+    flex: 1; min-width: 0; margin-right: $space-4;
+    .sec-name {
+      font-weight: 600; font-size: $font-size-sm; color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+    .sec-desc {
+      font-size: $font-size-xs; color: var(--text-secondary); line-height: 1.5;
+    }
+  }
+}
 </style>

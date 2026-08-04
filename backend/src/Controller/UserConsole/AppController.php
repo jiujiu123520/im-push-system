@@ -97,6 +97,7 @@ class AppController extends BaseUserController
         $apiBaseUrl = trim((string)($body['api_base_url'] ?? ''));
         $wsUrl      = trim((string)($body['ws_url'] ?? ''));
         $iconBase64 = trim((string)($body['icon_base64'] ?? ''));
+        $template   = trim((string)($body['template'] ?? 'new'));
 
         if ($appName === '') return $this->fail($context, 'app_name 不能为空');
         if ($packageId === '' || !preg_match('/^[a-zA-Z][a-zA-Z0-9_\.]*$/', $packageId)) {
@@ -146,6 +147,7 @@ class AppController extends BaseUserController
                 'api_base_url'=> rtrim($apiBaseUrl, '/') . '/',
                 'ws_url'      => rtrim($wsUrl, '/') . '/',
                 'icon_base64' => $iconBase64,
+                'template'    => $template,
             ]);
         } catch (\Throwable $e) {
             return $this->fail($context, '生成失败：' . $e->getMessage(), 500, 500);

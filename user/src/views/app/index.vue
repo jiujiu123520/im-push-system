@@ -2,27 +2,28 @@
   <div class="page">
     <el-row :gutter="16">
       <el-col :xs="24" :sm="24" :md="14">
-        <el-card shadow="never">
+        <!-- APP 下载卡 -->
+        <el-card shadow="never" class="download-card">
           <template #header>
             <div class="card-header">
-              <div class="title">APP 下载 &amp; HBuilderX 源码生成</div>
+              <div class="title">APP 下载</div>
             </div>
           </template>
           <div v-if="info.download?.apk_download_url || info.download?.ipa_download_url" class="apps">
-            <div v-if="info.download?.apk_download_url" class="app-card">
-              <div class="badge android">Android</div>
+            <div v-if="info.download?.apk_download_url" class="app-card android">
+              <div class="badge">Android</div>
               <div class="row">
                 <div class="big-icon"><el-icon :size="34" color="#fff"><Cellphone /></el-icon></div>
                 <div class="info">
-                  <div class="name">{{ 'Android App' }}
-                    <el-tag v-if="info.download?.apk_version" size="small" type="primary" effect="plain" style="margin-left:6px">v{{ info.download?.apk_version }}</el-tag>
+                  <div class="name">
+                    Android App
+                    <el-tag v-if="info.download?.apk_version" size="small" type="success" effect="plain" style="margin-left:6px">v{{ info.download?.apk_version }}</el-tag>
                   </div>
-                  <div class="sub">
-                  </div>
+                  <div class="sub">点击下方按钮下载 APK 安装包</div>
                 </div>
               </div>
               <div class="btns">
-                <el-button type="primary" @click="downloadApk">
+                <el-button type="success" @click="downloadApk">
                   <el-icon><Download /></el-icon> 下载 APK
                 </el-button>
               </div>
@@ -32,31 +33,59 @@
               <div class="row">
                 <div class="big-icon ios"><el-icon :size="34" color="#fff"><Iphone /></el-icon></div>
                 <div class="info">
-                  <div class="name">{{ 'iOS App' }}
-                    <el-tag v-if="info.download?.ipa_version" size="small" type="success" effect="plain" style="margin-left:6px">v{{ info.download?.ipa_version }}</el-tag>
+                  <div class="name">
+                    iOS App
+                    <el-tag v-if="info.download?.ipa_version" size="small" type="primary" effect="plain" style="margin-left:6px">v{{ info.download?.ipa_version }}</el-tag>
                   </div>
                   <div class="sub">需企业签名或自行编译</div>
                 </div>
               </div>
             </div>
           </div>
-          <el-empty v-else description="管理员暂未配置分发版本，可使用下方 HBuilderX 自行生成定制 APP" />
+          <el-empty v-else description="管理员暂未配置分发版本，可使用下方源码生成定制 APP" />
         </el-card>
 
-        <el-card shadow="never" style="margin-top:16px">
+        <!-- HBuilderX 源码生成卡 -->
+        <el-card shadow="never" class="gen-card">
           <template #header>
             <div class="card-header">
-              <div class="title">生成 HBuilderX 定制源码包</div>
+              <div class="title">生成定制 APP 源码包</div>
               <el-tag v-if="info.download?.user_hbx_enabled" type="success" effect="light">功能已启用</el-tag>
             </div>
           </template>
-          <el-alert type="info" :closable="false" show-icon style="margin-bottom:16px"
-                    title="生成后下载 ZIP，解压后使用 HBuilderX 打开，连接手机即可云打包或离线打包 APK。" />
-          <el-form :model="hb" label-width="120px" label-position="right">
+
+          <!-- 模板选择 -->
+          <div class="tpl-section">
+            <div class="section-label">选择模板</div>
+            <div class="tpl-list">
+              <div v-for="tpl in templates" :key="tpl.id"
+                   class="tpl-item" :class="{ active: hb.template === tpl.id, disabled: !tpl.available }"
+                   @click="tpl.available && (hb.template = tpl.id)">
+                <div class="tpl-radio">
+                  <span class="radio-outer">
+                    <span v-if="hb.template === tpl.id" class="radio-inner"></span>
+                  </span>
+                </div>
+                <div class="tpl-info">
+                  <div class="tpl-name">
+                    {{ tpl.name }}
+                    <el-tag v-if="tpl.id === 'new'" size="small" type="success" effect="plain">推荐</el-tag>
+                    <el-tag v-if="!tpl.available" size="small" type="info" effect="plain">未安装</el-tag>
+                  </div>
+                  <div class="tpl-desc">{{ tpl.description }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 参数表单 -->
+          <el-alert type="info" :closable="false" show-icon class="gen-tip"
+                    title="生成后下载 ZIP，解压后使用 HBuilderX 打开，连接手机即可云打包或运行。" />
+          <el-form :model="hb" label-width="100px" label-position="right">
             <el-row :gutter="16">
               <el-col :xs="24" :sm="24" :md="12">
                 <el-form-item label="APP 名称">
-                  <el-input v-model="hb.app_name" placeholder="如：我的推送" maxlength="20" />
+                  <el-input v-model="hb.app_name" placeholder="如：我的推送" maxlength="20" show-word-limit />
                 </el-form-item>
               </el-col>
               <el-col :xs="24" :sm="24" :md="12">
@@ -65,13 +94,17 @@
                 </el-form-item>
               </el-col>
             </el-row>
-            <el-button type="primary" :loading="genLoading" @click="generate">
-              <el-icon><MagicStick /></el-icon> 生成并下载 ZIP
-            </el-button>
+            <el-form-item>
+              <el-button type="primary" :loading="genLoading" @click="generate">
+                <el-icon><MagicStick /></el-icon> 生成并下载 ZIP
+              </el-button>
+            </el-form-item>
           </el-form>
         </el-card>
       </el-col>
+
       <el-col :xs="24" :sm="24" :md="10">
+        <!-- 扫码下载 -->
         <el-card shadow="never">
           <template #header><div class="title">扫码下载</div></template>
           <div class="qr-wrap">
@@ -81,14 +114,16 @@
             <div v-else class="qr-info">管理员未配置下载链接</div>
           </div>
         </el-card>
+
+        <!-- 操作说明 -->
         <el-card shadow="never" style="margin-top:16px">
           <template #header><div class="title">操作说明</div></template>
           <ol class="howto">
-            <li>① 安装 HBuilderX（HBuilderX.4+），登录账号</li>
-            <li>② 点击上方按钮，填写参数，生成 ZIP 并解压</li>
+            <li>① 安装 HBuilderX（4.0+），登录账号</li>
+            <li>② 选择模板，填写 APP 名称和包名，生成 ZIP 并解压</li>
             <li>③ 在 HBuilderX 中：文件 → 打开目录 → 选择解压后的文件夹</li>
             <li>④ 菜单：发行 → 原生 App-云打包，或 运行 → 运行到手机或模拟器</li>
-            <li>⑤ 打包完成后安装到手机，填入 Push Key 使用。</li>
+            <li>⑤ 打包完成后安装到手机，填入 Push Key 即可使用</li>
           </ol>
         </el-card>
       </el-col>
@@ -104,12 +139,27 @@ import { getAppInfoApi, getAppDownloadQrApi, generateHBuilderXApi } from '@/api/
 import { getToken } from '@/utils/auth'
 import type { AppInfo, HBuilderXGenerateParams } from '@/api/types'
 
+interface Template {
+  id: string
+  name: string
+  description: string
+  available: boolean
+}
+
 const info = ref<any>({})
 const qrUrl = ref('')
 const genLoading = ref(false)
 
+// 模板列表
+const templates = ref<Template[]>([
+  { id: 'new', name: '新版模板', description: '推荐使用，基于最新 uni-app 架构，UI 更美观，性能更好', available: true },
+  { id: 'old', name: '旧版模板', description: '兼容旧版 APP 源码，适合已使用旧版模板的用户', available: false },
+])
+
 const hb = reactive<any>({
-  app_name: 'Push 用户端', package_id: 'com.push.user'
+  app_name: 'Push 用户端',
+  package_id: 'com.push.user',
+  template: 'new'
 })
 
 async function loadInfo() {
@@ -121,19 +171,26 @@ async function loadInfo() {
     qrUrl.value = r2.data?.apk_url || ''
   } catch {}
 }
+
 function downloadApk() {
   if (info.value.download?.apk_download_url) window.open(info.value.download?.apk_download_url, '_blank')
   else ElMessage.warning('管理员尚未配置 APK 下载地址')
 }
+
 function openUrl(url: string) {
   window.open(url, '_blank')
 }
+
 async function generate() {
   if (!hb.app_name.trim()) return ElMessage.warning('请填写 APP 名称')
   if (!/^[a-zA-Z][a-zA-Z0-9_.]*$/.test(hb.package_id)) return ElMessage.warning('包名格式错误，需字母开头，仅允许字母数字下划线点')
+  if (!hb.template) return ElMessage.warning('请选择模板')
+
+  const selectedTpl = templates.value.find(t => t.id === hb.template)
+  if (selectedTpl && !selectedTpl.available) return ElMessage.warning('该模板未安装，请选择其他模板')
+
   genLoading.value = true
   try {
-    // Backend returns ZIP binary, use fetch to get blob
     const token = getToken() || ''
     const resp = await fetch('/api/user-api/app/hbuilderx/generate', {
       method: 'POST',
@@ -148,21 +205,26 @@ async function generate() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `hbuilderx-${hb.package_id}.zip`
+    a.download = `hbuilderx-${hb.template}-${hb.package_id}.zip`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
     ElMessage.success('生成成功，正在下载…')
-  } catch (e: any) { ElMessage.error(e?.message || '生成失败')
-  } finally { genLoading.value = false }
+  } catch (e: any) {
+    ElMessage.error(e?.message || '生成失败')
+  } finally {
+    genLoading.value = false
+  }
 }
+
 onMounted(loadInfo)
 </script>
 
 <style lang="scss" scoped>
 .title { font-weight: 600; font-size: $font-size-lg; }
 .card-header { display: flex; align-items: center; justify-content: space-between; }
+
 .apps { display: flex; flex-direction: column; gap: $space-4; }
 .app-card {
   position: relative; padding: $space-5; border-radius: $radius-lg;
@@ -189,14 +251,69 @@ onMounted(loadInfo)
   .sub { margin-top: 4px; font-size: $font-size-xs; color: var(--text-secondary); }
 }
 .btns { margin-top: $space-4; }
-.qr-wrap { display: flex; flex-direction: column; align-items: center; gap: $space-4;
-  padding: $space-5 0; }
-.qr-svg {
-  width: 220px; height: 220px; border-radius: $radius-md;
-  padding: 10px; background: #fff; box-shadow: 0 4px 16px rgba(15,23,42,0.06);
-  :deep(svg) { width: 100%; height: 100%; }
+
+// 模板选择区
+.tpl-section {
+  margin-bottom: $space-4;
+  .section-label {
+    font-size: $font-size-sm; font-weight: 600; color: var(--text-primary);
+    margin-bottom: $space-3;
+  }
 }
-.qr-sub { color: var(--text-secondary); font-size: $font-size-sm; }
+.tpl-list {
+  display: flex; flex-direction: column; gap: $space-3;
+}
+.tpl-item {
+  display: flex; align-items: flex-start; gap: $space-3;
+  padding: $space-4; border-radius: $radius-md;
+  border: 2px solid var(--border-light);
+  background: var(--bg-secondary, #f9fafb);
+  cursor: pointer; transition: all 0.2s ease;
+  &:hover:not(.disabled) {
+    border-color: var(--color-primary, #0ea5e9);
+    background: rgba(14, 165, 233, 0.04);
+  }
+  &.active {
+    border-color: var(--color-primary, #0ea5e9);
+    background: rgba(14, 165, 233, 0.06);
+    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
+  }
+  &.disabled {
+    opacity: 0.55; cursor: not-allowed;
+  }
+}
+.tpl-radio {
+  padding-top: 2px;
+  .radio-outer {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 2px solid var(--border-dark, #d1d5db);
+    background: #fff; transition: border-color 0.2s;
+  }
+  .radio-inner {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--color-primary, #0ea5e9);
+  }
+  .tpl-item.active & .radio-outer {
+    border-color: var(--color-primary, #0ea5e9);
+  }
+}
+.tpl-info {
+  flex: 1; min-width: 0;
+  .tpl-name {
+    font-weight: 600; font-size: $font-size-sm; color: var(--text-primary);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .tpl-desc {
+    margin-top: 4px; font-size: $font-size-xs; color: var(--text-secondary);
+    line-height: 1.5;
+  }
+}
+
+.gen-tip { margin-bottom: $space-4; }
+
+.qr-wrap { display: flex; flex-direction: column; align-items: center; gap: $space-4; padding: $space-5 0; }
+.qr-info { color: var(--text-secondary); font-size: $font-size-sm; }
 .howto { margin: 0; padding-left: 20px; color: var(--text-regular);
   li { padding: 6px 0; font-size: $font-size-sm; line-height: 1.6; } }
 </style>

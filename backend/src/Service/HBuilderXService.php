@@ -15,20 +15,58 @@ class HBuilderXService
 {
     /**
      * 返回模板目录路径（不存在时创建）
+     *
+     * @param string $template 模板类型：new（新版）/ old（旧版），默认 new
      */
-    public function getTemplateDir(): string
+    public function getTemplateDir(string $template = 'new'): string
     {
-        $dir = BASE_PATH . '/storage/hbuilderx-template';
+        // 支持多模板：hbuilderx-template-new / hbuilderx-template-old
+        // 兼容旧版：如果指定模板目录不存在，回退到 hbuilderx-template
+        $suffix = ($template === 'old') ? '-old' : '-new';
+        $dir = BASE_PATH . '/storage/hbuilderx-template' . $suffix;
         if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
+            // 回退到旧版单模板目录（兼容）
+            $fallback = BASE_PATH . '/storage/hbuilderx-template';
+            if ($template === 'new' && is_dir($fallback) && $this->dirHasFiles($fallback)) {
+                $dir = $fallback;
+            } else {
+                @mkdir($dir, 0755, true);
+            }
         }
         return $dir;
     }
 
     /**
+     * 获取可用模板列表
+     */
+    public function getAvailableTemplates(): array
+    {
+        $templates = [];
+        $newDir = BASE_PATH . '/storage/hbuilderx-template-new';
+        $oldDir = BASE_PATH . '/storage/hbuilderx-template-old';
+        $legacyDir = BASE_PATH . '/storage/hbuilderx-template';
+
+        // 新版模板
+        $templates[] = [
+            'id'          => 'new',
+            'name'        => '新版模板',
+            'description' => '推荐使用，基于最新 uni-app 架构，UI 更美观，性能更好',
+            'available'   => is_dir($newDir) ? $this->dirHasFiles($newDir) : (is_dir($legacyDir) ? $this->dirHasFiles($legacyDir) : true),
+        ];
+        // 旧版模板
+        $templates[] = [
+            'id'          => 'old',
+            'name'        => '旧版模板',
+            'description' => '兼容旧版 APP 源码，适合已使用旧版模板的用户',
+            'available'   => is_dir($oldDir) ? $this->dirHasFiles($oldDir) : false,
+        ];
+        return $templates;
+    }
+
+    /**
      * 生成临时打包目录并返回 ZIP 文件路径
      *
-     * @param array $params [user_id, app_name, package_id, api_base_url, ws_url, icon_base64]
+     * @param array $params [user_id, app_name, package_id, api_base_url, ws_url, icon_base64, template]
      * @return string ZIP 文件绝对路径
      */
     public function generateZip(array $params): string
@@ -39,6 +77,8 @@ class HBuilderXService
         $apiBase   = rtrim((string)($params['api_base_url'] ?? ''), '/') . '/';
         $wsUrl     = rtrim((string)($params['ws_url'] ?? ''), '/') . '/';
         $iconB64   = trim((string)($params['icon_base64'] ?? ''));
+        $template  = trim((string)($params['template'] ?? 'new'));
+        if (!in_array($template, ['new', 'old'], true)) $template = 'new';
 
         $tmpDir = sys_get_temp_dir() . '/hbx-' . $pkgId . '-' . $userId . '-' . time();
         if (is_dir($tmpDir)) {
@@ -46,7 +86,7 @@ class HBuilderXService
         }
         @mkdir($tmpDir, 0755, true);
 
-        $templateDir = $this->getTemplateDir();
+        $templateDir = $this->getTemplateDir($template);
         $hasTemplate = $this->dirHasFiles($templateDir);
         if ($hasTemplate) {
             $this->copyDir($templateDir, $tmpDir);
