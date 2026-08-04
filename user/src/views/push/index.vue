@@ -18,9 +18,9 @@
           <el-col :xs="24" :sm="24" :md="12">
             <el-form-item label="推送目标" prop="target_type">
               <el-radio-group v-model="form.target_type" @change="onTargetChange">
-                <el-radio label="broadcast">广播（全部设备）</el-radio>
-                <el-radio label="key">仅当前 Key 订阅者</el-radio>
-                <el-radio label="device">指定设备</el-radio>
+                <el-radio value="broadcast">广播（全部设备）</el-radio>
+                <el-radio value="key">仅当前 Key 订阅者</el-radio>
+                <el-radio value="device">指定设备</el-radio>
               </el-radio-group>
             </el-form-item>
           </el-col>
@@ -51,8 +51,8 @@
           <el-col :span="24">
             <el-form-item label="推送优先级">
               <el-radio-group v-model="form.priority">
-                <el-radio label="normal">普通</el-radio>
-                <el-radio label="high">高优先级</el-radio>
+                <el-radio value="normal">普通</el-radio>
+                <el-radio value="high">高优先级</el-radio>
               </el-radio-group>
             </el-form-item>
           </el-col>
