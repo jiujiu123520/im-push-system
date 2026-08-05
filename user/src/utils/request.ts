@@ -34,7 +34,7 @@ let isSilentAuth = false
 
 // 公开接口白名单：不需要 token，也不受 isReloginTriggered 拦截
 const PUBLIC_URLS = ['/captcha', '/auth/login', '/auth/register', '/auth/send-code',
-  '/auth/reset-password', '/auth/reset-password-by-qq']
+  '/auth/reset-password', '/auth/reset-password-by-qq', '/auth/security-config']
 
 // 对外暴露：重置登录重入标志（登录页挂载/刷新验证码时调用）
 export function resetReloginFlag() {

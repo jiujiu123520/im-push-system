@@ -53,6 +53,9 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { ChatDotRound, Message, Key, Lock } from '@element-plus/icons-vue'
 import { getSecurityConfigApi, resetPasswordByQqApi, sendCodeApi } from '@/api/auth'
 import { validEmail, validPassword, validQq } from '@/utils/validate'
+import { resetReloginFlag } from '@/utils/request'
+
+onMounted(() => { resetReloginFlag() })
 
 const router = useRouter()
 const tab = ref('qq')

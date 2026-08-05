@@ -78,6 +78,9 @@ import { User, Lock, Iphone, Message, Key, Picture } from '@element-plus/icons-v
 import { captchaImageUrl, getSecurityConfigApi, registerApi, sendCodeApi } from '@/api/auth'
 import { validEmail, validPassword, validPhone, validUsername } from '@/utils/validate'
 import { useUserStore } from '@/stores/user'
+import { resetReloginFlag } from '@/utils/request'
+
+onMounted(() => { resetReloginFlag() })
 
 const router = useRouter()
 const userStore = useUserStore()
