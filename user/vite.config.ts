@@ -8,8 +8,8 @@ import { resolve } from 'path'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd())
   return {
-    // 用户端部署路径：与 Nginx 的 location /user/ 对应
-    base: '/user/',
+    // 使用相对路径，灵活支持子路径部署（/user/）和独立域名部署
+    base: './',
     plugins: [
       vue(),
       AutoImport({

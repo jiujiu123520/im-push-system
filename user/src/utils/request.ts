@@ -150,13 +150,13 @@ function handleRelogin() {
     .then(() => {
       isReloginTriggered = false
       setTimeout(() => {
-        location.href = '/user/#/login'
+        location.href = '#/login'
       }, 50)
     })
     .catch(() => {
       isReloginTriggered = false
       setTimeout(() => {
-        location.href = '/user/#/login'
+        location.href = '#/login'
       }, 50)
     })
 }

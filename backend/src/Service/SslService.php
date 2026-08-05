@@ -21,6 +21,7 @@ class SslService
     public const NGINX_AVAILABLE = '/etc/nginx/sites-available';
     public const NGINX_ENABLED = '/etc/nginx/sites-enabled';
     public const ADMIN_DIST = '/www/push-system/admin/dist';
+    public const USER_DIST = '/www/push-system/user/dist';
     public const PROJECT_ROOT = '/www/push-system';
 
     /** 默认后端地址 */
@@ -588,10 +589,13 @@ class SslService
             ? str_replace('9501', '9502', $targetHost)
             : 'http://push_websocket';
 
-        if ($targetType === 'frontend' || $targetType === 'all') {
-            $lines[] = '    # ===== 管理后台静态文件 =====';
+        if ($targetType === 'user' || $targetType === 'frontend' || $targetType === 'all') {
+            // user: 独立用户端域名；frontend: 管理后台；all: 混合部署
+            $distRoot = $targetType === 'user' ? self::USER_DIST : self::ADMIN_DIST;
+            $frontendLabel = $targetType === 'user' ? '用户端静态文件' : '管理后台静态文件';
+            $lines[] = '    # ===== ' . $frontendLabel . ' =====';
             $lines[] = '    location / {';
-            $lines[] = '        root ' . self::ADMIN_DIST . ';';
+            $lines[] = '        root ' . $distRoot . ';';
             $lines[] = '        index index.html;';
             $lines[] = '        try_files $uri $uri/ /index.html;';
             $lines[] = '        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {';
@@ -621,7 +625,59 @@ class SslService
             $lines[] = '';
         }
 
-        if ($targetType === 'backend' || $targetType === 'all') {
+        if ($targetType === 'user') {
+            // ===== 用户端独立域名的 API 代理 =====
+            // /user-api/ → 用户端内部接口（需登录）
+            $lines[] = '    # ===== /user-api/ 用户端内部接口 =====';
+            $lines[] = '    location /user-api/ {';
+            $lines[] = '        rewrite ^/user-api/(.*)$ /$1 break;';
+            $lines[] = '        proxy_pass ' . $backendUpstream . ';';
+            $lines[] = '        proxy_http_version 1.1;';
+            $lines[] = '        proxy_set_header Host $host;';
+            $lines[] = '        proxy_set_header X-Real-IP $remote_addr;';
+            $lines[] = '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;';
+            $lines[] = '        proxy_set_header X-Forwarded-Proto $scheme;';
+            $lines[] = '        proxy_read_timeout 60s;';
+            $lines[] = '        proxy_send_timeout 60s;';
+            $lines[] = '        proxy_buffering on;';
+            $lines[] = '        proxy_buffer_size 128k;';
+            $lines[] = '        proxy_buffers 4 256k;';
+            $lines[] = '    }';
+            $lines[] = '';
+            // /api/ → 开放 API（推送、auth、captcha、health）
+            $lines[] = '    # ===== /api/ 开放接口 =====';
+            $lines[] = '    location /api/ {';
+            $lines[] = '        rewrite ^/api/(.*)$ /$1 break;';
+            $lines[] = '        proxy_pass ' . $backendUpstream . ';';
+            $lines[] = '        proxy_http_version 1.1;';
+            $lines[] = '        proxy_set_header Host $host;';
+            $lines[] = '        proxy_set_header X-Real-IP $remote_addr;';
+            $lines[] = '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;';
+            $lines[] = '        proxy_set_header X-Forwarded-Proto $scheme;';
+            $lines[] = '        proxy_read_timeout 60s;';
+            $lines[] = '        proxy_send_timeout 60s;';
+            $lines[] = '        proxy_buffering on;';
+            $lines[] = '        proxy_buffer_size 128k;';
+            $lines[] = '        proxy_buffers 4 256k;';
+            $lines[] = '    }';
+            $lines[] = '';
+            // auth / captcha / health 这些公开路径用户端也要用
+            $lines[] = '    # ===== /auth /captcha /health =====';
+            $lines[] = '    location ~ ^/(auth|captcha|health) {';
+            $lines[] = '        proxy_pass ' . $backendUpstream . ';';
+            $lines[] = '        proxy_http_version 1.1;';
+            $lines[] = '        proxy_set_header Host $host;';
+            $lines[] = '        proxy_set_header X-Real-IP $remote_addr;';
+            $lines[] = '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;';
+            $lines[] = '        proxy_set_header X-Forwarded-Proto $scheme;';
+            $lines[] = '        proxy_read_timeout 60s;';
+            $lines[] = '        proxy_send_timeout 60s;';
+            $lines[] = '        proxy_buffering on;';
+            $lines[] = '        proxy_buffer_size 128k;';
+            $lines[] = '        proxy_buffers 4 256k;';
+            $lines[] = '    }';
+            $lines[] = '';
+        } elseif ($targetType === 'backend' || $targetType === 'all') {
             $lines[] = '    # ===== /api/ 开放接口 =====';
             $lines[] = '    location /api/ {';
             $lines[] = '        proxy_pass ' . $backendUpstream . ';';
@@ -666,7 +722,7 @@ class SslService
             $lines[] = '';
         }
 
-        if ($targetType === 'ws' || $targetType === 'all') {
+        if ($targetType === 'ws' || $targetType === 'user' || $targetType === 'all') {
             $lines[] = '    # ===== WebSocket 推送服务 =====';
             $lines[] = '    location /ws {';
             $lines[] = '        proxy_pass ' . $wsUpstream . ';';

@@ -312,13 +312,15 @@
 
         <el-form-item label="目标类型" prop="target_type">
           <el-radio-group v-model="form.target_type">
+            <el-radio-button value="user">用户端</el-radio-button>
             <el-radio-button value="frontend">管理后台（前端）</el-radio-button>
             <el-radio-button value="backend">后端 API</el-radio-button>
             <el-radio-button value="ws">WebSocket</el-radio-button>
             <el-radio-button value="all">全部（前端+后端+WS）</el-radio-button>
           </el-radio-group>
           <div class="form-tip">
-            <span v-if="form.target_type === 'frontend'">仅提供管理后台静态文件 + /api/admin/ 代理</span>
+            <span v-if="form.target_type === 'user'">仅提供用户端静态文件 + /user-api/ 内部接口 + /api/ 开放接口 + /ws WebSocket（独立用户端域名推荐）</span>
+            <span v-else-if="form.target_type === 'frontend'">仅提供管理后台静态文件 + /api/admin/ 代理</span>
             <span v-else-if="form.target_type === 'backend'">仅提供 /api/ /admin /auth /captcha /health 代理</span>
             <span v-else-if="form.target_type === 'ws'">仅提供 /ws WebSocket 代理</span>
             <span v-else>前端+后端+WebSocket 全部代理（最常用）</span>
@@ -445,6 +447,7 @@ const formRules: FormRules = {
 }
 
 const targetTypeTextMap: Record<string, string> = {
+  user: '用户端',
   frontend: '管理后台',
   backend: '后端API',
   ws: 'WebSocket',
@@ -452,6 +455,7 @@ const targetTypeTextMap: Record<string, string> = {
 }
 
 const targetTypeTagMap: Record<string, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
+  user: 'primary',
   frontend: 'warning',
   backend: 'success',
   ws: 'info',

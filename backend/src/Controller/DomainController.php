@@ -30,7 +30,7 @@ use App\Service\SslService;
 class DomainController
 {
     /** 允许的目标类型 */
-    private const ALLOWED_TARGET_TYPES = ['frontend', 'backend', 'ws', 'all'];
+    private const ALLOWED_TARGET_TYPES = ['user', 'frontend', 'backend', 'ws', 'all'];
 
     /**
      * 域名列表

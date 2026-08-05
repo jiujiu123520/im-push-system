@@ -1,7 +1,7 @@
 import { get, post, put, del } from '@/utils/request'
 
 // 目标类型
-export type TargetType = 'frontend' | 'backend' | 'ws' | 'all'
+export type TargetType = 'user' | 'frontend' | 'backend' | 'ws' | 'all'
 
 // 域名记录
 export interface DomainRecord {
