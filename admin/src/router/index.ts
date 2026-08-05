@@ -268,14 +268,15 @@ export const asyncRoutes: RouteRecordRaw[] = [
         meta: { title: '系统设置', icon: 'Setting', cache: true, module: 'settings' }
       }
     ]
-  },
-  // 404 兜底
-  {
-    path: '/:pathMatch(.*)*',
-    redirect: '/404',
-    meta: { hidden: true }
   }
 ]
+
+// 404 通配符必须在所有其他路由之后注册，确保精确路由优先匹配
+const WILDCARD_ROUTE: RouteRecordRaw = {
+  path: '/:pathMatch(.*)*',
+  redirect: '/404',
+  meta: { hidden: true }
+}
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -288,6 +289,7 @@ const whiteList = ['/login', '/register', '/forgot-password', '/404']
 
 // 是否已生成路由
 let routesGenerated = false
+let removeWildcard: (() => void) | null = null
 
 // 前置守卫
 router.beforeEach(async (to, _from, next) => {
@@ -325,11 +327,14 @@ router.beforeEach(async (to, _from, next) => {
 
       // 生成路由
       const accessRoutes = permissionStore.generateRoutes(userStore.roles)
-      routesGenerated = true
 
       accessRoutes.forEach((route) => {
         router.addRoute(route)
       })
+      // 404 通配符必须最后注册，避免抢占精确路由匹配
+      removeWildcard = router.addRoute(WILDCARD_ROUTE)
+
+      routesGenerated = true
 
       // 重新跳转以确保动态路由生效
       next({ ...to, replace: true })
@@ -357,6 +362,10 @@ export function resetRouter() {
   const userStore = useUserStore()
   const permissionStore = usePermissionStore()
   routesGenerated = false
+  if (removeWildcard) {
+    removeWildcard()
+    removeWildcard = null
+  }
   permissionStore.routes.forEach((route) => {
     if (route.name && !constantRoutes.some((c) => c.name === route.name)) {
       router.removeRoute(route.name)

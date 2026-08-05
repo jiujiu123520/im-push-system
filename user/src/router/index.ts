@@ -153,14 +153,15 @@ export const asyncRoutes: RouteRecordRaw[] = [
         meta: { title: '个人中心', icon: 'User', cache: true }
       }
     ]
-  },
-  // 404 兜底
-  {
-    path: '/:pathMatch(.*)*',
-    redirect: '/404',
-    meta: { hidden: true }
   }
 ]
+
+// 404 通配符必须在所有其他路由之后注册，确保精确路由优先匹配
+const WILDCARD_ROUTE: RouteRecordRaw = {
+  path: '/:pathMatch(.*)*',
+  redirect: '/404',
+  meta: { hidden: true }
+}
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -171,6 +172,7 @@ const router = createRouter({
 const whiteList = ['/login', '/register', '/forgot-password', '/404']
 
 let routesGenerated = false
+let removeWildcard: (() => void) | null = null
 
 router.beforeEach(async (to, _from, next) => {
   NProgress.start()
@@ -206,8 +208,9 @@ router.beforeEach(async (to, _from, next) => {
       asyncRoutes.forEach((route) => {
         router.addRoute(route)
       })
+      // 404 通配符必须最后注册，避免抢占精确路由匹配
+      removeWildcard = router.addRoute(WILDCARD_ROUTE)
       routesGenerated = true
-      // 用 path + query 构建全新的导航对象，避免展开旧的 to.matched（可能导致通配符路由抢占精确匹配）
       next({ path: to.path, query: to.query, hash: to.hash, replace: true })
     } catch (err) {
       routesGenerated = false
@@ -230,6 +233,10 @@ router.afterEach(() => {
 
 export function resetRouter() {
   routesGenerated = false
+  if (removeWildcard) {
+    removeWildcard()
+    removeWildcard = null
+  }
   const names = new Set(constantRoutes.map((r) => r.name))
   router.getRoutes().forEach((r) => {
     if (r.name && !names.has(r.name)) {
