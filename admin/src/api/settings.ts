@@ -210,7 +210,7 @@ export function getPathsConfigApi() {
 
 // 保存路径配置
 export function savePathsConfigApi(data: SettingsPaths) {
-  return post<{ message: string; need_reload_nginx?: boolean }>('/admin/settings/paths', data)
+  return post<{ message: string; need_reload_nginx?: boolean; nginx_message?: string }>('/admin/settings/paths', data)
 }
 
 // ==================== 安全配置扩展 ====================
