@@ -689,7 +689,13 @@
         >
           <div class="form-row">
             <el-form-item label="管理端访问路径" prop="admin_path">
-              <el-input v-model="pathsForm.admin_path" placeholder="/admin-9f7k2p8x" />
+              <div class="path-input-row">
+                <el-input v-model="pathsForm.admin_path" placeholder="/admin-9f7k2p8x" class="path-input" />
+                <el-button class="random-btn" @click="generateRandomAdminPath">
+                  <el-icon><MagicStickIcon /></el-icon>
+                  <span>随机生成</span>
+                </el-button>
+              </div>
               <div class="form-tip">管理后台访问路径，必须以 / 开头。建议使用混淆路径（如 /admin-9f7k2p8x）防止被直接访问。修改后 Nginx 配置将自动更新并重载</div>
             </el-form-item>
             <el-form-item label="用户端访问路径" prop="user_path">
@@ -1509,7 +1515,8 @@ import {
   Iphone as IphoneIcon,
   DataAnalysis as DataAnalysisIcon,
   Link as LinkIcon,
-  Cellphone as CellphoneIcon
+  Cellphone as CellphoneIcon,
+  MagicStick as MagicStickIcon
 } from '@element-plus/icons-vue'
 import {
   getSettingsApi,
@@ -1683,6 +1690,18 @@ const pathsRules: FormRules = {
     { required: true, message: '请输入用户端 API 前缀', trigger: 'blur' },
     { pattern: /^\/[a-zA-Z0-9_-]*$/, message: '必须以 / 开头，仅支持字母、数字、下划线、短横线', trigger: 'blur' }
   ]
+}
+
+function generateRandomAdminPath() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+  let suffix = ''
+  const len = 9
+  const arr = new Uint8Array(len)
+  crypto.getRandomValues(arr)
+  for (let i = 0; i < len; i++) {
+    suffix += chars[arr[i] % chars.length]
+  }
+  pathsForm.admin_path = `/admin-${suffix}`
 }
 
 // ---- 安全扩展配置 ----
@@ -3030,6 +3049,32 @@ onUnmounted(() => {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
+  }
+
+  .path-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+
+    .path-input {
+      flex: 1;
+    }
+
+    .random-btn {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s;
+
+      &:hover {
+        transform: translateY(-1px);
+      }
+
+      .el-icon {
+        font-size: 15px;
+      }
+    }
   }
 }
 
