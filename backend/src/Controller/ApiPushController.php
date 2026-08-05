@@ -194,11 +194,12 @@ class ApiPushController
         }
 
         return [
-            'success_count' => $result['success_count'],
-            'fail_count'    => $result['fail_count'],
-            'fail_reason'   => $result['fail_reason'] ?? '',
-            'detail'        => $result['detail'],
-            'elapsed_ms'    => $elapsedMs,
+            'success_count'  => $result['success_count'],
+            'fail_count'     => $result['fail_count'],
+            'fail_reason'    => $result['fail_reason'] ?? '',
+            'detail'         => $result['detail'],
+            'stored_offline' => !empty($result['stored_offline']),
+            'elapsed_ms'     => $elapsedMs,
         ];
     }
 

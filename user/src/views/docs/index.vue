@@ -248,11 +248,11 @@ const headerParams = [
 ]
 
 const bodyParams = [
-  { name: 'target_type', required: true, type: 'string', desc: '推送目标类型：<code>device</code> 按设备ID推送，<code>key</code> 按Key值推送，<code>broadcast</code> 广播推送' },
-  { name: 'target_value', required: true, type: 'string', desc: '推送目标值，多个用英文逗号分隔。device类型为设备ID，key类型为Key值。broadcast类型时传任意值即可' },
-  { name: 'title', required: false, type: 'string', desc: '消息标题' },
-  { name: 'content', required: false, type: 'string', desc: '消息内容' },
-  { name: 'payload', required: false, type: 'object', desc: '附加数据，JSON对象，客户端可自定义解析' },
+  { name: 'target_type', required: true, type: 'string', desc: '推送目标类型：<code>device</code> 按设备ID推送，<code>key</code> 按 Key 值推送' },
+  { name: 'target_value', required: true, type: 'string', desc: '推送目标值，多个用英文逗号分隔。device 类型为设备 ID，key 类型为 push_key 的 key_value' },
+  { name: 'title', required: false, type: 'string', desc: '消息标题（title 或 content 必填一个）' },
+  { name: 'content', required: false, type: 'string', desc: '消息内容（title 或 content 必填一个）' },
+  { name: 'payload', required: false, type: 'object', desc: '附加数据，JSON 对象，客户端可自定义解析' },
   { name: 'priority', required: false, type: 'string', desc: '消息优先级：<code>high</code> 高，<code>normal</code> 普通（默认），<code>low</code> 低' }
 ]
 
@@ -261,7 +261,8 @@ const responseFields = [
   { name: 'fail_count', type: 'number', desc: '推送失败的设备数量' },
   { name: 'stored_offline', type: 'boolean', desc: '是否有设备离线时消息已存为离线（重连后可拉取）' },
   { name: 'detail', type: 'array', desc: '推送详情列表，包含每个设备的推送结果' },
-  { name: 'fail_reason', type: 'string', desc: '失败原因摘要（如有失败）' }
+  { name: 'fail_reason', type: 'string', desc: '失败原因摘要（如有失败）' },
+  { name: 'elapsed_ms', type: 'number', desc: '本次推送耗时，单位毫秒' }
 ]
 
 const errorCodes = [
@@ -340,6 +341,7 @@ const docResponseExample = `{
   "fail_count": 1,
   "stored_offline": true,
   "fail_reason": "设备离线，APP未连接或已断开（消息已存为离线，设备重连后可拉取）",
+  "elapsed_ms": 23,
   "detail": [
     {
       "device_id": "device001",
