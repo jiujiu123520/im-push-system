@@ -169,9 +169,9 @@ async function submit() {
       captcha_input: captchaEnabled.value ? form.captcha_input : ''
     })
     ElMessage.success('登录成功')
-    const redirect = (route.query.redirect as string) || '/dashboard'
+    const redirect = (route.query.redirect as string) || '/'
     // 防止开放重定向：只允许站内路径
-    const safeRedirect = redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/dashboard'
+    const safeRedirect = redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/'
     router.replace(safeRedirect)
   } catch (e: any) {
     ElMessage.error(e?.message || '登录失败，请重试')

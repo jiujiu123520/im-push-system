@@ -207,7 +207,8 @@ router.beforeEach(async (to, _from, next) => {
         router.addRoute(route)
       })
       routesGenerated = true
-      next({ ...to, replace: true })
+      // 用 path + query 构建全新的导航对象，避免展开旧的 to.matched（可能导致通配符路由抢占精确匹配）
+      next({ path: to.path, query: to.query, hash: to.hash, replace: true })
     } catch (err) {
       routesGenerated = false
       useUserStore().resetState()
