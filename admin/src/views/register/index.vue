@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="register-page">
     <!-- 动态背景 -->
     <div class="bg-layer">
@@ -633,12 +633,12 @@ onUnmounted(() => {
   .card-title {
     font-size: 26px;
     font-weight: 800;
-    color: #1a1d2e;
+    color: var(--text-primary);
   }
   .card-subtitle {
     margin-top: 8px;
     font-size: 14px;
-    color: #7e83a3;
+    color: var(--text-secondary);
   }
 }
 
@@ -688,7 +688,7 @@ onUnmounted(() => {
   margin-top: 24px;
   text-align: center;
   font-size: 13px;
-  color: #7e83a3;
+  color: var(--text-secondary);
 
   a {
     color: $color-primary;
@@ -711,7 +711,7 @@ onUnmounted(() => {
 
     .security-code-label {
       font-size: 13px;
-      color: #7e83a3;
+      color: var(--text-secondary);
       margin-bottom: 8px;
     }
     .security-code-value {
@@ -758,13 +758,13 @@ onUnmounted(() => {
       align-items: center;
       gap: 6px;
       font-size: 12.5px;
-      color: #8a8fb0;
+      color: var(--text-secondary);
       .el-icon { font-size: 13px; }
       &.ok {
         color: #67c23a;
       }
       &:not(.ok) {
-        color: #c0c4dc;
+        color: var(--el-text-color-disabled);
       }
     }
   }
@@ -772,7 +772,7 @@ onUnmounted(() => {
 :global(html.dark) .password-rules {
   background: rgba(109, 92, 255, 0.1);
   border-color: rgba(109, 92, 255, 0.28);
-  .rule-list .rule-item:not(.ok) { color: #9aa0c3; }
+  .rule-list .rule-item:not(.ok) { color: var(--text-color-secondary); }
 }
 
 @keyframes float {
@@ -807,11 +807,11 @@ onUnmounted(() => {
     border-color: rgba(109, 92, 255, 0.2);
   }
   .card-title {
-    color: #e8eaf6;
+    color: var(--el-text-color-primary);
   }
   .card-subtitle,
   .card-footer {
-    color: #7e83a3;
+    color: var(--text-secondary);
   }
 }
 </style>

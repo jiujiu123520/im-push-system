@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container user-notices-page">
     <!-- 页头 -->
     <div class="page-hero">
@@ -627,14 +627,14 @@ onMounted(() => {
 
 .title-cell { display: flex; align-items: center; }
 .sticky-icon { color: #f56c6c; margin-right: 4px; }
-.ttl { font-weight: 600; color: #1f2937; }
+.ttl { font-weight: 600; color: var(--el-text-color-primary); }
 
 .show-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
-.zero { color: #c0c4cc; }
+.zero { color: var(--el-text-color-disabled); }
 
 .pagination { display: flex; justify-content: flex-end; padding: 14px 12px 6px; }
 
-.form-hint { color: #909399; font-size: 12px; }
+.form-hint { color: var(--el-text-color-secondary); font-size: 12px; }
 
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(10px); }

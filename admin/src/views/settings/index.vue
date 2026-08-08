@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container settings-page">
     <!-- 页头 -->
     <div class="page-hero">
@@ -551,7 +551,7 @@
               <p>1. 登录 QQ 邮箱 → 设置 → 账户</p>
               <p>2. 开启「POP3/SMTP 服务」</p>
               <p>3. 点击「生成授权码」，按提示验证后获取</p>
-              <p style="margin-top: 8px; font-size: 12px; color: #909399;">注意：授权码不是邮箱密码</p>
+              <p style="margin-top: 8px; font-size: 12px; color: var(--el-text-color-secondary);">注意：授权码不是邮箱密码</p>
             </el-alert>
           </div>
 
@@ -1249,7 +1249,7 @@
                 <div class="stat-label">今日推送</div>
                 <div class="stat-value">
                   <span class="text-green">{{ apnsHealth.success_today }}</span>
-                  <span style="color:#909399;margin:0 4px;">/</span>
+                  <span style="color: var(--el-text-color-secondary);margin:0 4px;">/</span>
                   <span class="text-red">{{ apnsHealth.fail_today }}</span>
                 </div>
                 <div class="stat-sub">成功 / 失败</div>
@@ -2756,7 +2756,7 @@ onUnmounted(() => {
       .captcha-toggle-text {
         font-size: 15px;
         font-weight: 600;
-        color: #303133;
+        color: var(--el-text-color-primary);
       }
     }
   }
@@ -2772,14 +2772,14 @@ onUnmounted(() => {
       align-items: center;
       justify-content: space-between;
       padding: 14px 16px;
-      background: #f8fafc;
+      background: var(--el-fill-color-lighter);
       border-radius: 10px;
       border: 1px solid #eef0f3;
       transition: all 0.2s ease;
 
       &:hover {
-        background: #f0f4ff;
-        border-color: #d9e4ff;
+        background: var(--color-primary-light-9);
+        border-color: var(--color-primary-light-5);
       }
 
       .sub-toggle-left {
@@ -2795,13 +2795,13 @@ onUnmounted(() => {
           .sub-toggle-title {
             font-size: 14px;
             font-weight: 600;
-            color: #303133;
+            color: var(--el-text-color-primary);
             margin-bottom: 2px;
           }
 
           .sub-toggle-desc {
             font-size: 12px;
-            color: #909399;
+            color: var(--el-text-color-secondary);
           }
         }
       }
@@ -2821,7 +2821,7 @@ onUnmounted(() => {
   flex-wrap: wrap;
 
   .ssl-toggle-hint {
-    color: #909399;
+    color: var(--el-text-color-secondary);
     font-size: 12px;
   }
 }
@@ -3090,12 +3090,12 @@ onUnmounted(() => {
 
   &.port-ok {
     color: #67c23a;
-    background: #f0f9eb;
+    background: rgba(103, 194, 58, 0.1);
   }
 
   &.port-bad {
     color: #f56c6c;
-    background: #fef0f0;
+    background: rgba(245, 108, 108, 0.1);
   }
 }
 

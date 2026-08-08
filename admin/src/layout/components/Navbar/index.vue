@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <header class="navbar">
     <div class="navbar-left">
       <!-- 折叠按钮 -->
@@ -704,7 +704,7 @@ async function handleCommand(cmd: string) {
       }
       &.info {
         background: rgba(144, 147, 153, 0.12);
-        color: #909399;
+        color: var(--el-text-color-secondary);
       }
     }
 

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container domains-page">
     <!-- 页头 -->
     <div class="page-hero">
@@ -794,15 +794,15 @@ onMounted(() => {
   gap: 10px;
   padding: 10px 12px;
   border-radius: 8px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
 }
-.env-item.ok { background: #f0f9eb; border-color: #c2e7b0; }
+.env-item.ok { background: rgba(103, 194, 58, 0.1); border-color: var(--el-color-success-light-5); }
 .env-item.ok .el-icon { color: #67c23a; font-size: 18px; }
-.env-item.fail { background: #fef0f0; border-color: #fbc4c4; }
+.env-item.fail { background: rgba(245, 108, 108, 0.1); border-color: var(--el-color-danger-light-5); }
 .env-item.fail .el-icon { color: #f56c6c; font-size: 18px; }
 .env-text { flex: 1; }
-.env-name { font-size: 13px; font-weight: 600; color: #303133; }
-.env-desc { font-size: 11px; color: #909399; }
+.env-name { font-size: 13px; font-weight: 600; color: var(--el-text-color-primary); }
+.env-desc { font-size: 11px; color: var(--el-text-color-secondary); }
 .env-action { margin-top: 16px; }
 
 .domains-card {
@@ -826,15 +826,15 @@ onMounted(() => {
 .icon-domain { background: linear-gradient(135deg, #667eea, #764ba2); }
 .head-text { flex: 1; }
 .card-title { font-size: 16px; font-weight: 600; margin: 0; }
-.card-sub { font-size: 12px; color: #909399; margin: 4px 0 0; }
+.card-sub { font-size: 12px; color: var(--el-text-color-secondary); margin: 4px 0 0; }
 .head-actions { display: flex; gap: 8px; }
 
 .domain-cell { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.domain-icon { color: #909399; }
+.domain-icon { color: var(--el-text-color-secondary); }
 .domain-name { font-weight: 500; }
-.text-muted { color: #c0c4cc; }
-.mono-text { font-family: 'Courier New', monospace; font-size: 12px; color: #606266; }
-.form-tip { font-size: 12px; color: #909399; margin-top: 4px; }
+.text-muted { color: var(--el-text-color-disabled); }
+.mono-text { font-family: 'Courier New', monospace; font-size: 12px; color: var(--el-text-color-primary); }
+.form-tip { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px; }
 .form-row { display: flex; gap: 12px; }
 .form-row > * { flex: 1; }
 </style>

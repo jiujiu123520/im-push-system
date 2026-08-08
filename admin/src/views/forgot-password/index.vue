@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="forgot-page">
     <!-- 动态背景 -->
     <div class="bg-layer">
@@ -250,12 +250,12 @@ function goLogin() {
   .card-title {
     font-size: 26px;
     font-weight: 800;
-    color: #1a1d2e;
+    color: var(--text-primary);
   }
   .card-subtitle {
     margin-top: 8px;
     font-size: 14px;
-    color: #7e83a3;
+    color: var(--text-secondary);
   }
 }
 
@@ -299,7 +299,7 @@ function goLogin() {
   margin-top: 24px;
   text-align: center;
   font-size: 13px;
-  color: #7e83a3;
+  color: var(--text-secondary);
 
   a {
     color: $color-primary;
@@ -344,11 +344,11 @@ function goLogin() {
     border-color: rgba(109, 92, 255, 0.2);
   }
   .card-title {
-    color: #e8eaf6;
+    color: var(--el-text-color-primary);
   }
   .card-subtitle,
   .card-footer {
-    color: #7e83a3;
+    color: var(--text-secondary);
   }
 }
 </style>

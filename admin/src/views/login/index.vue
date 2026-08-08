@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="login-page">
     <!-- 动态背景 -->
     <div class="bg-layer">
@@ -409,10 +409,10 @@ onMounted(() => {
   .brand-title {
     font-size: 42px;
     font-weight: 800;
-    color: #1a1d2e;
+    color: var(--text-primary);
     letter-spacing: -0.5px;
     span {
-      color: #9b5cff;
+      color: var(--color-primary);
       margin: 0 4px;
     }
   }
@@ -421,7 +421,7 @@ onMounted(() => {
     margin-top: 16px;
     font-size: 16px;
     line-height: 1.7;
-    color: #5a5f78;
+    color: var(--text-secondary);
   }
 }
 
@@ -459,11 +459,11 @@ onMounted(() => {
   .feature-name {
     font-size: 16px;
     font-weight: 700;
-    color: #1a1d2e;
+    color: var(--text-primary);
   }
   .feature-sub {
     font-size: 13px;
-    color: #7e83a3;
+    color: var(--text-secondary);
     margin-top: 2px;
   }
 }
@@ -471,7 +471,7 @@ onMounted(() => {
 .brand-footer {
   margin-top: 60px;
   font-size: 12px;
-  color: #9ba0b8;
+  color: var(--text-color-secondary);
 }
 
 // 右侧登录卡片
@@ -505,12 +505,12 @@ onMounted(() => {
   .card-title {
     font-size: 28px;
     font-weight: 800;
-    color: #1a1d2e;
+    color: var(--text-primary);
   }
   .card-subtitle {
     margin-top: 8px;
     font-size: 14px;
-    color: #7e83a3;
+    color: var(--text-secondary);
   }
 }
 
@@ -607,7 +607,7 @@ onMounted(() => {
   margin-bottom: 24px;
 
   :deep(.el-checkbox__label) {
-    color: #5a5f78;
+    color: var(--text-secondary);
   }
 
   .forgot-link {
@@ -648,14 +648,14 @@ onMounted(() => {
   justify-content: center;
   gap: 6px;
   font-size: 12px;
-  color: #9ba0b8;
+  color: var(--text-color-secondary);
 }
 
 .card-footer {
   margin-top: 28px;
   text-align: center;
   font-size: 13px;
-  color: #7e83a3;
+  color: var(--text-secondary);
 
   a {
     color: $color-primary;
@@ -727,23 +727,23 @@ onMounted(() => {
   }
   .brand-title,
   .feature-name {
-    color: #e8eaf6;
+    color: var(--el-text-color-primary);
   }
   .brand-desc,
   .feature-sub {
-    color: #9ba0b8;
+    color: var(--text-color-secondary);
   }
   .login-card {
     background: rgba(22, 24, 48, 0.72);
     border-color: rgba(109, 92, 255, 0.2);
   }
   .card-title {
-    color: #e8eaf6;
+    color: var(--el-text-color-primary);
   }
   .card-subtitle,
   .tip-text,
   .card-footer {
-    color: #7e83a3;
+    color: var(--text-secondary);
   }
   .bg-grid {
     background-image: linear-gradient(rgba(138, 124, 255, 0.06) 1px, transparent 1px),

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container api-keys-page">
     <!-- 顶部说明卡片 -->
     <div class="intro-card">
@@ -1480,7 +1480,7 @@ onMounted(() => {
       font-family: $font-family-mono;
       font-size: 13px;
       line-height: 1.7;
-      color: #e8eaf6;
+      color: var(--el-text-color-primary);
       white-space: pre;
     }
 

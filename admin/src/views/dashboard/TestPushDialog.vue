@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <el-dialog
     v-model="visible"
     title="测试调试推送"
@@ -72,7 +72,7 @@
             <el-table-column prop="platform" label="平台" width="90">
               <template #default="{ row }">
                 <el-tag v-if="row.platform" size="small" effect="plain" round>{{ row.platform }}</el-tag>
-                <span v-else style="color: #909399;">-</span>
+                <span v-else style="color: var(--el-text-color-secondary);">-</span>
               </template>
             </el-table-column>
             <el-table-column prop="fd_count" label="连接数" width="70" align="center" />

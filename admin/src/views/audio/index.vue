@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container audio-page">
     <div class="page-hero">
       <div class="hero-bg">
@@ -598,7 +598,7 @@ onMounted(() => {
 
 .card-sub {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin: 4px 0 0;
 }
 
@@ -628,28 +628,28 @@ onMounted(() => {
 
 .title-text {
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 .mono-text {
   font-family: 'Courier New', monospace;
   font-size: 12px;
-  color: #606266;
+  color: var(--el-text-color-primary);
 }
 
 .time-text {
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-family: 'Courier New', monospace;
 }
 
 .text-muted {
-  color: #c0c4cc;
+  color: var(--el-text-color-disabled);
 }
 
 .form-tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-top: 4px;
 }
 

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="page-container module-page">
     <!-- 页头 -->
     <div class="page-header">
@@ -221,12 +221,12 @@
             >
               {{ platformLabel(row[col.prop]) }}
             </el-tag>
-            <span v-else style="color: #909399; font-size: 12px;">未知</span>
+            <span v-else style="color: var(--el-text-color-secondary); font-size: 12px;">未知</span>
           </template>
           <!-- 设备模块：通用文本列（空值显示"未知"） -->
           <template v-else-if="col.slot === 'deviceText'" #default="{ row }">
             <span v-if="row[col.prop]" :title="String(row[col.prop])">{{ row[col.prop] }}</span>
-            <span v-else style="color: #909399; font-size: 12px;">未知</span>
+            <span v-else style="color: var(--el-text-color-secondary); font-size: 12px;">未知</span>
           </template>
           <!-- 推送记录：目标类型 -->
           <template v-else-if="col.slot === 'targetType'" #default="{ row }">
@@ -271,14 +271,14 @@
                 {{ row.fail_reason }}
               </span>
             </el-tooltip>
-            <span v-else style="color: #909399;">-</span>
+            <span v-else style="color: var(--el-text-color-secondary);">-</span>
           </template>
           <!-- 推送记录：耗时 -->
           <template v-else-if="col.slot === 'elapsedMs'" #default="{ row }">
             <span v-if="row.elapsed_ms != null && row.elapsed_ms > 0" style="font-family: monospace; font-size: 12px;">
               {{ row.elapsed_ms < 1000 ? row.elapsed_ms + ' ms' : (row.elapsed_ms / 1000).toFixed(2) + ' s' }}
             </span>
-            <span v-else style="color: #909399;">-</span>
+            <span v-else style="color: var(--el-text-color-secondary);">-</span>
           </template>
           <!-- 僵尸连接：空闲时长 -->
           <template v-else-if="col.slot === 'idleSeconds'" #default="{ row }">
@@ -295,7 +295,7 @@
                 <el-icon><CopyDocumentIcon /></el-icon>
               </el-button>
             </div>
-            <span v-else style="color: #909399;">-</span>
+            <span v-else style="color: var(--el-text-color-secondary);">-</span>
           </template>
           <!-- 用户：手机号 -->
           <template v-else-if="col.slot === 'phone'" #default="{ row }">
@@ -305,7 +305,7 @@
                 <el-icon><CopyDocumentIcon /></el-icon>
               </el-button>
             </div>
-            <span v-else style="color: #909399;">-</span>
+            <span v-else style="color: var(--el-text-color-secondary);">-</span>
           </template>
           <!-- 用户：绑定QQ -->
           <template v-else-if="col.slot === 'qq'" #default="{ row }">
@@ -317,7 +317,7 @@
                 <el-icon><CopyDocumentIcon /></el-icon>
               </el-button>
             </div>
-            <span v-else style="color: #909399; font-size: 12px;">未绑定</span>
+            <span v-else style="color: var(--el-text-color-secondary); font-size: 12px;">未绑定</span>
           </template>
           <!-- Key：掉线通知 -->
           <template v-else-if="col.slot === 'notifyEnabled'" #default="{ row }">
@@ -342,15 +342,15 @@
                 <el-icon><CopyDocumentIcon /></el-icon>
               </el-button>
             </div>
-            <span v-else style="color: #909399;">未配置</span>
+            <span v-else style="color: var(--el-text-color-secondary);">未配置</span>
           </template>
           <!-- Key：通知间隔 -->
           <template v-else-if="col.slot === 'notifyInterval'" #default="{ row }">
             <span v-if="row.notify_interval">
               <span style="font-weight: 500;">{{ row.notify_interval }}</span> 秒
-              <span style="color: #909399; margin-left: 6px;">（{{ formatDuration(row.notify_interval) }}）</span>
+              <span style="color: var(--el-text-color-secondary); margin-left: 6px;">（{{ formatDuration(row.notify_interval) }}）</span>
             </span>
-            <span v-else style="color: #909399;">默认 5 分钟</span>
+            <span v-else style="color: var(--el-text-color-secondary);">默认 5 分钟</span>
           </template>
           <!-- Key：归属用户（user_id > 0 显示用户名，否则为管理员全局 Key） -->
           <template v-else-if="col.slot === 'userBind'" #default="{ row }">
@@ -380,7 +380,7 @@
             >
               {{ row.subscribed_total }}
             </el-tag>
-            <span v-else style="color: #909399;">0</span>
+            <span v-else style="color: var(--el-text-color-secondary);">0</span>
           </template>
           <!-- Key：在线设备数（点击弹出明细） -->
           <template v-else-if="col.prop === 'online_count' && currentModule === 'keys'" #default="{ row }">
@@ -395,7 +395,7 @@
             >
               {{ row.online_count }}
             </el-tag>
-            <span v-else style="color: #909399;">0</span>
+            <span v-else style="color: var(--el-text-color-secondary);">0</span>
           </template>
           <template v-else-if="col.prop === 'key_value'" #default="{ row }">
             <div style="display: flex; align-items: center; gap: 4px;">
@@ -634,7 +634,7 @@
               <div>④ 在线会话匹配（ws:conn:*）= <b>{{ subscriberDebug.ws_online_conn_match_count ?? 0 }}</b> 台（全局在线 FD：{{ subscriberDebug.ws_online_total_fd ?? 0 }}）</div>
               <div>Key_value 查的是：<code style="background:#f4f4f5;padding:1px 4px;border-radius:3px;">{{ subscriberDebug.key_value }}</code></div>
               <div v-if="subscriberDebug.note" style="color:#f56c6c;margin-top:4px;">{{ subscriberDebug.note }}</div>
-              <div style="margin-top: 6px; color: #909399;">
+              <div style="margin-top: 6px; color: var(--el-text-color-secondary);">
                 💡 如果 ② > 0 但 ① = 0，说明设备在 DB 里登记了但订阅集合丢了 → 点「修复」按钮即可恢复<br>
                 💡 如果 ④ > 0 但 ①②③ 都是 0 → 让 APP 重新连一次 WebSocket 会自动修复<br>
                 💡 如果 ① = sCard > 0 但 sMembers 取到 0 → Redis 连接异常，已自动用 sScan 兜底
@@ -734,38 +734,38 @@
             <el-tag v-if="row.platform" :type="platformTagType(row.platform)" effect="plain" round size="small">
               {{ platformLabel(row.platform) }}
             </el-tag>
-            <span v-else style="color: #909399; font-size: 12px;">未知</span>
+            <span v-else style="color: var(--el-text-color-secondary); font-size: 12px;">未知</span>
           </template>
         </el-table-column>
         <el-table-column prop="device_name" label="设备名" width="130">
           <template #default="{ row }">
             <span v-if="row.device_name" style="font-size: 13px;">{{ row.device_name }}</span>
-            <span v-else style="color: #909399; font-size: 12px;">未知</span>
+            <span v-else style="color: var(--el-text-color-secondary); font-size: 12px;">未知</span>
           </template>
         </el-table-column>
         <el-table-column prop="device_model" label="型号" min-width="120">
           <template #default="{ row }">
             <span v-if="row.device_model" style="font-size: 13px;">{{ row.device_model }}</span>
-            <span v-else style="color: #909399; font-size: 12px;">未知</span>
+            <span v-else style="color: var(--el-text-color-secondary); font-size: 12px;">未知</span>
           </template>
         </el-table-column>
         <el-table-column prop="app_version" label="APP版本" width="95">
           <template #default="{ row }">
             <span v-if="row.app_version" style="font-size: 13px;">{{ row.app_version }}</span>
-            <span v-else style="color: #909399; font-size: 12px;">未知</span>
+            <span v-else style="color: var(--el-text-color-secondary); font-size: 12px;">未知</span>
           </template>
         </el-table-column>
         <el-table-column prop="ip" label="IP" width="130">
           <template #default="{ row }">
             <span v-if="row.ip" style="font-family: monospace; font-size: 12px;">{{ row.ip }}</span>
-            <span v-else style="color: #909399; font-size: 12px;">-</span>
+            <span v-else style="color: var(--el-text-color-secondary); font-size: 12px;">-</span>
           </template>
         </el-table-column>
         <el-table-column prop="last_active_at" label="最后活跃" width="160">
           <template #default="{ row }">
             <span v-if="row.last_active_at" style="font-size: 12px;">{{ row.last_active_at }}</span>
             <span v-else-if="row.last_connect_at" style="font-size: 12px;">{{ row.last_connect_at }}</span>
-            <span v-else style="color: #909399; font-size: 12px;">未知</span>
+            <span v-else style="color: var(--el-text-color-secondary); font-size: 12px;">未知</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="150" fixed="right" align="center">
@@ -843,7 +843,7 @@
         <template #title>
           为用户 <b>{{ currentBindQqUser.username }}</b> {{ currentBindQqUser.qq ? '改绑' : '绑定' }}QQ号
         </template>
-        <div v-if="currentBindQqUser.qq" style="font-size: 12px; color: #909399;">
+        <div v-if="currentBindQqUser.qq" style="font-size: 12px; color: var(--el-text-color-secondary);">
           当前绑定：<b style="color: #409eff;">{{ currentBindQqUser.qq }}</b>
         </div>
       </el-alert>
@@ -860,7 +860,7 @@
             maxlength="11"
             clearable
           />
-          <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+          <div style="font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px;">
             绑定后用户可通过QQ号重置密码，且用户不可自行解绑
           </div>
         </el-form-item>
@@ -900,7 +900,7 @@
               <el-descriptions-item label="目标值" :span="2">
                 <span v-if="pushDetailData.target_value"
                   >{{ pushDetailData.target_value }}</span>
-                <span v-else style="color: #909399;">-</span>
+                <span v-else style="color: var(--el-text-color-secondary);">-</span>
               </el-descriptions-item>
               <el-descriptions-item label="创建时间">
                 {{ pushDetailData.created_at || '-' }}
@@ -994,7 +994,7 @@
               <el-table-column label="平台" width="80">
                 <template #default="{ row }">
                   <el-tag v-if="row.platform" :type="platformTagType(row.platform)" effect="plain" size="small">{{ row.platform }}</el-tag>
-                  <span v-else style="color: #c0c4cc;">-</span>
+                  <span v-else style="color: var(--el-text-color-disabled);">-</span>
                 </template>
               </el-table-column>
               <el-table-column prop="reason" label="失败原因" show-overflow-tooltip>
@@ -1025,7 +1025,7 @@
                 <el-table-column label="平台" width="80">
                   <template #default="{ row }">
                     <el-tag v-if="row.platform" :type="platformTagType(row.platform)" effect="plain" size="small">{{ row.platform }}</el-tag>
-                    <span v-else style="color: #c0c4cc;">-</span>
+                    <span v-else style="color: var(--el-text-color-disabled);">-</span>
                   </template>
                 </el-table-column>
                 <el-table-column label="状态" width="120">
@@ -1042,7 +1042,7 @@
                 </el-table-column>
                 <el-table-column label="详情" show-overflow-tooltip>
                   <template #default="{ row }">
-                    <span style="font-size: 12px; color: #606266;">{{ row.message || '-' }}</span>
+                    <span style="font-size: 12px; color: var(--el-text-color-primary);">{{ row.message || '-' }}</span>
                   </template>
                 </el-table-column>
               </el-table>
@@ -2472,7 +2472,7 @@ async function handleExport(format: string) {
   align-items: center;
   gap: 10px;
   padding: 8px 4px;
-  background: #f7f8fa;
+  background: var(--el-fill-color-lighter);
   border-radius: 6px;
   padding: 10px 14px;
 }
@@ -2513,7 +2513,7 @@ async function handleExport(format: string) {
   .detail-title {
     font-size: 14px;
     font-weight: 600;
-    color: #303133;
+    color: var(--el-text-color-primary);
     margin: 0 0 8px 2px;
     padding-left: 8px;
     border-left: 3px solid #409eff;
@@ -2523,12 +2523,12 @@ async function handleExport(format: string) {
 .payload-pre {
   margin: 0;
   padding: 12px;
-  background: #f5f7fa;
+  background: var(--el-fill-color-lighter);
   border-radius: 6px;
   font-family: Consolas, Monaco, 'Courier New', monospace;
   font-size: 12px;
   line-height: 1.6;
-  color: #303133;
+  color: var(--el-text-color-primary);
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 300px;
