@@ -360,7 +360,7 @@ class MessageService
                 return 0;
             }
             // 设置清理标记（即使清理失败也避免频繁尝试）
-            $redis->set($lockKey, (string)$now, ['ex' => 21600]);
+            $redis->set($lockKey, (string)$now, 'ex', 21600);
 
             $cutoff = date('Y-m-d H:i:s', $now - $retainDays * 86400);
             $stmt = Database::pdo()->prepare('DELETE FROM push_logs WHERE created_at < ?');

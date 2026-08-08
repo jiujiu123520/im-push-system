@@ -804,7 +804,7 @@ class UserService
         try {
             $r = Redis::getInstance();
             // 当前时间之后签发的 token 才算有效
-            $r->set('user_jwt_nbf:' . $userId, (string)time(), ['nx', 'ex' => 86400 * 30]);
+            $r->set('user_jwt_nbf:' . $userId, (string)time(), 'nx', 'ex', 86400 * 30);
         } catch (\Throwable $e) {
         }
     }
