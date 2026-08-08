@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="page-container api-keys-page">
     <!-- 顶部说明卡片 -->
     <div class="intro-card">
@@ -1441,7 +1441,8 @@ onMounted(() => {
 }
 
 .code-block {
-  background: #0e1020;
+  // 代码块始终使用深色背景（VSCode 风格），避免亮色模式下硬编码的 #0e1020 背景 + 深色文字导致不可见
+  background: #1a1c2e;
   border-radius: $radius-md;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -1480,7 +1481,7 @@ onMounted(() => {
       font-family: $font-family-mono;
       font-size: 13px;
       line-height: 1.7;
-      color: var(--el-text-color-primary);
+      color: #e0e0e0;
       white-space: pre;
     }
 
@@ -1698,6 +1699,15 @@ onMounted(() => {
   }
   .status-pill.off {
     background: rgba(255, 255, 255, 0.04);
+  }
+  // 代码块暗色模式下微调颜色，确保 token 高亮更清晰
+  .code-block {
+    background: #141625;
+    border-color: rgba(255, 255, 255, 0.08);
+    .code-header {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.08);
+    }
   }
 }
 </style>
