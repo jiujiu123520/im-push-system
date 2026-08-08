@@ -89,6 +89,7 @@ COLOR_YELLOW='\033[1;33m'
 COLOR_RED='\033[0;31m'
 COLOR_BLUE='\033[0;34m'
 COLOR_CYAN='\033[0;36m'
+COLOR_BOLD='\033[1m'
 COLOR_RESET='\033[0m'
 
 info()  { echo -e "${COLOR_GREEN}[INFO]${COLOR_RESET} $*"; }
@@ -2129,6 +2130,17 @@ if [[ -f "${NGINX_SRC}" ]]; then
         NGINX_INSTALLED_PATH="/etc/nginx/push.conf"
     fi
     rm -f "${NGINX_TMP}"
+
+    # 自动设为 default_server + server_name _（通配），
+    # 解决新服务器用 IP 直接访问时 server_name 不匹配导致的 404
+    # 域名绑定后可在管理后台 Settings 改回具体域名
+    if grep -q "server_name push.example.com" "${NGINX_INSTALLED_PATH}" 2>/dev/null; then
+        sed -i 's/^    listen 80;$/    listen 80 default_server;/' "${NGINX_INSTALLED_PATH}"
+        sed -i '/^    listen 80 default_server;$/a\    listen [::]:80 default_server;' "${NGINX_INSTALLED_PATH}"
+        sed -i 's/^    server_name push.example.com;$/    server_name _;/' "${NGINX_INSTALLED_PATH}"
+        info "Nginx 已自动设为 default_server + server_name _（通配，IP/域名都能访问）"
+    fi
+
     info "Nginx 配置已安装到: ${NGINX_INSTALLED_PATH}"
     # 校验并重新加载/启动
     if nginx -t 2>&1; then
@@ -2315,25 +2327,44 @@ fi
 # ============================================================
 # 安装完成
 # ============================================================
+
+# 自动检测服务器 IP（公有云优先公网 IP，否则内网 IP）
+detect_server_ip() {
+    local ip=""
+    # 尝试多个公网 IP 查询服务
+    for svc in "https://api.ipify.org" "https://ipv4.icanhazip.com" "https://ifconfig.me/ip" "https://ip.sb"; do
+        ip=$(timeout 5 curl -sS "$svc" 2>/dev/null | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' || true)
+        [[ -n "$ip" ]] && break
+    done
+    # 公网 IP 取不到，用内网 IP
+    if [[ -z "$ip" ]]; then
+        ip=$(ip -4 addr show scope global 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
+        [[ -z "$ip" ]] && ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+    echo "${ip:-127.0.0.1}"
+}
+SERVER_IP="$(detect_server_ip)"
+
 echo ""
 echo -e "${COLOR_GREEN}============================================================${COLOR_RESET}"
 echo -e "${COLOR_GREEN}  即时消息推送系统 安装完成！${COLOR_RESET}"
 echo -e "${COLOR_GREEN}============================================================${COLOR_RESET}"
 echo ""
 echo "项目目录:    ${PROJECT_DIR}"
+echo "服务器 IP:   ${SERVER_IP}"
 echo "数据库:      ${DB_NAME}（用户: ${DB_USER}）"
-echo "HTTP API:    http://127.0.0.1:${HTTP_PORT}"
-echo "WebSocket:   ws://127.0.0.1:${WEBSOCKET_PORT}/ws"
 echo ""
-if [[ "$INSTALL_SSL" == "1" ]]; then
-echo "SSL:        acme.sh + 自动续费 cron  [已安装]"
-fi
-if [[ "$INSTALL_SUDOERS" == "1" ]]; then
-echo "sudoers:    ${WEB_USER} 权限已配置  [已安装]"
-fi
+echo -e "${COLOR_CYAN}┌──────────────────────────────────────────────────────────────┐${COLOR_RESET}"
+echo -e "${COLOR_CYAN}│  访问地址                                                    │${COLOR_RESET}"
+echo -e "${COLOR_CYAN}├──────────────────────────────────────────────────────────────┤${COLOR_RESET}"
+echo -e "${COLOR_CYAN}│${COLOR_RESET} 用户端:      ${COLOR_BOLD}http://${SERVER_IP}/user/${COLOR_RESET}"
+echo -e "${COLOR_CYAN}│${COLOR_RESET} 管理后台:    ${COLOR_BOLD}http://${SERVER_IP}/admin-9f7k2p8x/${COLOR_RESET}"
+echo -e "${COLOR_CYAN}│${COLOR_RESET} HTTP API:    http://127.0.0.1:${HTTP_PORT}  (内部)"
+echo -e "${COLOR_CYAN}│${COLOR_RESET} WebSocket:   ws://127.0.0.1:${WEBSOCKET_PORT}/ws  (内部)"
+echo -e "${COLOR_CYAN}└──────────────────────────────────────────────────────────────┘${COLOR_RESET}"
 echo ""
-echo "默认管理员账号: admin"
-echo "默认管理员密码: admin123"
+echo -e "${COLOR_YELLOW}默认管理员账号: ${COLOR_BOLD}admin${COLOR_RESET}"
+echo -e "${COLOR_YELLOW}默认管理员密码: ${COLOR_BOLD}admin123${COLOR_RESET}"
 echo ""
 warn "请尽快修改默认管理员密码与数据库密码！"
 echo ""
