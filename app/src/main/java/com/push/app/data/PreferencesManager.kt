@@ -57,15 +57,21 @@ class PreferencesManager(private val context: Context) {
     /** 服务器 WebSocket 地址（如 ws://192.168.1.100:9502），用于 PushWebSocket */
     val serverUrlFlow: Flow<String> =
         context.pushDataStore.data.map {
-            it[Keys.SERVER_URL] ?: (buildConfig?.optString("server_ws_url")?.takeIf { it.isNotBlank() }
-                ?: DEFAULT_SERVER_URL)
+            normalizeWsUrl(
+                it[Keys.SERVER_URL]
+                    ?: buildConfig?.optString("server_ws_url")?.takeIf { it.isNotBlank() }
+                    ?: DEFAULT_SERVER_URL
+            )
         }
 
     /** 服务器 HTTP API 地址（如 http://192.168.1.100:9501），用于 TestPushApi */
     val httpServerUrlFlow: Flow<String> =
         context.pushDataStore.data.map {
-            it[Keys.HTTP_SERVER_URL] ?: (buildConfig?.optString("server_url")?.takeIf { it.isNotBlank() }
-                ?: DEFAULT_HTTP_SERVER_URL)
+            normalizeHttpUrl(
+                it[Keys.HTTP_SERVER_URL]
+                    ?: buildConfig?.optString("server_url")?.takeIf { it.isNotBlank() }
+                    ?: DEFAULT_HTTP_SERVER_URL
+            )
         }
 
     /** 心跳间隔（秒），范围 10-300 */
@@ -97,11 +103,54 @@ class PreferencesManager(private val context: Context) {
     }
 
     suspend fun saveServerUrl(url: String) {
-        context.pushDataStore.edit { it[Keys.SERVER_URL] = url.trim() }
+        context.pushDataStore.edit { it[Keys.SERVER_URL] = normalizeWsUrl(url.trim()) }
     }
 
     suspend fun saveHttpServerUrl(url: String) {
-        context.pushDataStore.edit { it[Keys.HTTP_SERVER_URL] = url.trim() }
+        context.pushDataStore.edit { it[Keys.HTTP_SERVER_URL] = normalizeHttpUrl(url.trim()) }
+    }
+
+    /**
+     * 归一化为 WebSocket 协议（ws:// 或 wss://）。
+     *  - http:// → ws://
+     *  - https:// → wss://
+     *  - 无前缀 → ws://（兜底，除非明显域名可用 wss）
+     *  - 已经是 ws:// 或 wss:// 保持不变
+     */
+    private fun normalizeWsUrl(url: String): String {
+        val trimmed = url.trim().trimEnd('/')
+        if (trimmed.isBlank()) return trimmed
+        return when {
+            trimmed.startsWith("https://", ignoreCase = true) ->
+                "wss://" + trimmed.substringAfter("://")
+            trimmed.startsWith("http://", ignoreCase = true) ->
+                "ws://" + trimmed.substringAfter("://")
+            trimmed.startsWith("ws://", ignoreCase = true) ||
+            trimmed.startsWith("wss://", ignoreCase = true) ->
+                trimmed
+            else -> "ws://$trimmed"
+        }
+    }
+
+    /**
+     * 归一化为 HTTP 协议（http:// 或 https://）。
+     *  - ws:// → http://
+     *  - wss:// → https://
+     *  - 无前缀 → http://（兜底）
+     */
+    private fun normalizeHttpUrl(url: String): String {
+        val trimmed = url.trim().trimEnd('/')
+        if (trimmed.isBlank()) return trimmed
+        return when {
+            trimmed.startsWith("wss://", ignoreCase = true) ->
+                "https://" + trimmed.substringAfter("://")
+            trimmed.startsWith("ws://", ignoreCase = true) ->
+                "http://" + trimmed.substringAfter("://")
+            trimmed.startsWith("http://", ignoreCase = true) ||
+            trimmed.startsWith("https://", ignoreCase = true) ->
+                trimmed
+            else -> "http://$trimmed"
+        }
     }
 
     /** 保存心跳间隔，自动夹取到 [10, 300] 区间 */

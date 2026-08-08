@@ -36,9 +36,31 @@ class PreferencesManager {
 
     // MARK: - 服务器地址
 
+    /// 服务器 HTTP(S) 地址（如 https://push.example.com）
+    /// WebSocketClient 会自动把 http/https 转成 ws/wss，所以这里统一存 HTTP(S)。
+    /// 自动归一化：ws:// → http://, wss:// → https://, 无前缀 → http://
     var serverUrl: String {
         get { defaults.string(forKey: kServerUrl) ?? "" }
-        set { defaults.set(newValue, forKey: kServerUrl) }
+        set {
+            let normalized = Self.normalizeHttpUrl(newValue)
+            defaults.set(normalized, forKey: kServerUrl)
+        }
+    }
+
+    /// 归一化为 HTTP(S) 协议：ws→http, wss→https, 补缺失的 http:// 前缀
+    static func normalizeHttpUrl(_ url: String) -> String {
+        let trimmed = url.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+        guard !trimmed.isEmpty else { return trimmed }
+        if trimmed.lowercased().hasPrefix("wss://") {
+            return "https://" + trimmed.dropFirst(6)
+        }
+        if trimmed.lowercased().hasPrefix("ws://") {
+            return "http://" + trimmed.dropFirst(5)
+        }
+        if trimmed.lowercased().hasPrefix("http://") || trimmed.lowercased().hasPrefix("https://") {
+            return trimmed
+        }
+        return "http://" + trimmed
     }
 
     // MARK: - 推送 Key

@@ -162,8 +162,9 @@ class PushWebSocket(
         _state.value = if (reconnectAttempts > 0) ConnectionState.RECONNECTING
         else ConnectionState.CONNECTING
 
+        val url = normalizeWsUrl(cfg.url)
         val request = Request.Builder()
-            .url(cfg.url)
+            .url(url)
             .build()
 
         socket = client.newWebSocket(request, object : WebSocketListener() {
@@ -363,5 +364,27 @@ class PushWebSocket(
             .connectTimeout(15, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build()
+    }
+
+    /**
+     * 归一化为 WebSocket 协议，和 iOS PushWebSocketClient.connect() 行为对齐。
+     *  - http:// → ws://
+     *  - https:// → wss://
+     *  - 无前缀 → ws://
+     *  - 已经是 ws:// 或 wss:// 保持不变
+     */
+    private fun normalizeWsUrl(url: String): String {
+        val trimmed = url.trim().trimEnd('/')
+        if (trimmed.isBlank()) return trimmed
+        return when {
+            trimmed.startsWith("https://", ignoreCase = true) ->
+                "wss://" + trimmed.substringAfter("://")
+            trimmed.startsWith("http://", ignoreCase = true) ->
+                "ws://" + trimmed.substringAfter("://")
+            trimmed.startsWith("ws://", ignoreCase = true) ||
+            trimmed.startsWith("wss://", ignoreCase = true) ->
+                trimmed
+            else -> "ws://$trimmed"
+        }
     }
 }
