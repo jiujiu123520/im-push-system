@@ -80,8 +80,10 @@ assert_deps
 # ------------------------------------------------------------
 PROJECT_DIR="${PROJECT_DIR:-/www/push-system}"
 MIGRATIONS_TABLE="schema_migrations"
-# 进度文件放在项目目录下，避免 /tmp 中 root 创建导致后续非 root 用户 Permission denied
-PROGRESS_FILE="${PROJECT_DIR}/.deploy/push-update-progress.env"
+# 进度文件放在 /tmp，使用项目路径哈希避免多项目冲突；
+# 原先放在 ${PROJECT_DIR}/.deploy，但当项目目录所有者为 root、脚本以普通用户执行时会 Permission denied
+PROJECT_HASH="$(echo -n "${PROJECT_DIR}" | md5sum 2>/dev/null | cut -c1-8 || echo "${PROJECT_DIR//\//_}")"
+PROGRESS_FILE="/tmp/push-update-progress-${PROJECT_HASH}.env"
 
 # ------------------------------------------------------------
 # 解析命令行参数
@@ -119,9 +121,9 @@ done
 
 cd "$PROJECT_DIR" || { echo "无法进入项目目录: $PROJECT_DIR" >&2; exit 1; }
 
-# 确保 .deploy 目录存在且可写，同时清理 /tmp 下遗留的 root 进度文件（Permission denied 根因）
-mkdir -p "${PROJECT_DIR}/.deploy" && chmod 777 "${PROJECT_DIR}/.deploy" 2>/dev/null || true
-[[ -f "/tmp/push-update-progress.env" ]] && rm -f "/tmp/push-update-progress.env" 2>/dev/null || true
+# 清理可能残留的旧进度文件（兼容旧版路径）
+rm -f "${PROJECT_DIR}/.deploy/push-update-progress.env" 2>/dev/null || true
+rm -f "/tmp/push-update-progress.env" 2>/dev/null || true
 
 # Git 安全目录配置，避免在 root 下操作时 git 报错
 git config --global --add safe.directory "$PROJECT_DIR"
