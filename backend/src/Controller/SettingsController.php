@@ -211,8 +211,8 @@ class SettingsController
         // 检测系统当前监听端口（通过 ss/netstat 命令）
         $listeningProcess = '';
         if ($inUse) {
-            // 尝试用 ss 命令获取占用进程
-            $ssOutput = trim((string) shell_exec("ss -tlnp 2>/dev/null | grep ':{$port} ' | head -1") ?? '');
+            // 尝试用 ss 命令获取占用进程（用 %d 格式化确保 $port 为纯整数，杜绝 shell 注入）
+            $ssOutput = trim((string) shell_exec(sprintf("ss -tlnp 2>/dev/null | grep ':%d ' | head -1", $port)) ?? '');
             if ($ssOutput !== '') {
                 // 提取进程名
                 if (preg_match('/users:\(\("([^"]+)"/', $ssOutput, $m)) {
@@ -221,7 +221,7 @@ class SettingsController
             }
             if ($listeningProcess === '') {
                 // 尝试 netstat
-                $netstatOutput = trim((string) shell_exec("netstat -tlnp 2>/dev/null | grep ':{$port} ' | head -1") ?? '');
+                $netstatOutput = trim((string) shell_exec(sprintf("netstat -tlnp 2>/dev/null | grep ':%d ' | head -1", $port)) ?? '');
                 if ($netstatOutput !== '' && preg_match('/\d+\/(\S+)/', $netstatOutput, $m)) {
                     $listeningProcess = $m[1];
                 }
@@ -300,12 +300,25 @@ class SettingsController
             return false;
         }
 
+        // SMTP 密码 AES 加密存储（防止数据库泄露后密码直接暴露）
+        // 使用 "ENC:" 前缀标记，readFromDatabase 时据此判断是否需要解密
+        // 密码已经是加密的（从前一次配置保留下来的）就不再重复加密
+        $storedPassword = $password;
+        if ($password !== '' && strpos($password, 'ENC:') !== 0) {
+            try {
+                $storedPassword = 'ENC:' . \App\Service\Aes::encryptString($password);
+            } catch (\Throwable $e) {
+                Response::fail($response, '密码加密失败：请检查 .env 中 AES_KEY 是否已配置', Response::CODE_INTERNAL, 500);
+                return false;
+            }
+        }
+
         $configData = [
             'enabled'     => $enabled,
             'host'        => $host,
             'port'        => $port,
             'username'    => $username,
-            'password'    => $password,
+            'password'    => $storedPassword,
             'encryption'  => $encryption,
             'sender_name' => $sender_name,
         ];

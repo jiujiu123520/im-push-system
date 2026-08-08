@@ -31,7 +31,8 @@ class MessageService
 
         if ($keyword !== '') {
             $where .= ' AND (m.title LIKE ? OR m.content LIKE ? OR m.device_id LIKE ?)';
-            $like = '%' . $keyword . '%';
+            $escaped = Database::escapeLike($keyword);
+            $like = '%' . $escaped . '%';
             $args[] = $like;
             $args[] = $like;
             $args[] = $like;
@@ -95,7 +96,8 @@ class MessageService
 
         if ($keyword !== '') {
             $where .= ' AND (p.title LIKE ? OR p.content LIKE ? OR p.target_value LIKE ?)';
-            $like = '%' . $keyword . '%';
+            $escaped = Database::escapeLike($keyword);
+            $like = '%' . $escaped . '%';
             $args[] = $like;
             $args[] = $like;
             $args[] = $like;
@@ -556,7 +558,8 @@ class MessageService
         $args = [];
         if ($keyword !== '') {
             $where .= ' AND (title LIKE ? OR content LIKE ? OR device_id LIKE ?)';
-            $like = '%' . $keyword . '%';
+            $escaped = Database::escapeLike($keyword);
+            $like = '%' . $escaped . '%';
             $args[] = $like;
             $args[] = $like;
             $args[] = $like;
@@ -575,7 +578,8 @@ class MessageService
         $args = [];
         if ($keyword !== '') {
             $where .= ' AND (title LIKE ? OR content LIKE ? OR target_value LIKE ?)';
-            $like = '%' . $keyword . '%';
+            $escaped = Database::escapeLike($keyword);
+            $like = '%' . $escaped . '%';
             $args[] = $like;
             $args[] = $like;
             $args[] = $like;

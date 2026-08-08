@@ -206,4 +206,21 @@ class Database
     {
         return self::query($sql, $params)->rowCount();
     }
+
+    /**
+     * 转义 MySQL LIKE 通配符
+     *
+     * 转义 \、%、_ 三个字符，防止用户输入的通配符被当作特殊字符处理。
+     * 用于关键词搜索场景，避免攻击者输入 % 匹配所有记录或输入 _ 匹配任意单字符。
+     *
+     * @param string $keyword 原始关键词
+     * @return string 转义后的关键词（可直接用于 '%' . $escaped . '%' 构造）
+     */
+    public static function escapeLike(string $keyword): string
+    {
+        $keyword = str_replace('\\', '\\\\', $keyword);
+        $keyword = str_replace('%', '\\%', $keyword);
+        $keyword = str_replace('_', '\\_', $keyword);
+        return $keyword;
+    }
 }

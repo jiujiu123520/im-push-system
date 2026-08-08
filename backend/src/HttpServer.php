@@ -162,14 +162,21 @@ class HttpServer
     public function onRequest(Request $request, SwooleResponse $response): void
     {
         try {
+            // 统一安全响应头（每个请求都要加）
+            $this->setSecurityHeaders($response, $request);
+
             // 处理 CORS 预检请求（OPTIONS）
             if (strtoupper($request->server['request_method']) === 'OPTIONS') {
                 $response->status(204);
                 $response->header('Content-Type', 'application/json; charset=utf-8');
-                $response->header('Access-Control-Allow-Origin', '*');
-                $response->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-                $response->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Api-Key');
-                $response->header('Access-Control-Max-Age', '86400');
+                $allowOrigin = $this->resolveCorsOrigin($request);
+                if ($allowOrigin !== null) {
+                    $response->header('Access-Control-Allow-Origin', $allowOrigin);
+                    $response->header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+                    $response->header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Api-Key');
+                    $response->header('Access-Control-Allow-Credentials', 'true');
+                    $response->header('Access-Control-Max-Age', '86400');
+                }
                 $response->end();
                 return;
             }
@@ -288,5 +295,85 @@ class HttpServer
     public function getRouter(): Router
     {
         return $this->router;
+    }
+
+    // ====================================================================
+    // 安全加固：响应头 + CORS
+    // ====================================================================
+
+    /**
+     * 设置统一安全响应头（每个 HTTP 请求都会加）
+     *
+     * X-Frame-Options      : 防点击劫持，禁止 iframe 嵌入
+     * X-Content-Type-Options: 防 MIME 嗅探
+     * X-XSS-Protection     : 浏览器内置 XSS 过滤（旧版浏览器兼容）
+     * Referrer-Policy      : 控制 Referer 泄露
+     * Permissions-Policy   : 禁用危险的浏览器特性
+     * Cache-Control        : API 响应不缓存
+     *
+     * @param SwooleResponse $response
+     * @param Request        $request
+     * @return void
+     */
+    private function setSecurityHeaders(SwooleResponse $response, Request $request): void
+    {
+        $response->header('X-Frame-Options', 'SAMEORIGIN');
+        $response->header('X-Content-Type-Options', 'nosniff');
+        $response->header('X-XSS-Protection', '1; mode=block');
+        $response->header('Referrer-Policy', 'strict-origin-when-cross-origin');
+        $response->header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), interest-cohort=()');
+        $response->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+        $response->header('Pragma', 'no-cache');
+
+        // CORS 头（非 OPTIONS 请求也加，浏览器实际请求时需要）
+        $allowOrigin = $this->resolveCorsOrigin($request);
+        if ($allowOrigin !== null) {
+            $response->header('Access-Control-Allow-Origin', $allowOrigin);
+            $response->header('Access-Control-Allow-Credentials', 'true');
+            $response->header('Vary', 'Origin');
+        }
+    }
+
+    /**
+     * 解析允许的 CORS 来源
+     *
+     * 策略：
+     *   1. 优先从 .env CORS_ALLOWED_ORIGINS 读取（逗号分隔）
+     *   2. 若未配置，回退到与当前 Host 同域的 Origin
+     *   3. 开发模式（CORS_ALLOW_ALL=1）允许全部（仅限 localhost）
+     *
+     * @param Request $request
+     * @return string|null 返回允许的 Origin，null 表示不允许 CORS
+     */
+    private function resolveCorsOrigin(Request $request): ?string
+    {
+        $origin = (string)($request->header['origin'] ?? '');
+        if ($origin === '') {
+            return null;
+        }
+
+        // 开发模式允许 localhost
+        $allowAll = (string)Config::env('CORS_ALLOW_ALL', '0') === '1';
+        if ($allowAll && (stripos($origin, 'localhost') !== false || stripos($origin, '127.0.0.1') !== false || stripos($origin, '::1') !== false)) {
+            return $origin;
+        }
+
+        // 从 .env 配置的白名单匹配
+        $allowed = (string)Config::env('CORS_ALLOWED_ORIGINS', '');
+        if ($allowed !== '') {
+            $list = array_map('trim', explode(',', $allowed));
+            if (in_array($origin, $list, true)) {
+                return $origin;
+            }
+        }
+
+        // 回退：与请求 Host 同域的 Origin 自动放行（前端和后端同域部署的场景）
+        $host = (string)($request->header['host'] ?? '');
+        $originHost = parse_url($origin, PHP_URL_HOST);
+        if ($originHost !== false && $host !== '' && strpos($host, $originHost) !== false) {
+            return $origin;
+        }
+
+        return null;
     }
 }

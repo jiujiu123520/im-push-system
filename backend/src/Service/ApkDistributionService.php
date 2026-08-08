@@ -200,7 +200,8 @@ class ApkDistributionService
         $keyword = trim($keyword);
 
         if ($keyword !== '') {
-            $like = '%' . $keyword . '%';
+            $escaped = Database::escapeLike($keyword);
+            $like = '%' . $escaped . '%';
             $countRow = Database::fetch(
                 'SELECT COUNT(*) AS cnt FROM apk_distributions WHERE app_name LIKE ? OR build_id LIKE ?',
                 [$like, $like]

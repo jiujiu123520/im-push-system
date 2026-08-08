@@ -276,6 +276,10 @@ HTML;
     /**
      * 从数据库读取邮件配置
      *
+     * 支持向后兼容：
+     *   - 新密码以 "ENC:" 开头 → AES 解密后使用
+     *   - 旧密码（无前缀）→ 直接使用（老版本未加密的明文）
+     *
      * @return array
      */
     private static function readFromDatabase(): array
@@ -290,12 +294,24 @@ HTML;
             if ($row && $row['config_value']) {
                 $data = json_decode($row['config_value'], true);
                 if (is_array($data)) {
+                    $password = (string)($data['password'] ?? '');
+                    // 解密 ENC: 前缀的密码（向后兼容旧明文密码）
+                    if (strpos($password, 'ENC:') === 0) {
+                        try {
+                            $decrypted = \App\Service\Aes::decryptString(substr($password, 4));
+                            $password = $decrypted ?? $password;
+                        } catch (\Throwable $e) {
+                            // 解密失败时兜底保留原值，日志告警
+                            error_log('[MailService] SMTP 密码解密失败：' . $e->getMessage());
+                        }
+                    }
+
                     return [
                         'enabled'     => (bool)($data['enabled'] ?? false),
                         'host'        => $data['host'] ?? 'smtp.qq.com',
                         'port'        => $data['port'] ?? '587',
                         'username'    => $data['username'] ?? '',
-                        'password'    => $data['password'] ?? '',
+                        'password'    => $password,
                         'encryption'  => $data['encryption'] ?? 'tls',
                         'sender_name' => $data['sender_name'] ?? '',
                     ];

@@ -519,6 +519,19 @@ class ApnsService
         if (!is_array($config)) {
             $config = [];
         }
+
+        // 解密 ENC: 前缀的 auth_key（向后兼容旧明文存储）
+        if (!empty($config['auth_key']) && strpos($config['auth_key'], 'ENC:') === 0) {
+            try {
+                $decrypted = Aes::decryptString(substr($config['auth_key'], 4));
+                if ($decrypted !== null) {
+                    $config['auth_key'] = $decrypted;
+                }
+            } catch (\Throwable $e) {
+                error_log('[ApnsService] auth_key 解密失败：' . $e->getMessage());
+            }
+        }
+
         return array_merge([
             'enabled'     => false,
             'team_id'     => '',
@@ -537,6 +550,16 @@ class ApnsService
      */
     public static function saveConfig(array $config): void
     {
+        // auth_key AES 加密存储（防止数据库泄露后 .p8 私钥直接暴露）
+        // 密码已经是加密的（ENC: 前缀）就不再重复加密
+        if (!empty($config['auth_key']) && strpos($config['auth_key'], 'ENC:') !== 0) {
+            try {
+                $config['auth_key'] = 'ENC:' . Aes::encryptString($config['auth_key']);
+            } catch (\Throwable $e) {
+                throw new \RuntimeException('auth_key 加密失败：请检查 .env 中 AES_KEY 是否已配置', 0, $e);
+            }
+        }
+
         $json = json_encode($config, JSON_UNESCAPED_UNICODE);
 
         $existing = Database::fetch(

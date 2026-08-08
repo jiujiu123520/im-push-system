@@ -240,7 +240,8 @@ class AdminService
         $keyword = trim($keyword);
 
         if ($keyword !== '') {
-            $like = '%' . $keyword . '%';
+            $escaped = Database::escapeLike($keyword);
+            $like = '%' . $escaped . '%';
             $countRow = Database::fetch(
                 'SELECT COUNT(*) AS cnt FROM admins WHERE username LIKE ?',
                 [$like]
