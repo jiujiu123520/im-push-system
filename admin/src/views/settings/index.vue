@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="page-container settings-page">
     <!-- 页头 -->
     <div class="page-hero">
@@ -1640,13 +1640,95 @@ const captchaForm = reactive({
   mailSenderName: ''
 })
 const captchaRules: FormRules = {
-  mailHost: [{ required: true, message: '请输入 SMTP 主机', trigger: 'blur' }],
-  mailPort: [{ required: true, message: '请输入端口', trigger: 'blur' }],
-  mailUsername: [{ required: true, message: '请输入账号', trigger: 'blur' }],
-  mailSenderName: [{ required: true, message: '请输入发件人名称', trigger: 'blur' }],
+  mailHost: [
+    {
+      validator: (_rule: any, value: string, callback: any) => {
+        if (captchaForm.enabled === 1 && captchaForm.emailEnabled === 1 && !value?.trim()) {
+          callback(new Error('邮箱验证码已启用，请填写 SMTP 主机'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur'
+    }
+  ],
+  mailPort: [
+    {
+      validator: (_rule: any, value: number, callback: any) => {
+        if (captchaForm.enabled === 1 && captchaForm.emailEnabled === 1 && !value) {
+          callback(new Error('邮箱验证码已启用，请填写 SMTP 端口'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur'
+    }
+  ],
+  mailUsername: [
+    {
+      validator: (_rule: any, value: string, callback: any) => {
+        if (captchaForm.enabled === 1 && captchaForm.emailEnabled === 1 && !value?.trim()) {
+          callback(new Error('邮箱验证码已启用，请填写 SMTP 账号'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur'
+    }
+  ],
+  mailSenderName: [
+    {
+      validator: (_rule: any, value: string, callback: any) => {
+        if (captchaForm.enabled === 1 && captchaForm.emailEnabled === 1 && !value?.trim()) {
+          callback(new Error('邮箱验证码已启用，请填写发件人名称'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur'
+    }
+  ],
   mailFrom: [
-    { required: true, message: '请输入发件人邮箱', trigger: 'blur' },
-    { type: 'email', message: '邮箱格式不正确', trigger: 'blur' }
+    {
+      validator: (_rule: any, value: string, callback: any) => {
+        if (captchaForm.enabled === 1 && captchaForm.emailEnabled === 1) {
+          if (!value?.trim()) {
+            callback(new Error('邮箱验证码已启用，请填写发件人邮箱'))
+          } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+            callback(new Error('邮箱格式不正确'))
+          } else {
+            callback()
+          }
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur'
+    }
+  ],
+  smsApiKey: [
+    {
+      validator: (_rule: any, value: string, callback: any) => {
+        if (captchaForm.enabled === 1 && captchaForm.smsEnabled === 1 && !value?.trim()) {
+          callback(new Error('短信验证码已启用，请填写短信 API Key'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur'
+    }
+  ],
+  smsApiUrl: [
+    {
+      validator: (_rule: any, value: string, callback: any) => {
+        if (captchaForm.enabled === 1 && captchaForm.smsEnabled === 1 && !value?.trim()) {
+          callback(new Error('短信验证码已启用，请填写短信 API URL'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur'
+    }
   ]
 }
 
