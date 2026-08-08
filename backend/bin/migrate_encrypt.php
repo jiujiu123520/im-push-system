@@ -31,7 +31,7 @@ echo " 模式: " . ($apply ? '实际写入' : ($statusOnly ? '状态检查' : '�
 echo "========================================\n\n";
 
 try {
-    \App\Service\Database::connect();
+    \App\Service\Database::pdo();
 } catch (\Throwable $e) {
     fwrite(STDERR, "数据库连接失败: " . $e->getMessage() . "\n");
     exit(1);
