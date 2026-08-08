@@ -166,7 +166,7 @@ EOF
           username: ${{ secrets.SERVER_SSH_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           source: "build/output/${{ github.event.inputs.build_id }}/app-release.apk"
-          target: "/www/push-system/build/output/${{ github.event.inputs.build_id }}/"
+          target: "${{ secrets.SERVER_PROJECT_PATH }}/build/output/${{ github.event.inputs.build_id }}/"
           strip_components: 3
 
       - name: Upload build log to server via SCP
@@ -178,7 +178,7 @@ EOF
           username: ${{ secrets.SERVER_SSH_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           source: "build/logs/${{ github.event.inputs.build_id }}.log"
-          target: "/www/push-system/build/logs/"
+          target: "${{ secrets.SERVER_PROJECT_PATH }}/build/logs/"
           strip_components: 2
 
       - name: Update build status via SSH
@@ -193,12 +193,12 @@ EOF
             # 状态默认值: 当 result step 未执行(如 workflow 被 cancel)时使用 failed
             STATUS="${{ steps.result.outputs.status }}"
             MESSAGE="${{ steps.result.outputs.message }}"
-            APK_PATH="/www/push-system/build/output/${{ github.event.inputs.build_id }}/app-release.apk"
+            APK_PATH="${{ secrets.SERVER_PROJECT_PATH }}/build/output/${{ github.event.inputs.build_id }}/app-release.apk"
             if [ -z "$STATUS" ]; then
               STATUS="failed"
               MESSAGE="workflow 异常终止(可能被取消或 runner 失败)"
             fi
-            php /www/push-system/backend/bin/update_build_status.php \
+            php ${{ secrets.SERVER_PROJECT_PATH }}/backend/bin/update_build_status.php \
               --build-id "${{ github.event.inputs.build_id }}" \
               --status "$STATUS" \
               --message "$MESSAGE" \

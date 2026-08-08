@@ -686,6 +686,32 @@ install_pkgs() {
 #   - "Internal Error, No file name for xxx:amd64"
 #   - "dpkg was interrupted"
 #   - 损坏的 deb 包缓存
+# 跨平台 swap 检测：优先 swapon --show，兜底 /proc/swaps（BusyBox/Alpine 无 --show）
+has_any_swap() {
+    if swapon --show 2>/dev/null | grep -q .; then
+        return 0
+    elif [[ -f /proc/swaps ]] && grep -qv '^Filename' /proc/swaps 2>/dev/null | grep -q .; then
+        return 0
+    fi
+    return 1
+}
+
+# 跨平台获取 CPU 核心数（nproc 不存在时兜底 sysconf/proc/cpuinfo）
+get_nproc() {
+    local n
+    if command -v nproc >/dev/null 2>&1; then
+        n=$(nproc 2>/dev/null || echo 1)
+    elif [[ -f /proc/cpuinfo ]]; then
+        n=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 1)
+    elif command -v sysctl >/dev/null 2>&1; then
+        n=$(sysctl -n hw.ncpu 2>/dev/null || echo 1)
+    else
+        n=1
+    fi
+    [[ -z "$n" || "$n" -lt 1 ]] && n=1
+    echo "$n"
+}
+
 # ============================================================
 repair_apt_cache() {
     info "修复 apt 缓存..."
@@ -786,32 +812,6 @@ install_mysql_safe() {
 
     # 再次修复 apt
     repair_apt_cache
-
-    # 跨平台 swap 检测：优先 swapon --show，兜底 /proc/swaps（BusyBox/Alpine 无 --show）
-    has_any_swap() {
-        if swapon --show 2>/dev/null | grep -q .; then
-            return 0
-        elif [[ -f /proc/swaps ]] && grep -qv '^Filename' /proc/swaps 2>/dev/null | grep -q .; then
-            return 0
-        fi
-        return 1
-    }
-
-    # 跨平台获取 CPU 核心数（nproc 不存在时兜底 sysconf/proc/cpuinfo）
-    get_nproc() {
-        local n
-        if command -v nproc >/dev/null 2>&1; then
-            n=$(nproc 2>/dev/null || echo 1)
-        elif [[ -f /proc/cpuinfo ]]; then
-            n=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 1)
-        elif command -v sysctl >/dev/null 2>&1; then
-            n=$(sysctl -n hw.ncpu 2>/dev/null || echo 1)
-        else
-            n=1
-        fi
-        [[ -z "$n" || "$n" -lt 1 ]] && n=1
-        echo "$n"
-    }
 
     # 检查内存(2G 服务器常见 OOM 导致 MySQL 初始化失败)
     AVAILABLE_MEM=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
@@ -1159,7 +1159,8 @@ if [[ "$SWOOLE_INSTALLED" != "true" ]]; then
     SWOOLE_SRC="/tmp/swoole-src"
     rm -rf "$SWOOLE_SRC"
     info "从 GitHub 克隆 Swoole 源码（优先使用代理）..."
-    git clone --depth 1 https://gh.jasonzeng.dev/https://github.com/swoole/swoole-src.git "$SWOOLE_SRC" 2>/dev/null || \
+    timeout 60 git clone --depth 1 https://gh.jasonzeng.dev/https://github.com/swoole/swoole-src.git "$SWOOLE_SRC" 2>/dev/null || \
+        timeout 60 git clone --depth 1 https://github.com/swoole/swoole-src.git "$SWOOLE_SRC" 2>/dev/null || \
         git clone --depth 1 https://github.com/swoole/swoole-src.git "$SWOOLE_SRC" 2>/dev/null || true
 
     SWOOLE_BUILD_SUCCESS=false
@@ -1427,7 +1428,7 @@ if [[ "$NODE_INSTALLED" != "true" ]]; then
     fi
 
     info "  下载: ${NODE_URL}"
-    if curl -fsSL "$NODE_URL" -o /tmp/node.tar.gz; then
+    if timeout 120 curl -fsSL "$NODE_URL" -o /tmp/node.tar.gz; then
         rm -rf /usr/local/lib/nodejs
         mkdir -p /usr/local/lib/nodejs
         tar -xzf /tmp/node.tar.gz -C /usr/local/lib/nodejs --strip-components=1
@@ -1456,17 +1457,19 @@ fi
 # ============================================================
 if [[ "$COMPOSER_INSTALLED" != "true" ]]; then
     info "安装 Composer（国内镜像）..."
-    # 优先使用阿里云 Composer 镜像
-    if curl -fsSL https://mirrors.aliyun.com/composer/composer.phar -o /usr/local/bin/composer 2>/dev/null; then
+    # 优先使用阿里云 Composer 镜像（加超时保护防止卡死）
+    if timeout 30 curl -fsSL https://mirrors.aliyun.com/composer/composer.phar -o /usr/local/bin/composer 2>/dev/null; then
         chmod +x /usr/local/bin/composer
         info "Composer 安装完成（阿里云镜像）"
     else
-        # Fallback: 使用官方 installer
-        curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+        # Fallback: 使用官方 installer（加超时）
+        warn "阿里云镜像下载失败，尝试官方源..."
+        timeout 30 curl -sS https://getcomposer.org/installer 2>/dev/null | timeout 30 php -- --install-dir=/usr/local/bin --filename=composer 2>/dev/null || \
+            curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
         info "Composer 安装完成（官方源）"
     fi
-    # 配置 Packagist 国内镜像（阿里云）
-    composer config -g repo.packagist composer https://mirrors.aliyun.com/composer/ 2>/dev/null || true
+    # 配置 Packagist 国内镜像（阿里云）— 加超时+--no-interaction 防止网络卡死
+    timeout 15 composer config -g repo.packagist composer https://mirrors.aliyun.com/composer/ --no-interaction 2>/dev/null || true
 else
     info "Composer 已安装，跳过"
 fi
@@ -1666,6 +1669,17 @@ if ! systemctl is-active --quiet nginx; then
 
     # 确保日志目录存在
     mkdir -p /var/log/nginx 2>/dev/null || true
+
+    # 启动前先停掉占用 80/443 端口的服务（常见: apache2/httpd）
+    for PORT in 80 443; do
+        local PIDS=$(ss -tlnp 2>/dev/null | grep ":${PORT} " | grep -oP 'pid=\K[0-9]+' | sort -u)
+        if [[ -n "$PIDS" ]]; then
+            warn "端口 ${PORT} 被占用(PID: $PIDS)，尝试停止冲突服务..."
+            systemctl stop apache2 2>/dev/null || systemctl stop httpd 2>/dev/null || true
+            pkill -f "apache2|httpd" 2>/dev/null || true
+            sleep 1
+        fi
+    done
 
     # 启动前先检测配置语法（此时可能还没有 push.conf，但默认配置应能通过）
     if ! nginx -t 2>&1; then
@@ -1901,15 +1915,15 @@ export COMPOSER_ALLOW_SUPERUSER=1
 # 关闭安全公告阻断（国内镜像可能返回安全公告）
 # Composer 2.4+ 使用 audit.block-insecure（旧版使用 policy.advisories.block，已废弃）
 # 注意：--no-audit 命令行参数仅 Composer 2.7+ 支持，因此依赖配置而非命令行参数
-composer config --global --no-interaction audit.block-insecure false 2>/dev/null || true
-composer config --global --no-interaction policy.advisories.block false 2>/dev/null || true
+timeout 15 composer config --global --no-interaction audit.block-insecure false 2>/dev/null || true
+timeout 15 composer config --global --no-interaction policy.advisories.block false 2>/dev/null || true
 # 同时为当前项目配置（全局配置可能被项目级配置覆盖）
-composer config --no-interaction audit.block-insecure false 2>/dev/null || true
-composer config --no-interaction policy.advisories.block false 2>/dev/null || true
-# 配置 Packagist 阿里云镜像（如果之前未配置）
-composer config --global repo.packagist composer https://mirrors.aliyun.com/composer/ 2>/dev/null || true
+timeout 15 composer config --no-interaction audit.block-insecure false 2>/dev/null || true
+timeout 15 composer config --no-interaction policy.advisories.block false 2>/dev/null || true
+# 配置 Packagist 阿里云镜像（如果之前未配置）— 加超时防止网络卡死
+timeout 15 composer config --global repo.packagist composer https://mirrors.aliyun.com/composer/ --no-interaction 2>/dev/null || true
 # 同时为当前项目配置镜像
-composer config repo.packagist composer https://mirrors.aliyun.com/composer/ 2>/dev/null || true
+timeout 15 composer config repo.packagist composer https://mirrors.aliyun.com/composer/ --no-interaction 2>/dev/null || true
 
 # 同步 composer.lock（当 composer.json 变更后 lock 文件可能过期）
 # --lock 仅更新 lock 文件的内容哈希，不会升级依赖版本

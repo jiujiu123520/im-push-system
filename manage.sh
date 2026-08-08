@@ -893,7 +893,8 @@ menu_uninstall_all() {
     echo "  此操作不可逆!"
     echo ""
     _safe_read "确认完全卸载? 输入 'yes' 继续: " reply
-    if [[ "$reply" == "yes" ]]; then
+    reply=$(echo "${reply// /}" | tr '[:upper:]' '[:lower:]')
+    if [[ "$reply" == "yes" || "$reply" == "y" ]]; then
         bash "${PROJECT_DIR}/deploy/uninstall.sh" --all --yes
     else
         info "已取消"

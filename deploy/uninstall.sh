@@ -124,6 +124,7 @@ if [[ "$SKIP_CONFIRM" != "1" ]]; then
     esac
     echo ""
     read -p "确认执行卸载? 输入 'yes' 继续,其他取消: " reply < /dev/tty
+    reply=$(echo "${reply// /}" | tr '[:upper:]' '[:lower:]')
     if [[ "$reply" != "yes" ]]; then
         echo "已取消"
         exit 0
@@ -211,6 +212,7 @@ uninstall_env() {
         if [[ "$UNINSTALL_MODE" == "all" ]]; then
             # 完全卸载时询问是否删除数据库
             read -p "是否同时卸载数据库 MySQL/MariaDB 并删除数据库文件?(危险! 输入 'yes' 确认) [no]: " reply < /dev/tty
+            reply=$(echo "${reply// /}" | tr '[:upper:]' '[:lower:]')
             [[ "$reply" == "yes" ]] && REMOVE_DB="y"
         fi
 
