@@ -261,6 +261,18 @@ class WebSocketServer
                     echo "[WS] 僵尸连接巡检异常：{$e->getMessage()}\n";
                 }
             });
+
+            // 每 5 分钟巡检离线 pending 队列，对持续离线 >= 30 分钟的设备发邮件提醒
+            Timer::tick(DeviceOfflineNotifier::SCAN_INTERVAL_SECONDS * 1000, function () {
+                try {
+                    $count = $this->offlineNotifier->processPendingQueue();
+                    if ($count > 0) {
+                        echo "[WS] 离线巡检完成，已发送 {$count} 条提醒\n";
+                    }
+                } catch (\Throwable $e) {
+                    echo "[WS] 离线巡检异常：{$e->getMessage()}\n";
+                }
+            });
         }
     }
 
@@ -484,6 +496,13 @@ class WebSocketServer
             $this->logToFile("[WS] ConnectionManager 注册失败 fd={$fd} error={$e->getMessage()}");
             $this->sendAndClose($server, $fd, $this->pack(-1, '服务器内部错误：' . $e->getMessage(), null, 'auth_result'));
             return;
+        }
+
+        // 重连设备：清除离线待通知队列中的记录（不再触发延迟通知）
+        try {
+            $this->offlineNotifier->clearPendingOffline($deviceId);
+        } catch (\Throwable $e) {
+            $this->logToFile("[WS] clearPendingOffline 异常 device_id={$deviceId} error={$e->getMessage()}");
         }
 
         // 采集设备信息存 devices 表
