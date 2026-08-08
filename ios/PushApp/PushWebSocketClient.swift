@@ -13,6 +13,11 @@ import Foundation
  *   - URLSessionWebSocketTask 是 iOS 原生 WebSocket 实现，无需第三方库
  *   - 后台时系统会挂起 WebSocket，这是 iOS 的限制，无法绕过
  *   - App 回到前台时自动重连
+ *
+ * 线程安全说明（P0 修复）：
+ *   - URLSession delegate / receive completion 在独立队列触发，不在主线程
+ *   - @Published 属性（ConnectionState）必须在主线程修改，否则 iOS 16+ 会崩溃
+ *   - 所有 onStateChange 和 onMessage 回调统一 dispatch 到 main
  */
 class PushWebSocketClient: NSObject {
 
@@ -57,27 +62,46 @@ class PushWebSocketClient: NSObject {
         self.urlSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
 
+    // MARK: - 主线程派发工具（P0 修复：所有回调强制切到 main）
+
+    private func dispatchStateChange(_ state: ConnectionState) {
+        if Thread.isMainThread {
+            onStateChange(state)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.onStateChange(state)
+            }
+        }
+    }
+
+    private func dispatchMessage(_ message: PushMessage) {
+        if Thread.isMainThread {
+            onMessage(message)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.onMessage(message)
+            }
+        }
+    }
+
     // MARK: - 连接
 
     func connect() {
         isManualDisconnect = false
 
         // 将 HTTP(S) 协议转换为 WS(S) 协议
-        // 用户配置的 serverUrl 通常是 http:// 或 https://
-        // WebSocket 需要 ws:// 或 wss://
         var wsUrl = serverUrl
         if wsUrl.lowercased().hasPrefix("https://") {
             wsUrl = "wss://" + String(wsUrl.dropFirst("https://".count))
         } else if wsUrl.lowercased().hasPrefix("http://") {
             wsUrl = "ws://" + String(wsUrl.dropFirst("http://".count))
         } else if !wsUrl.lowercased().hasPrefix("ws://") && !wsUrl.lowercased().hasPrefix("wss://") {
-            // 没有协议前缀，默认使用 ws://
             wsUrl = "ws://" + wsUrl
         }
 
         guard let url = URL(string: "\(wsUrl)/ws") else {
             print("[WebSocket] 无效的 URL: \(wsUrl)/ws")
-            onStateChange(.disconnected)
+            dispatchStateChange(.disconnected)
             return
         }
 
@@ -87,7 +111,7 @@ class PushWebSocketClient: NSObject {
         webSocketTask = urlSession.webSocketTask(with: request)
         webSocketTask?.resume()
 
-        onStateChange(.connecting)
+        dispatchStateChange(.connecting)
         print("[WebSocket] 正在连接 \(url)")
 
         // 开始接收消息
@@ -100,7 +124,7 @@ class PushWebSocketClient: NSObject {
         heartbeatTimer = nil
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
-        onStateChange(.disconnected)
+        dispatchStateChange(.disconnected)
     }
 
     // MARK: - 接收消息
@@ -111,6 +135,9 @@ class PushWebSocketClient: NSObject {
 
             switch result {
             case .success(let message):
+                // 后台主动断开后不继续处理残留消息
+                guard !self.isManualDisconnect else { return }
+
                 switch message {
                 case .string(let text):
                     self.handleMessage(text)
@@ -122,7 +149,9 @@ class PushWebSocketClient: NSObject {
                     break
                 }
                 // 继续接收下一条消息
-                self.receiveMessage()
+                if !self.isManualDisconnect {
+                    self.receiveMessage()
+                }
 
             case .failure(let error):
                 print("[WebSocket] 接收消息失败: \(error.localizedDescription)")
@@ -147,8 +176,12 @@ class PushWebSocketClient: NSObject {
         case "auth_result":
             handleAuthResult(json)
         case "pong":
-            // 心跳响应
-            missedPongs = 0
+            // 心跳响应 —— 必须 dispatch 到主线程，
+            // 因为 Timer 闭包（missedPongs += 1）也在主线程访问这个属性，
+            // 在 URLSession delegateQueue 后台线程写会产生 data race 导致崩溃
+            DispatchQueue.main.async { [weak self] in
+                self?.missedPongs = 0
+            }
         case "ping":
             // 服务端心跳，回复 pong
             send(text: "{\"type\":\"pong\"}")
@@ -165,22 +198,29 @@ class PushWebSocketClient: NSObject {
 
         if success && code == 0 {
             print("[WebSocket] 鉴权成功")
-            onStateChange(.connected)
-            reconnectAttempts = 0
-            startHeartbeat()
+            dispatchStateChange(.connected)
+            // 必须 dispatch 到主线程，因为 reconnectAttempts 和 missedPongs 在 Timer 闭包里（主线程）也会访问
+            DispatchQueue.main.async { [weak self] in
+                self?.reconnectAttempts = 0
+                self?.startHeartbeat()
+            }
         } else {
             let message = (json["message"] as? String) ?? "未知错误"
-            print("[WebSocket] 鉴权失败: \(message)")
-            onStateChange(.disconnected)
+            print("[WebSocket] 鉴权失败: \(message) (code=\(code))")
+            dispatchStateChange(.disconnected)
             // 鉴权失败不重连，避免无效连接
         }
     }
 
     private func handlePushMessage(_ json: [String: Any]) {
-        let id = (json["id"] as? String) ?? UUID().uuidString
+        let id = (json["message_id"] as? String) ?? (json["id"] as? String) ?? UUID().uuidString
         let title = (json["title"] as? String) ?? ""
         let content = (json["content"] as? String) ?? ""
-        let timestamp = Int64((json["timestamp"] as? Double) ?? Double(Date().timeIntervalSince1970))
+        let timestamp: Int64 = {
+            if let d = json["timestamp"] as? Double { return Int64(d) }
+            if let i = json["timestamp"] as? Int { return Int64(i) }
+            return Int64(Date().timeIntervalSince1970)
+        }()
 
         let message = PushMessage(
             id: id,
@@ -190,9 +230,7 @@ class PushWebSocketClient: NSObject {
             source: .websocket
         )
 
-        DispatchQueue.main.async {
-            self.onMessage(message)
-        }
+        dispatchMessage(message)
     }
 
     // MARK: - 心跳
@@ -201,8 +239,10 @@ class PushWebSocketClient: NSObject {
         heartbeatTimer?.invalidate()
         missedPongs = 0
 
+        // Timer 必须在主线程创建（iOS 基础要求）
         DispatchQueue.main.async {
-            self.heartbeatTimer = Timer.scheduledTimer(withTimeInterval: self.heartbeatInterval, repeats: true) { _ in
+            self.heartbeatTimer = Timer.scheduledTimer(withTimeInterval: self.heartbeatInterval, repeats: true) { [weak self] _ in
+                guard let self = self else { return }
                 self.missedPongs += 1
                 self.send(text: "{\"type\":\"ping\"}")
 
@@ -233,7 +273,9 @@ class PushWebSocketClient: NSObject {
             "device_id": deviceId,
             "heartbeat_interval": Int(heartbeatInterval),
             "platform": "ios",
-            "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+            "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0",
+            "model": UIDevice.current.model,
+            "os_version": UIDevice.current.systemVersion
         ]
 
         guard let data = try? JSONSerialization.data(withJSONObject: authMessage),
@@ -241,10 +283,8 @@ class PushWebSocketClient: NSObject {
             return
         }
 
-        // 延迟 0.5 秒发送鉴权消息，确保连接已建立
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.send(text: text)
-        }
+        // P0 修复：直接发送，去掉无意义的 0.5 秒 global queue 延迟
+        send(text: text)
     }
 
     // MARK: - 重连
@@ -257,18 +297,22 @@ class PushWebSocketClient: NSObject {
 
         guard !isManualDisconnect else { return }
 
-        onStateChange(.reconnecting)
+        dispatchStateChange(.reconnecting)
 
-        // 指数退避 + 抖动
-        reconnectAttempts += 1
-        let baseDelay = min(pow(2.0, Double(reconnectAttempts)), maxReconnectDelay)
-        let jitter = Double.random(in: 0...0.2) * baseDelay
-        let delay = baseDelay + jitter
+        // 重连相关的状态修改必须在主线程，避免和 Timer 闭包的 data race
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
 
-        print("[WebSocket] \(String(format: "%.1f", delay))秒后重连（第\(reconnectAttempts)次）")
+            self.reconnectAttempts += 1
+            let baseDelay = min(pow(2.0, Double(self.reconnectAttempts)), self.maxReconnectDelay)
+            let jitter = Double.random(in: 0...0.2) * baseDelay
+            let delay = baseDelay + jitter
 
-        DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.connect()
+            print("[WebSocket] \(String(format: "%.1f", delay))秒后重连（第\(self.reconnectAttempts)次）")
+
+            DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.connect()
+            }
         }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /**
  * PreferencesManager - 本地偏好设置管理（单例）
@@ -6,12 +7,16 @@ import Foundation
  * 使用 UserDefaults 持久化：
  *   - 服务器地址（如 https://push.example.com）
  *   - 推送 Key
- *   - 设备 ID（首次启动自动生成 UUID）
+ *   - 设备 ID（首次启动用 IDFV，无 IDFV 时 fallback UUID）
+ *   - 上次上报的 APNS token（用于防止重复上报）
  *   - 历史消息列表
  *
  * 说明：
- *   - 设备 ID 一旦生成就固定不变，用于 WebSocket 鉴权和 APNS token 上报
- *   - 消息列表持久化到 UserDefaults（轻量级方案，消息量大时可改用 SQLite/CoreData）
+ *   - device_id 使用 UIDevice.identifierForVendor（IDFV），
+ *     同一厂商下的 APP 在卸载重装后 IDFV 仍保持不变，
+ *     避免用户卸载重装后被后端识别为"新设备"
+ *   - UserDefaults 存一个 fallback UUID，保证极端情况（无 IDFV）也有稳定标识
+ *   - 消息列表持久化到 UserDefaults（轻量级方案，200 条上限，消息量大时可改用 SQLite/CoreData）
  */
 class PreferencesManager {
 
@@ -44,18 +49,27 @@ class PreferencesManager {
     }
 
     // MARK: - 设备 ID
+    // P0 修复：改用 IDFV，卸载重装后 ID 仍稳定（Android 端对应 ANDROID_ID）
 
     var deviceId: String {
+        // 1. 如果 UserDefaults 已有值，直接返回
         if let id = defaults.string(forKey: kDeviceId), !id.isEmpty {
             return id
         }
-        // 首次访问时生成唯一设备 ID
-        let newId = UUID().uuidString
-        defaults.set(newId, forKey: kDeviceId)
-        return newId
+
+        // 2. 尝试用 IDFV（Identifier for Vendor），iOS 厂商级稳定标识
+        if let idfv = UIDevice.current.identifierForVendor?.uuidString, !idfv.isEmpty {
+            defaults.set(idfv, forKey: kDeviceId)
+            return idfv
+        }
+
+        // 3. fallback：UUID（极端情况，如 App 首次启动、系统还没分配 IDFV）
+        let uuid = UUID().uuidString
+        defaults.set(uuid, forKey: kDeviceId)
+        return uuid
     }
 
-    // MARK: - 上次上报的 APNS Token（用于去重）
+    // MARK: - 上次上报的 APNS Token（持久化去重）
 
     var lastReportedApnsToken: String {
         get { defaults.string(forKey: kLastReportedToken) ?? "" }

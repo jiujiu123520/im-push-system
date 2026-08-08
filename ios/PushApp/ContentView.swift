@@ -11,20 +11,20 @@ import SwiftUI
  */
 struct ContentView: View {
 
-    @StateObject private var pushManager = PushManager.shared
+    // P2 修复：PushManager.shared 是 @MainActor 单例，用 @StateObject 语义上不对
+    // 直接引用静态单例并通过 .environmentObject 注入给子视图
+    private let pushManager = PushManager.shared
+
     @State private var selectedTab = 0
-    @State private var showSettingsSheet = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            // Tab 1: 消息列表
             MessageListView()
                 .tabItem {
                     Label("消息", systemImage: "bell.fill")
                 }
                 .tag(0)
 
-            // Tab 2: 设置
             SettingsView()
                 .tabItem {
                     Label("设置", systemImage: "gearshape.fill")
@@ -267,6 +267,15 @@ struct SettingsView: View {
         preferences.pushKey   = pushKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
         showSavedAlert = true
+
+        // P1 修复：保存配置后，立即用当前 APNS token 重试上报
+        // （之前系统触发 didRegisterForRemoteNotificationsWithDeviceToken 时 pushKey 为空，
+        //  现在 pushKey 已配好，需要主动上报一次让后端绑定）
+        if !pushManager.apnsToken.isEmpty {
+            Task {
+                await PushManager.shared.registerApnsToken(pushManager.apnsToken)
+            }
+        }
 
         // 重新连接 WebSocket
         pushManager.disconnectWebSocket()

@@ -2,9 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- APNS 推送环境 -->
-	<!-- development: 开发证书环境（Xcode 调试用） -->
-	<!-- production:  生产证书环境（App Store 上架用） -->
+	<!-- APNS 推送必需的 entitlement -->
+	<!-- 值写 development，Xcode 签名时会自动覆盖：
+	     - Debug / Development 签名 → development
+	     - Release / Ad Hoc / App Store 签名 → production -->
 	<key>aps-environment</key>
 	<string>development</string>
 </dict>

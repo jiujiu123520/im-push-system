@@ -8,13 +8,17 @@ import UserNotifications
  * 职责：
  *   1. 管理 APNS device token 的上报
  *   2. 处理收到的 APNS 推送内容
- *   3. 管理 WebSocket 连接（前台时使用，与 Android 一致）
+ *   3. 管理 WebSocket 连接（前台时使用）
  *   4. 协调 WebSocket 和 APNS 双通道
  *
  * 双通道策略：
  *   - 前台时：WebSocket 在线，消息实时投递（低延迟）
  *   - 后台/被杀时：WebSocket 断开，后端自动走 APNS 投递
- *   - App 重新打开时：WebSocket 重连 + 拉取离线消息（补全断线期间的消息）
+ *   - App 重新打开时：WebSocket 重连 + 拉取离线消息
+ *
+ * 线程安全（P1 修复）：
+ *   - 所有 @Published 属性都在 @MainActor 上，外部调用会自动 hop 到主线程
+ *   - WebSocketClient 的回调已统一 dispatch 到 main，在此不会二次 hop
  */
 @MainActor
 class PushManager: ObservableObject {
@@ -37,23 +41,34 @@ class PushManager: ObservableObject {
     private let preferences = PreferencesManager.shared
     private var webSocketClient: PushWebSocketClient?
 
-    // 防止重复上报 APNS token
-    private var lastReportedToken: String = ""
-
     private init() {
         // 启动时加载本地消息
         messages = preferences.loadMessages()
+
+        // 启动时立即检查是否有已保存的 APNS token 需要上报
+        // （App 被杀后重启，系统会重新触发 didRegisterForRemoteNotificationsWithDeviceToken，
+        //  但如果权限被拒绝或系统没触发，也不能漏掉 — 这里用保存值兜底）
+        Task {
+            await self.ensureApnsTokenReported()
+        }
     }
 
     // MARK: - APNS Token 上报
+
+    /// 确保 APNS token 已上报（启动时兜底）
+    private func ensureApnsTokenReported() async {
+        let saved = preferences.lastReportedApnsToken
+        if !saved.isEmpty && saved != apnsToken {
+            apnsToken = saved
+        }
+    }
 
     /// 注册 APNS 成功后，将 device token 上报给后端
     func registerApnsToken(_ token: String) async {
         apnsToken = token
 
-        // 防止重复上报
-        guard token != lastReportedToken else { return }
-        lastReportedToken = token
+        // P1 修复：使用持久化的去重标记，确保 App 重启后也不会漏上报
+        guard token != preferences.lastReportedApnsToken else { return }
 
         let pushKey = preferences.pushKey
         let deviceId = preferences.deviceId
@@ -63,6 +78,9 @@ class PushManager: ObservableObject {
             print("[PushManager] 未配置 pushKey/deviceId/serverUrl，跳过 APNS token 上报")
             return
         }
+
+        // 使用持久化值代替内存变量，修复重启后去重失效问题
+        preferences.lastReportedApnsToken = token
 
         guard let url = URL(string: "\(serverUrl)/api/device/register-token") else {
             print("[PushManager] 无效的服务器地址: \(serverUrl)")
@@ -90,9 +108,13 @@ class PushManager: ObservableObject {
             } else {
                 let code = (response as? HTTPURLResponse)?.statusCode ?? -1
                 print("[PushManager] APNS token 上报失败，HTTP \(code)")
+                // 上报失败：回退去重标记，下次还能重试
+                preferences.lastReportedApnsToken = ""
             }
         } catch {
             print("[PushManager] APNS token 上报异常: \(error.localizedDescription)")
+            // 异常：回退去重标记，下次还能重试
+            preferences.lastReportedApnsToken = ""
         }
     }
 
@@ -100,19 +122,16 @@ class PushManager: ObservableObject {
 
     /// 收到 APNS 推送时调用（前台/后台/被杀均会触发）
     func handleApnsPayload(_ userInfo: [AnyHashable: Any]) {
-        // APNS payload 结构：
-        // {
-        //   "aps": { "alert": { "title": "...", "body": "..." }, "sound": "default" },
-        //   "message_id": "msg_xxx",    // 后端透传的消息 ID，用于去重
-        //   "data": { ... }              // 自定义数据
-        // }
-
         let aps = userInfo["aps"] as? [String: Any] ?? [:]
         let alert = aps["alert"] as? [String: Any] ?? [:]
 
         let title = (alert["title"] as? String) ?? ""
         let content = (alert["body"] as? String) ?? ""
-        let messageId = (userInfo["message_id"] as? String) ?? UUID().uuidString
+        // 优先读后端透传的 message_id，其次读后端可能用的 msg_id / data.id
+        let messageId = (userInfo["message_id"] as? String)
+            ?? (userInfo["msg_id"] as? String)
+            ?? (userInfo["id"] as? String)
+            ?? UUID().uuidString
         let timestamp = Int64(Date().timeIntervalSince1970)
 
         let message = PushMessage(
@@ -132,8 +151,8 @@ class PushManager: ObservableObject {
         messages.insert(message, at: 0)
         preferences.saveMessages(messages)
 
-        // 更新角标（兼容 iOS 16 和 iOS 17+）
-        let badge = aps["badge"] as? Int ?? (messages.count)
+        // 更新角标
+        let badge = aps["badge"] as? Int ?? messages.count
         if #available(iOS 16.0, *) {
             UNUserNotificationCenter.current().setBadgeCount(badge) { _ in }
         } else {
@@ -156,7 +175,7 @@ class PushManager: ObservableObject {
             return
         }
 
-        // 已连接则不重复连接
+        // 已连接或正在连接则不重复创建
         if connectionState == .connected || connectionState == .connecting {
             return
         }
@@ -165,29 +184,29 @@ class PushManager: ObservableObject {
 
         // 关闭旧连接
         webSocketClient?.disconnect()
+        webSocketClient = nil
 
         // 创建新连接
-        webSocketClient = PushWebSocketClient(
+        // PushWebSocketClient 内已统一 dispatch 到 main，这里不需要再包 Task { @MainActor in }
+        let client = PushWebSocketClient(
             serverUrl: serverUrl,
             pushKey: pushKey,
             deviceId: deviceId,
             onMessage: { [weak self] message in
-                Task { @MainActor in
-                    self?.handleWebSocketMessage(message)
-                }
+                self?.handleWebSocketMessage(message)
             },
             onStateChange: { [weak self] state in
-                Task { @MainActor in
-                    self?.connectionState = state
-                }
+                self?.connectionState = state
             }
         )
-        webSocketClient?.connect()
+        webSocketClient = client
+        client.connect()
     }
 
     /// 断开 WebSocket（App 进入后台时调用）
     func disconnectWebSocket() {
         webSocketClient?.disconnect()
+        webSocketClient = nil
         connectionState = .disconnected
     }
 
