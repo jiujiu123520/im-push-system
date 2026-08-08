@@ -1097,7 +1097,7 @@ onMounted(() => {
   font-size: 15px;
 
   .el-icon {
-    color: #409eff;
+    color: var(--el-color-primary);
     font-size: 18px;
   }
 
@@ -1113,15 +1113,15 @@ onMounted(() => {
 .config-form {
   .form-tip {
     font-size: 12px;
-    color: #909399;
+    color: var(--el-text-color-secondary);
     margin-top: 4px;
 
     code {
-      background: #f5f7fa;
+      background: var(--el-fill-color-lighter);
       padding: 1px 6px;
       border-radius: 4px;
       font-size: 11px;
-      color: #f56c6c;
+      color: var(--el-color-danger);
     }
   }
 }
@@ -1152,7 +1152,7 @@ onMounted(() => {
 
   .form-tip {
     font-size: 12px;
-    color: #909399;
+    color: var(--el-text-color-secondary);
     margin-top: 4px;
   }
 }
@@ -1160,9 +1160,9 @@ onMounted(() => {
 .steps-panel {
   margin: 20px 0;
   padding: 16px;
-  background: #fafafa;
+  background: var(--el-fill-color-lighter);
   border-radius: 8px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
 
   :deep(.el-step__title) {
     font-weight: 600;
@@ -1172,15 +1172,15 @@ onMounted(() => {
 .step-failed-detail {
   margin-top: 8px;
   padding: 8px 12px;
-  background: #fef0f0;
+  background: rgba(245, 108, 108, 0.1);
   border-radius: 4px;
 
   .failed-item {
     font-size: 12px;
-    color: #f56c6c;
+    color: var(--el-color-danger);
 
     code {
-      background: #fff;
+      background: var(--el-bg-color);
       padding: 1px 4px;
       border-radius: 3px;
       margin-right: 4px;
@@ -1194,27 +1194,27 @@ onMounted(() => {
   .ssh-pub-key {
     margin-top: 16px;
     padding: 16px;
-    background: #f4f9f4;
+    background: rgba(103, 194, 58, 0.1);
     border-radius: 8px;
-    border: 1px solid #e1f3d8;
+    border: 1px solid var(--el-color-success-light-5);
 
     h4 {
       margin: 0 0 10px 0;
       font-size: 14px;
-      color: #67c23a;
+      color: var(--el-color-success);
     }
 
     .form-tip {
       font-size: 12px;
-      color: #909399;
+      color: var(--el-text-color-secondary);
       margin: 8px 0;
 
       code {
-        background: #fff;
+        background: var(--el-bg-color);
         padding: 1px 6px;
         border-radius: 4px;
         font-size: 11px;
-        color: #67c23a;
+        color: var(--el-color-success);
       }
     }
   }
@@ -1222,10 +1222,10 @@ onMounted(() => {
   .next-step-tip {
     margin-top: 12px;
     padding: 10px 14px;
-    background: #fdf6ec;
+    background: rgba(230, 162, 60, 0.1);
     border-radius: 6px;
     font-size: 13px;
-    color: #e6a23c;
+    color: var(--el-color-warning);
     display: flex;
     align-items: center;
     gap: 6px;
@@ -1247,7 +1247,7 @@ onMounted(() => {
     justify-content: center;
     gap: 4px;
     font-size: 12px;
-    color: #909399;
+    color: var(--el-text-color-secondary);
   }
 }
 
@@ -1271,22 +1271,22 @@ onMounted(() => {
   gap: 12px;
   padding: 12px 14px;
   border-radius: 8px;
-  background: #fafafa;
-  border: 1px solid #ebeef5;
+  background: var(--el-fill-color-lighter);
+  border: 1px solid var(--el-border-color-lighter);
 
   &.status-ok {
-    background: #f0f9eb;
-    border-color: #e1f3d8;
+    background: rgba(103, 194, 58, 0.1);
+    border-color: var(--el-color-success-light-5);
   }
 
   &.status-warning {
-    background: #fdf6ec;
-    border-color: #faecd8;
+    background: rgba(230, 162, 60, 0.1);
+    border-color: var(--el-color-warning-light-5);
   }
 
   &.status-error {
-    background: #fef0f0;
-    border-color: #fbc4c4;
+    background: rgba(245, 108, 108, 0.1);
+    border-color: var(--el-color-danger-light-5);
   }
 }
 
@@ -1295,15 +1295,15 @@ onMounted(() => {
   font-size: 20px;
 
   .status-ok & {
-    color: #67c23a;
+    color: var(--el-color-success);
   }
 
   .status-warning & {
-    color: #e6a23c;
+    color: var(--el-color-warning);
   }
 
   .status-error & {
-    color: #f56c6c;
+    color: var(--el-color-danger);
   }
 }
 
@@ -1319,7 +1319,7 @@ onMounted(() => {
 
 .check-desc {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-primary);
 }
 
 .missing-list {
@@ -1327,7 +1327,7 @@ onMounted(() => {
 
   .missing-title {
     font-size: 12px;
-    color: #f56c6c;
+    color: var(--el-color-danger);
     margin-right: 6px;
   }
 
@@ -1346,17 +1346,17 @@ onMounted(() => {
     font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
     font-size: 12px;
     padding: 2px 6px;
-    background: #f5f7fa;
+    background: var(--el-fill-color-lighter);
     border-radius: 3px;
-    color: #f56c6c;
+    color: var(--el-color-danger);
   }
 
   .status-ok {
-    color: #67c23a;
+    color: var(--el-color-success);
   }
 
   .status-missing {
-    color: #c0c4cc;
+    color: var(--el-text-color-disabled);
   }
 }
 
@@ -1375,9 +1375,9 @@ onMounted(() => {
   align-items: center;
   gap: 16px;
   padding: 16px;
-  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  background: linear-gradient(135deg, var(--color-primary-light-9) 0%, rgba(109, 92, 255, 0.12) 100%);
   border-radius: 12px;
-  border: 1px solid #bae6fd;
+  border: 1px solid var(--el-color-primary-light-5);
   margin-bottom: 16px;
 
   .user-detail {
@@ -1386,13 +1386,13 @@ onMounted(() => {
     .user-name {
       font-size: 16px;
       font-weight: 600;
-      color: #0c4a6e;
+      color: var(--el-text-color-primary);
       margin-bottom: 2px;
     }
 
     .user-login {
       font-size: 13px;
-      color: #0284c7;
+      color: var(--el-color-primary);
       margin-bottom: 6px;
     }
 
@@ -1413,7 +1413,7 @@ onMounted(() => {
 
   :deep(.el-divider__text) {
     font-weight: 600;
-    color: #606266;
+    color: var(--el-text-color-primary);
   }
 }
 
@@ -1429,14 +1429,14 @@ onMounted(() => {
 
 .create-repo-form,
 .select-repo-form {
-  background: #fafafa;
+  background: var(--el-fill-color-lighter);
   padding: 16px;
   border-radius: 8px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
 }
 
 .tip-success {
-  color: #67c23a;
+  color: var(--el-color-success);
 }
 
 .compare-detail {
@@ -1458,19 +1458,19 @@ onMounted(() => {
   }
 
   .text-success {
-    color: #67c23a;
+    color: var(--el-color-success);
     font-weight: 600;
   }
 
   .text-error {
-    color: #f56c6c;
+    color: var(--el-color-danger);
     font-weight: 600;
   }
 
   .compare-recommendation {
     margin-top: 4px;
     padding-top: 6px;
-    border-top: 1px dashed rgba(0, 0, 0, 0.1);
+    border-top: 1px dashed var(--el-border-color-lighter);
   }
 }
 </style>

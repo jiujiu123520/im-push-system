@@ -2453,17 +2453,17 @@ onBeforeUnmount(() => {
 .hbx-tpl-item {
   display: flex; align-items: flex-start; gap: 12px;
   padding: 14px 16px; border-radius: 8px;
-  border: 2px solid var(--el-border-color-lighter, #e4e7ed);
-  background: var(--el-fill-color-light, #f5f7fa);
+  border: 2px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-light);
   cursor: pointer; transition: all 0.2s ease;
   &:hover:not(.disabled) {
-    border-color: var(--el-color-primary, #409eff);
-    background: rgba(64, 158, 255, 0.04);
+    border-color: var(--el-color-primary);
+    background: var(--el-fill-color);
   }
   &.active {
-    border-color: var(--el-color-primary, #409eff);
-    background: rgba(64, 158, 255, 0.06);
-    box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.1);
+    border-color: var(--el-color-primary);
+    background: var(--color-primary-light-9);
+    box-shadow: 0 0 0 3px var(--color-primary-light-9);
   }
   &.disabled {
     opacity: 0.55; cursor: not-allowed;
@@ -2474,24 +2474,26 @@ onBeforeUnmount(() => {
   .radio-outer {
     display: inline-flex; align-items: center; justify-content: center;
     width: 18px; height: 18px; border-radius: 50%;
-    border: 2px solid #d1d5db; background: #fff; transition: border-color 0.2s;
+    border: 2px solid var(--el-border-color);
+    background: var(--el-bg-color);
+    transition: border-color 0.2s;
   }
   .radio-inner {
     width: 10px; height: 10px; border-radius: 50%;
-    background: var(--el-color-primary, #409eff);
+    background: var(--el-color-primary);
   }
   .hbx-tpl-item.active & .radio-outer {
-    border-color: var(--el-color-primary, #409eff);
+    border-color: var(--el-color-primary);
   }
 }
 .hbx-tpl-info {
   flex: 1; min-width: 0;
   .hbx-tpl-name {
-    font-weight: 600; font-size: 14px; color: var(--el-text-color-primary, #303133);
+    font-weight: 600; font-size: 14px; color: var(--el-text-color-primary);
     display: flex; align-items: center; gap: 6px;
   }
   .hbx-tpl-desc {
-    margin-top: 4px; font-size: 12px; color: var(--el-text-color-secondary, #909399);
+    margin-top: 4px; font-size: 12px; color: var(--el-text-color-secondary);
     line-height: 1.5;
   }
 }

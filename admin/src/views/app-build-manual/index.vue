@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="manual-build-page">
     <!-- 顶部 Hero 区 -->
     <div class="hero-section">
@@ -586,7 +586,7 @@ onUnmounted(() => {
     code {
       font-family: 'SF Mono', Monaco, Consolas, monospace;
       padding: 2px 6px;
-      background: var(--el-fill-color-dark, #f0f0f0);
+      background: var(--el-fill-color-lighter);
       border-radius: 3px;
       font-size: 12px;
     }
@@ -656,9 +656,9 @@ onUnmounted(() => {
   align-items: flex-start;
   gap: 6px;
   padding: 10px 12px;
-  background: var(--el-fill-color-lighter, #fafafa);
+  background: var(--el-fill-color-lighter);
   border-radius: 6px;
-  border-left: 3px solid var(--el-color-info, #909399);
+  border-left: 3px solid var(--el-color-info);
   font-size: 12px;
   color: var(--el-text-color-secondary);
   line-height: 1.6;
@@ -684,12 +684,12 @@ onUnmounted(() => {
   align-items: flex-start;
   gap: 12px;
   padding: 12px;
-  background: var(--el-fill-color-lighter, #fafafa);
+  background: var(--el-fill-color-lighter);
   border-radius: 8px;
   transition: all 0.2s ease;
 
   &:hover {
-    background: var(--el-fill-color, #f5f5f5);
+    background: var(--el-fill-color);
     transform: translateX(2px);
   }
 }
@@ -702,28 +702,28 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: var(--el-bg-color, #fff);
-  border: 1px solid var(--el-border-color, #e0e0e0);
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color);
 
   .el-icon {
     font-size: 16px;
   }
 
   .status-success {
-    color: var(--el-color-success, #67c23a);
+    color: var(--el-color-success);
   }
 
   .status-failed {
-    color: var(--el-color-danger, #f56c6c);
+    color: var(--el-color-danger);
   }
 
   .status-running {
-    color: var(--el-color-warning, #e6a23c);
+    color: var(--el-color-warning);
     animation: spin 1.5s linear infinite;
   }
 
   .status-pending {
-    color: var(--el-color-info, #909399);
+    color: var(--el-color-info);
   }
 }
 
@@ -772,7 +772,7 @@ onUnmounted(() => {
         font-family: 'SF Mono', Monaco, Consolas, monospace;
         font-size: 11px;
         padding: 1px 4px;
-        background: var(--el-fill-color-dark, #f0f0f0);
+        background: var(--el-fill-color-lighter);
         border-radius: 3px;
         color: var(--el-color-danger);
       }
