@@ -35,9 +35,13 @@ export interface RegisterParams {
   password: string
   phone?: string
   email?: string
-  code_type?: 'sms' | 'email' | ''
-  code?: string
-  captcha?: string
+  // 验证码三字段（与后端 AuthController::register 读取的字段对齐）：
+  //   code_type  = 'captcha'  → 图形验证码：code_target=token(AES加密), code_input=图形码
+  //   code_type  = 'sms'|'email' → 短信/邮箱验证码：code_target=手机号/邮箱, code_input=收到的验证码
+  //   code_type  = '' → 无额外验证码
+  code_type?: 'captcha' | 'sms' | 'email' | ''
+  code_target?: string
+  code_input?: string
 }
 
 export interface SendCodeParams {
