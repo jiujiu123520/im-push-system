@@ -138,26 +138,53 @@ class SslService
 
         if (!is_dir(self::ACME_WEBROOT)) {
             shell_exec(sprintf('sudo mkdir -p %s 2>&1', escapeshellarg(self::ACME_WEBROOT)));
-            shell_exec(sprintf('sudo chown www-data:www-data %s 2>&1', escapeshellarg(self::ACME_WEBROOT)));
         }
+        shell_exec(sprintf('sudo chown -R www-data:www-data %s 2>&1', escapeshellarg(self::ACME_WEBROOT)));
 
         $certFile = self::SSL_DIR . '/' . $domain . '.crt';
         $keyFile  = self::SSL_DIR . '/' . $domain . '.key';
 
         shell_exec(sprintf('sudo mkdir -p %s 2>&1', escapeshellarg(self::SSL_DIR)));
 
+        // 申请前先彻底清理 acme.sh 残留目录（防止之前删除域名时清理不完整）
+        $acmeDirs = [
+            '/root/.acme.sh/' . $domain,
+            '/root/.acme.sh/' . $domain . '_ecc',
+            '/home/ubuntu/.acme.sh/' . $domain,
+            '/home/ubuntu/.acme.sh/' . $domain . '_ecc',
+            '/var/www/.acme.sh/' . $domain,
+            '/var/www/.acme.sh/' . $domain . '_ecc',
+        ];
+        foreach ($acmeDirs as $dir) {
+            shell_exec(sprintf('sudo rm -rf %s 2>&1', escapeshellarg($dir)));
+        }
+
+        // 清理旧证书文件
+        foreach ([$certFile, $keyFile, self::SSL_DIR . '/' . $domain . '.cer'] as $f) {
+            shell_exec(sprintf('sudo rm -rf %s 2>&1', escapeshellarg($f)));
+        }
+
         $cmd = sprintf(
-            'sudo %s --issue -d %s -w %s --keylength ec-256 --server letsencrypt 2>&1',
+            'sudo %s --issue -d %s -w %s --keylength ec-256 --server letsencrypt --force 2>&1',
             escapeshellarg(self::getAcmePath()),
             escapeshellarg($domain),
             escapeshellarg(self::ACME_WEBROOT)
         );
         $output = shell_exec($cmd);
 
-        if (strpos($output, 'Cert success') === false
-            && strpos($output, 'Domains change') === false
-            && strpos($output, 'Skipping') === false
-            && strpos($output, 'Skip') === false) {
+        // acme.sh 新旧版本成功输出关键字不同，都要匹配：
+        //   新版：Your cert is in: /xxx/domain_ecc/domain.cer
+        //   老版：Cert success
+        //   跳过：Skip renew / Skipping / Already issued
+        $issueSuccess = $output !== null && (
+            strpos($output, 'Your cert is in') !== false
+            || strpos($output, 'Cert success') !== false
+            || strpos($output, 'Skip') !== false
+            || strpos($output, 'already issued') !== false
+            || strpos($output, 'Domains change') !== false
+        );
+
+        if (!$issueSuccess) {
             return ['success' => false, 'message' => '证书申请失败', 'output' => $output];
         }
 
@@ -229,7 +256,17 @@ class SslService
 
         $expireAt = self::getCertExpire($certFile);
 
-        if (strpos($output, 'Renew success') !== false || strpos($output, 'Skip') !== false || $expireAt !== null) {
+        $renewSuccess = $output !== null && (
+            strpos($output, 'Your cert is in') !== false
+            || strpos($output, 'Renew success') !== false
+            || strpos($output, 'Already up to date') !== false
+        );
+        // 兜底：证书文件能读到过期时间也算成功
+        if (!$renewSuccess && $expireAt !== null) {
+            $renewSuccess = true;
+        }
+
+        if ($renewSuccess) {
             return [
                 'success'   => true,
                 'message'   => '证书续费成功',
@@ -347,10 +384,37 @@ class SslService
 
     /**
      * 生成 Nginx 配置（多 server 块，每个域名独立）
+     *
+     * 清理所有位置旧配置，确保不会出现 upstream 重复定义导致
+     * "listen directive is not allowed here" 错误。
      */
     public static function generateNginxConfig(array $domains): array
     {
         $domains = is_array($domains) ? $domains : [];
+
+        // 先清理所有位置的旧配置（防止旧 push.conf 在 conf.d 生效导致冲突）
+        $legacyFiles = [
+            // Debian/Ubuntu 风格
+            '/etc/nginx/sites-available/push.conf',
+            '/etc/nginx/sites-enabled/push.conf',
+            '/etc/nginx/sites-available/push-system.conf',
+            '/etc/nginx/sites-enabled/default',
+            // RHEL/CentOS 风格
+            '/etc/nginx/conf.d/push.conf',
+            '/etc/nginx/conf.d/push-system.conf',
+            // Alpine 风格
+            '/etc/nginx/http.d/push.conf',
+            '/etc/nginx/http.d/push-system.conf',
+            // openSUSE 风格
+            '/etc/nginx/vhosts.d/push.conf',
+            '/etc/nginx/vhosts.d/push-system.conf',
+            // 兜底
+            '/etc/nginx/push.conf',
+            '/etc/nginx/push-system.conf',
+        ];
+        foreach ($legacyFiles as $legacy) {
+            shell_exec(sprintf('sudo rm -f %s 2>&1', escapeshellarg($legacy)));
+        }
 
         $config = self::buildNginxConfig($domains);
         $confPath = self::NGINX_AVAILABLE . '/push-system.conf';
@@ -362,18 +426,6 @@ class SslService
 
         $link = self::NGINX_ENABLED . '/push-system.conf';
         shell_exec(sprintf('sudo ln -sf %s %s 2>&1', escapeshellarg($confPath), escapeshellarg($link)));
-
-        // 禁用旧的 push.conf，避免与 push-system.conf 冲突（upstream 重复定义）
-        $oldConfEnabled = self::NGINX_ENABLED . '/push.conf';
-        if (file_exists($oldConfEnabled) || is_link($oldConfEnabled)) {
-            shell_exec(sprintf('sudo rm -f %s 2>&1', escapeshellarg($oldConfEnabled)));
-        }
-
-        // 移除系统默认站点，避免 default_server 冲突导致 IP 无法访问
-        $defaultSite = self::NGINX_ENABLED . '/default';
-        if (file_exists($defaultSite) || is_link($defaultSite)) {
-            shell_exec(sprintf('sudo rm -f %s 2>&1', escapeshellarg($defaultSite)));
-        }
 
         return [
             'success'   => true,
@@ -764,7 +816,7 @@ class SslService
     }
 
     /**
-     * 删除域名证书
+     * 删除域名证书（彻底清理 acme.sh 残留 + Nginx 证书文件）
      */
     public static function removeCertificate(string $domain): array
     {
@@ -776,18 +828,32 @@ class SslService
         $certFile = self::SSL_DIR . '/' . $domain . '.crt';
         $keyFile  = self::SSL_DIR . '/' . $domain . '.key';
 
+        // 1. 调用 acme.sh --remove（正常卸载，清除 cronjob 记录）
         if (self::isAcmeInstalled()) {
             shell_exec(sprintf('sudo %s --remove -d %s --ecc 2>&1', escapeshellarg(self::getAcmePath()), escapeshellarg($domain)));
+            shell_exec(sprintf('sudo %s --remove -d %s 2>&1', escapeshellarg(self::getAcmePath()), escapeshellarg($domain)));
         }
 
-        if (file_exists($certFile)) {
-            shell_exec(sprintf('sudo rm -f %s 2>&1', escapeshellarg($certFile)));
-        }
-        if (file_exists($keyFile)) {
-            shell_exec(sprintf('sudo rm -f %s 2>&1', escapeshellarg($keyFile)));
+        // 2. 强制删除 acme.sh 残留目录（不管 --remove 是否成功执行）
+        //    acme.sh 可能使用 _ecc 后缀（ECC 证书）或无后缀（RSA 证书）
+        $acmeDirs = [
+            '/root/.acme.sh/' . $domain,
+            '/root/.acme.sh/' . $domain . '_ecc',
+            '/home/ubuntu/.acme.sh/' . $domain,
+            '/home/ubuntu/.acme.sh/' . $domain . '_ecc',
+            '/var/www/.acme.sh/' . $domain,
+            '/var/www/.acme.sh/' . $domain . '_ecc',
+        ];
+        foreach ($acmeDirs as $dir) {
+            shell_exec(sprintf('sudo rm -rf %s 2>&1', escapeshellarg($dir)));
         }
 
-        return ['success' => true, 'message' => '证书已删除'];
+        // 3. 删除 /etc/nginx/ssl 下的证书文件
+        foreach ([$certFile, $keyFile, self::SSL_DIR . '/' . $domain . '.cer', self::SSL_DIR . '/' . $domain . '_ecc'] as $f) {
+            shell_exec(sprintf('sudo rm -rf %s 2>&1', escapeshellarg($f)));
+        }
+
+        return ['success' => true, 'message' => '证书及残留已彻底清理'];
     }
 
     private static function checkSudoers(): bool

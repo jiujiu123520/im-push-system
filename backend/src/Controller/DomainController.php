@@ -309,16 +309,15 @@ class DomainController
             return false;
         }
 
-        $row = Database::fetch('SELECT id, domain, is_primary, ssl_enabled FROM domains WHERE id = ? LIMIT 1', [$id]);
+        $row = Database::fetch('SELECT id, domain, is_primary FROM domains WHERE id = ? LIMIT 1', [$id]);
         if ($row === false) {
             Response::fail($context['response'], '域名不存在', Response::CODE_NOT_FOUND, 404);
             return false;
         }
 
-        // 删除域名关联的 SSL 证书
-        if ((int)$row['ssl_enabled'] === 1) {
-            SslService::removeCertificate($row['domain']);
-        }
+        // 无论数据库记录的 ssl_enabled 状态如何，都彻底清理 SSL 残留
+        // （防止之前申请过但后来禁用了 ssl_enabled=0，残留没被清理）
+        SslService::removeCertificate($row['domain']);
 
         Database::execute('DELETE FROM domains WHERE id = ?', [$id]);
 
