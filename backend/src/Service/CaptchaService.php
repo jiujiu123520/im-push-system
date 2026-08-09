@@ -202,12 +202,18 @@ class CaptchaService
         $code = self::generateNumericCode(self::CODE_LEN);
 
         // AES 加密后存 Redis（key: captcha:sms:{phone}）
-        $plain = json_encode([
-            'code'   => $code,
-            'expire' => time() + self::CODE_TTL,
-        ]);
-        $encrypted = Aes::encryptString($plain);
-        Redis::setex(self::KEY_SMS . $phone, self::CODE_TTL, $encrypted);
+        // Redis 或 AES 不可用时优雅降级（如缓存写入失败则不发送，避免用户拿到无法校验的验证码）
+        try {
+            $plain = json_encode([
+                'code'   => $code,
+                'expire' => time() + self::CODE_TTL,
+            ]);
+            $encrypted = Aes::encryptString($plain);
+            Redis::setex(self::KEY_SMS . $phone, self::CODE_TTL, $encrypted);
+        } catch (\Throwable $e) {
+            self::log('sms', "[SMS] Redis/AES 不可用，无法缓存验证码：phone={$phone}, error=" . $e->getMessage());
+            return ['success' => false, 'message' => '验证码服务暂不可用，请稍后重试'];
+        }
 
         // 读取短信 API 配置：优先后台管理配置，回退到 .env
         $settings = self::readCaptchaSettings();
@@ -242,12 +248,17 @@ class CaptchaService
         $code = self::generateNumericCode(self::CODE_LEN);
 
         // AES 加密后存 Redis（key: captcha:email:{email}）
-        $plain = json_encode([
-            'code'   => $code,
-            'expire' => time() + self::CODE_TTL,
-        ]);
-        $encrypted = Aes::encryptString($plain);
-        Redis::setex(self::KEY_EMAIL . $email, self::CODE_TTL, $encrypted);
+        try {
+            $plain = json_encode([
+                'code'   => $code,
+                'expire' => time() + self::CODE_TTL,
+            ]);
+            $encrypted = Aes::encryptString($plain);
+            Redis::setex(self::KEY_EMAIL . $email, self::CODE_TTL, $encrypted);
+        } catch (\Throwable $e) {
+            self::log('email', "[EMAIL] Redis/AES 不可用，无法缓存验证码：email={$email}, error=" . $e->getMessage());
+            return ['success' => false, 'message' => '验证码服务暂不可用，请稍后重试'];
+        }
 
         // 读取邮件 SMTP 配置：优先后台管理配置，回退到 .env
         $settings = self::readCaptchaSettings();

@@ -79,13 +79,19 @@ async function fetchCaptchaWithRetry(): Promise<void> {
   for (let attempt = 1; attempt <= CAPTCHA_MAX_RETRY; attempt++) {
     try {
       const res = await getCaptchaApi({ timeout: CAPTCHA_TIMEOUT })
-      // 登录验证码关闭时：清空 token+image，隐藏验证码输入框
-      captchaEnabled.value = res.data?.loginEnabled !== false && res.data?.enabled !== false
+      const enabled = res.data?.enabled !== false
+      const loginEnabled = res.data?.loginEnabled !== false
+      captchaEnabled.value = enabled && loginEnabled
       if (!captchaEnabled.value) {
         captchaToken.value = ''
         captchaImage.value = ''
         form.captcha_token = ''
         form.captcha_input = ''
+        if (!enabled) {
+          console.info('[captcha] 后端验证码总开关已关闭，或后端生成验证码失败（详见后端 runtime/logs/captcha.log）')
+        } else if (!loginEnabled) {
+          console.info('[captcha] 登录验证码开关已关闭（注册可能仍需要）')
+        }
         return
       }
       const image = (res.data?.image as string) || ''
@@ -105,11 +111,10 @@ async function fetchCaptchaWithRetry(): Promise<void> {
       }
     }
   }
-  // 全部重试失败：不阻塞账号密码输入，仅提示；用户可点图片区域手动刷新
   captchaImage.value = ''
   captchaToken.value = ''
   form.captcha_token = ''
-  console.warn('[captcha] 验证码加载失败，点击图片区域可手动刷新：', lastErr)
+  console.warn('[captcha] 验证码加载失败（尝试 ' + CAPTCHA_MAX_RETRY + ' 次），点击图片区域可手动刷新：', lastErr)
 }
 async function fetchCaptcha() {
   captchaLoading.value = true

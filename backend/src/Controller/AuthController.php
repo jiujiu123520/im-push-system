@@ -65,14 +65,36 @@ class AuthController
                 'emailEnabled' => UserService::isEmailCaptchaEnabled(),
             ];
         } catch (\Throwable $e) {
-            Response::fail(
-                $context['response'],
-                '图形验证码生成失败：' . $e->getMessage(),
-                Response::CODE_INTERNAL,
-                500
-            );
-            return false;
+            // 验证码生成失败（Redis/AES/GD 任一依赖不可用）：记录详细日志并返回 enabled=false，
+            // 让前端隐藏验证码而不是弹"服务器内部错误"阻塞用户登录。
+            self::logCaptchaError($e);
+            return [
+                'token'        => '',
+                'image'        => '',
+                'enabled'      => false,
+                'loginEnabled' => false,
+                'smsEnabled'   => UserService::isSmsCaptchaEnabled(),
+                'emailEnabled' => UserService::isEmailCaptchaEnabled(),
+            ];
         }
+    }
+
+    private static function logCaptchaError(\Throwable $e): void
+    {
+        $dir = dirname(__DIR__, 2) . '/runtime/logs';
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        $line = sprintf(
+            "[%s] [captcha] ERROR generating captcha: %s in %s:%d\n%s\n",
+            date('Y-m-d H:i:s'),
+            $e->getMessage(),
+            $e->getFile(),
+            $e->getLine(),
+            $e->getTraceAsString()
+        );
+        @file_put_contents($dir . '/captcha.log', $line, FILE_APPEND);
+        @error_log('[captcha] ' . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine());
     }
 
     /**
