@@ -113,50 +113,72 @@ done
 echo "[1/6] 依赖检查完成"
 
 echo "[2/6] 安装 acme.sh..."
+ACME_EMAIL="${ACME_EMAIL:-admin@push-system.local}"
+ACME_INSTALL_LOG="/tmp/acme_install_$$.log"
+
 if [ -f "${ACME_SCRIPT}" ]; then
     echo "  acme.sh 已存在，执行升级..."
-    "${ACME_SCRIPT}" --upgrade 2>/dev/null || true
+    "${ACME_SCRIPT}" --upgrade >"${ACME_INSTALL_LOG}" 2>&1 || true
 else
-    ACME_EMAIL="admin@push-system.local"
     ACME_INSTALLED=false
 
-    echo "  尝试源1: gh.jasonzeng.dev 代理..."
-    if curl -fsSL --connect-timeout 30 --max-time 120 "https://gh.jasonzeng.dev/https://raw.githubusercontent.com/acmesh-official/get.acme.sh/master/get.acme.sh" | sh -s "email=${ACME_EMAIL}" 2>/dev/null; then
-        ACME_INSTALLED=true
-    fi
-
-    if [ "$ACME_INSTALLED" != "true" ]; then
-        echo "  尝试源2: get.acme.sh 官方源..."
-        if curl -fsSL --connect-timeout 30 --max-time 120 "https://get.acme.sh" | sh -s "email=${ACME_EMAIL}" 2>/dev/null; then
-            ACME_INSTALLED=true
+    _try_install() {
+        local label="$1"
+        local url="$2"
+        echo "  尝试: ${label}..."
+        if curl -fsSL --connect-timeout 30 --max-time 120 "$url" -o /tmp/get.acme.sh 2>"${ACME_INSTALL_LOG}"; then
+            if bash /tmp/get.acme.sh "email=${ACME_EMAIL}" >>"${ACME_INSTALL_LOG}" 2>&1; then
+                ACME_INSTALLED=true
+                echo "  ✓ ${label} 安装成功"
+                return 0
+            fi
         fi
-    fi
+        echo "  ✗ ${label} 失败"
+        return 1
+    }
 
-    if [ "$ACME_INSTALLED" != "true" ]; then
-        echo "  尝试源3: ghproxy.com 代理..."
-        if curl -fsSL --connect-timeout 30 --max-time 120 "https://ghproxy.com/https://raw.githubusercontent.com/acmesh-official/get.acme.sh/master/get.acme.sh" | sh -s "email=${ACME_EMAIL}" 2>/dev/null; then
-            ACME_INSTALLED=true
+    _try_install "gh.jasonzeng.dev 代理" \
+        "https://gh.jasonzeng.dev/https://raw.githubusercontent.com/acmesh-official/get.acme.sh/master/get.acme.sh" || \
+    _try_install "get.acme.sh 官方源" \
+        "https://get.acme.sh" || \
+    _try_install "ghproxy.com 代理" \
+        "https://ghproxy.com/https://raw.githubusercontent.com/acmesh-official/get.acme.sh/master/get.acme.sh" || \
+    _try_install "gitee 镜像" \
+        "https://gitee.com/neilpang/acme.sh/raw/master/get.acme.sh" || true
+
+    rm -f /tmp/get.acme.sh
+
+    if [ "$ACME_INSTALLED" != "true" ] || [ ! -f "${ACME_SCRIPT}" ]; then
+        echo ""
+        echo "=========================================="
+        echo " [ERROR] acme.sh 安装失败!"
+        echo "=========================================="
+        echo " 所有下载源均不可用（网络超时或被墙）"
+        echo ""
+        echo " 可手动执行以下任一命令重试："
+        echo ""
+        echo "  # 方式 1: 国内代理（推荐）"
+        echo "  curl -fsSL https://gh.jasonzeng.dev/https://raw.githubusercontent.com/acmesh-official/get.acme.sh/master/get.acme.sh | sh -s email=${ACME_EMAIL}"
+        echo ""
+        echo "  # 方式 2: 官方源（需能访问 get.acme.sh）"
+        echo "  curl -fsSL https://get.acme.sh | sh -s email=${ACME_EMAIL}"
+        echo ""
+        echo "  # 方式 3: 手动下载安装"
+        echo "  git clone --depth 1 https://github.com/acmesh-official/acme.sh.git"
+        echo "  cd acme.sh && ./acme.sh --install -m ${ACME_EMAIL}"
+        echo ""
+        if [ -s "${ACME_INSTALL_LOG}" ]; then
+            echo "--- 错误日志（最后 20 行）---"
+            tail -20 "${ACME_INSTALL_LOG}"
         fi
-    fi
-
-    if [ "$ACME_INSTALLED" != "true" ]; then
-        echo "  尝试源4: gitee 镜像..."
-        if curl -fsSL --connect-timeout 30 --max-time 120 "https://gitee.com/neilpang/acme.sh/raw/master/get.acme.sh" | sh -s "email=${ACME_EMAIL}" 2>/dev/null; then
-            ACME_INSTALLED=true
-        fi
-    fi
-
-    if [ "$ACME_INSTALLED" != "true" ]; then
-        echo "  [WARN] acme.sh 在线安装失败（网络问题），可稍后手动执行："
-        echo "         curl -fsSL https://gh.jasonzeng.dev/https://raw.githubusercontent.com/acmesh-official/get.acme.sh/master/get.acme.sh | sh -s email=your@email.com"
-        echo "         SSL 证书自动申请功能暂不可用，但不影响其他功能。"
+        rm -f "${ACME_INSTALL_LOG}"
+        return 1
     fi
 fi
-echo "[2/6] acme.sh 安装完成"
 
-if [ -f "${ACME_SCRIPT}" ]; then
-    "${ACME_SCRIPT}" --set-default-ca --server letsencrypt 2>/dev/null || true
-fi
+rm -f "${ACME_INSTALL_LOG}"
+echo "[2/6] acme.sh 安装完成 ✓"
+"${ACME_SCRIPT}" --set-default-ca --server letsencrypt 2>/dev/null || true
 
 echo "[3/6] 创建 SSL 证书目录..."
 mkdir -p "${SSL_DIR}"

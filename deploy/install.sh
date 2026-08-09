@@ -2278,22 +2278,28 @@ done
 # ============================================================
 # 步骤 8: 安装 SSL 证书自动申请环境（可选）
 # ============================================================
+ACME_INSTALL_OK=false
 if [[ "$INSTALL_SSL" == "1" ]]; then
     step "8" "安装 SSL 证书自动申请环境"
     ACME_SETUP="${PROJECT_DIR}/backend/deploy/ssl/setup-acme.sh"
     if [ -f "${ACME_SETUP}" ]; then
-        bash "${ACME_SETUP}" || warn "acme.sh 安装部分失败，可稍后手动执行"
+        if bash "${ACME_SETUP}"; then
+            ACME_INSTALL_OK=true
+
+            # 安装自动续费 cron
+            RENEW_SCRIPT="${PROJECT_DIR}/backend/deploy/ssl/auto-renew-cron.sh"
+            if [ -f "${RENEW_SCRIPT}" ]; then
+                chmod +x "${RENEW_SCRIPT}"
+                echo "0 3 * * * root ${RENEW_SCRIPT}" > /etc/cron.d/push-ssl-renew
+                chmod 644 /etc/cron.d/push-ssl-renew
+                info "SSL 自动续费 cron 已安装（每天凌晨 3 点执行）"
+            fi
+        else
+            warn "acme.sh 安装失败（见上方详细错误信息）"
+            warn "可稍后在服务器上手动执行: sudo bash ${ACME_SETUP}"
+        fi
     else
         warn "SSL 安装脚本不存在: ${ACME_SETUP}"
-    fi
-
-    # 安装自动续费 cron
-    RENEW_SCRIPT="${PROJECT_DIR}/backend/deploy/ssl/auto-renew-cron.sh"
-    if [ -f "${RENEW_SCRIPT}" ]; then
-        chmod +x "${RENEW_SCRIPT}"
-        echo "0 3 * * * root ${RENEW_SCRIPT}" > /etc/cron.d/push-ssl-renew
-        chmod 644 /etc/cron.d/push-ssl-renew
-        info "SSL 自动续费 cron 已安装（每天凌晨 3 点执行）"
     fi
 fi
 
@@ -2353,6 +2359,15 @@ echo ""
 echo "项目目录:    ${PROJECT_DIR}"
 echo "服务器 IP:   ${SERVER_IP}"
 echo "数据库:      ${DB_NAME}（用户: ${DB_USER}）"
+if [[ "$INSTALL_SSL" == "1" ]]; then
+    if $ACME_INSTALL_OK; then
+        echo -e "SSL 环境:    ${COLOR_GREEN}已安装${COLOR_RESET}（acme.sh + 自动续期 cron）"
+    else
+        echo -e "SSL 环境:    ${COLOR_RED}未安装${COLOR_RESET}（网络问题，可稍后手动执行 sudo bash ${ACME_SETUP}）"
+    fi
+else
+    echo "SSL 环境:    跳过（INSTALL_SSL=0）"
+fi
 echo ""
 echo -e "${COLOR_CYAN}┌──────────────────────────────────────────────────────────────┐${COLOR_RESET}"
 echo -e "${COLOR_CYAN}│  访问地址                                                    │${COLOR_RESET}"
