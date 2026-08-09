@@ -601,36 +601,101 @@ class AdminController
             return ['device' => $device, 'browser' => $browser, 'os' => $os];
         }
 
-        // 设备类型
+        // ===== 设备类型 =====
         if (preg_match('/iPad/i', $ua)) {
+            $device = 'Tablet';
+        } elseif (preg_match('/Tablet|Pad/i', $ua) && preg_match('/Android/i', $ua)) {
             $device = 'Tablet';
         } elseif (preg_match('/Mobile|Android|iPhone/i', $ua)) {
             $device = 'Mobile';
         }
 
-        // 浏览器
-        if (preg_match('/Edge\/(\d+)/', $ua, $m)) {
-            $browser = 'Edge ' . $m[1];
-        } elseif (preg_match('/Chrome\/(\d+)/', $ua, $m)) {
+        // ===== 浏览器（按优先级：Edge > Chrome > Firefox > Safari > Opera > 微信 > QQ > 华为）=====
+        if (preg_match('/Edg(e|A|iOS)?\/(\d+)/i', $ua, $m)) {
+            $browser = 'Edge ' . $m[2];
+        } elseif (preg_match('/QQBrowser\/(\d+)/', $ua, $m)) {
+            $browser = 'QQ浏览器 ' . $m[1];
+        } elseif (preg_match('/MicroMessenger\/(\d+)/', $ua, $m)) {
+            $browser = '微信内置 ' . $m[1];
+        } elseif (preg_match('/HuaweiBrowser\/(\d+)/', $ua, $m)) {
+            $browser = '华为浏览器 ' . $m[1];
+        } elseif (preg_match('/Vivaldi\/(\d+)/', $ua, $m)) {
+            $browser = 'Vivaldi ' . $m[1];
+        } elseif (preg_match('/OPR\/(\d+)|Opera\/(\d+)/', $ua, $m)) {
+            $browser = 'Opera ' . ($m[1] ?? $m[2]);
+        } elseif (preg_match('/Chrome\/(\d+)/', $ua, $m) && !preg_match('/Edg/i', $ua)) {
             $browser = 'Chrome ' . $m[1];
         } elseif (preg_match('/Firefox\/(\d+)/', $ua, $m)) {
             $browser = 'Firefox ' . $m[1];
-        } elseif (preg_match('/Safari\/(\d+)/', $ua, $m) && !preg_match('/Chrome/', $ua)) {
+        } elseif (preg_match('/FxiOS\/(\d+)/', $ua, $m)) {
+            $browser = 'Firefox ' . $m[1];
+        } elseif (preg_match('/OSVersion\/(\d+)/', $ua, $m)) {
+            $browser = 'WebView';
+        } elseif (preg_match('/Version\/(\d+[\d.]*)\s+Safari/', $ua, $m)) {
+            $browser = 'Safari ' . $m[1];
+        } elseif (preg_match('/Safari\/(\d+)/', $ua, $m) && !preg_match('/Chrome|Edg|OPR|Vivaldi/', $ua)) {
             $browser = 'Safari';
         }
 
-        // 操作系统
-        if (preg_match('/Windows NT 10/', $ua)) {
+        // ===== 操作系统 =====
+        // 鸿蒙 / HarmonyOS
+        if (preg_match('/HarmonyOS\s*([\d.]+)|OpenHarmony\s*([\d.]+)/i', $ua, $m)) {
+            $os = 'HarmonyOS ' . ($m[1] ?: $m[2]);
+        }
+        // iOS
+        elseif (preg_match('/iPhone OS ([\d_]+)|iOS ([\d_]+)/i', $ua, $m)) {
+            $ver = $m[1] ?: $m[2];
+            $os = 'iOS ' . str_replace('_', '.', $ver);
+        }
+        // iPadOS
+        elseif (preg_match('/iPad.*OS ([\d_]+)/i', $ua, $m)) {
+            $os = 'iPadOS ' . str_replace('_', '.', $m[1]);
+        }
+        // Android
+        elseif (preg_match('/Android ([\d.]+)/', $ua, $m)) {
+            $os = 'Android ' . $m[1];
+        }
+        // macOS（含版本识别）
+        elseif (preg_match('/Mac OS X ([\d_]+)/', $ua, $m)) {
+            $ver = str_replace('_', '.', $m[1]);
+            $major = (int)explode('.', $ver)[0];
+            // macOS 版本代号映射
+            $codenames = [
+                15 => 'Sequoia',
+                14 => 'Sonoma',
+                13 => 'Ventura',
+                12 => 'Monterey',
+                11 => 'Big Sur',
+                10 => 'Catalina/Mojave',
+            ];
+            $codename = $codenames[$major] ?? '';
+            $os = 'macOS ' . $ver . ($codename ? ' (' . $codename . ')' : '');
+        }
+        // Windows（含 Win10/11 区分）
+        elseif (preg_match('/Windows NT 10\.0.*Build (\d+)/', $ua, $m)) {
+            $build = (int)$m[1];
+            $os = $build >= 22000 ? 'Windows 11 (Build ' . $m[1] . ')' : 'Windows 10 (Build ' . $m[1] . ')';
+        }
+        elseif (preg_match('/Windows NT 10\.0/', $ua)) {
             $os = 'Windows 10/11';
-        } elseif (preg_match('/Windows/', $ua)) {
+        }
+        elseif (preg_match('/Windows NT 6\.3/', $ua)) {
+            $os = 'Windows 8.1';
+        }
+        elseif (preg_match('/Windows NT 6\.2/', $ua)) {
+            $os = 'Windows 8';
+        }
+        elseif (preg_match('/Windows NT 6\.1/', $ua)) {
+            $os = 'Windows 7';
+        }
+        elseif (preg_match('/Windows/', $ua)) {
             $os = 'Windows';
-        } elseif (preg_match('/Mac OS X/', $ua)) {
-            $os = 'macOS';
-        } elseif (preg_match('/Android/', $ua)) {
-            $os = 'Android';
-        } elseif (preg_match('/iPhone|iOS/', $ua)) {
-            $os = 'iOS';
-        } elseif (preg_match('/Linux/', $ua)) {
+        }
+        // Linux（尝试识别发行版）
+        elseif (preg_match('/Linux.*X11/', $ua)) {
+            $os = 'Linux (Desktop)';
+        }
+        elseif (preg_match('/Linux/', $ua)) {
             $os = 'Linux';
         }
 
