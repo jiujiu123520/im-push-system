@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 # ============================================================
 # 即时消息推送系统 - 一键安装脚本（支持所有主流 Linux 发行版）
 #
@@ -1682,7 +1682,7 @@ if ! systemctl is-active --quiet nginx; then
         fi
     done
 
-    # 启动前先检测配置语法（此时可能还没有 push.conf，但默认配置应能通过）
+    # 启动前先检测配置语法（此时可能还没有 push-system.conf，但默认配置应能通过）
     if ! nginx -t 2>&1; then
         warn "Nginx 配置检测未通过（可能是残留配置问题），尝试启动..."
     fi
@@ -2102,7 +2102,7 @@ s|/www/push-system|${PROJECT_DIR}|g" \
 fi
 
 # 复制 Nginx 配置
-NGINX_SRC="${PROJECT_DIR}/deploy/nginx/push.conf"
+NGINX_SRC="${PROJECT_DIR}/deploy/nginx/push-system.conf"
 NGINX_INSTALLED_PATH=""
 if [[ -f "${NGINX_SRC}" ]]; then
     # 临时文件：替换硬编码路径为实际 PROJECT_DIR
@@ -2110,24 +2110,24 @@ if [[ -f "${NGINX_SRC}" ]]; then
     sed "s|/www/push-system|${PROJECT_DIR}|g" "${NGINX_SRC}" > "${NGINX_TMP}"
     # 根据发行版选择 Nginx 配置目录
     if [[ -d "/etc/nginx/sites-available" ]]; then
-        cp "${NGINX_TMP}" /etc/nginx/sites-available/push.conf
-        ln -sf /etc/nginx/sites-available/push.conf /etc/nginx/sites-enabled/push.conf
+        cp "${NGINX_TMP}" /etc/nginx/sites-available/push-system.conf
+        ln -sf /etc/nginx/sites-available/push-system.conf /etc/nginx/sites-enabled/push-system.conf
         rm -f /etc/nginx/sites-enabled/default
-        NGINX_INSTALLED_PATH="/etc/nginx/sites-available/push.conf"
+        NGINX_INSTALLED_PATH="/etc/nginx/sites-available/push-system.conf"
     elif [[ -d "/etc/nginx/conf.d" ]]; then
-        cp "${NGINX_TMP}" /etc/nginx/conf.d/push.conf
-        NGINX_INSTALLED_PATH="/etc/nginx/conf.d/push.conf"
+        cp "${NGINX_TMP}" /etc/nginx/conf.d/push-system.conf
+        NGINX_INSTALLED_PATH="/etc/nginx/conf.d/push-system.conf"
     elif [[ -d "/etc/nginx/http.d" ]]; then
         # Alpine Linux
-        cp "${NGINX_TMP}" /etc/nginx/http.d/push.conf
-        NGINX_INSTALLED_PATH="/etc/nginx/http.d/push.conf"
+        cp "${NGINX_TMP}" /etc/nginx/http.d/push-system.conf
+        NGINX_INSTALLED_PATH="/etc/nginx/http.d/push-system.conf"
     elif [[ -d "/etc/nginx/vhosts.d" ]]; then
         # openSUSE
-        cp "${NGINX_TMP}" /etc/nginx/vhosts.d/push.conf
-        NGINX_INSTALLED_PATH="/etc/nginx/vhosts.d/push.conf"
+        cp "${NGINX_TMP}" /etc/nginx/vhosts.d/push-system.conf
+        NGINX_INSTALLED_PATH="/etc/nginx/vhosts.d/push-system.conf"
     else
-        cp "${NGINX_TMP}" /etc/nginx/push.conf
-        NGINX_INSTALLED_PATH="/etc/nginx/push.conf"
+        cp "${NGINX_TMP}" /etc/nginx/push-system.conf
+        NGINX_INSTALLED_PATH="/etc/nginx/push-system.conf"
     fi
     rm -f "${NGINX_TMP}"
 
