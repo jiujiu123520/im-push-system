@@ -12,13 +12,19 @@
 # ============================================================
 set -e
 
-# 自动推断 PROJECT_ROOT：从脚本位置向上回溯 3 层（deploy/ssl/setup-acme.sh -> backend/）
-# 若推断失败则使用默认值 /www/push-system
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -d "${SCRIPT_DIR}/../../app" ] || [ -d "${SCRIPT_DIR}/../../config" ]; then
-    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+# 自动推断 PROJECT_ROOT
+# 优先级：环境变量 PROJECT_DIR > 脚本位置向上回溯 4 层 > 默认值
+# 脚本位置: PROJECT_ROOT/backend/deploy/ssl/setup-acme.sh → 需向上 4 层
+if [[ -n "${PROJECT_DIR}" && -d "${PROJECT_DIR}" ]]; then
+    PROJECT_ROOT="${PROJECT_DIR}"
 else
-    PROJECT_ROOT="/www/push-system"
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    # 向上 4 层：backend/deploy/ssl → PROJECT_ROOT
+    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../../../" 2>/dev/null && pwd || echo /www/push-system)"
+    # 验证：项目根应包含 admin/ 或 user/ 或 deploy/ 目录
+    if [ ! -d "${PROJECT_ROOT}/admin" ] && [ ! -d "${PROJECT_ROOT}/user" ] && [ ! -d "${PROJECT_ROOT}/deploy" ]; then
+        PROJECT_ROOT="/www/push-system"
+    fi
 fi
 
 ACME_HOME="/root/.acme.sh"
