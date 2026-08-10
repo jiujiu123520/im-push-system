@@ -13,7 +13,7 @@ export function getApiKeyDetailApi(id: number) {
 
 // 新增 API Key
 export function createApiKeyApi(data: ApiKeyForm) {
-  return post<{ accessKey: string; secretKey: string }>('/admin/api-keys', data)
+  return post<{ key_value: string }>('/admin/api-keys', data)
 }
 
 // 更新 API Key
@@ -29,11 +29,6 @@ export function deleteApiKeyApi(id: number) {
 // 切换状态
 export function toggleApiKeyStatusApi(id: number, status: number) {
   return put(`/admin/api-keys/${id}/status`, { status })
-}
-
-// 重置 SecretKey
-export function resetApiSecretApi(id: number) {
-  return put<{ secretKey: string }>(`/admin/api-keys/${id}/secret`)
 }
 
 // 获取可用权限列表

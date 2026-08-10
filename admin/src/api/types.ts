@@ -321,8 +321,6 @@ export interface ApiKeyRecord {
   id: number
   name: string
   key_value?: string
-  accessKey?: string
-  secretKey?: string
   permissions?: string[]
   ipWhitelist?: string[]
   rateLimit?: number
