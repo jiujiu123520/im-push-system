@@ -225,31 +225,26 @@
       </el-form>
 
       <!-- 创建成功后展示密钥 -->
-      <div v-if="createdSecret" class="secret-result">
+      <div v-if="createdAccessKey" class="secret-result">
         <div class="secret-head">
           <el-icon class="success-icon"><CircleCheckFilledIcon /></el-icon>
-          <span>创建成功，请妥善保存以下密钥信息</span>
+          <span>创建成功，请妥善保存 AccessKey</span>
         </div>
         <div class="secret-block">
           <div class="secret-row">
             <span class="label">AccessKey:</span>
-            <code>{{ createdSecret.accessKey }}</code>
-            <el-button link :icon="CopyDocumentIcon" @click="copyKey(createdSecret.accessKey)">复制</el-button>
-          </div>
-          <div class="secret-row">
-            <span class="label">SecretKey:</span>
-            <code>{{ createdSecret.secretKey }}</code>
-            <el-button link :icon="CopyDocumentIcon" @click="copyKey(createdSecret.secretKey)">复制</el-button>
+            <code>{{ createdAccessKey }}</code>
+            <el-button link :icon="CopyDocumentIcon" @click="copyKey(createdAccessKey)">复制</el-button>
           </div>
           <div class="secret-warn">
             <el-icon><WarningFilledIcon /></el-icon>
-            SecretKey 仅在创建时显示一次，离开后将无法再次查看。
+            AccessKey 是调用开放 API 的唯一凭证，请勿泄露。
           </div>
         </div>
       </div>
 
       <template #footer>
-        <el-button v-if="createdSecret" @click="dialogVisible = false">完成</el-button>
+        <el-button v-if="createdAccessKey" @click="dialogVisible = false">完成</el-button>
         <template v-else>
           <el-button @click="dialogVisible = false">取消</el-button>
           <el-button type="primary" :loading="submitting" @click="handleSubmit">
@@ -697,7 +692,7 @@ async function handleDelete(row: any) {
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const formRef = ref<FormInstance>()
-const createdSecret = ref<{ accessKey: string; secretKey: string } | null>(null)
+const createdAccessKey = ref<string>('')
 
 const form = reactive({
   name: '',
@@ -715,7 +710,7 @@ function openCreateDialog() {
   tomorrow.setDate(tomorrow.getDate() + 30)
   form.expiresAt = tomorrow.toISOString().slice(0, 16).replace('T', ' ')
   form.remark = '自动生成的 API Key'
-  createdSecret.value = null
+  createdAccessKey.value = ''
   dialogVisible.value = true
 }
 
@@ -735,10 +730,8 @@ async function handleSubmit() {
       status: 1
     })
     const data: any = res.data || res
-    createdSecret.value = {
-      accessKey: data.key_value || data.access_key || data.accessKey || '',
-      secretKey: data.secret_key || data.secret || data.secretKey || ''
-    }
+    const key = data.key_value || data.access_key || data.accessKey || ''
+    createdAccessKey.value = key
     ElMessage.success('创建成功')
     fetchData()
   } catch (err) {
