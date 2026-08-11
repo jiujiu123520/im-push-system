@@ -261,7 +261,7 @@ menu_install() {
         [Nn]*) return 0 ;;
     esac
 
-    bash "${PROJECT_DIR}/deploy/install.sh"
+    PROJECT_DIR="${PROJECT_DIR}" bash "${PROJECT_DIR}/deploy/install.sh"
     pause
 }
 
@@ -282,11 +282,11 @@ menu_update() {
     [[ -z "$choice" ]] && choice="1"
 
     case "$choice" in
-        1) bash "${PROJECT_DIR}/deploy/update.sh" ;;
-        2) bash "${PROJECT_DIR}/deploy/update.sh" --gh-proxy ;;
-        3) bash "${PROJECT_DIR}/deploy/update.sh" --skip-build ;;
-        4) bash "${PROJECT_DIR}/deploy/update.sh" --skip-migration ;;
-        5) bash "${PROJECT_DIR}/deploy/update.sh" --yes ;;
+        1) PROJECT_DIR="${PROJECT_DIR}" bash "${PROJECT_DIR}/deploy/update.sh" ;;
+        2) PROJECT_DIR="${PROJECT_DIR}" bash "${PROJECT_DIR}/deploy/update.sh" --gh-proxy ;;
+        3) PROJECT_DIR="${PROJECT_DIR}" bash "${PROJECT_DIR}/deploy/update.sh" --skip-build ;;
+        4) PROJECT_DIR="${PROJECT_DIR}" bash "${PROJECT_DIR}/deploy/update.sh" --skip-migration ;;
+        5) PROJECT_DIR="${PROJECT_DIR}" bash "${PROJECT_DIR}/deploy/update.sh" --yes ;;
         *) warn "无效选项"; return 1 ;;
     esac
     pause
@@ -404,9 +404,9 @@ menu_status() {
                 journalctl -u push-http -f
             else
                 warn "未找到 journalctl，请手动查看日志："
-                echo "  - ${PROJECT_DIR}/runtime/logs/"
+                echo "  - ${PROJECT_DIR}/backend/runtime/logs/"
                 echo "  - /var/log/"
-                echo "  - 执行: tail -f ${PROJECT_DIR}/runtime/logs/*.log"
+                echo "  - 执行: tail -f ${PROJECT_DIR}/backend/runtime/logs/*.log"
             fi
             ;;
         2)
@@ -414,9 +414,9 @@ menu_status() {
                 journalctl -u push-websocket -f
             else
                 warn "未找到 journalctl，请手动查看日志："
-                echo "  - ${PROJECT_DIR}/runtime/logs/"
+                echo "  - ${PROJECT_DIR}/backend/runtime/logs/"
                 echo "  - /var/log/"
-                echo "  - 执行: tail -f ${PROJECT_DIR}/runtime/logs/*.log"
+                echo "  - 执行: tail -f ${PROJECT_DIR}/backend/runtime/logs/*.log"
             fi
             ;;
         3)
@@ -424,9 +424,9 @@ menu_status() {
                 journalctl -u push-build-worker -f
             else
                 warn "未找到 journalctl，请手动查看日志："
-                echo "  - ${PROJECT_DIR}/runtime/logs/"
+                echo "  - ${PROJECT_DIR}/backend/runtime/logs/"
                 echo "  - /var/log/"
-                echo "  - 执行: tail -f ${PROJECT_DIR}/runtime/logs/*.log"
+                echo "  - 执行: tail -f ${PROJECT_DIR}/backend/runtime/logs/*.log"
             fi
             ;;
         4) tail -f /var/log/nginx/error.log ;;
@@ -549,7 +549,7 @@ menu_clean() {
                     info "  7 天前的 journal 日志已清理"
                 else
                     warn "  未找到 journalctl，跳过。请手动清理以下位置的日志："
-                    echo "    - ${PROJECT_DIR}/runtime/logs/"
+                    echo "    - ${PROJECT_DIR}/backend/runtime/logs/"
                     echo "    - /var/log/"
                 fi
                 ;;
@@ -607,7 +607,7 @@ menu_repair_mysql() {
                 exec sudo bash "$0" --repair-mysql
             fi
             # 调用 install.sh 的修复模式
-            if bash "${PROJECT_DIR}/deploy/install.sh" --repair-mysql; then
+            if PROJECT_DIR="${PROJECT_DIR}" bash "${PROJECT_DIR}/deploy/install.sh" --repair-mysql; then
                 echo ""
                 info "MySQL 修复成功"
                 echo ""
@@ -851,7 +851,7 @@ menu_uninstall_env() {
     echo ""
     _safe_read "确认卸载环境? [y/N] " reply
     case "$reply" in
-        [Yy]*) bash "${PROJECT_DIR}/deploy/uninstall.sh" --env ;;
+        [Yy]*) PROJECT_DIR="${PROJECT_DIR}" bash "${PROJECT_DIR}/deploy/uninstall.sh" --env ;;
         *) info "已取消" ;;
     esac
     pause
@@ -872,7 +872,7 @@ menu_uninstall_source() {
     echo ""
     _safe_read "确认删除源码? [y/N] " reply
     case "$reply" in
-        [Yy]*) bash "${PROJECT_DIR}/deploy/uninstall.sh" --source ;;
+        [Yy]*) PROJECT_DIR="${PROJECT_DIR}" bash "${PROJECT_DIR}/deploy/uninstall.sh" --source ;;
         *) info "已取消" ;;
     esac
     pause
@@ -895,7 +895,7 @@ menu_uninstall_all() {
     _safe_read "确认完全卸载? 输入 'yes' 继续: " reply
     reply=$(echo "${reply// /}" | tr '[:upper:]' '[:lower:]')
     if [[ "$reply" == "yes" || "$reply" == "y" ]]; then
-        bash "${PROJECT_DIR}/deploy/uninstall.sh" --all --yes
+        PROJECT_DIR="${PROJECT_DIR}" bash "${PROJECT_DIR}/deploy/uninstall.sh" --all --yes
     else
         info "已取消"
     fi
@@ -914,10 +914,10 @@ menu_rollback() {
     echo ""
     _safe_read "请选择 [1-2]: " choice
     case "$choice" in
-        1) bash "${PROJECT_DIR}/deploy/rollback.sh" ;;
+        1) PROJECT_DIR="${PROJECT_DIR}" bash "${PROJECT_DIR}/deploy/rollback.sh" ;;
         2)
             _safe_read "输入目标 commit hash: " commit
-            [[ -n "$commit" ]] && bash "${PROJECT_DIR}/deploy/rollback.sh" "$commit"
+            [[ -n "$commit" ]] && PROJECT_DIR="${PROJECT_DIR}" bash "${PROJECT_DIR}/deploy/rollback.sh" "$commit"
             ;;
         *) warn "无效选项" ;;
     esac

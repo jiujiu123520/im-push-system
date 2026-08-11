@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 # ============================================================
 # 即时消息推送系统 - 一键安装脚本（支持所有主流 Linux 发行版）
 #
@@ -67,6 +67,23 @@ export DEBCONF_NONINTERACTIVE_SEEN=true
 # 配置项（可通过环境变量覆盖）
 # ------------------------------------------------------------
 PROJECT_DIR="${PROJECT_DIR:-/www/push-system}"
+
+# PROJECT_DIR 有效性检查：防止路径错乱导致白跑
+# 检查是否包含关键项目文件（deploy/install.sh 本身、backend 目录）
+# 如果不是 git clone 下来的正确目录，打印警告但继续（可能是全新目录）
+if [[ -d "${PROJECT_DIR}" ]]; then
+    _missing=()
+    [[ ! -d "${PROJECT_DIR}/backend" ]] && _missing+=("backend/")
+    [[ ! -d "${PROJECT_DIR}/deploy" ]] && _missing+=("deploy/")
+    [[ ! -f "${PROJECT_DIR}/deploy/nginx/push-system.conf" ]] && _missing+=("deploy/nginx/push-system.conf")
+    if [[ "${#_missing[@]}" -gt 0 ]]; then
+        warn "PROJECT_DIR=${PROJECT_DIR} 缺少关键文件/目录: ${_missing[*]}"
+        warn "如果是全新安装请忽略此警告；如果是升级安装请确认路径正确"
+    fi
+else
+    info "PROJECT_DIR=${PROJECT_DIR} 不存在，将在后续步骤中创建"
+fi
+
 DB_NAME="${DB_NAME:-im_push}"
 DB_USER="${DB_USER:-im_push}"
 DB_PASS="${DB_PASS:-ImPush@2024}"
@@ -1736,6 +1753,13 @@ if [[ ! -f "${PROJECT_DIR}/backend/.env" ]]; then
     sed -i "s/^HTTP_PORT=.*/HTTP_PORT=${HTTP_PORT}/" "${PROJECT_DIR}/backend/.env"
     sed -i "s/^WEBSOCKET_PORT=.*/WEBSOCKET_PORT=${WEBSOCKET_PORT}/" "${PROJECT_DIR}/backend/.env"
     info "已生成随机 JWT_SECRET 与 AES_KEY 并写入 .env"
+fi
+
+# 设置 .env 文件权限（PHP Swoole 运行用户必须可读）
+if [[ -f "${PROJECT_DIR}/backend/.env" ]]; then
+    chown "${WEB_USER}:${WEB_USER}" "${PROJECT_DIR}/backend/.env" 2>/dev/null || true
+    chmod 600 "${PROJECT_DIR}/backend/.env" 2>/dev/null || true
+    info ".env 权限已设置（${WEB_USER}:${WEB_USER}, 600）"
 fi
 
 # 修复 .env 中含空格但未加引号的值（防止 dotenv 解析失败）
