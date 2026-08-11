@@ -2243,6 +2243,43 @@ find "${PROJECT_DIR}/deploy" "${PROJECT_DIR}/backend/bin" "${PROJECT_DIR}/build"
 info "目录权限已设置（保留 .git 属主: ${PROJECT_OWNER}）。"
 
 # ============================================================
+# 步骤 6.5: 同步 Nginx admin/user 路径到数据库
+#   从已安装的 nginx 配置提取 admin_path（如 /admin-9f7k2p8x/），
+#   写入 admin_settings.settings_paths，让后台 SettingsController 返回正确路径
+# ============================================================
+if [[ -n "${NGINX_INSTALLED_PATH}" && -f "${NGINX_INSTALLED_PATH}" ]]; then
+    ADMIN_PATH_IN_NGINX=""
+    # 匹配 location ^~ /admin<xxx>/ {  中的路径，兼容 /admin 和 /admin-xxxxxxxx/
+    ADMIN_PATH_IN_NGINX=$(grep -oP 'location\s+\^~\s+\K/admin[^\s/]+/?' "${NGINX_INSTALLED_PATH}" 2>/dev/null | head -1 || true)
+    # 兜底：从注释里的"新路径 /admin-xxx/ 提供静态文件"匹配
+    if [[ -z "${ADMIN_PATH_IN_NGINX}" ]]; then
+        ADMIN_PATH_IN_NGINX=$(grep -oP '新路径\s+\K/admin[^\s/]+/?' "${NGINX_INSTALLED_PATH}" 2>/dev/null | head -1 || true)
+    fi
+
+    if [[ -n "${ADMIN_PATH_IN_NGINX}" && "${ADMIN_PATH_IN_NGINX}" != "/admin/" ]]; then
+        info "检测到 Nginx 自定义 admin_path: ${ADMIN_PATH_IN_NGINX}"
+        # 确保路径首末斜杠规范
+        [[ ! "${ADMIN_PATH_IN_NGINX}" =~ ^/ ]] && ADMIN_PATH_IN_NGINX="/${ADMIN_PATH_IN_NGINX}"
+        [[ ! "${ADMIN_PATH_IN_NGINX}" =~ /$ ]] && ADMIN_PATH_IN_NGINX="${ADMIN_PATH_IN_NGINX}/"
+
+        # 连接数据库写入 settings_paths（admin_settings 表在步骤 3 迁移时已创建）
+        if command -v mysql >/dev/null 2>&1; then
+            MYSQL_CMD="mysql -h${DB_HOST} -P${DB_PORT} -u${DB_USER}"
+            [[ -n "${DB_PASS}" ]] && MYSQL_CMD="${MYSQL_CMD} -p${DB_PASS}"
+
+            PATHS_JSON="{\"admin_path\":\"${ADMIN_PATH_IN_NGINX}\",\"admin_api_prefix\":\"/api/\",\"user_path\":\"/user/\",\"user_api_prefix\":\"/user-api/\"}"
+            SQL="INSERT INTO admin_settings (config_key, config_value, updated_at) VALUES ('settings_paths', '${PATHS_JSON}', NOW()) ON DUPLICATE KEY UPDATE config_value='${PATHS_JSON}', updated_at=NOW();"
+
+            if ${MYSQL_CMD} "${DB_NAME}" -e "${SQL}" 2>/dev/null; then
+                info "已同步 admin_path=${ADMIN_PATH_IN_NGINX} 到数据库 admin_settings.settings_paths"
+            else
+                warn "同步 admin_path 到数据库失败（可能 admin_settings 表不存在），可在后台 Settings 手动配置"
+            fi
+        fi
+    fi
+fi
+
+# ============================================================
 # 步骤 7: 启动服务
 # ============================================================
 step "7/7" "启动服务"
