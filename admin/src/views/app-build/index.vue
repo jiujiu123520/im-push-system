@@ -426,8 +426,8 @@ cat ~/.ssh/github_actions_key</pre>
                   iOS 源码
                 </el-radio-button>
                 <el-radio-button value="compose">
-                  <el-icon><MonitorIcon /></el-icon>
-                  Compose 全新 UI
+                  <el-icon><MagicStickIcon /></el-icon>
+                  玻璃拟态全新 UI
                 </el-radio-button>
               </el-radio-group>
             </el-form-item>
@@ -479,7 +479,7 @@ cat ~/.ssh/github_actions_key</pre>
             >
               <template #title>
                 <span style="font-size: 12px;">
-                  Jetpack Compose 全新 UI（玻璃拟态 + Material3）。生成的源码 ZIP 导入 Android Studio → Gradle Sync → Run 即可，服务器配置已自动注入。需要 Release 签名时在 Android Studio 中配置 Build → Generate Signed Bundle。
+                  uni-app 玻璃拟态全新 UI。ZIP 解压后用 HBuilderX → 文件 → 打开目录 → 发行 → 原生 App-云打包，深色主题 + 6 页面完整功能，服务器配置已注入。
                 </span>
               </template>
             </el-alert>
@@ -1212,9 +1212,9 @@ async function handleGenerate() {
       URL.revokeObjectURL(url)
       ElMessage.success('iOS 源码包已生成，正在下载。请在 Mac 上用 Xcode 打开编译。')
     } else if (form.buildMethod === 'compose') {
-      // Jetpack Compose 源码：生成 Android Studio 项目 ZIP
+      // uni-app 玻璃拟态：生成 HBuilderX 可导入的 ZIP
       if (!form.serverAddress || !form.websocketAddress) {
-        ElMessage.warning('Compose 方式需要填写服务器地址和 WebSocket 地址')
+        ElMessage.warning('玻璃拟态方式需要填写服务器地址和 WebSocket 地址')
         submitting.value = false
         return
       }
@@ -1232,12 +1232,12 @@ async function handleGenerate() {
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `${form.name || 'PushApp'}-compose.zip`
+      link.download = `${form.name || 'PushApp'}-glass.zip`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
-      ElMessage.success('Compose 源码包已生成，正在下载。导入 Android Studio 即可编译。')
+      ElMessage.success('玻璃拟态源码包已生成，正在下载。用 HBuilderX 导入即可云打包出 APK。')
     } else {
       // GitHub Actions 打包方式
       await createAppBuildApi({

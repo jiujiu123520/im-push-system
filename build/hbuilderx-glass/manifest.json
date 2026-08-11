@@ -1,0 +1,65 @@
+{
+    "name" : "PushApp",
+    "appid" : "__UNI__PUSHGLASS",
+    "description" : "即时消息推送客户端 - 玻璃拟态版",
+    "versionName" : "1.0.0",
+    "versionCode" : "100",
+    "transformPx" : false,
+    "app-plus" : {
+        "usingComponents" : true,
+        "nvueStyleCompiler" : "uni-app",
+        "compilerVersion" : 3,
+        "splashscreen" : {
+            "alwaysShowBeforeRender" : true,
+            "waiting" : true,
+            "autoclose" : true,
+            "delay" : 0,
+            "image" : "static/logo.png"
+        },
+        "modules" : {
+            "Push" : {}
+        },
+        "distribute" : {
+            "android" : {
+                "permissions" : [
+                    "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+                    "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
+                    "<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\"/>",
+                    "<uses-permission android:name=\"android.permission.WAKE_LOCK\"/>",
+                    "<uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\"/>",
+                    "<uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_DATA_SYNC\"/>",
+                    "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>",
+                    "<uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\"/>",
+                    "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
+                    "<uses-permission android:name=\"android.permission.CHANGE_NETWORK_STATE\"/>",
+                    "<uses-permission android:name=\"android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS\"/>",
+                    "<uses-permission android:name=\"android.permission.USE_FULL_SCREEN_INTENT\"/>",
+                    "<uses-permission android:name=\"android.permission.SCHEDULE_EXACT_ALARM\"/>",
+                    "<uses-permission android:name=\"android.permission.USE_EXACT_ALARM\"/>"
+                ],
+                "minSdkVersion" : 23,
+                "targetSdkVersion" : 33,
+                "abiFilters" : [ "armeabi-v7a", "arm64-v8a" ],
+                "usesCleartextTraffic" : true
+            },
+            "icons" : {
+                "android" : {
+                    "hdpi" : "static/logo.png",
+                    "xhdpi" : "static/logo.png",
+                    "xxhdpi" : "static/logo.png",
+                    "xxxhdpi" : "static/logo.png"
+                }
+            },
+            "sdkConfigs" : {}
+        },
+        "optimization" : {
+            "subPackages" : false,
+            "splits" : false
+        },
+        "runmode" : "liberation",
+        "compatible" : {
+            "ignoreVersion" : true
+        }
+    },
+    "vueVersion" : "3"
+}

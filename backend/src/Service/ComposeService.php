@@ -4,10 +4,10 @@ declare(strict_types=1);
 namespace App\Service;
 
 /**
- * Jetpack Compose Android 源码生成服务
+ * uni-app 玻璃拟态全新 UI 源码生成服务
  *
- * 复制项目内置的 app/ 目录（Compose 源码），
- * 注入服务器配置后打包为可下载 ZIP。
+ * 复制项目内置的 build/hbuilderx-glass/ 模板，
+ * 注入服务器配置后打包为 HBuilderX 可导入的 ZIP。
  */
 class ComposeService
 {
@@ -25,37 +25,31 @@ class ComposeService
     public function getAvailableTypes(): array
     {
         $root = $this->projectRoot();
-        $appDir = $root . '/app';
-        $hasCompose = is_dir($appDir);
-        if ($hasCompose) {
-            $this->log('getAvailableTypes', [
-                'root' => $root,
-                'appDir' => $appDir,
-                'appDir_exists' => is_dir($appDir),
-                'app_files' => $this->countFiles($appDir),
-            ]);
-        } else {
-            $this->log('getAvailableTypes NO TEMPLATE', [
-                'root' => $root,
-                'appDir' => $appDir,
-                'candidates' => glob($root . '/*', GLOB_ONLYDIR),
-            ]);
-        }
+        $tplDir = $root . '/build/hbuilderx-glass';
+        $hasTpl = is_dir($tplDir);
+
+        $this->log('getAvailableTypes', [
+            'root' => $root,
+            'tplDir' => $tplDir,
+            'exists' => $hasTpl,
+            'files' => $hasTpl ? $this->countFiles($tplDir) : 0,
+        ]);
 
         return [
             [
-                'id'          => 'compose',
-                'name'        => 'Compose 全新 UI（推荐）',
-                'description' => 'Jetpack Compose + Material3 + 玻璃拟态设计 + DataStore + OkHttp WebSocket',
-                'available'   => $hasCompose,
+                'id'          => 'glass',
+                'name'        => '玻璃拟态全新 UI',
+                'description' => 'uni-app + Vue 3，HBuilderX 云打包 / 本地打包均可，深色玻璃拟态主题 + 多页面完整功能',
+                'available'   => $hasTpl,
                 'features'    => [
                     '玻璃拟态深色主题',
-                    '权限引导（8 大品牌）',
-                    '前台 Service 保活',
-                    'DataStore 设置持久化',
-                    '自动重连 + 指数退避',
-                    '消息分页 + 搜索 + 已读状态',
+                    '6 个完整页面（登录/Key/主页/消息/个人中心/设置）',
+                    'WebSocket 实时推送 + 指数退避重连',
+                    'WakeLock 原生保活',
+                    '8 大品牌权限引导（小米/OPPO/vivo/华为/荣耀…）',
+                    '消息搜索 / 筛选 / 已读状态',
                 ],
+                'builder'     => 'HBuilderX',
             ],
         ];
     }
@@ -77,93 +71,66 @@ class ComposeService
         $iconB64     = trim((string)($params['icon_base64'] ?? ''));
 
         $projectRoot = $this->projectRoot();
-        $appSrcDir   = $projectRoot . '/app';
+        $tplSrcDir   = $projectRoot . '/build/hbuilderx-glass';
 
         $this->log('generateZip START', [
             'projectRoot' => $projectRoot,
-            'appSrcDir' => $appSrcDir,
-            'appSrcDir_exists' => is_dir($appSrcDir),
+            'tplSrcDir' => $tplSrcDir,
+            'exists' => is_dir($tplSrcDir),
             'userId' => $userId,
             'pkg' => $pkgName,
         ]);
 
-        if (!is_dir($appSrcDir)) {
-            // 尝试 fallback 路径
+        if (!is_dir($tplSrcDir)) {
             $fallbacks = [
-                dirname($projectRoot) . '/app',
-                BASE_PATH . '/../app',
+                dirname($projectRoot) . '/build/hbuilderx-glass',
+                BASE_PATH . '/../build/hbuilderx-glass',
             ];
             foreach ($fallbacks as $fb) {
-                $this->log("trying fallback", ['path' => $fb, 'exists' => is_dir($fb)]);
-                if (is_dir($fb)) {
-                    $appSrcDir = $fb;
-                    break;
-                }
+                $this->log('trying fallback', ['path' => $fb, 'exists' => is_dir($fb)]);
+                if (is_dir($fb)) { $tplSrcDir = $fb; break; }
             }
         }
 
-        if (!is_dir($appSrcDir)) {
+        if (!is_dir($tplSrcDir)) {
             throw new \RuntimeException(
-                'Compose 源码目录不存在。已尝试路径：' . $projectRoot . '/app。' .
+                'uni-app 玻璃拟态模板不存在。已尝试路径：' . $projectRoot . '/build/hbuilderx-glass。' .
                 '服务器上是否已 git pull 最新代码？'
             );
         }
 
         $this->log('template confirmed', [
-            'appSrcDir' => $appSrcDir,
-            'files' => $this->countFiles($appSrcDir),
-            'sample' => array_slice($this->listFiles($appSrcDir), 0, 10),
+            'tplSrcDir' => $tplSrcDir,
+            'files' => $this->countFiles($tplSrcDir),
         ]);
 
-        // 创建临时构建目录
-        $tempBase = sys_get_temp_dir() . '/push_compose_build';
-        if (!is_dir($tempBase)) {
-            @mkdir($tempBase, 0755, true);
-        }
-        $tempDir = $tempBase . '/compose_' . $userId . '_' . time() . '_' . bin2hex(random_bytes(4));
+        $tempBase = sys_get_temp_dir() . '/push_glass_build';
+        if (!is_dir($tempBase)) @mkdir($tempBase, 0755, true);
+        $tempDir = $tempBase . '/glass_' . $userId . '_' . time() . '_' . bin2hex(random_bytes(4));
         if (!mkdir($tempDir, 0755, true)) {
             throw new \RuntimeException('创建临时目录失败：' . $tempDir);
         }
 
-        $this->log('temp dir', ['tempDir' => $tempDir]);
-
         try {
-            // 1. 复制 app/ 目录
-            $this->copyDir($appSrcDir, $tempDir . '/app');
-            $this->log('after copyDir', ['app files in temp' => $this->countFiles($tempDir . '/app')]);
+            $this->copyDir($tplSrcDir, $tempDir);
+            $this->log('after copyDir', ['files' => $this->countFiles($tempDir)]);
 
-            // 2. 清理构建产物
-            $this->rmDir($tempDir . '/app/build');
-            $this->rmDir($tempDir . '/app/.gradle');
-            $this->rmDir($tempDir . '/app/local.properties');
-            $this->rmDir($tempDir . '/app/gradle.properties');
-            $this->rmDir($tempDir . '/app/gradlew');
-            $this->rmDir($tempDir . '/app/gradlew.bat');
-            $this->rmDir($tempDir . '/app/proguard-rules.pro');
+            // 1. 注入 config.js（服务器地址 / WS / Key）
+            $this->injectConfigJs($tempDir, $appName, $defaultKey, $serverUrl, $wsUrl, $versionName);
 
-            // 3. 注入 build_config.json
-            $this->writeBuildConfig($tempDir, $appName, $defaultKey, $serverUrl, $wsUrl);
+            // 2. 注入 manifest.json（APP 名 / 版本 / 包名）
+            $this->injectManifest($tempDir, $appName, $pkgName, $versionName, $versionCode);
 
-            // 4. 注入 build.gradle.kts
-            $this->injectGradleConfig($tempDir, $pkgName, $versionName, $versionCode);
-
-            // 5. 更新 strings.xml
-            $this->injectAppName($tempDir, $appName);
-
-            // 6. 重命名包
-            $this->renamePackage($tempDir, $pkgName);
-
-            // 7. 自定义图标
+            // 3. 自定义图标 → 替换 static/logo.png
             if ($iconB64 !== '') {
                 $this->writeIcon($tempDir, $iconB64);
             }
 
-            // 8. 生成 README
+            // 4. 生成 README（HBuilderX 打包说明）
             $this->writeReadme($tempDir, $appName, $serverUrl, $wsUrl, $defaultKey);
 
             $this->log('before zip', ['total files' => $this->countFiles($tempDir)]);
 
-            // 9. ZIP 打包
             $zipPath = $tempDir . '.zip';
             if (file_exists($zipPath)) @unlink($zipPath);
 
@@ -173,200 +140,142 @@ class ComposeService
                 throw new \RuntimeException('无法创建 ZIP 文件，error=' . $res);
             }
 
-            $this->zipDir($zip, $tempDir, basename($tempDir));
+            $this->zipDir($zip, $tempDir, 'hbuilderx-glass');
             $zip->close();
 
             $zipSize = filesize($zipPath);
             $this->log('zip created', ['zipPath' => $zipPath, 'zipSize' => $zipSize]);
 
             if ($zipSize < 1024) {
-                throw new \RuntimeException('ZIP 文件异常小（' . $zipSize . ' bytes），模板目录可能为空');
+                throw new \RuntimeException('ZIP 文件异常小（' . $zipSize . ' bytes）');
             }
 
             return $zipPath;
         } catch (\Throwable $e) {
-            $this->log('ERROR', ['msg' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            $this->log('ERROR', ['msg' => $e->getMessage()]);
             $this->rmDir($tempDir);
             throw $e;
         }
     }
 
-    // =================================================================
-    // 配置注入方法
-    // =================================================================
-
-    private function writeBuildConfig(string $dir, string $appName, string $defaultKey, string $serverUrl, string $wsUrl): void
+    private function injectConfigJs(string $dir, string $appName, string $defaultKey, string $serverUrl, string $wsUrl, string $versionName): void
     {
-        $assetsDir = $dir . '/app/src/main/assets';
-        if (!is_dir($assetsDir)) @mkdir($assetsDir, 0755, true);
-
-        $config = [
-            'app_name'       => $appName,
-            'default_key'    => $defaultKey,
-            'server_url'     => $serverUrl,
-            'server_ws_url'  => $wsUrl,
-            'build_time'     => date('Y-m-d H:i:s'),
-            'generator'      => 'PushApp Backend',
-        ];
-
-        file_put_contents(
-            $assetsDir . '/build_config.json',
-            json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
-        );
+        $file = $dir . '/config.js';
+        $content = <<<"JS"
+// 服务器配置 — 由 PushApp Backend 自动注入
+export const APP_CONFIG = {
+    app_name: {$this->jsString($appName)},
+    default_key: {$this->jsString($defaultKey)},
+    server_url: {$this->jsString($serverUrl)},
+    ws_url: {$this->jsString($wsUrl)},
+    version_name: {$this->jsString($versionName)},
+    build_time: {$this->jsString(date('Y-m-d H:i:s'))},
+    generator: 'PushApp Backend (uni-app glass)'
+};
+JS;
+        file_put_contents($file, $content);
+        $this->log('injectConfigJs done', ['size' => strlen($content)]);
     }
 
-    private function injectGradleConfig(string $dir, string $pkgName, string $versionName, int $versionCode): void
+    private function injectManifest(string $dir, string $appName, string $pkgName, string $versionName, int $versionCode): void
     {
-        $gradleFile = $dir . '/app/build.gradle.kts';
-        if (!is_file($gradleFile)) {
-            $this->log('injectGradleConfig SKIP file not found', ['path' => $gradleFile]);
-            return;
-        }
-
-        $content = (string)file_get_contents($gradleFile);
-        $content = preg_replace('/namespace\s*=\s*"[^"]*"/', 'namespace = "' . $pkgName . '"', $content);
-        $content = preg_replace('/applicationId\s*=\s*"[^"]*"/', 'applicationId = "' . $pkgName . '"', $content);
-        $content = preg_replace('/versionCode\s*=\s*\d+/', 'versionCode = ' . $versionCode, $content);
-        $content = preg_replace('/versionName\s*=\s*"[^"]*"/', 'versionName = "' . $versionName . '"', $content);
-        file_put_contents($gradleFile, $content);
-    }
-
-    private function injectAppName(string $dir, string $appName): void
-    {
-        $stringsFile = $dir . '/app/src/main/res/values/strings.xml';
-        if (!is_file($stringsFile)) return;
-
-        $content = (string)file_get_contents($stringsFile);
-        if (preg_match('/<string name="app_name">.*?<\/string>/', $content)) {
-            $content = preg_replace(
-                '/<string name="app_name">.*?<\/string>/',
-                '<string name="app_name">' . htmlspecialchars($appName, ENT_XML1) . '</string>',
-                $content
-            );
-        } else {
-            $content = preg_replace(
-                '/<resources>/',
-                "<resources>\n    <string name=\"app_name\">" . htmlspecialchars($appName, ENT_XML1) . '</string>',
-                $content
-            );
-        }
-        file_put_contents($stringsFile, $content);
-    }
-
-    private function renamePackage(string $dir, string $newPkg): void
-    {
-        $javaRoot = $dir . '/app/src/main/java';
-        $oldPkg = 'com.push.app';
-        $oldPath = $javaRoot . '/com/push/app';
-        $newPath = $javaRoot . '/' . str_replace('.', '/', $newPkg);
-
-        if (!is_dir($oldPath)) return;
-        if ($oldPath === $newPath) return;
-
-        if (!is_dir(dirname($newPath))) {
-            @mkdir(dirname($newPath), 0755, true);
-        }
-        rename($oldPath, $newPath);
-
-        $parent = dirname($oldPath);
-        while ($parent !== $javaRoot && is_dir($parent) && @rmdir($parent)) {
-            $parent = dirname($parent);
-        }
-
-        $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($newPath, \RecursiveDirectoryIterator::SKIP_DOTS)
-        );
-        foreach ($iterator as $file) {
-            if ($file->getExtension() !== 'kt') continue;
-            $content = (string)file_get_contents($file->getPathname());
-            $content = str_replace($oldPkg, $newPkg, $content);
-            file_put_contents($file->getPathname(), $content);
-        }
-
-        $manifest = $dir . '/app/src/main/AndroidManifest.xml';
-        if (is_file($manifest)) {
-            $c = (string)file_get_contents($manifest);
-            $c = str_replace($oldPkg, $newPkg, $c);
-            file_put_contents($manifest, $c);
-        }
+        $file = $dir . '/manifest.json';
+        if (!is_file($file)) { $this->log('injectManifest SKIP'); return; }
+        $c = (string)file_get_contents($file);
+        $c = preg_replace('/"name"\s*:\s*"[^"]*"/', '"name": ' . json_encode($appName, JSON_UNESCAPED_UNICODE), $c);
+        $c = preg_replace('/"versionName"\s*:\s*"[^"]*"/', '"versionName": ' . json_encode($versionName, JSON_UNESCAPED_UNICODE), $c);
+        $c = preg_replace('/"versionCode"\s*:\s*"\d*"/', '"versionCode": ' . json_encode((string)$versionCode), $c);
+        file_put_contents($file, $c);
+        $this->log('injectManifest done', ['app_name' => $appName, 'version' => $versionName]);
     }
 
     private function writeIcon(string $dir, string $iconB64): void
     {
         $iconB64 = preg_replace('/^data:image\/[a-z]+;base64,/i', '', $iconB64);
         if ($iconB64 === '') return;
-
         $png = base64_decode($iconB64);
         if ($png === false) return;
-
-        $mipmapDir = $dir . '/app/src/main/res/mipmap-xxxhdpi';
-        if (!is_dir($mipmapDir)) @mkdir($mipmapDir, 0755, true);
-
-        file_put_contents($mipmapDir . '/ic_launcher.png', $png);
-        file_put_contents($mipmapDir . '/ic_launcher_round.png', $png);
+        $target = $dir . '/static/logo.png';
+        file_put_contents($target, $png);
+        @copy($target, $dir . '/static/logo.jpg');
     }
 
     private function writeReadme(string $dir, string $appName, string $serverUrl, string $wsUrl, string $defaultKey): void
     {
         $content = <<<"MD"
-# {$appName} - Jetpack Compose 源码
+# {$appName} - uni-app 玻璃拟态全新 UI
 
-## 构建说明
+## 快速打包（HBuilderX）
 
-### 1. 环境要求
-- Android Studio Hedgehog (2023.1.1) 或更新
-- JDK 17
-- Android SDK 34
-- Gradle 8.7
+### 1. 解压 ZIP 得到 `hbuilderx-glass/` 目录
 
-### 2. 导入项目
-1. 打开 Android Studio → **File → Open**
-2. 选择本项目根目录（包含 `settings.gradle.kts` 的目录）
-3. 等待 Gradle Sync 完成（首次可能需要几分钟下载依赖）
+### 2. 用 HBuilderX 打开
+- 菜单：**文件 → 打开目录** → 选择解压后的目录
+- 等待 HBuilderX 识别 uni-app 项目（识别后左侧会出现 pages、manifest.json）
 
-### 3. 运行调试
-- 连接 Android 设备或启动模拟器
-- 点击 Android Studio 的 ▶️ Run 按钮
-- 或命令行：`./gradlew assembleDebug`
+### 3. 修改 APP 信息
+- 打开 `manifest.json`，在可视化界面修改：
+  - **App 名称**
+  - **AppID**（选"重新获取"或填入自己的 dcloud AppID）
+  - **版本号 / 版本名称**
+  - **应用图标**（替换 static/logo.png，建议 1024×1024）
 
-### 4. 导出 Release APK
-```bash
-# 生成 debug 签名的 release APK
-./gradlew assembleRelease
-# 输出路径：app/build/outputs/apk/release/app-release.apk
-```
+### 4. 打包 APK
+- **云打包（推荐）**：菜单 → 发行 → 原生 App-云打包
+  - 平台：Android
+  - 证书：使用 DCloud 公用证书（测试用）或自有证书（正式发布）
+  - 完成后会得到 APK 下载链接
+- **本地打包**：需要 Android Studio 环境，菜单 → 发行 → 原生 App-本地打包 → 生成本地打包 App 资源 → 导入 Android Studio 编译
 
-### 5. 配置说明
-服务器配置已注入到 `app/src/main/assets/build_config.json`：
-- **HTTP 地址**：{$serverUrl}
-- **WebSocket 地址**：{$wsUrl}
+### 5. 服务器配置说明
+已注入到 `config.js`：
+- **HTTP API**：{$serverUrl}
+- **WebSocket**：{$wsUrl}
 - **默认 Key**：{$defaultKey}
 
-用户首次打开 APP 时会自动读取这些默认值，也可以在设置页手动修改。
+APP 首次打开会自动读取这些默认值，用户也可以在"设置 → 服务器配置"里修改。
 
 ### 6. 功能清单
-- ✅ 玻璃拟态深色主题
-- ✅ WebSocket 实时推送
-- ✅ 前台 Service 保活
-- ✅ 自动重连 + 指数退避
-- ✅ 8 大品牌权限引导
-- ✅ 消息分页 / 搜索 / 已读状态
-- ✅ DataStore 设置持久化
+- ✅ 玻璃拟态深色主题（渐变背景 + 半透明卡片 + 模糊）
+- ✅ 6 个页面：登录 / Key 输入 / 主页 / 消息列表 / 个人中心 / 设置
+- ✅ WebSocket 实时推送（30s 心跳 + 指数退避重连）
+- ✅ WakeLock 原生保活（防 CPU 休眠）
+- ✅ 8 大品牌权限引导（小米/OPPO/vivo/华为/荣耀/三星 等）
+- ✅ 消息搜索 + 筛选 + 已读状态 + 本地持久化
+- ✅ uni-app 原生通知（Android）
 
-### 7. 包名与签名
-- 当前包名：见 `app/build.gradle.kts` 的 `applicationId`
-- 如需正式发布，请在 Android Studio 中配置签名（Build → Generate Signed Bundle / APK）
+### 7. 目录结构
+```
+hbuilderx-glass/
+├── App.vue            # 应用入口
+├── main.js            # Vue 3 入口
+├── config.js          # 服务器配置（后端注入）
+├── manifest.json      # uni-app 项目配置
+├── pages.json         # 页面路由 + TabBar
+├── uni.scss           # SCSS 变量
+├── css/glass.css      # 玻璃拟态主题
+├── js/
+│   ├── ws.js          # WebSocket 封装
+│   ├── storage.js     # 本地存储
+│   ├── api.js         # HTTP API
+│   ├── notify.js      # 原生通知
+│   ├── keepalive.js   # WakeLock 保活
+│   └── permissions.js # 权限引导
+├── pages/             # 6 个页面
+└── static/            # logo.png
+```
 
 ---
 
-由 PushApp 后台自动生成
+由 PushApp 后台自动生成（uni-app 玻璃拟态模板）
 MD;
         file_put_contents($dir . '/README.md', $content);
     }
 
-    // =================================================================
-    // 工具方法
-    // =================================================================
+    private function jsString(string $s): string
+    {
+        return '"' . str_replace(['\\', '"', "\n", "\r"], ['\\\\', '\\"', '\\n', '\\r'], $s) . '"';
+    }
 
     private function countFiles(string $dir): int
     {
@@ -375,37 +284,18 @@ MD;
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS)
         );
-        foreach ($iterator as $file) {
-            if ($file->isFile()) $count++;
-        }
+        foreach ($iterator as $file) { if ($file->isFile()) $count++; }
         return $count;
-    }
-
-    private function listFiles(string $dir): array
-    {
-        if (!is_dir($dir)) return [];
-        $files = [];
-        $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS)
-        );
-        foreach ($iterator as $file) {
-            if ($file->isFile()) {
-                $files[] = str_replace($dir . '/', '', $file->getPathname());
-            }
-        }
-        return $files;
     }
 
     private function copyDir(string $src, string $dst): void
     {
         if (!is_dir($src)) return;
         if (!is_dir($dst)) @mkdir($dst, 0755, true);
-
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($src, \RecursiveDirectoryIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::SELF_FIRST
         );
-
         foreach ($iterator as $item) {
             $rel = substr($item->getPathname(), strlen($src) + 1);
             $target = $dst . '/' . $rel;
@@ -445,6 +335,6 @@ MD;
                 $fileCount++;
             }
         }
-        $this->log('zipDir done', ['files_added' => $fileCount, 'relative' => $relative]);
+        $this->log('zipDir done', ['files_added' => $fileCount]);
     }
 }
