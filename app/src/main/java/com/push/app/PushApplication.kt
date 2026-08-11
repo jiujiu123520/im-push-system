@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.work.Configuration
 import androidx.work.WorkManager
+import com.push.app.data.PreferencesManager
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -48,6 +49,7 @@ class PushApplication : Application(), Configuration.Provider {
         super.onCreate()
         instance = this
         globalConfig = BuildConfig.load(this)
+        PreferencesManager.init(this)
         initializeWorkManager()
     }
 
