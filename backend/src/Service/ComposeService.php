@@ -6,28 +6,41 @@ namespace App\Service;
 /**
  * Jetpack Compose Android 源码生成服务
  *
- * 复制项目内置的 app/ 目录（Compose 源码） + 根级 Gradle 配置，
+ * 复制项目内置的 app/ 目录（Compose 源码），
  * 注入服务器配置后打包为可下载 ZIP。
- * 用户导入 Android Studio → Gradle Sync → Build APK。
  */
 class ComposeService
 {
-    /**
-     * 项目根目录
-     */
     private function projectRoot(): string
     {
         return dirname(BASE_PATH);
     }
 
-    /**
-     * 可用源码类型
-     */
+    private function log(string $msg, array $ctx = []): void
+    {
+        $line = '[ComposeService] ' . $msg . ($ctx ? ' | ' . json_encode($ctx, JSON_UNESCAPED_UNICODE) : '');
+        @error_log($line . PHP_EOL, 3, BASE_PATH . '/runtime/logs/compose.log');
+    }
+
     public function getAvailableTypes(): array
     {
         $root = $this->projectRoot();
         $appDir = $root . '/app';
-        $hasCompose = is_dir($appDir) && is_file($appDir . '/build.gradle.kts');
+        $hasCompose = is_dir($appDir);
+        if ($hasCompose) {
+            $this->log('getAvailableTypes', [
+                'root' => $root,
+                'appDir' => $appDir,
+                'appDir_exists' => is_dir($appDir),
+                'app_files' => $this->countFiles($appDir),
+            ]);
+        } else {
+            $this->log('getAvailableTypes NO TEMPLATE', [
+                'root' => $root,
+                'appDir' => $appDir,
+                'candidates' => glob($root . '/*', GLOB_ONLYDIR),
+            ]);
+        }
 
         return [
             [
@@ -38,7 +51,7 @@ class ComposeService
                 'features'    => [
                     '玻璃拟态深色主题',
                     '权限引导（8 大品牌）',
-                    '前台 Service + WakeLock 保活',
+                    '前台 Service 保活',
                     'DataStore 设置持久化',
                     '自动重连 + 指数退避',
                     '消息分页 + 搜索 + 已读状态',
@@ -48,8 +61,6 @@ class ComposeService
     }
 
     /**
-     * 生成临时打包目录并返回 ZIP 文件路径
-     *
      * @param array $params [user_id, app_name, package_name, default_key, server_url, ws_url, version_name, version_code, icon_base64]
      * @return string ZIP 文件绝对路径
      */
@@ -68,92 +79,115 @@ class ComposeService
         $projectRoot = $this->projectRoot();
         $appSrcDir   = $projectRoot . '/app';
 
+        $this->log('generateZip START', [
+            'projectRoot' => $projectRoot,
+            'appSrcDir' => $appSrcDir,
+            'appSrcDir_exists' => is_dir($appSrcDir),
+            'userId' => $userId,
+            'pkg' => $pkgName,
+        ]);
+
         if (!is_dir($appSrcDir)) {
-            throw new \RuntimeException('Compose 源码目录不存在：app/');
+            // 尝试 fallback 路径
+            $fallbacks = [
+                dirname($projectRoot) . '/app',
+                BASE_PATH . '/../app',
+            ];
+            foreach ($fallbacks as $fb) {
+                $this->log("trying fallback", ['path' => $fb, 'exists' => is_dir($fb)]);
+                if (is_dir($fb)) {
+                    $appSrcDir = $fb;
+                    break;
+                }
+            }
         }
 
-        // 创建临时构建目录（放在项目 .deploy 下避免权限问题）
-        $tempBase = $projectRoot . '/.deploy/compose_build';
+        if (!is_dir($appSrcDir)) {
+            throw new \RuntimeException(
+                'Compose 源码目录不存在。已尝试路径：' . $projectRoot . '/app。' .
+                '服务器上是否已 git pull 最新代码？'
+            );
+        }
+
+        $this->log('template confirmed', [
+            'appSrcDir' => $appSrcDir,
+            'files' => $this->countFiles($appSrcDir),
+            'sample' => array_slice($this->listFiles($appSrcDir), 0, 10),
+        ]);
+
+        // 创建临时构建目录
+        $tempBase = sys_get_temp_dir() . '/push_compose_build';
         if (!is_dir($tempBase)) {
             @mkdir($tempBase, 0755, true);
         }
-        $tempDir = $tempBase . '/compose_' . $userId . '_' . time();
-        if (is_dir($tempDir)) {
-            $this->rmDir($tempDir);
-        }
+        $tempDir = $tempBase . '/compose_' . $userId . '_' . time() . '_' . bin2hex(random_bytes(4));
         if (!mkdir($tempDir, 0755, true)) {
             throw new \RuntimeException('创建临时目录失败：' . $tempDir);
         }
 
+        $this->log('temp dir', ['tempDir' => $tempDir]);
+
         try {
-            // 1. 复制根级 Gradle 配置文件
-            foreach (['build.gradle.kts', 'settings.gradle.kts', 'gradle.properties'] as $file) {
-                $src = $projectRoot . '/' . $file;
-                if (is_file($src)) {
-                    copy($src, $tempDir . '/' . $file);
-                }
-            }
-
-            // 2. 复制 gradle wrapper（如有）
-            $wrapperDir = $projectRoot . '/gradle/wrapper';
-            if (is_dir($wrapperDir)) {
-                $dstWrapper = $tempDir . '/gradle/wrapper';
-                @mkdir($dstWrapper, 0755, true);
-                foreach (glob($wrapperDir . '/*') as $f) {
-                    copy($f, $dstWrapper . '/' . basename($f));
-                }
-            }
-            foreach (['gradlew', 'gradlew.bat'] as $gwrap) {
-                $src = $projectRoot . '/' . $gwrap;
-                if (is_file($src)) copy($src, $tempDir . '/' . $gwrap);
-            }
-
-            // 3. 复制 app/ 目录
+            // 1. 复制 app/ 目录
             $this->copyDir($appSrcDir, $tempDir . '/app');
+            $this->log('after copyDir', ['app files in temp' => $this->countFiles($tempDir . '/app')]);
 
-            // 4. 清理构建产物（build/、.gradle/）
+            // 2. 清理构建产物
             $this->rmDir($tempDir . '/app/build');
             $this->rmDir($tempDir . '/app/.gradle');
+            $this->rmDir($tempDir . '/app/local.properties');
+            $this->rmDir($tempDir . '/app/gradle.properties');
+            $this->rmDir($tempDir . '/app/gradlew');
+            $this->rmDir($tempDir . '/app/gradlew.bat');
+            $this->rmDir($tempDir . '/app/proguard-rules.pro');
 
-            // 5. 注入 build_config.json（运行时配置）
+            // 3. 注入 build_config.json
             $this->writeBuildConfig($tempDir, $appName, $defaultKey, $serverUrl, $wsUrl);
 
-            // 6. 注入 build.gradle.kts（applicationId, version, namespace）
+            // 4. 注入 build.gradle.kts
             $this->injectGradleConfig($tempDir, $pkgName, $versionName, $versionCode);
 
-            // 7. 更新 strings.xml app_name
+            // 5. 更新 strings.xml
             $this->injectAppName($tempDir, $appName);
 
-            // 8. 如果包名变了，重命名源码目录 + 更新 package 声明
+            // 6. 重命名包
             $this->renamePackage($tempDir, $pkgName);
 
-            // 9. 自定义图标
+            // 7. 自定义图标
             if ($iconB64 !== '') {
                 $this->writeIcon($tempDir, $iconB64);
             }
 
-            // 10. 生成 README
+            // 8. 生成 README
             $this->writeReadme($tempDir, $appName, $serverUrl, $wsUrl, $defaultKey);
 
-            // 11. ZIP 打包
+            $this->log('before zip', ['total files' => $this->countFiles($tempDir)]);
+
+            // 9. ZIP 打包
             $zipPath = $tempDir . '.zip';
             if (file_exists($zipPath)) @unlink($zipPath);
+
             $zip = new \ZipArchive();
-            if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
-                throw new \RuntimeException('无法创建 ZIP 文件');
+            $res = $zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
+            if ($res !== true) {
+                throw new \RuntimeException('无法创建 ZIP 文件，error=' . $res);
             }
+
             $this->zipDir($zip, $tempDir, basename($tempDir));
             $zip->close();
 
+            $zipSize = filesize($zipPath);
+            $this->log('zip created', ['zipPath' => $zipPath, 'zipSize' => $zipSize]);
+
+            if ($zipSize < 1024) {
+                throw new \RuntimeException('ZIP 文件异常小（' . $zipSize . ' bytes），模板目录可能为空');
+            }
+
             return $zipPath;
         } catch (\Throwable $e) {
-            // 出错清理临时目录
+            $this->log('ERROR', ['msg' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->rmDir($tempDir);
             throw $e;
-        } finally {
-            register_shutdown_function(function () use ($tempDir) {
-                $this->rmDir($tempDir);
-            });
         }
     }
 
@@ -167,12 +201,12 @@ class ComposeService
         if (!is_dir($assetsDir)) @mkdir($assetsDir, 0755, true);
 
         $config = [
-            'app_name'     => $appName,
-            'default_key'  => $defaultKey,
-            'server_url'   => $serverUrl,
-            'server_ws_url' => $wsUrl,
-            'build_time'   => date('Y-m-d H:i:s'),
-            'generator'    => 'PushApp Backend',
+            'app_name'       => $appName,
+            'default_key'    => $defaultKey,
+            'server_url'     => $serverUrl,
+            'server_ws_url'  => $wsUrl,
+            'build_time'     => date('Y-m-d H:i:s'),
+            'generator'      => 'PushApp Backend',
         ];
 
         file_put_contents(
@@ -183,9 +217,11 @@ class ComposeService
 
     private function injectGradleConfig(string $dir, string $pkgName, string $versionName, int $versionCode): void
     {
-        // app/build.gradle.kts
         $gradleFile = $dir . '/app/build.gradle.kts';
-        if (!is_file($gradleFile)) return;
+        if (!is_file($gradleFile)) {
+            $this->log('injectGradleConfig SKIP file not found', ['path' => $gradleFile]);
+            return;
+        }
 
         $content = (string)file_get_contents($gradleFile);
         $content = preg_replace('/namespace\s*=\s*"[^"]*"/', 'namespace = "' . $pkgName . '"', $content);
@@ -208,7 +244,6 @@ class ComposeService
                 $content
             );
         } else {
-            // 没有 app_name 就追加
             $content = preg_replace(
                 '/<resources>/',
                 "<resources>\n    <string name=\"app_name\">" . htmlspecialchars($appName, ENT_XML1) . '</string>',
@@ -228,19 +263,16 @@ class ComposeService
         if (!is_dir($oldPath)) return;
         if ($oldPath === $newPath) return;
 
-        // 移动目录
         if (!is_dir(dirname($newPath))) {
             @mkdir(dirname($newPath), 0755, true);
         }
         rename($oldPath, $newPath);
 
-        // 清理空父目录
         $parent = dirname($oldPath);
         while ($parent !== $javaRoot && is_dir($parent) && @rmdir($parent)) {
             $parent = dirname($parent);
         }
 
-        // 更新所有 .kt 文件中的 package 声明和 import
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($newPath, \RecursiveDirectoryIterator::SKIP_DOTS)
         );
@@ -251,7 +283,6 @@ class ComposeService
             file_put_contents($file->getPathname(), $content);
         }
 
-        // 更新 AndroidManifest
         $manifest = $dir . '/app/src/main/AndroidManifest.xml';
         if (is_file($manifest)) {
             $c = (string)file_get_contents($manifest);
@@ -316,7 +347,7 @@ class ComposeService
 ### 6. 功能清单
 - ✅ 玻璃拟态深色主题
 - ✅ WebSocket 实时推送
-- ✅ 前台 Service + WakeLock 保活
+- ✅ 前台 Service 保活
 - ✅ 自动重连 + 指数退避
 - ✅ 8 大品牌权限引导
 - ✅ 消息分页 / 搜索 / 已读状态
@@ -334,8 +365,36 @@ MD;
     }
 
     // =================================================================
-    // 工具方法（与 HBuilderXService 保持一致）
+    // 工具方法
     // =================================================================
+
+    private function countFiles(string $dir): int
+    {
+        if (!is_dir($dir)) return 0;
+        $count = 0;
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS)
+        );
+        foreach ($iterator as $file) {
+            if ($file->isFile()) $count++;
+        }
+        return $count;
+    }
+
+    private function listFiles(string $dir): array
+    {
+        if (!is_dir($dir)) return [];
+        $files = [];
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS)
+        );
+        foreach ($iterator as $file) {
+            if ($file->isFile()) {
+                $files[] = str_replace($dir . '/', '', $file->getPathname());
+            }
+        }
+        return $files;
+    }
 
     private function copyDir(string $src, string $dst): void
     {
@@ -375,6 +434,7 @@ MD;
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS)
         );
+        $fileCount = 0;
         foreach ($iterator as $file) {
             $filePath = $file->getPathname();
             $local = $relative . '/' . substr($filePath, strlen($dir) + 1);
@@ -382,7 +442,9 @@ MD;
                 $zip->addEmptyDir($local);
             } else {
                 $zip->addFile($filePath, $local);
+                $fileCount++;
             }
         }
+        $this->log('zipDir done', ['files_added' => $fileCount, 'relative' => $relative]);
     }
 }
