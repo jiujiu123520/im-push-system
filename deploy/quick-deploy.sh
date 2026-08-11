@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 # ============================================================
 # 即时消息推送系统 - 一键部署/更新脚本（独立版）
 #
@@ -753,21 +753,21 @@ fi
 
 # --- 6.4 Nginx 配置（关键修复：备份到 /etc/nginx/backup/ + 自动注入 captcha/auth/health rewrite） ---
 if command -v nginx >/dev/null 2>&1; then
-    NGINX_SRC="${PROJECT_DIR}/deploy/nginx/push.conf"
+    NGINX_SRC="${PROJECT_DIR}/deploy/nginx/push-system.conf"
     if [[ -f "${NGINX_SRC}" ]]; then
         # 查找 Nginx 配置实际存放的位置（不同发行版不同）
         NGINX_DST=""
         for dir in /etc/nginx/sites-available /etc/nginx/conf.d /etc/nginx/http.d /etc/nginx/vhosts.d /etc/nginx; do
             if [[ -d "$dir" ]]; then
-                if [[ -f "$dir/push.conf" ]]; then
-                    NGINX_DST="$dir/push.conf"
+                if [[ -f "$dir/push-system.conf" ]]; then
+                    NGINX_DST="$dir/push-system.conf"
                     break
-                elif [[ "$dir" == "/etc/nginx/sites-available" && -L "/etc/nginx/sites-enabled/push.conf" ]]; then
-                    NGINX_DST="$dir/push.conf"
+                elif [[ "$dir" == "/etc/nginx/sites-available" && -L "/etc/nginx/sites-enabled/push-system.conf" ]]; then
+                    NGINX_DST="$dir/push-system.conf"
                     break
                 elif [[ -z "$NGINX_DST" ]]; then
                     # 记录第一个可用目录作为 fallback
-                    NGINX_DST="$dir/push.conf"
+                    NGINX_DST="$dir/push-system.conf"
                 fi
             fi
         done
@@ -783,7 +783,7 @@ if command -v nginx >/dev/null 2>&1; then
                 # 统一使用 /etc/nginx/backup/ 存放备份，避免在 sites-enabled / conf.d 下残留 *.bak
                 mkdir -p /etc/nginx/backup
                 if [[ -f "${NGINX_DST}" ]]; then
-                    mv "${NGINX_DST}" "/etc/nginx/backup/push.conf.$(date +%Y%m%d%H%M%S)"
+                    mv "${NGINX_DST}" "/etc/nginx/backup/push-system.conf.$(date +%Y%m%d%H%M%S)"
                 fi
                 NGINX_TMP=$(mktemp)
                 sed "s|/www/push-system|${PROJECT_DIR}|g" "${NGINX_SRC}" > "${NGINX_TMP}"
@@ -792,8 +792,8 @@ if command -v nginx >/dev/null 2>&1; then
                 # 清理 sites-enabled / conf.d 下的 *.bak* / *~ 文件到 backup
                 find /etc/nginx/sites-enabled /etc/nginx/conf.d -maxdepth 1 -type f \( -name "*.bak*" -o -name "*~" \) -exec mv -t /etc/nginx/backup/ {} + 2>/dev/null || true
                 # 如果是 sites-available，确保 sites-enabled 有软链
-                if [[ "${NGINX_DST}" == "/etc/nginx/sites-available/push.conf" ]]; then
-                    ln -sf /etc/nginx/sites-available/push.conf /etc/nginx/sites-enabled/push.conf 2>/dev/null || true
+                if [[ "${NGINX_DST}" == "/etc/nginx/sites-available/push-system.conf" ]]; then
+                    ln -sf /etc/nginx/sites-available/push-system.conf /etc/nginx/sites-enabled/push-system.conf 2>/dev/null || true
                     rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
                 fi
                 # 检测如果缺少 captcha/auth/health 三段 rewrite location，自动注入

@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 # ============================================================
 # 即时消息推送系统 - 一键更新脚本
 #
@@ -1169,16 +1169,16 @@ s|/www/push-system|${PROJECT_DIR}|g" \
 
     # 5. Nginx 配置检查（路径适配）
     if command -v nginx >/dev/null 2>&1; then
-        NGINX_SRC="${PROJECT_DIR}/deploy/nginx/push.conf"
+        NGINX_SRC="${PROJECT_DIR}/deploy/nginx/push-system.conf"
         if [[ -f "${NGINX_SRC}" ]]; then
             NGINX_DST=""
             for dir in /etc/nginx/sites-available /etc/nginx/conf.d /etc/nginx/http.d /etc/nginx/vhosts.d /etc/nginx; do
                 if [[ -d "$dir" ]]; then
-                    if [[ -f "$dir/push.conf" ]]; then
-                        NGINX_DST="$dir/push.conf"
+                    if [[ -f "$dir/push-system.conf" ]]; then
+                        NGINX_DST="$dir/push-system.conf"
                         break
                     elif [[ -z "$NGINX_DST" ]]; then
-                        NGINX_DST="$dir/push.conf"
+                        NGINX_DST="$dir/push-system.conf"
                     fi
                 fi
             done
@@ -1193,8 +1193,8 @@ s|/www/push-system|${PROJECT_DIR}|g" \
                     sed "s|/www/push-system|${PROJECT_DIR}|g" "${NGINX_SRC}" > "${NGINX_TMP}"
                     _sudo cp "${NGINX_TMP}" "${NGINX_DST}"
                     rm -f "${NGINX_TMP}"
-                    if [[ "${NGINX_DST}" == "/etc/nginx/sites-available/push.conf" ]]; then
-                        _sudo ln -sf /etc/nginx/sites-available/push.conf /etc/nginx/sites-enabled/push.conf 2>/dev/null || true
+                    if [[ "${NGINX_DST}" == "/etc/nginx/sites-available/push-system.conf" ]]; then
+                        _sudo ln -sf /etc/nginx/sites-available/push-system.conf /etc/nginx/sites-enabled/push-system.conf 2>/dev/null || true
                         _sudo rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
                     fi
                     info "Nginx 配置已更新，测试语法..."

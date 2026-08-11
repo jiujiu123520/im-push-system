@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 declare(strict_types=1);
 
 namespace App\Controller;
@@ -1090,9 +1090,9 @@ class SettingsController
      * PUT /admin/settings/paths
      *
      * 当 admin_path 变更时，自动更新 Nginx 配置并 reload：
-     * 1. 读取 deploy/nginx/push.conf 模板
+     * 1. 读取 deploy/nginx/push-system.conf 模板
      * 2. 用正则替换管理后台 location 块（旧路径 → 新路径）
-     * 3. 写入 /etc/nginx/sites-available/push.conf
+     * 3. 写入 /etc/nginx/sites-available/push-system.conf
      * 4. nginx -t && nginx -s reload
      */
     public function savePaths(array $context, array $params)
@@ -1164,8 +1164,8 @@ class SettingsController
      */
     private function updateNginxAdminPath(string $oldPath, string $newPath): array
     {
-        $nginxConfPath = '/etc/nginx/sites-available/push.conf';
-        $templatePath = BASE_PATH . '/deploy/nginx/push.conf';
+        $nginxConfPath = '/etc/nginx/sites-available/push-system.conf';
+        $templatePath = BASE_PATH . '/deploy/nginx/push-system.conf';
 
         // 1. 读取当前 Nginx 配置（优先读实际部署的，回退到模板）
         $conf = @file_get_contents($nginxConfPath);

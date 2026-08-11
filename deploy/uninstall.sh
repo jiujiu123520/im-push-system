@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 # ============================================================
 # 即时消息推送系统 - 卸载脚本
 #
@@ -151,12 +151,12 @@ uninstall_env() {
 
     # ------------------------------------------------------------
     step "2/6" "删除 Nginx 配置"
-    rm -f /etc/nginx/sites-enabled/push.conf 2>/dev/null || true
-    rm -f /etc/nginx/sites-available/push.conf 2>/dev/null || true
-    rm -f /etc/nginx/conf.d/push.conf 2>/dev/null || true
-    rm -f /etc/nginx/http.d/push.conf 2>/dev/null || true
-    rm -f /etc/nginx/vhosts.d/push.conf 2>/dev/null || true
-    rm -f /etc/nginx/push.conf 2>/dev/null || true
+    rm -f /etc/nginx/sites-enabled/push-system.conf 2>/dev/null || true
+    rm -f /etc/nginx/sites-available/push-system.conf 2>/dev/null || true
+    rm -f /etc/nginx/conf.d/push-system.conf 2>/dev/null || true
+    rm -f /etc/nginx/http.d/push-system.conf 2>/dev/null || true
+    rm -f /etc/nginx/vhosts.d/push-system.conf 2>/dev/null || true
+    rm -f /etc/nginx/push-system.conf 2>/dev/null || true
     if command -v nginx >/dev/null 2>&1; then
         nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
     fi
