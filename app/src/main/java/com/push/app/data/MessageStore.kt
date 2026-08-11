@@ -25,9 +25,14 @@ data class PushMessage(
     val title: String,
     val content: String,
     val priority: String = "default", // high / default / low
+    val type: String = "push",        // push / system / alert
     val timestamp: Long,
     val receivedAt: Long = System.currentTimeMillis(),
+    val isRead: Boolean = false,
 )
+
+/** 消息分类筛选值 */
+enum class MessageFilter { ALL, HIGH, SYSTEM, UNREAD }
 
 /**
  * WebSocket 连接状态。
@@ -123,6 +128,66 @@ class MessageStore(private val storageDir: File) {
         }
     }
 
+    /** 标记单条消息为已读 */
+    suspend fun markAsRead(id: String) {
+        mutex.withLock {
+            val list = _messages.value
+            val idx = list.indexOfFirst { it.id == id }
+            if (idx >= 0 && !list[idx].isRead) {
+                val updated = list.toMutableList()
+                updated[idx] = updated[idx].copy(isRead = true)
+                _messages.value = updated
+                persist(updated)
+            }
+        }
+    }
+
+    /** 全部标记为已读 */
+    suspend fun markAllRead() {
+        mutex.withLock {
+            val list = _messages.value
+            if (list.any { !it.isRead }) {
+                val updated = list.map { it.copy(isRead = true) }
+                _messages.value = updated
+                persist(updated)
+            }
+        }
+    }
+
+    /** 删除单条消息 */
+    suspend fun delete(id: String) {
+        mutex.withLock {
+            val list = _messages.value
+            if (list.any { it.id == id }) {
+                val updated = list.filter { it.id != id }
+                _messages.value = updated
+                persist(updated)
+            }
+        }
+    }
+
+    /** 按筛选条件统计消息数 */
+    fun countByFilter(filter: MessageFilter): Int {
+        val all = _messages.value
+        return when (filter) {
+            MessageFilter.ALL -> all.size
+            MessageFilter.HIGH -> all.count { it.priority.equals("high", ignoreCase = true) }
+            MessageFilter.SYSTEM -> all.count { it.type.equals("system", ignoreCase = true) }
+            MessageFilter.UNREAD -> all.count { !it.isRead }
+        }
+    }
+
+    /** 今日收到的消息数（从 00:00 起，基于 timestamp） */
+    fun countToday(): Int {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        val todayStart = cal.timeInMillis
+        return _messages.value.count { it.timestamp >= todayStart }
+    }
+
     /** 获取最近 N 条消息 */
     fun recent(limit: Int = 5): List<PushMessage> =
         _messages.value.takeLast(limit).reversed()
@@ -133,19 +198,27 @@ class MessageStore(private val storageDir: File) {
      * @param page 页码，从 1 开始
      * @param pageSize 每页条数
      * @param keyword 搜索关键词（为空则不筛选），匹配标题或内容
+     * @param filter 分类筛选（ALL / HIGH / SYSTEM / UNREAD）
      * @return 分页结果
      */
     fun queryPage(
         page: Int = 1,
         pageSize: Int = 10,
         keyword: String = "",
+        filter: MessageFilter = MessageFilter.ALL,
     ): PagedResult {
         val all = _messages.value.asReversed() // 倒序：最新在前
+        val filteredByFilter = when (filter) {
+            MessageFilter.ALL -> all
+            MessageFilter.HIGH -> all.filter { it.priority.equals("high", ignoreCase = true) }
+            MessageFilter.SYSTEM -> all.filter { it.type.equals("system", ignoreCase = true) }
+            MessageFilter.UNREAD -> all.filter { !it.isRead }
+        }
         val filtered = if (keyword.isBlank()) {
-            all
+            filteredByFilter
         } else {
             val kw = keyword.trim().lowercase()
-            all.filter { msg ->
+            filteredByFilter.filter { msg ->
                 msg.title.lowercase().contains(kw) ||
                     msg.content.lowercase().contains(kw)
             }
@@ -163,6 +236,7 @@ class MessageStore(private val storageDir: File) {
             total = total,
             totalPages = totalPages,
             keyword = keyword,
+            filter = filter,
         )
     }
 
@@ -174,6 +248,7 @@ class MessageStore(private val storageDir: File) {
         val total: Int,
         val totalPages: Int,
         val keyword: String,
+        val filter: MessageFilter = MessageFilter.ALL,
     ) {
         val hasNext: Boolean get() = page < totalPages
         val hasPrev: Boolean get() = page > 1

@@ -87,6 +87,8 @@ if ($runWs) {
         $router->get('/admin/app-build/hbuilderx/templates', [\App\Controller\AppBuildController::class, 'hbuilderxTemplates']);
         $router->post('/admin/app-build/hbuilderx/generate', [\App\Controller\AppBuildController::class, 'generateHBuilderX']);
         $router->post('/admin/app-build/ios/generate', [\App\Controller\AppBuildController::class, 'generateIosSource']);
+        $router->get('/admin/app-build/compose/templates', [\App\Controller\AppBuildController::class, 'composeTemplates']);
+        $router->post('/admin/app-build/compose/generate', [\App\Controller\AppBuildController::class, 'generateComposeSource']);
         $router->get('/admin/app-build/status/{build_id}', [\App\Controller\AppBuildController::class, 'status']);
         $router->get('/admin/app-build/download/{build_id}', [\App\Controller\AppBuildController::class, 'download']);
         // 重要: log/{build_id}/download 必须在 log/{build_id} 之前注册,否则会被 {build_id} 捕获
@@ -419,6 +421,8 @@ $router->put('/admin/keys/{id}/subscribers/{device_id}/repair', [\App\Controller
         $router->get('/user-api/app/download-qr',    [\App\Controller\UserConsole\AppController::class, 'downloadQr']);
         $router->get('/user-api/app/hbuilderx/templates', [\App\Controller\UserConsole\AppController::class, 'hbuilderxTemplates']);
         $router->post('/user-api/app/hbuilderx/generate', [\App\Controller\UserConsole\AppController::class, 'hbuilderxGenerate']);
+        $router->get('/user-api/app/compose/templates', [\App\Controller\AppBuildController::class, 'composeTemplates']);
+        $router->post('/user-api/app/compose/generate', [\App\Controller\AppBuildController::class, 'generateComposeSource']);
         // 公告
         $router->get('/user-api/notices',            [\App\Controller\UserConsole\NoticeController::class, 'index']);
         $router->get('/user-api/notices/dialogs',    [\App\Controller\UserConsole\NoticeController::class, 'dialogs']);

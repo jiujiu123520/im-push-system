@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PushApp · 全页面预览</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'SF Pro Text', 'Segoe UI', Roboto, 'PingFang SC', sans-serif;
+    background: #0a0a1a;
+    color: #fff;
+    padding: 40px 20px;
+    min-height: 100vh;
+  }
+  h1 {
+    text-align: center;
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, #a78bfa, #60a5fa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 13px;
+    color: #6b7280;
+    margin-bottom: 40px;
+  }
+  .phones {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 36px;
+  }
+  .phone-label {
+    text-align: center;
+    font-size: 13px;
+    color: #9ca3af;
+    margin-bottom: 12px;
+    font-weight: 500;
+  }
+  .phone {
+    width: 340px;
+    height: 720px;
+    border-radius: 42px;
+    background: #111;
+    padding: 12px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5), inset 0 0 0 2px #2a2a3e;
+    position: relative;
+  }
+  .phone::before {
+    content: '';
+    position: absolute;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 120px;
+    height: 26px;
+    background: #000;
+    border-radius: 0 0 18px 18px;
+    z-index: 10;
+  }
+  .screen {
+    width: 100%;
+    height: 100%;
+    border-radius: 32px;
+    overflow: hidden;
+    position: relative;
+    background: linear-gradient(180deg, #1e1b4b 0%, #312e81 50%, #0f172a 100%);
+  }
+  .screen::before {
+    content: '';
+    position: absolute;
+    top: -80px; right: -100px;
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, rgba(236,72,153,0.35), transparent 70%);
+    border-radius: 50%;
+  }
+  .screen::after {
+    content: '';
+    position: absolute;
+    top: 150px; left: -80px;
+    width: 280px; height: 280px;
+    background: radial-gradient(circle, rgba(99,102,241,0.4), transparent 70%);
+    border-radius: 50%;
+  }
+  .blob3 {
+    position: absolute;
+    bottom: 50px; right: -60px;
+    width: 240px; height: 240px;
+    background: radial-gradient(circle, rgba(168,85,247,0.35), transparent 70%);
+    border-radius: 50%;
+  }
+  .statusbar {
+    position: relative; z-index: 2;
+    height: 44px; padding: 14px 28px 0;
+    display: flex; justify-content: space-between;
+    font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.9);
+  }
+  .content {
+    position: relative; z-index: 2;
+    padding: 0 18px 80px;
+    height: calc(100% - 44px);
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .content::-webkit-scrollbar { display: none; }
+  .home-indicator {
+    position: absolute;
+    bottom: 8px; left: 50%;
+    transform: translateX(-50%);
+    width: 120px; height: 4px;
+    background: rgba(255,255,255,0.4);
+    border-radius: 2px;
+    z-index: 5;
+  }
+
+  /* ===== 通用组件 ===== */
+  .glass-card {
+    background: rgba(255,255,255,0.1);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 20px;
+    padding: 16px;
+  }
+  .glass-card-tall {
+    background: linear-gradient(135deg, rgba(59,130,246,0.35), rgba(30,27,75,0.3));
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 24px;
+    padding: 20px;
+  }
+  .txt { color: #fff; }
+  .sub { color: rgba(255,255,255,0.65); }
+  .faint { color: rgba(255,255,255,0.45); }
+  .bold { font-weight: 700; }
+  .semibold { font-weight: 600; }
+  .dot-online { width: 8px; height: 8px; background: #22c55e; border-radius: 50%; display: inline-block; }
+  .dot-warn { width: 8px; height: 8px; background: #f59e0b; border-radius: 50%; display: inline-block; }
+  .dot-off { width: 8px; height: 8px; background: #ef4444; border-radius: 50%; display: inline-block; }
+  .badge {
+    display: inline-flex; align-items: center;
+    padding: 3px 8px; border-radius: 10px;
+    font-size: 10px; font-weight: 500;
+  }
+
+  /* ===== 底部导航 ===== */
+  .bottom-nav {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 70px;
+    background: rgba(15,23,42,0.85);
+    backdrop-filter: blur(20px);
+    border-top: 1px solid rgba(255,255,255,0.1);
+    display: flex; justify-content: space-around; align-items: flex-start;
+    padding-top: 10px;
+    z-index: 5;
+  }
+  .nav-item {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    font-size: 10px; color: rgba(255,255,255,0.5);
+    padding: 4px 12px; border-radius: 12px;
+  }
+  .nav-item.active { color: #fff; background: rgba(255,255,255,0.1); }
+  .nav-item.active .nav-icon { background: #3b82f6; color: #fff; }
+  .nav-icon {
+    width: 22px; height: 22px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; background: transparent;
+  }
+
+  /* ===== 首页 ===== */
+  .greet-row {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    margin-top: 8px; margin-bottom: 14px;
+  }
+  .greet-hello { font-size: 13px; color: rgba(255,255,255,0.65); }
+  .greet-title { font-size: 24px; font-weight: 700; color: #fff; }
+  .gear-btn {
+    width: 42px; height: 42px; border-radius: 50%;
+    background: rgba(255,255,255,0.14);
+    border: 1px solid rgba(255,255,255,0.22);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+  .conn-card {
+    display: flex; align-items: center; gap: 14px;
+  }
+  .conn-icon {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .conn-dot { width: 14px; height: 14px; border-radius: 50%; }
+  .stats-row {
+    display: flex; gap: 8px; margin-top: 14px;
+  }
+  .stat-card {
+    flex: 1; background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 20px; padding: 14px 12px;
+  }
+  .stat-label {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: rgba(255,255,255,0.65);
+  }
+  .stat-accent { width: 6px; height: 6px; border-radius: 50%; }
+  .stat-val { font-size: 22px; font-weight: 700; color: #fff; margin-top: 6px; }
+  .quick-row {
+    display: flex; gap: 10px; margin-top: 14px;
+  }
+  .quick-btn {
+    flex: 1; background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 18px; padding: 16px 4px;
+    text-align: center;
+  }
+  .quick-btn .qi { font-size: 18px; margin-bottom: 6px; }
+  .quick-btn .ql { font-size: 11px; color: rgba(255,255,255,0.85); font-weight: 500; }
+  .section-title {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 20px; margin-bottom: 10px;
+  }
+  .section-title .t { font-size: 15px; font-weight: 600; color: #fff; }
+  .section-title .m { font-size: 12px; color: rgba(255,255,255,0.6); }
+  .msg-row {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 16px; padding: 12px; margin-bottom: 10px;
+    display: flex; gap: 10px;
+  }
+  .msg-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
+  .msg-title-row { display: flex; justify-content: space-between; }
+  .msg-title { font-size: 14px; font-weight: 600; color: #fff; }
+  .msg-time { font-size: 11px; color: rgba(255,255,255,0.55); }
+  .msg-content { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 3px; line-height: 16px; }
+
+  /* ===== 消息列表 ===== */
+  .topbar {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 6px; margin-bottom: 6px;
+  }
+  .topbar .title { font-size: 24px; font-weight: 700; color: #fff; }
+  .topbar .count { font-size: 12px; color: rgba(255,255,255,0.6); }
+  .icon-btn {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.15);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 16px; margin-left: 4px; color: #fff;
+  }
+  .tabs-row { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tab {
+    padding: 8px 12px; font-size: 12px;
+    border-radius: 18px; font-weight: 500;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.7);
+  }
+  .tab.active {
+    background: rgba(255,255,255,0.25);
+    border-color: rgba(255,255,255,0.4);
+    color: #fff; font-weight: 600;
+  }
+  .search-bar {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 12px; padding: 10px 14px;
+    font-size: 13px; color: rgba(255,255,255,0.5);
+    margin-bottom: 12px;
+  }
+
+  /* ===== 我的 ===== */
+  .user-card {
+    background: linear-gradient(135deg, rgba(59,130,246,0.35), rgba(30,27,75,0.3));
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 24px; padding: 20px;
+    margin-top: 6px; margin-bottom: 14px;
+  }
+  .user-top { display: flex; gap: 14px; align-items: center; }
+  .avatar {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: linear-gradient(135deg, #a78bfa, #3b82f6);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700; color: #fff;
+  }
+  .user-name { font-size: 17px; font-weight: 700; color: #fff; }
+  .user-id { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 2px; }
+  .status-row {
+    display: flex; gap: 8px; margin-top: 14px;
+  }
+  .stat-badge {
+    flex: 1; background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 14px; padding: 10px;
+    font-size: 11px; color: rgba(255,255,255,0.65);
+    text-align: center;
+  }
+  .stat-badge .v { font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 2px; }
+  .mini-btn {
+    flex: 1; background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 14px; padding: 12px 4px;
+    text-align: center; font-size: 11px; color: rgba(255,255,255,0.9);
+  }
+  .mini-btn .qi { font-size: 16px; margin-bottom: 4px; }
+  .menu-section {
+    margin-top: 14px;
+  }
+  .menu-section-title {
+    font-size: 11px; color: rgba(255,255,255,0.45);
+    margin-bottom: 8px; padding-left: 4px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .menu-card {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 18px; overflow: hidden;
+  }
+  .menu-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .menu-item:last-child { border-bottom: none; }
+  .menu-ic {
+    width: 34px; height: 34px; border-radius: 10px;
+    background: rgba(255,255,255,0.12);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+  }
+  .menu-label { font-size: 14px; color: #fff; flex: 1; }
+  .menu-val { font-size: 13px; color: rgba(255,255,255,0.55); }
+  .menu-arrow { color: rgba(255,255,255,0.35); font-size: 14px; }
+
+  /* ===== 设置 ===== */
+  .brand-banner {
+    background: linear-gradient(135deg, rgba(99,102,241,0.4), rgba(168,85,247,0.3));
+    border: 1px solid rgba(255,255,255,0.22);
+    border-radius: 20px; padding: 14px 16px;
+    margin-bottom: 14px;
+  }
+  .brand-title { font-size: 15px; font-weight: 700; color: #fff; }
+  .brand-sub { font-size: 12px; color: rgba(255,255,255,0.65); margin-top: 2px; }
+  .mi-chip {
+    display: inline-block; background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 10px; padding: 2px 8px;
+    font-size: 10px; color: rgba(255,255,255,0.9); margin-top: 6px;
+  }
+  .perm-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .perm-item:last-child { border-bottom: none; }
+  .perm-ic { font-size: 18px; }
+  .perm-label { font-size: 14px; color: #fff; flex: 1; }
+  .perm-desc { font-size: 11px; color: rgba(255,255,255,0.55); margin-top: 2px; }
+  .perm-status-on {
+    font-size: 11px; font-weight: 600;
+    color: #22c55e; background: rgba(34,197,94,0.2);
+    padding: 4px 10px; border-radius: 10px;
+  }
+  .perm-status-off {
+    font-size: 11px; font-weight: 600;
+    color: #f59e0b; background: rgba(245,158,11,0.2);
+    padding: 4px 10px; border-radius: 10px;
+  }
+  .switch {
+    width: 44px; height: 24px; border-radius: 12px;
+    background: rgba(255,255,255,0.2); position: relative;
+  }
+  .switch.on { background: #3b82f6; }
+  .switch::after {
+    content: ''; position: absolute;
+    top: 2px; left: 2px;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #fff; transition: left 0.2s;
+  }
+  .switch.on::after { left: 22px; }
+  .danger-item {
+    background: rgba(239,68,68,0.15);
+    border: 1px solid rgba(239,68,68,0.3);
+    color: #fca5a5 !important;
+  }
+  .danger-item .menu-label { color: #fca5a5; }
+
+  /* ===== 登录/注册 ===== */
+  .auth-logo {
+    text-align: center; margin-top: 60px; margin-bottom: 30px;
+  }
+  .auth-logo .ic {
+    width: 72px; height: 72px; border-radius: 20px;
+    background: linear-gradient(135deg, #a78bfa, #3b82f6);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 32px; margin-bottom: 14px;
+    box-shadow: 0 10px 30px rgba(59,130,246,0.4);
+  }
+  .auth-logo .t { font-size: 26px; font-weight: 700; color: #fff; }
+  .auth-logo .s { font-size: 13px; color: rgba(255,255,255,0.55); margin-top: 4px; }
+  .auth-field {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 14px; padding: 14px 16px;
+    margin-bottom: 12px; font-size: 14px; color: #fff;
+  }
+  .auth-field .ph { color: rgba(255,255,255,0.45); }
+  .auth-btn {
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    border-radius: 14px; padding: 16px;
+    text-align: center; font-size: 15px; font-weight: 600; color: #fff;
+    margin-top: 8px; margin-bottom: 14px;
+    box-shadow: 0 8px 24px rgba(59,130,246,0.4);
+  }
+  .auth-link {
+    text-align: center; font-size: 13px;
+    color: rgba(255,255,255,0.55);
+  }
+  .auth-link a { color: #a78bfa; text-decoration: none; }
+
+  /* ===== Key 输入 ===== */
+  .key-card {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 20px; padding: 24px;
+    margin-top: 40px; text-align: center;
+  }
+  .key-card .ic {
+    width: 64px; height: 64px; border-radius: 50%;
+    background: rgba(59,130,246,0.3);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 28px; margin-bottom: 16px;
+  }
+  .progress-step {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 20px; font-size: 12px; color: rgba(255,255,255,0.6);
+  }
+  .step-dot {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600;
+  }
+  .step-dot.active { background: #3b82f6; color: #fff; }
+  .step-dot.done { background: #22c55e; color: #fff; }
+  .step-dot.pending { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.4); }
+
+  /* ===== 弹窗 ===== */
+  .dialog-overlay {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 20;
+  }
+  .dialog {
+    width: 85%; background: #1e1b4b;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 20px; padding: 20px;
+  }
+  .dialog .dt { font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 10px; }
+  .dialog .db { font-size: 13px; color: rgba(255,255,255,0.7); line-height: 1.5; margin-bottom: 18px; }
+  .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .dlg-btn {
+    padding: 8px 16px; border-radius: 10px;
+    font-size: 13px; font-weight: 500; border: none; cursor: pointer;
+  }
+  .dlg-cancel { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); }
+  .dlg-confirm { background: #3b82f6; color: #fff; }
+  .dlg-danger { background: rgba(239,68,68,0.2); color: #fca5a5; }
+
+  /* 空状态 */
+  .empty { text-align: center; padding: 40px 20px; color: rgba(255,255,255,0.4); }
+  .empty .ei { font-size: 48px; margin-bottom: 12px; }
+
+  @media (max-width: 800px) {
+    .phones { gap: 28px; }
+    .phone { width: 320px; height: 680px; }
+  }
+</style>
+</head>
+<body>
+<h1>PushApp 全页面预览</h1>
+<p class="subtitle">玻璃拟态 · 深紫渐变 · 8 屏 + 弹窗 · 安卓版</p>
+
+<div class="phones">
+
+  <!-- ========== 1. 登录 ========== -->
+  <div>
+    <div class="phone-label">① 登录</div>
+    <div class="phone">
+      <div class="screen">
+        <div class="blob3"></div>
+        <div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+        <div class="content">
+          <div class="auth-logo">
+            <div class="ic">📬</div>
+            <div class="t">PushApp</div>
+            <div class="s">实时推送 · 即时通讯</div>
+          </div>
+          <div class="auth-field"><span class="ph">用户名 / 邮箱</span></div>
+          <div class="auth-field"><span class="ph">密码</span></div>
+          <div class="auth-btn">登录</div>
+          <div class="auth-link">还没有账号？ <a href="#">立即注册</a></div>
+        </div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 2. Key 输入 ========== -->
+  <div>
+    <div class="phone-label">② Key 输入</div>
+    <div class="phone">
+      <div class="screen">
+        <div class="blob3"></div>
+        <div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+        <div class="content">
+          <div class="auth-logo" style="margin-top:40px">
+            <div class="ic">🔑</div>
+            <div class="t">输入推送 Key</div>
+            <div class="s">仅需 Key 即可使用，无需注册</div>
+          </div>
+          <div class="auth-field" style="text-align:center; letter-spacing:2px; color:#a78bfa;">●●●●●●●●●●●●●●</div>
+          <div class="auth-btn">连接</div>
+          <div class="key-card" style="margin-top:0">
+            <div class="progress-step"><span class="step-dot done">✓</span><span>验证 Key</span></div>
+            <div class="progress-step"><span class="step-dot active">2</span><span>建立 WebSocket</span></div>
+            <div class="progress-step"><span class="step-dot pending">3</span><span>设备鉴权</span></div>
+            <div class="progress-step"><span class="step-dot pending">4</span><span>同步历史消息</span></div>
+          </div>
+        </div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 3. 首页 ========== -->
+  <div>
+    <div class="phone-label">③ 首页</div>
+    <div class="phone">
+      <div class="screen">
+        <div class="blob3"></div>
+        <div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+        <div class="content">
+          <div class="greet-row">
+            <div>
+              <div class="greet-hello">上午好 👋</div>
+              <div class="greet-title">首页</div>
+              <div style="margin-top:4px; font-size:11px; color:rgba(255,255,255,0.7)">
+                <span class="dot-online"></span> WebSocket 已连接
+              </div>
+            </div>
+            <div class="gear-btn">⚙️</div>
+          </div>
+
+          <div class="glass-card-tall conn-card">
+            <div class="conn-icon">
+              <div class="conn-dot" style="background:#22c55e"></div>
+            </div>
+            <div style="flex:1">
+              <div style="font-size:17px; font-weight:700; color:#fff">WebSocket 已连接</div>
+              <div style="font-size:12px; color:rgba(255,255,255,0.7)">消息推送实时在线</div>
+            </div>
+          </div>
+
+          <div class="stats-row">
+            <div class="stat-card">
+              <div class="stat-label"><span class="stat-accent" style="background:#3b82f6"></span>今日消息</div>
+              <div class="stat-val">12</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label"><span class="stat-accent" style="background:#10b981"></span>累计接收</div>
+              <div class="stat-val">284</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label"><span class="stat-accent" style="background:#f59e0b"></span>在线时长</div>
+              <div class="stat-val">3m</div>
+            </div>
+          </div>
+
+          <div class="quick-row">
+            <div class="quick-btn"><div class="qi">🔔</div><div class="ql">测试推送</div></div>
+            <div class="quick-btn"><div class="qi">⚡</div><div class="ql">重新连接</div></div>
+            <div class="quick-btn"><div class="qi">📋</div><div class="ql">复制ID</div></div>
+            <div class="quick-btn"><div class="qi">🗑️</div><div class="ql">清空</div></div>
+          </div>
+
+          <div class="section-title"><span class="t">最近消息</span><span class="m">查看全部 ›</span></div>
+
+          <div class="msg-row">
+            <div class="msg-dot" style="background:#ef4444"></div>
+            <div style="flex:1">
+              <div class="msg-title-row"><span class="msg-title">高优先服务器告警</span><span class="msg-time">刚刚</span></div>
+              <div class="msg-content">CPU 使用率超过 90%，请立即检查 api-03 实例...</div>
+            </div>
+          </div>
+          <div class="msg-row">
+            <div class="msg-dot" style="background:#94a3b8"></div>
+            <div style="flex:1">
+              <div class="msg-title-row"><span class="msg-title">每日推送统计报告</span><span class="msg-time">5分钟前</span></div>
+              <div class="msg-content">今日推送总量 1,284 条，较昨日增长 12%...</div>
+            </div>
+          </div>
+          <div class="msg-row">
+            <div class="msg-dot" style="background:#94a3b8"></div>
+            <div style="flex:1">
+              <div class="msg-title-row"><span class="msg-title">🔔 系统通知</span><span class="msg-time">1小时前</span></div>
+              <div class="msg-content">PushApp v1.2.0 已发布，新增深色模式和权限引导</div>
+            </div>
+          </div>
+        </div>
+        <div class="bottom-nav">
+          <div class="nav-item active"><div class="nav-icon">🏠</div>首页</div>
+          <div class="nav-item"><div class="nav-icon">📋</div>消息</div>
+          <div class="nav-item"><div class="nav-icon">👤</div>我的</div>
+        </div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 4. 消息列表 ========== -->
+  <div>
+    <div class="phone-label">④ 消息列表</div>
+    <div class="phone">
+      <div class="screen">
+        <div class="blob3"></div>
+        <div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+        <div class="content">
+          <div class="topbar">
+            <div>
+              <div class="title">消息</div>
+              <div class="count">共 128 条</div>
+            </div>
+            <div>
+              <span class="icon-btn">🔍</span>
+              <span class="icon-btn">✉️</span>
+              <span class="icon-btn">🗑️</span>
+            </div>
+          </div>
+
+          <div class="tabs-row">
+            <div class="tab active">全部 · 128</div>
+            <div class="tab">高优先 · 12</div>
+            <div class="tab">系统 · 8</div>
+            <div class="tab">已读 · 108</div>
+          </div>
+
+          <div class="search-bar">🔍 搜索消息内容...</div>
+
+          <div class="msg-row">
+            <div class="msg-dot" style="background:#ef4444"></div>
+            <div style="flex:1">
+              <div class="msg-title-row"><span class="msg-title" style="font-weight:700">高优先服务器告警</span><span class="msg-time">刚刚</span></div>
+              <div class="msg-content">CPU 使用率超过 90%，请立即检查 api-03 实例...</div>
+              <div style="margin-top:6px; display:flex; gap:6px">
+                <span class="badge" style="background:rgba(239,68,68,0.2); color:#fca5a5">🔴 高优先</span>
+                <span class="badge" style="background:rgba(59,130,246,0.25); color:#93c5fd">未读</span>
+              </div>
+            </div>
+          </div>
+          <div class="msg-row">
+            <div class="msg-dot" style="background:#94a3b8"></div>
+            <div style="flex:1">
+              <div class="msg-title-row"><span class="msg-title">📊 每日推送统计报告</span><span class="msg-time">5分钟前</span></div>
+              <div class="msg-content">今日推送总量 1,284 条，较昨日增长 12%...</div>
+            </div>
+          </div>
+          <div class="msg-row">
+            <div class="msg-dot" style="background:#10b981"></div>
+            <div style="flex:1">
+              <div class="msg-title-row"><span class="msg-title">🔔 系统通知</span><span class="msg-time">1小时前</span></div>
+              <div class="msg-content">PushApp v1.2.0 已发布，新增深色模式和权限引导</div>
+              <div style="margin-top:6px">
+                <span class="badge" style="background:rgba(99,102,241,0.2); color:#a5b4fc">系统</span>
+              </div>
+            </div>
+          </div>
+          <div class="msg-row">
+            <div class="msg-dot" style="background:#94a3b8"></div>
+            <div style="flex:1">
+              <div class="msg-title-row"><span class="msg-title">🚀 部署完成</span><span class="msg-time">昨天</span></div>
+              <div class="msg-content">服务端 v2.1.5 已部署成功，耗时 2m34s</div>
+            </div>
+          </div>
+        </div>
+        <div class="bottom-nav">
+          <div class="nav-item"><div class="nav-icon">🏠</div>首页</div>
+          <div class="nav-item active"><div class="nav-icon">📋</div>消息</div>
+          <div class="nav-item"><div class="nav-icon">👤</div>我的</div>
+        </div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 5. 我的 ========== -->
+  <div>
+    <div class="phone-label">⑤ 我的</div>
+    <div class="phone">
+      <div class="screen">
+        <div class="blob3"></div>
+        <div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+        <div class="content">
+          <div class="greet-row">
+            <div>
+              <div class="greet-hello">👋 你好，Push 用户</div>
+              <div class="greet-title">我的</div>
+            </div>
+            <div class="gear-btn">⚙️</div>
+          </div>
+
+          <div class="user-card">
+            <div class="user-top">
+              <div class="avatar">P</div>
+              <div style="flex:1">
+                <div class="user-name">Push 用户</div>
+                <div class="user-id">ID: a3f8k29m-4x7p-0q1w</div>
+              </div>
+              <div style="font-size:16px; color:rgba(255,255,255,0.5)">📋</div>
+            </div>
+            <div class="status-row">
+              <div class="stat-badge"><div class="v" style="color:#22c55e">● 在线</div>WebSocket 已连接</div>
+              <div class="stat-badge"><div class="v" style="color:#a78bfa">已配置</div>推送 Key</div>
+            </div>
+            <div class="quick-row" style="margin-top:14px">
+              <div class="mini-btn"><div class="qi">🔔</div>测试推送</div>
+              <div class="mini-btn"><div class="qi">⚡</div>重新连接</div>
+              <div class="mini-btn"><div class="qi">📋</div>复制ID</div>
+              <div class="mini-btn"><div class="qi">🗑️</div>清空</div>
+            </div>
+          </div>
+
+          <div class="menu-section">
+            <div class="menu-section-title">服务器配置</div>
+            <div class="menu-card">
+              <div class="menu-item"><div class="menu-ic">🌐</div><div class="menu-label">服务器地址</div><div class="menu-val">api.example.com</div><span class="menu-arrow">›</span></div>
+              <div class="menu-item"><div class="menu-ic">🔑</div><div class="menu-label">推送 Key</div><div class="menu-val">自定义</div><span class="menu-arrow">›</span></div>
+              <div class="menu-item"><div class="menu-ic">⚡</div><div class="menu-label">心跳间隔</div><div class="menu-val">30 秒</div><span class="menu-arrow">›</span></div>
+            </div>
+          </div>
+
+          <div class="menu-section">
+            <div class="menu-section-title">其他</div>
+            <div class="menu-card">
+              <div class="menu-item"><div class="menu-ic" style="background:rgba(34,197,94,0.2); color:#22c55e">📄</div><div class="menu-label">消息列表</div><div class="menu-val">128 条</div><span class="menu-arrow">›</span></div>
+              <div class="menu-item"><div class="menu-ic" style="background:rgba(59,130,246,0.2); color:#60a5fa">ℹ️</div><div class="menu-label">关于</div><div class="menu-val">v1.0.0</div><span class="menu-arrow">›</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="bottom-nav">
+          <div class="nav-item"><div class="nav-icon">🏠</div>首页</div>
+          <div class="nav-item"><div class="nav-icon">📋</div>消息</div>
+          <div class="nav-item active"><div class="nav-icon">👤</div>我的</div>
+        </div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 6. 设置 ========== -->
+  <div>
+    <div class="phone-label">⑥ 设置</div>
+    <div class="phone">
+      <div class="screen">
+        <div class="blob3"></div>
+        <div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+        <div class="content">
+          <div class="greet-row">
+            <div>
+              <div class="greet-hello">APP 设置</div>
+              <div class="greet-title">权限引导</div>
+            </div>
+          </div>
+
+          <div class="brand-banner">
+            <div class="brand-title">📱 Xiaomi 14 Ultra · HyperOS</div>
+            <div class="brand-sub">检测到当前设备，点击下方权限项跳转系统设置</div>
+            <div class="mi-chip">MIUI</div>
+          </div>
+
+          <div class="menu-card" style="margin-bottom:14px">
+            <div class="perm-item">
+              <span class="perm-ic">🔔</span>
+              <div style="flex:1">
+                <div class="perm-label">通知权限</div>
+                <div class="perm-desc">允许接收推送消息通知</div>
+              </div>
+              <span class="perm-status-on">✓ 已开启</span>
+            </div>
+            <div class="perm-item">
+              <span class="perm-ic">🛡️</span>
+              <div style="flex:1">
+                <div class="perm-label">自启动</div>
+                <div class="perm-desc">允许 APP 开机自启，保持后台在线</div>
+              </div>
+              <span class="perm-status-off">未开启 ›</span>
+            </div>
+            <div class="perm-item">
+              <span class="perm-ic">🔋</span>
+              <div style="flex:1">
+                <div class="perm-label">电池优化白名单</div>
+                <div class="perm-desc">防止系统杀后台进程</div>
+              </div>
+              <span class="perm-status-off">未加入 ›</span>
+            </div>
+            <div class="perm-item">
+              <span class="perm-ic">🔒</span>
+              <div style="flex:1">
+                <div class="perm-label">锁屏清理保护</div>
+                <div class="perm-desc">锁屏后保持 APP 运行</div>
+              </div>
+              <span class="perm-status-off">未开启 ›</span>
+            </div>
+            <div class="perm-item">
+              <span class="perm-ic">🪟</span>
+              <div style="flex:1">
+                <div class="perm-label">后台弹出界面</div>
+                <div class="perm-desc">允许后台弹窗显示推送</div>
+              </div>
+              <span class="perm-status-off">未开启 ›</span>
+            </div>
+          </div>
+
+          <div class="menu-section-title">通用</div>
+          <div class="menu-card" style="margin-bottom:14px">
+            <div class="menu-item"><span class="perm-ic">🎨</span><div class="menu-label">主题</div><div class="menu-val">深色（默认）</div><span class="menu-arrow">›</span></div>
+            <div class="menu-item"><span class="perm-ic">📳</span><div class="menu-label">震动反馈</div><div class="menu-val">推送时震动</div><div class="switch on"></div></div>
+          </div>
+
+          <div class="menu-section-title">网络</div>
+          <div class="menu-card" style="margin-bottom:14px">
+            <div class="menu-item"><span class="perm-ic">📶</span><div class="menu-label">仅 Wi-Fi 连接</div><div class="menu-val">节省流量</div><div class="switch"></div></div>
+            <div class="menu-item"><span class="perm-ic">🔄</span><div class="menu-label">自动重连</div><div class="menu-val">网络恢复时自动重连</div><div class="switch on"></div></div>
+          </div>
+
+          <div class="menu-section-title">存储</div>
+          <div class="menu-card" style="margin-bottom:14px">
+            <div class="menu-item"><span class="perm-ic">💾</span><div class="menu-label">存储占用</div><div class="menu-val">4.2 MB</div></div>
+            <div class="menu-item"><span class="perm-ic">🗑️</span><div class="menu-label">清除缓存</div><div class="menu-val">消息记录、图片</div><span class="menu-arrow">›</span></div>
+          </div>
+
+          <div class="menu-section-title">关于</div>
+          <div class="menu-card" style="margin-bottom:14px">
+            <div class="menu-item"><span class="perm-ic">ℹ️</span><div class="menu-label">版本信息</div><div class="menu-val">v1.0.0</div></div>
+          </div>
+
+          <div class="menu-card" style="margin-bottom:20px">
+            <div class="menu-item danger-item"><span class="perm-ic">🚪</span><div class="menu-label">退出登录</div></div>
+          </div>
+        </div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 7. 弹窗预览 ========== -->
+  <div>
+    <div class="phone-label">⑦ 弹窗（不遮挡）</div>
+    <div class="phone">
+      <div class="screen">
+        <div class="blob3"></div>
+        <div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+        <div class="content" style="display:flex; align-items:center; justify-content:center">
+          <div style="text-align:center; color:rgba(255,255,255,0.3); font-size:14px">背景页面</div>
+        </div>
+        <div class="dialog-overlay">
+          <div class="dialog">
+            <div class="dt">清空所有消息？</div>
+            <div class="db">此操作不可恢复，所有本地消息将被永久删除。确认继续吗？</div>
+            <div class="dialog-actions">
+              <button class="dlg-btn dlg-cancel">取消</button>
+              <button class="dlg-btn dlg-danger">清空</button>
+            </div>
+          </div>
+        </div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // 让弹窗可以切换点击
+  document.querySelectorAll('.phone').forEach(p => {
+    const hasDialog = p.querySelector('.dialog-overlay');
+    if (!hasDialog) return;
+    p.addEventListener('click', () => {
+      hasDialog.style.display = hasDialog.style.display === 'none' ? 'flex' : 'none';
+    });
+  });
+</script>
+</body>
+</html>

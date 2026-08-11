@@ -1,8 +1,6 @@
-package com.push.app.ui.screen
+﻿package com.push.app.ui.screen
 
-import android.content.Intent
-import android.os.Build
-import androidx.compose.foundation.background
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,19 +8,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Connection
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,140 +30,192 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.push.app.R
+import com.push.app.PushApplication
 import com.push.app.data.PushRepository
-import com.push.app.ui.theme.BrandBlue
-import com.push.app.ui.theme.BrandPurple
+import com.push.app.ui.theme.GlassBackground
+import com.push.app.ui.theme.GlassCard
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/**
- * Key 输入页面。
- *
- * 流程：输入 Key → 前端校验 → 保存到 DataStore → 启动保活 Service → 跳转首页。
- */
 @Composable
-fun KeyInputScreen(onSaved: () -> Unit) {
+fun KeyInputScreen(
+    onSaved: () -> Unit,
+) {
     val context = LocalContext.current
     val repo = PushRepository.get(context)
     val scope = rememberCoroutineScope()
+    val app = remember { context.applicationContext as PushApplication }
 
     var key by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    var saving by remember { mutableStateOf(false) }
+    var serverUrl by remember { mutableStateOf("") }
+    var wsUrl by remember { mutableStateOf("") }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        // 顶部图标（渐变背景圆形）
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        val cfg = app.globalConfig
+        val savedKey = repo.prefs.keyFlow.first()
+        key = savedKey.ifBlank { cfg.defaultKey }
+        serverUrl = repo.prefs.httpServerUrlFlow.first()
+            .ifBlank { cfg.serverUrl }
+        wsUrl = repo.prefs.wsUrlFlow.first()
+            .ifBlank { cfg.wsUrl }
+    }
+
+    GlassBackground {
         Box(
             modifier = Modifier
-                .size(96.dp)
-                .clip(RoundedCornerShape(28.dp))
-                .background(
-                    Brush.linearGradient(listOf(BrandBlue, BrandPurple))
-                ),
+                .fillMaxSize()
+                .imePadding()
+                .padding(24.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                Icons.Filled.Key,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(48.dp),
-            )
-        }
+            GlassCard(
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                ) {
+                    Text(
+                        text = "配置推送 Key",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "输入推送 Key 与服务器地址以建立连接",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
 
-        Spacer(Modifier.height(24.dp))
-        Text(
-            text = stringResource(R.string.key_input_title),
-            style = MaterialTheme.typography.headlineSmall,
-        )
-        Spacer(Modifier.height(32.dp))
+                    Spacer(Modifier.height(24.dp))
 
-        // Key 输入框（按密文方式显示，避免泄露）
-        OutlinedTextField(
-            value = key,
-            onValueChange = {
-                key = it
-                error = null
-            },
-            label = { Text(stringResource(R.string.key_input_hint)) },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            isError = error != null,
-            supportingText = {
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
+                    OutlinedTextField(
+                        value = key,
+                        onValueChange = { key = it; error = null },
+                        label = { Text("推送 Key") },
+                        leadingIcon = { Icon(Icons.Filled.Key, contentDescription = null) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
 
-        Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(12.dp))
 
-        Button(
-            onClick = {
-                // 前端校验
-                when {
-                    key.isBlank() -> error = context.getString(R.string.key_input_empty)
-                    key.trim().length < 4 -> error = context.getString(R.string.key_input_invalid)
-                    else -> {
-                        saving = true
-                        scope.launch {
-                            repo.saveKey(key)
-                            // 启动保活 Service
-                            startPushService(context)
-                            saving = false
-                            onSaved()
+                    OutlinedTextField(
+                        value = serverUrl,
+                        onValueChange = { serverUrl = it; error = null },
+                        label = { Text("服务器地址 (HTTP)") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    Spacer(Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = wsUrl,
+                        onValueChange = { wsUrl = it; error = null },
+                        label = { Text("WebSocket 地址 (WS)") },
+                        leadingIcon = { Icon(Icons.Filled.Connection, contentDescription = null) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    error?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = it,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+
+                    Button(
+                        onClick = {
+                            if (key.isBlank()) {
+                                error = "请输入推送 Key"
+                                return@Button
+                            }
+                            loading = true
+                            error = null
+                            scope.launch {
+                                try {
+                                    repo.prefs.saveKey(key)
+                                    repo.prefs.saveHttpServerUrl(serverUrl)
+                                    repo.prefs.saveWsUrl(wsUrl)
+                                    repo.connect()
+                                    Toast.makeText(context, "已保存并连接", Toast.LENGTH_SHORT).show()
+                                    onSaved()
+                                } catch (e: Exception) {
+                                    error = e.message?.ifBlank { "保存失败" } ?: "保存失败"
+                                } finally {
+                                    loading = false
+                                }
+                            }
+                        },
+                        enabled = !loading,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                    ) {
+                        if (loading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.height(20.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Text("保存并连接", style = MaterialTheme.typography.titleMedium)
                         }
                     }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    Text(
+                        text = "当前配置",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    CurrentValueRow(label = "推送 Key", value = key.ifBlank { "未设置" })
+                    CurrentValueRow(label = "HTTP 地址", value = serverUrl.ifBlank { "未设置" })
+                    CurrentValueRow(label = "WS 地址", value = wsUrl.ifBlank { "未设置" })
                 }
-            },
-            enabled = !saving,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
-        ) {
-            if (saving) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    strokeWidth = 2.dp,
-                )
-            } else {
-                Text(stringResource(R.string.save), style = MaterialTheme.typography.titleMedium)
             }
         }
-
-        Spacer(Modifier.height(16.dp))
-        Text(
-            text = "输入推送 Key 即可开始接收消息，无需注册",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
     }
 }
 
-/** 启动前台保活 Service（适配 Android 8+） */
-private fun startPushService(context: android.content.Context) {
-    val intent = Intent(context, com.push.app.service.PushService::class.java).apply {
-        action = com.push.app.service.PushService.ACTION_START
-    }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        context.startForegroundService(intent)
-    } else {
-        context.startService(intent)
+@Composable
+private fun CurrentValueRow(label: String, value: String) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        Spacer(Modifier.height(4.dp))
     }
 }

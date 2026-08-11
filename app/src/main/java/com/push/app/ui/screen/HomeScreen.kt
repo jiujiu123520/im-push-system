@@ -1,5 +1,6 @@
-package com.push.app.ui.screen
+﻿package com.push.app.ui.screen
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,53 +14,38 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.BugReport
-import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Push
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.push.app.R
 import com.push.app.data.ConnectionState
 import com.push.app.data.PushMessage
 import com.push.app.data.PushRepository
 import com.push.app.data.TestPushApi
-import com.push.app.ui.theme.BrandBlue
-import com.push.app.ui.theme.BrandPurple
+import com.push.app.ui.theme.GlassBackground
+import com.push.app.ui.theme.GlassCard
 import com.push.app.ui.theme.StatusOffline
 import com.push.app.ui.theme.StatusOnline
 import com.push.app.ui.theme.StatusWarning
@@ -69,10 +55,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * 首页：展示连接状态与最近消息，支持发送测试推送。
- */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onNavigateToMessages: () -> Unit,
@@ -80,283 +62,289 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val repo = PushRepository.get(context)
+    val scope = rememberCoroutineScope()
+    val testPushApi = remember { TestPushApi(context) }
+
     val connectionState by repo.connectionState.collectAsState()
     val messages by repo.messages.collectAsState()
-    val scope = rememberCoroutineScope()
-    val snackbarHostState = remember { SnackbarHostState() }
+    val wsUrl by repo.prefs.wsUrlFlow.collectAsState(initial = "")
 
-    // 用户已设置的 Key 与 build_config.json 中的默认 Key（用于显示提示）
-    val userKey by repo.preferencesManager.keyFlow.collectAsState(initial = "")
-    val defaultKey by repo.preferencesManager.defaultKeyFlow.collectAsState(initial = "")
-
-    var testing by remember { mutableStateOf(false) }
-
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-
-    Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            LargeTopAppBar(
-                title = { Text(stringResource(R.string.home_title)) },
-                actions = {
-                    // 测试推送按钮
-                    IconButton(
-                        onClick = {
-                            if (testing) return@IconButton
-                            scope.launch {
-                                testing = true
-                                try {
-                                    val key = repo.preferencesManager.keyFlow.first()
-                                        .ifBlank { repo.preferencesManager.defaultKeyFlow.first() }
-                                    val serverUrl = repo.preferencesManager.httpServerUrlFlow.first()
-                                    if (key.isBlank()) {
-                                        snackbarHostState.showSnackbar("请先输入 Key")
-                                        return@launch
-                                    }
-                                    val api = TestPushApi(context)
-                                    val result = api.sendTestPush(key, serverUrl, repo.getDeviceIdPublic())
-                                    val msg = if (result.success) {
-                                        "测试推送成功（${result.elapsed_ms}ms）"
-                                    } else {
-                                        "测试推送：${result.message}"
-                                    }
-                                    snackbarHostState.showSnackbar(msg)
-                                } catch (e: Exception) {
-                                    snackbarHostState.showSnackbar("测试失败：${e.message}")
-                                } finally {
-                                    testing = false
-                                }
-                            }
-                        },
-                        enabled = !testing,
-                    ) {
-                        if (testing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        } else {
-                            Icon(Icons.Filled.BugReport, contentDescription = stringResource(R.string.home_test_push))
-                        }
-                    }
-                    IconButton(onClick = onNavigateToSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.settings_title))
-                    }
-                },
-                scrollBehavior = scrollBehavior,
-            )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-    ) { padding ->
+    GlassBackground {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                top = 16.dp,
+                bottom = 120.dp,
+            ),
         ) {
             item {
-                ConnectionStatusCard(connectionState)
+                StatusCard(
+                    state = connectionState,
+                    wsUrl = wsUrl,
+                    onSettings = onNavigateToSettings,
+                )
             }
-            // 测试推送快捷按钮
+
             item {
-                OutlinedButton(
-                    onClick = {
-                        if (testing) return@OutlinedButton
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onNavigateToMessages,
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "最近消息",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            TextButton(onClick = onNavigateToMessages) {
+                                Text("查看全部")
+                            }
+                        }
+
+                        val recent = messages.takeLast(3).reversed()
+                        if (recent.isEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = "暂无消息",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 24.dp),
+                            )
+                        } else {
+                            recent.forEachIndexed { index, msg ->
+                                if (index > 0) {
+                                    Spacer(Modifier.height(8.dp))
+                                }
+                                RecentMessageItem(msg = msg)
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                QuickActionsRow(
+                    onTestPush = {
                         scope.launch {
-                            testing = true
                             try {
-                                val key = repo.preferencesManager.keyFlow.first()
-                                    .ifBlank { repo.preferencesManager.defaultKeyFlow.first() }
-                                val serverUrl = repo.preferencesManager.httpServerUrlFlow.first()
-                                if (key.isBlank()) {
-                                    snackbarHostState.showSnackbar("请先输入 Key")
-                                    return@launch
-                                }
-                                val api = TestPushApi(context)
-                                val result = api.sendTestPush(key, serverUrl, repo.getDeviceIdPublic())
-                                val msg = if (result.success) {
-                                    "测试推送成功（${result.elapsed_ms}ms），请查看通知栏"
-                                } else {
-                                    "测试推送：${result.message}"
-                                }
-                                snackbarHostState.showSnackbar(msg)
+                                val key = repo.prefs.keyFlow.first()
+                                val serverUrl = repo.prefs.httpServerUrlFlow.first()
+                                val deviceId = repo.getDeviceIdPublic()
+                                val result = testPushApi.sendTestPush(key, serverUrl, deviceId)
+                                Toast.makeText(
+                                    context,
+                                    if (result.success) "测试推送已发送" else "发送失败",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
                             } catch (e: Exception) {
-                                snackbarHostState.showSnackbar("测试失败：${e.message}")
-                            } finally {
-                                testing = false
+                                Toast.makeText(
+                                    context,
+                                    e.message ?: "发送失败",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !testing,
-                ) {
-                    if (testing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    } else {
-                        Icon(Icons.Filled.BugReport, contentDescription = null, modifier = Modifier.size(18.dp))
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.home_test_push))
-                }
-            }
-            // 默认 Key 提示：用户未设置 Key 且 build_config.json 提供了默认 Key 时显示
-            if (userKey.isBlank() && defaultKey.isNotBlank()) {
-                item {
-                    Text(
-                        text = "默认 Key：$defaultKey（未设置自定义 Key 时使用）",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
-                    )
-                }
-            }
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = stringResource(R.string.home_recent_messages),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    FilledTonalButton(onClick = onNavigateToMessages) {
-                        Text(stringResource(R.string.message_list_title))
-                        Spacer(Modifier.width(6.dp))
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                }
-            }
-            if (messages.isEmpty()) {
-                item { EmptyMessageHint() }
-            } else {
-                items(repo.recentMessages(5)) { msg ->
-                    MessageItemCard(msg)
-                }
+                    onReconnect = {
+                        repo.reconnect()
+                        Toast.makeText(context, "正在重连...", Toast.LENGTH_SHORT).show()
+                    },
+                    onClear = {
+                        scope.launch {
+                            repo.clearMessages()
+                            Toast.makeText(context, "已清空消息", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                )
             }
         }
     }
 }
 
-/**
- * 连接状态卡片，带渐变背景与状态指示灯。
- */
 @Composable
-private fun ConnectionStatusCard(state: ConnectionState) {
-    val (text, color) = when (state) {
-        ConnectionState.CONNECTED -> stringResource(R.string.home_connected) to StatusOnline
-        ConnectionState.CONNECTING -> "连接中" to StatusWarning
-        ConnectionState.RECONNECTING -> "重连中" to StatusWarning
-        ConnectionState.DISCONNECTED -> stringResource(R.string.home_disconnected) to StatusOffline
+private fun StatusCard(
+    state: ConnectionState,
+    wsUrl: String,
+    onSettings: () -> Unit = {},
+) {
+    val label = when (state) {
+        ConnectionState.CONNECTED -> "在线"
+        ConnectionState.CONNECTING -> "连接中"
+        ConnectionState.RECONNECTING -> "重连中"
+        ConnectionState.DISCONNECTED -> "离线"
+    }
+    val color = when (state) {
+        ConnectionState.CONNECTED -> StatusOnline
+        ConnectionState.CONNECTING,
+        ConnectionState.RECONNECTING -> StatusWarning
+        ConnectionState.DISCONNECTED -> StatusOffline
     }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-    ) {
-        Box(
+    GlassCard(modifier = Modifier.fillMaxWidth()) {
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    Brush.linearGradient(listOf(BrandBlue, BrandPurple)),
-                    shape = RoundedCornerShape(20.dp),
-                )
-                .padding(20.dp),
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(color),
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = stringResource(R.string.home_connection_status),
-                    color = Color.White.copy(alpha = 0.85f),
-                    style = MaterialTheme.typography.labelLarge,
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .clip(CircleShape)
-                            .background(color),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = text,
-                        color = Color.White,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** 消息项卡片 */
-@Composable
-private fun MessageItemCard(message: PushMessage) {
-    val time = SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault())
-        .format(Date(message.timestamp))
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = message.title.ifBlank { stringResource(R.string.app_name) },
-                    style = MaterialTheme.typography.titleSmall,
+                    text = label,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
-                Spacer(Modifier.width(8.dp))
                 Text(
-                    text = time,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
+                    text = wsUrl.ifBlank { "未连接" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = message.content,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
+            IconButton(onClick = onSettings) {
+                Icon(
+                    imageVector = Icons.Filled.Settings,
+                    contentDescription = "设置",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Icon(
+                imageVector = when (state) {
+                    ConnectionState.CONNECTED -> Icons.Filled.CheckCircle
+                    ConnectionState.DISCONNECTED -> Icons.Filled.WifiOff
+                    else -> Icons.Filled.Refresh
+                },
+                contentDescription = null,
+                tint = color,
             )
         }
     }
 }
 
-/** 空消息提示 */
 @Composable
-private fun EmptyMessageHint() {
+private fun RecentMessageItem(msg: PushMessage) {
+    val timeText = remember(msg.timestamp) {
+        val fmt = SimpleDateFormat("HH:mm", Locale.getDefault())
+        fmt.format(Date(msg.timestamp))
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 48.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White.copy(alpha = 0.05f))
+            .padding(12.dp),
     ) {
-        Icon(
-            Icons.Filled.Notifications,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.outline,
-            modifier = Modifier.size(48.dp),
-        )
-        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = msg.title.ifBlank { "(无标题)" },
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = timeText,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.height(4.dp))
         Text(
-            text = stringResource(R.string.home_no_messages),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.outline,
+            text = msg.content,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+@Composable
+private fun QuickActionsRow(
+    onTestPush: () -> Unit,
+    onReconnect: () -> Unit,
+    onClear: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        QuickActionButton(
+            icon = Icons.Filled.Push,
+            label = "测试推送",
+            onClick = onTestPush,
+            modifier = Modifier.weight(1f),
+        )
+        QuickActionButton(
+            icon = Icons.Filled.Refresh,
+            label = "重新连接",
+            onClick = onReconnect,
+            modifier = Modifier.weight(1f),
+        )
+        QuickActionButton(
+            icon = Icons.Filled.DeleteSweep,
+            label = "清空消息",
+            onClick = onClear,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun QuickActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    GlassCard(
+        modifier = modifier,
+        onClick = onClick,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
     }
 }

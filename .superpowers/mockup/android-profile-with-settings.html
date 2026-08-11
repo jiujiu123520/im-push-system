@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>安卓 · 用户中心 + 设置页 预览</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+  min-height: 100vh; padding: 40px 20px; color: #333;
+}
+h1 { text-align: center; color: #fff; margin-bottom: 6px; font-size: 26px; }
+.sub { text-align: center; color: rgba(255,255,255,0.8); margin-bottom: 36px; font-size: 13px; }
+.wrap { display: flex; justify-content: center; gap: 40px; flex-wrap: wrap; }
+
+.phone { width: 412px; height: 915px; background: #0a0a0a; border-radius: 52px; padding: 14px; box-shadow: 0 40px 80px rgba(0,0,0,0.5), 0 0 0 2px #222; position: relative; }
+.notch { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); width: 110px; height: 28px; background: #0a0a0a; border-radius: 0 0 16px 16px; z-index: 100; }
+.screen { width: 100%; height: 100%; border-radius: 40px; overflow: hidden; position: relative; }
+.hi { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); width: 134px; height: 5px; border-radius: 3px; z-index: 30; }
+
+.bg-root { background: linear-gradient(180deg, #1e1b4b 0%, #312e81 35%, #581c87 100%); overflow: hidden; position: relative; }
+.blob { position: absolute; border-radius: 50%; filter: blur(50px); }
+.blob1 { top: -60px; right: -100px; width: 320px; height: 320px; background: rgba(236,72,153,0.4); }
+.blob2 { top: 300px; left: -80px; width: 280px; height: 280px; background: rgba(99,102,241,0.45); }
+.blob3 { bottom: 120px; right: 40px; width: 240px; height: 240px; background: rgba(168,85,247,0.38); }
+
+.sb { height: 54px; padding: 0 24px; display: flex; align-items: flex-end; justify-content: space-between; padding-bottom: 8px; font-size: 15px; font-weight: 600; color: #fff; position: relative; z-index: 5; }
+.scroll { height: calc(100% - 54px - 72px); overflow-y: auto; padding: 0 20px 20px; position: relative; z-index: 2; }
+.scroll.no-nav { height: calc(100% - 54px); }
+.scroll::-webkit-scrollbar { display: none; }
+
+.android-nav-bar { position: absolute; bottom: 0; left: 0; right: 0; height: 72px; background: rgba(13,13,22,0.9); backdrop-filter: blur(20px); border-top: 1px solid rgba(255,255,255,0.08); display: flex; z-index: 20; }
+.android-nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: rgba(255,255,255,0.45); font-size: 11px; gap: 4px; }
+.android-nav-item.active { color: #fff; }
+.android-nav-icon { font-size: 22px; }
+
+.glass-card { background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.22); border-radius: 24px; padding: 20px; }
+.glass-menu { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18); border-radius: 20px; padding: 6px 8px; }
+.glass-section-title { font-size: 11px; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin: 20px 4px 10px; }
+
+.greet-bar { padding-top: 8px; display: flex; justify-content: space-between; align-items: flex-end; }
+.greet-sub { font-size: 13px; color: rgba(255,255,255,0.75); }
+.greet-title { font-size: 26px; font-weight: 700; color: #fff; margin-top: 2px; letter-spacing: -0.5px; }
+.gear-btn {
+  width: 42px; height: 42px; border-radius: 50%;
+  background: rgba(255,255,255,0.14);
+  border: 1px solid rgba(255,255,255,0.22);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; color: #fff; cursor: pointer;
+}
+
+.user-row { display: flex; align-items: center; gap: 14px; }
+.avatar-ring { width: 68px; height: 68px; border-radius: 50%; background: linear-gradient(135deg, #fbbf24, #f472b6); padding: 3px; }
+.avatar-inner { width: 100%; height: 100%; border-radius: 50%; background: rgba(255,255,255,0.3); display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 700; color: #fff; }
+.user-name { font-size: 20px; font-weight: 700; color: #fff; }
+.user-id { font-size: 11px; color: rgba(255,255,255,0.75); font-family: monospace; margin-top: 3px; }
+.user-quick { display: flex; gap: 6px; margin-top: 14px; flex-wrap: wrap; }
+.uchip { font-size: 10px; color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); padding: 4px 10px; border-radius: 10px; }
+.uchip.good { color: #86efac; }
+
+.badge-row { display: flex; gap: 8px; margin-top: 12px; }
+.badge { flex: 1; display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.22); border-radius: 14px; padding: 8px 12px; font-size: 11px; color: #fff; font-weight: 500; }
+.badge-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.badge-dot.green { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+.badge-dot.orange { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+.badge-dot.red { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+
+.actions-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px; }
+.action-btn { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18); border-radius: 18px; padding: 16px 4px; text-align: center; color: #fff; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.action-emoji { font-size: 22px; }
+.action-lbl { font-size: 11px; font-weight: 500; }
+
+.mitem { display: flex; align-items: center; padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.mitem:last-child { border-bottom: none; }
+.micon { width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; margin-right: 14px; flex-shrink: 0; }
+.mtext { flex: 1; font-size: 15px; color: #fff; font-weight: 500; }
+.msub { font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 2px; }
+.mchev { color: rgba(255,255,255,0.4); font-size: 18px; }
+.switch-pill { width: 40px; height: 22px; border-radius: 11px; background: rgba(255,255,255,0.18); position: relative; flex-shrink: 0; }
+.switch-pill.on { background: #22c55e; }
+.switch-pill::after { content: ''; position: absolute; width: 18px; height: 18px; border-radius: 50%; background: #fff; top: 2px; left: 2px; transition: left 0.2s; }
+.switch-pill.on::after { left: 20px; }
+
+.ic-blue { background: rgba(59,130,246,0.2); }
+.ic-purple { background: rgba(139,92,246,0.2); }
+.ic-indigo { background: rgba(99,102,241,0.2); }
+.ic-pink { background: rgba(244,114,182,0.2); }
+.ic-amber { background: rgba(245,158,11,0.2); }
+.ic-green { background: rgba(34,197,94,0.2); }
+.ic-red { background: rgba(239,68,68,0.2); }
+.tc-blue { color: #60a5fa; }
+.tc-purple { color: #c4b5fd; }
+.tc-indigo { color: #a5b4fc; }
+.tc-pink { color: #f9a8d4; }
+.tc-amber { color: #fcd34d; }
+.tc-green { color: #86efac; }
+.tc-red { color: #fca5a5; }
+
+/* 设置页专属 */
+.setting-header { padding-top: 8px; display: flex; align-items: center; gap: 12px; }
+.back-btn { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.22); display: flex; align-items: center; justify-content: center; font-size: 18px; color: #fff; }
+.setting-title { font-size: 22px; font-weight: 700; color: #fff; }
+.theme-row { display: flex; gap: 8px; }
+.theme-chip { flex: 1; padding: 12px; border-radius: 14px; text-align: center; font-size: 12px; color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); }
+.theme-chip.active { background: rgba(139,92,246,0.3); border-color: rgba(168,85,247,0.5); color: #fff; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>📱 用户中心 + 设置页 双屏预览</h1>
+<p class="sub">左：用户中心（有齿轮按钮）· 右：设置页（全屏）</p>
+
+<div class="wrap">
+
+  <!-- ========== 左：用户中心 ========== -->
+  <div class="phone">
+    <div class="notch"></div>
+    <div class="screen bg-root">
+      <div class="blob blob1"></div>
+      <div class="blob blob2"></div>
+      <div class="blob blob3"></div>
+
+      <div class="sb"><span>9:41</span><span>●●● ● 🔋</span></div>
+      <div class="scroll">
+
+        <div class="greet-bar">
+          <div>
+            <div class="greet-sub">👋 你好，Push 用户</div>
+            <div class="greet-title">我的</div>
+          </div>
+          <div class="gear-btn">⚙️</div>
+        </div>
+
+        <div class="glass-card" style="margin-top:16px;">
+          <div class="user-row">
+            <div class="avatar-ring"><div class="avatar-inner">P</div></div>
+            <div style="flex:1;">
+              <div class="user-name">Push 用户</div>
+              <div class="user-id">ID: a3f8k29m-4x7p-0q1w</div>
+            </div>
+            <div style="font-size:18px; opacity:0.6;">📋</div>
+          </div>
+          <div class="user-quick">
+            <span class="uchip good">● 在线</span>
+            <span class="uchip">ws://api.example.com:9502</span>
+          </div>
+        </div>
+
+        <div class="badge-row">
+          <div class="badge"><span class="badge-dot green"></span>WebSocket 已连接</div>
+          <div class="badge"><span class="badge-dot green"></span>已配置 Key</div>
+        </div>
+
+        <div class="actions-grid">
+          <div class="action-btn"><span class="action-emoji">🔔</span><span class="action-lbl">测试推送</span></div>
+          <div class="action-btn"><span class="action-emoji">⚡</span><span class="action-lbl">重新连接</span></div>
+          <div class="action-btn"><span class="action-emoji">📋</span><span class="action-lbl">复制ID</span></div>
+          <div class="action-btn"><span class="action-emoji">🗑️</span><span class="action-lbl">清空消息</span></div>
+        </div>
+
+        <div class="glass-section-title">服务器配置</div>
+        <div class="glass-menu">
+          <div class="mitem">
+            <div class="micon ic-blue tc-blue">🌐</div>
+            <div style="flex:1;">
+              <div class="mtext">服务器地址</div>
+              <div class="msub">https://api.example.com</div>
+            </div>
+            <div class="mchev">›</div>
+          </div>
+          <div class="mitem">
+            <div class="micon ic-pink tc-pink">🔑</div>
+            <div style="flex:1;">
+              <div class="mtext">推送 Key</div>
+              <div class="msub">自定义</div>
+            </div>
+            <div class="mchev">›</div>
+          </div>
+          <div class="mitem">
+            <div class="micon ic-purple tc-purple">⚡</div>
+            <div style="flex:1;">
+              <div class="mtext">心跳间隔</div>
+              <div class="msub">30 秒</div>
+            </div>
+            <div class="mchev">›</div>
+          </div>
+        </div>
+
+        <div class="glass-section-title">其他</div>
+        <div class="glass-menu">
+          <div class="mitem">
+            <div class="micon ic-indigo tc-indigo">📄</div>
+            <div style="flex:1;">
+              <div class="mtext">消息列表</div>
+              <div class="msub">128 条</div>
+            </div>
+            <div class="mchev">›</div>
+          </div>
+          <div class="mitem">
+            <div class="micon ic-indigo tc-indigo">ℹ️</div>
+            <div style="flex:1;">
+              <div class="mtext">关于</div>
+              <div class="msub">v1.0.0</div>
+            </div>
+            <div class="mchev">›</div>
+          </div>
+        </div>
+
+        <div style="height:40px;"></div>
+      </div>
+
+      <div class="android-nav-bar">
+        <div class="android-nav-item"><div class="android-nav-icon">🏠</div><span>首页</span></div>
+        <div class="android-nav-item"><div class="android-nav-icon">📬</div><span>消息</span></div>
+        <div class="android-nav-item active"><div class="android-nav-icon">👤</div><span>我的</span></div>
+      </div>
+    </div>
+    <div class="hi" style="background: rgba(255,255,255,0.3);"></div>
+  </div>
+
+  <!-- ========== 右：设置页（全屏，无底部导航） ========== -->
+  <div class="phone">
+    <div class="notch"></div>
+    <div class="screen bg-root">
+      <div class="blob blob1"></div>
+      <div class="blob blob2"></div>
+      <div class="blob blob3"></div>
+
+      <div class="sb"><span>9:41</span><span>●●● ● 🔋</span></div>
+      <div class="scroll no-nav">
+
+        <!-- 返回 + 标题 -->
+        <div class="setting-header">
+          <div class="back-btn">‹</div>
+          <div class="setting-title">设置</div>
+        </div>
+
+        <!-- ===== 外观 ===== -->
+        <div class="glass-section-title">外观</div>
+        <div class="glass-menu">
+          <div class="mitem" style="flex-direction:column; align-items:stretch; gap:10px;">
+            <div style="display:flex; align-items:center; gap:14px;">
+              <div class="micon ic-indigo tc-indigo">🎨</div>
+              <div class="mtext" style="flex:1;">主题</div>
+            </div>
+            <div class="theme-row">
+              <div class="theme-chip">☀️ 浅色</div>
+              <div class="theme-chip active">🌙 深色</div>
+              <div class="theme-chip">📱 跟随系统</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== 通用 ===== -->
+        <div class="glass-section-title">通用</div>
+        <div class="glass-menu">
+          <div class="mitem">
+            <div class="micon ic-blue tc-blue">🔔</div>
+            <div style="flex:1;">
+              <div class="mtext">通知声音</div>
+              <div class="msub">Push 默认</div>
+            </div>
+            <div class="mchev">›</div>
+          </div>
+          <div class="mitem">
+            <div class="micon ic-purple tc-purple">📳</div>
+            <div style="flex:1;">
+              <div class="mtext">震动反馈</div>
+              <div class="msub">推送时震动</div>
+            </div>
+            <div class="switch-pill on"></div>
+          </div>
+          <div class="mitem">
+            <div class="micon ic-pink tc-pink">🔒</div>
+            <div style="flex:1;">
+              <div class="mtext">锁屏显示</div>
+              <div class="msub">锁屏时显示推送</div>
+            </div>
+            <div class="switch-pill on"></div>
+          </div>
+        </div>
+
+        <!-- ===== 网络 ===== -->
+        <div class="glass-section-title">网络</div>
+        <div class="glass-menu">
+          <div class="mitem">
+            <div class="micon ic-indigo tc-indigo">📶</div>
+            <div style="flex:1;">
+              <div class="mtext">仅 Wi-Fi 连接</div>
+              <div class="msub">节省流量</div>
+            </div>
+            <div class="switch-pill"></div>
+          </div>
+          <div class="mitem">
+            <div class="micon ic-amber tc-amber">🔄</div>
+            <div style="flex:1;">
+              <div class="mtext">自动重连</div>
+              <div class="msub">网络恢复时自动重连</div>
+            </div>
+            <div class="switch-pill on"></div>
+          </div>
+        </div>
+
+        <!-- ===== 存储 ===== -->
+        <div class="glass-section-title">存储</div>
+        <div class="glass-menu">
+          <div class="mitem">
+            <div class="micon ic-amber tc-amber">💾</div>
+            <div style="flex:1;">
+              <div class="mtext">存储占用</div>
+              <div class="msub">4.2 MB</div>
+            </div>
+          </div>
+          <div class="mitem">
+            <div class="micon ic-red tc-red">🗑️</div>
+            <div style="flex:1;">
+              <div class="mtext">清除缓存</div>
+              <div class="msub">消息记录、图片</div>
+            </div>
+            <div class="mchev">›</div>
+          </div>
+        </div>
+
+        <!-- ===== 关于 ===== -->
+        <div class="glass-section-title">关于</div>
+        <div class="glass-menu">
+          <div class="mitem">
+            <div class="micon ic-green tc-green">🔄</div>
+            <div style="flex:1;">
+              <div class="mtext">检查更新</div>
+              <div class="msub">v1.0.0 · 已是最新</div>
+            </div>
+            <div class="mchev">›</div>
+          </div>
+          <div class="mitem">
+            <div class="micon ic-blue tc-blue">📖</div>
+            <div class="mtext" style="flex:1;">使用文档</div>
+            <div class="mchev">›</div>
+          </div>
+          <div class="mitem">
+            <div class="micon ic-indigo tc-indigo">🐙</div>
+            <div class="mtext" style="flex:1;">GitHub</div>
+            <div class="mchev">›</div>
+          </div>
+          <div class="mitem">
+            <div class="micon ic-purple tc-purple">📄</div>
+            <div class="mtext" style="flex:1;">用户协议</div>
+            <div class="mchev">›</div>
+          </div>
+          <div class="mitem">
+            <div class="micon ic-purple tc-purple">🔒</div>
+            <div class="mtext" style="flex:1;">隐私政策</div>
+            <div class="mchev">›</div>
+          </div>
+        </div>
+
+        <!-- ===== 危险区域 ===== -->
+        <div class="glass-section-title">危险</div>
+        <div class="glass-menu">
+          <div class="mitem">
+            <div class="micon ic-red tc-red">🚪</div>
+            <div class="mtext" style="flex:1;">退出登录</div>
+            <div class="mchev">›</div>
+          </div>
+        </div>
+
+        <div style="height:60px;"></div>
+      </div>
+    </div>
+    <div class="hi" style="background: rgba(255,255,255,0.3);"></div>
+  </div>
+
+</div>
+
+</body>
+</html>

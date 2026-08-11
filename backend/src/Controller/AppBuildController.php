@@ -2471,6 +2471,109 @@ class AppBuildController
     }
 
     /**
+     * GET /admin/app-build/compose/templates
+     * 获取可用 Jetpack Compose 源码模板列表
+     */
+    public function composeTemplates(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+        $response = $context['response'];
+        $service = new \App\Service\ComposeService();
+        Response::success($response, ['templates' => $service->getAvailableTypes()]);
+        return false;
+    }
+
+    /**
+     * POST /admin/app-build/compose/generate
+     * 生成 Jetpack Compose 源码 ZIP 并直接返回下载流
+     *
+     * 请求体：
+     *   app_name       应用名称（必填）
+     *   package_name   包名（可选，默认 com.push.app）
+     *   default_key    默认推送 Key（可选）
+     *   server_url     HTTP 服务器地址（必填）
+     *   ws_url         WebSocket 地址（必填）
+     *   version_name   版本号（可选，默认 1.0.0）
+     *   version_code   版本码（可选，默认 1）
+     *   icon_base64    图标 base64（可选）
+     */
+    public function generateComposeSource(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        $response = $context['response'];
+        $data = $this->parseBody($context);
+
+        $appName     = trim((string)($data['app_name'] ?? 'PushApp'));
+        $pkgName     = trim((string)($data['package_name'] ?? 'com.push.app'));
+        $defaultKey  = trim((string)($data['default_key'] ?? 'default_key'));
+        $serverUrl   = trim((string)($data['server_url'] ?? ''));
+        $wsUrl       = trim((string)($data['ws_url'] ?? ''));
+        $versionName = trim((string)($data['version_name'] ?? '1.0.0'));
+        $versionCode = (int)($data['version_code'] ?? 1);
+        $iconBase64  = (string)($data['icon_base64'] ?? '');
+
+        if ($appName === '') {
+            Response::fail($response, '应用名称不能为空', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+        if ($serverUrl === '' || $wsUrl === '') {
+            Response::fail($response, '服务器地址和 WebSocket 地址不能为空', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+        // 校验包名格式（反向域名）
+        if ($pkgName !== '' && !preg_match('/^[a-zA-Z][a-zA-Z0-9_-]*(\.[a-zA-Z][a-zA-Z0-9_-]*)+$/', $pkgName)) {
+            Response::fail($response, '包名格式不正确（如 com.example.app）', Response::CODE_BAD_REQUEST);
+            return false;
+        }
+
+        // 剥离 data URL 前缀
+        $iconBase64 = preg_replace('/^data:image\/[a-z]+;base64,/i', '', $iconBase64);
+
+        try {
+            $service = new \App\Service\ComposeService();
+            $zipPath = $service->generateZip([
+                'user_id'      => (int)($payload['user_id'] ?? 0),
+                'app_name'     => $appName,
+                'package_name' => $pkgName,
+                'default_key'  => $defaultKey,
+                'server_url'   => $serverUrl,
+                'ws_url'       => $wsUrl,
+                'version_name' => $versionName,
+                'version_code' => $versionCode,
+                'icon_base64'  => $iconBase64,
+            ]);
+
+            if (!is_file($zipPath) || filesize($zipPath) === 0) {
+                Response::fail($response, '生成 ZIP 失败，文件为空', Response::CODE_INTERNAL);
+                return false;
+            }
+
+            // 直接下载
+            $filename = $appName . '-compose.zip';
+            $response->header('Content-Type', 'application/zip');
+            $response->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
+            $response->header('Content-Length', (string)filesize($zipPath));
+            $response->sendfile($zipPath);
+
+            register_shutdown_function(function () use ($zipPath) {
+                @unlink($zipPath);
+            });
+
+            return false;
+        } catch (\Throwable $e) {
+            Response::fail($response, '生成 Compose 源码失败: ' . $e->getMessage(), Response::CODE_INTERNAL);
+            return false;
+        }
+    }
+
+    /**
      * 将 PHP 字符串转为 Swift 字符串字面量（带引号和转义）
      *
      * @param string $value

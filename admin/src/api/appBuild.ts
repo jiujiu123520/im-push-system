@@ -173,6 +173,37 @@ export function generateIosSourceApi(data: {
   })
 }
 
+// Compose 源码
+export interface ComposeTemplate {
+  id: string
+  name: string
+  description: string
+  available: boolean
+  features?: string[]
+}
+
+export function getComposeTemplatesApi() {
+  return get<{ templates: ComposeTemplate[] }>('/admin/app-build/compose/templates')
+}
+
+export function generateComposeSourceApi(data: {
+  app_name: string
+  package_name?: string
+  default_key?: string
+  server_url: string
+  ws_url: string
+  icon_base64?: string
+  version_name?: string
+  version_code?: number
+}) {
+  return request<Blob>({
+    method: 'post',
+    url: '/admin/app-build/compose/generate',
+    data,
+    responseType: 'blob'
+  })
+}
+
 // 获取 GitHub Actions 配置
 export function getGithubConfigApi() {
   return get<{

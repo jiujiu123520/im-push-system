@@ -1,79 +1,68 @@
 package com.push.app
 
 import android.Manifest
-import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.lifecycleScope
-import com.push.app.data.PreferencesManager
-import com.push.app.service.PushService
-import com.push.app.ui.nav.PushNavHost
-import com.push.app.ui.theme.PushAppTheme
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
+import androidx.core.content.ContextCompat
+import com.push.app.navigation.PushNavigation
+import com.push.app.ui.theme.PushTheme
 
-/**
- * 主活动，承载 Compose 导航。
- *
- * 启动时：
- * 1. 申请通知权限（Android 13+）
- * 2. 如已存在 Key，则启动前台保活 Service
- */
 class MainActivity : ComponentActivity() {
 
-    private lateinit var preferencesManager: PreferencesManager
-
-    // 通知权限申请
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* 用户授权与否均不阻塞，后续在设置页可重新引导 */ }
+    ) { granted ->
+        if (granted) {
+            // Permission granted, notifications can be posted
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        preferencesManager = PreferencesManager(applicationContext)
 
-        // 申请通知权限（Android 13 / API 33+ 必须运行时申请）
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-
-        // 若已配置 Key，则启动前台服务保活
-        lifecycleScope.launch {
-            val key = preferencesManager.keyFlow.first()
-            if (key.isNotBlank()) {
-                startPushService()
-            }
-        }
+        handleNotificationIntent(intent.extras)
+        requestNotificationPermission()
 
         setContent {
-            PushAppTheme {
+            PushTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background,
+                    color = MaterialTheme.colorScheme.background
                 ) {
-                    PushNavHost()
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        PushNavigation()
+                    }
                 }
             }
         }
     }
 
-    /** 启动前台保活 Service（适配 Android 8+ 的启动方式） */
-    private fun startPushService() {
-        val intent = Intent(this, PushService::class.java).apply {
-            action = PushService.ACTION_START
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+    }
+
+    private fun handleNotificationIntent(extras: Bundle?) {
+        if (extras != null) {
+            val messageId = extras.getString("message_id")
+            val from = extras.getString("from")
+            // Handle notification-related extras here if needed
         }
     }
 }

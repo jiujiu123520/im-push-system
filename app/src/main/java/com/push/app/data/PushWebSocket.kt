@@ -65,6 +65,7 @@ data class ConnectConfig(
     val key: String,
     val deviceId: String,
     val heartbeatInterval: Int, // 秒
+    val autoReconnect: Boolean = true,
 )
 
 /**
@@ -133,9 +134,9 @@ class PushWebSocket(
      * 会先取消已有连接，再创建新的 WebSocket。
      */
     fun connect(config: ConnectConfig) {
-        Log.i(TAG, "connect -> ${config.url}, key=${config.key}, hb=${config.heartbeatInterval}s")
+        Log.i(TAG, "connect -> ${config.url}, key=${config.key}, hb=${config.heartbeatInterval}s, autoReconnect=${config.autoReconnect}")
         this.config = config
-        this.shouldReconnect = true
+        this.shouldReconnect = config.autoReconnect
         this.reconnectAttempts = 0
         openConnection()
     }

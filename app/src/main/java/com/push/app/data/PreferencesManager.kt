@@ -3,197 +3,113 @@ package com.push.app.data
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.json.Json
-import org.json.JSONObject
 
-// 顶层扩展，保证全局唯一 DataStore 实例
 private val Context.pushDataStore: DataStore<Preferences> by preferencesDataStore(name = "push_settings")
 
-/**
- * DataStore 偏好管理：保存推送 Key、服务器地址、心跳间隔。
- *
- * 服务器地址拆分为：
- * - WebSocket 地址（[serverUrlFlow]，如 ws://192.168.1.100:9502，供 PushWebSocket 使用）
- * - HTTP API 地址（[httpServerUrlFlow]，如 http://192.168.1.100:9501，供 TestPushApi 使用）
- *
- * 初始化时读取 assets/build_config.json，若存在则用其中的值覆盖硬编码默认值。
- * 心跳间隔默认 30 秒（范围 10-300）。
- */
-class PreferencesManager(private val context: Context) {
+object PreferencesManager {
 
-    private object Keys {
-        val PUSH_KEY = stringPreferencesKey("push_key")
-        val SERVER_URL = stringPreferencesKey("server_url")
-        val HTTP_SERVER_URL = stringPreferencesKey("http_server_url")
-        val HEARTBEAT_INTERVAL = intPreferencesKey("heartbeat_interval")
-        val USER_TOKEN = stringPreferencesKey("user_token")
-        val USER_INFO = stringPreferencesKey("user_info")
+    private val KEY = stringPreferencesKey("key")
+    private val SERVER_URL = stringPreferencesKey("server_url")
+    private val WS_URL = stringPreferencesKey("ws_url")
+    private val USER_TOKEN = stringPreferencesKey("user_token")
+    private val USER_ID = stringPreferencesKey("user_id")
+    private val HEARTBEAT_INTERVAL = intPreferencesKey("heartbeat_interval")
+    private val VIBRATE = booleanPreferencesKey("vibrate")
+    private val WIFI_ONLY = booleanPreferencesKey("wifi_only")
+    private val AUTO_RECONNECT = booleanPreferencesKey("auto_reconnect")
+    private val THEME = stringPreferencesKey("theme")
+
+    private lateinit var appContext: Context
+
+    fun init(context: Context) {
+        appContext = context.applicationContext
     }
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-        encodeDefaults = true
+    val keyFlow: Flow<String>
+        get() = appContext.pushDataStore.data.map { it[KEY] ?: "" }
+
+    val serverUrlFlow: Flow<String>
+        get() = appContext.pushDataStore.data.map { it[SERVER_URL] ?: "" }
+
+    val wsUrlFlow: Flow<String>
+        get() = appContext.pushDataStore.data.map { it[WS_URL] ?: "" }
+
+    val userTokenFlow: Flow<String>
+        get() = appContext.pushDataStore.data.map { it[USER_TOKEN] ?: "" }
+
+    val userIdFlow: Flow<String>
+        get() = appContext.pushDataStore.data.map { it[USER_ID] ?: "" }
+
+    val heartbeatIntervalFlow: Flow<Int>
+        get() = appContext.pushDataStore.data.map { it[HEARTBEAT_INTERVAL] ?: 30 }
+
+    val vibrateFlow: Flow<Boolean>
+        get() = appContext.pushDataStore.data.map { it[VIBRATE] ?: true }
+
+    val wifiOnlyFlow: Flow<Boolean>
+        get() = appContext.pushDataStore.data.map { it[WIFI_ONLY] ?: false }
+
+    val autoReconnectFlow: Flow<Boolean>
+        get() = appContext.pushDataStore.data.map { it[AUTO_RECONNECT] ?: true }
+
+    val themeFlow: Flow<String>
+        get() = appContext.pushDataStore.data.map { it[THEME] ?: "dark" }
+
+    suspend fun getKey(): String = appContext.pushDataStore.data.map { it[KEY] ?: "" }.first()
+    suspend fun setKey(value: String) {
+        appContext.pushDataStore.edit { it[KEY] = value }
     }
 
-    // 启动时一次性读取 assets/build_config.json，作为默认值回退（文件不存在或解析失败为 null）
-    private val buildConfig: JSONObject? = loadBuildConfig(context)
-
-    /** 推送 Key（用户输入） */
-    val keyFlow: Flow<String> = context.pushDataStore.data.map { it[Keys.PUSH_KEY] ?: "" }
-
-    /** 默认推送 Key（从 build_config.json 读取，用户未设置 Key 时使用） */
-    val defaultKeyFlow: Flow<String> =
-        flowOf(buildConfig?.optString("default_key")?.takeIf { it.isNotBlank() } ?: DEFAULT_KEY)
-
-    /** 服务器 WebSocket 地址（如 ws://192.168.1.100:9502），用于 PushWebSocket */
-    val serverUrlFlow: Flow<String> =
-        context.pushDataStore.data.map {
-            normalizeWsUrl(
-                it[Keys.SERVER_URL]
-                    ?: buildConfig?.optString("server_ws_url")?.takeIf { it.isNotBlank() }
-                    ?: DEFAULT_SERVER_URL
-            )
-        }
-
-    /** 服务器 HTTP API 地址（如 http://192.168.1.100:9501），用于 TestPushApi */
-    val httpServerUrlFlow: Flow<String> =
-        context.pushDataStore.data.map {
-            normalizeHttpUrl(
-                it[Keys.HTTP_SERVER_URL]
-                    ?: buildConfig?.optString("server_url")?.takeIf { it.isNotBlank() }
-                    ?: DEFAULT_HTTP_SERVER_URL
-            )
-        }
-
-    /** 心跳间隔（秒），范围 10-300 */
-    val heartbeatIntervalFlow: Flow<Int> =
-        context.pushDataStore.data.map { it[Keys.HEARTBEAT_INTERVAL] ?: DEFAULT_HEARTBEAT }
-
-    /** 用户 JWT Token（注册 / 登录成功后保存） */
-    val userTokenFlow: Flow<String> =
-        context.pushDataStore.data.map { it[Keys.USER_TOKEN] ?: "" }
-
-    /** 用户信息（JSON 序列化存储，反序列化为 [UserInfo]） */
-    val userInfoFlow: Flow<UserInfo?> =
-        context.pushDataStore.data.map { pref ->
-            pref[Keys.USER_INFO]?.let {
-                runCatching { json.decodeFromString(UserInfo.serializer(), it) }.getOrNull()
-            }
-        }
-
-    /** 同步读取当前 Key（仅用于启动判断） */
-    suspend fun getKeySync(): String =
-        context.pushDataStore.data.map { it[Keys.PUSH_KEY] ?: "" }.first()
-
-    suspend fun saveKey(key: String) {
-        context.pushDataStore.edit { it[Keys.PUSH_KEY] = key.trim() }
+    suspend fun getServerUrl(): String = appContext.pushDataStore.data.map { it[SERVER_URL] ?: "" }.first()
+    suspend fun setServerUrl(value: String) {
+        appContext.pushDataStore.edit { it[SERVER_URL] = value }
     }
 
-    suspend fun clearKey() {
-        context.pushDataStore.edit { it.remove(Keys.PUSH_KEY) }
+    suspend fun getWsUrl(): String = appContext.pushDataStore.data.map { it[WS_URL] ?: "" }.first()
+    suspend fun setWsUrl(value: String) {
+        appContext.pushDataStore.edit { it[WS_URL] = value }
     }
 
-    suspend fun saveServerUrl(url: String) {
-        context.pushDataStore.edit { it[Keys.SERVER_URL] = normalizeWsUrl(url.trim()) }
+    suspend fun getUserToken(): String = appContext.pushDataStore.data.map { it[USER_TOKEN] ?: "" }.first()
+    suspend fun setUserToken(value: String) {
+        appContext.pushDataStore.edit { it[USER_TOKEN] = value }
     }
 
-    suspend fun saveHttpServerUrl(url: String) {
-        context.pushDataStore.edit { it[Keys.HTTP_SERVER_URL] = normalizeHttpUrl(url.trim()) }
+    suspend fun getUserId(): String = appContext.pushDataStore.data.map { it[USER_ID] ?: "" }.first()
+    suspend fun setUserId(value: String) {
+        appContext.pushDataStore.edit { it[USER_ID] = value }
     }
 
-    /**
-     * 归一化为 WebSocket 协议（ws:// 或 wss://）。
-     *  - http:// → ws://
-     *  - https:// → wss://
-     *  - 无前缀 → ws://（兜底，除非明显域名可用 wss）
-     *  - 已经是 ws:// 或 wss:// 保持不变
-     */
-    private fun normalizeWsUrl(url: String): String {
-        val trimmed = url.trim().trimEnd('/')
-        if (trimmed.isBlank()) return trimmed
-        return when {
-            trimmed.startsWith("https://", ignoreCase = true) ->
-                "wss://" + trimmed.substringAfter("://")
-            trimmed.startsWith("http://", ignoreCase = true) ->
-                "ws://" + trimmed.substringAfter("://")
-            trimmed.startsWith("ws://", ignoreCase = true) ||
-            trimmed.startsWith("wss://", ignoreCase = true) ->
-                trimmed
-            else -> "ws://$trimmed"
-        }
+    suspend fun getHeartbeatInterval(): Int = appContext.pushDataStore.data.map { it[HEARTBEAT_INTERVAL] ?: 30 }.first()
+    suspend fun setHeartbeatInterval(value: Int) {
+        appContext.pushDataStore.edit { it[HEARTBEAT_INTERVAL] = value }
     }
 
-    /**
-     * 归一化为 HTTP 协议（http:// 或 https://）。
-     *  - ws:// → http://
-     *  - wss:// → https://
-     *  - 无前缀 → http://（兜底）
-     */
-    private fun normalizeHttpUrl(url: String): String {
-        val trimmed = url.trim().trimEnd('/')
-        if (trimmed.isBlank()) return trimmed
-        return when {
-            trimmed.startsWith("wss://", ignoreCase = true) ->
-                "https://" + trimmed.substringAfter("://")
-            trimmed.startsWith("ws://", ignoreCase = true) ->
-                "http://" + trimmed.substringAfter("://")
-            trimmed.startsWith("http://", ignoreCase = true) ||
-            trimmed.startsWith("https://", ignoreCase = true) ->
-                trimmed
-            else -> "http://$trimmed"
-        }
+    suspend fun isVibrate(): Boolean = appContext.pushDataStore.data.map { it[VIBRATE] ?: true }.first()
+    suspend fun setVibrate(value: Boolean) {
+        appContext.pushDataStore.edit { it[VIBRATE] = value }
     }
 
-    /** 保存心跳间隔，自动夹取到 [10, 300] 区间 */
-    suspend fun saveHeartbeatInterval(seconds: Int) {
-        val clamped = seconds.coerceIn(MIN_HEARTBEAT, MAX_HEARTBEAT)
-        context.pushDataStore.edit { it[Keys.HEARTBEAT_INTERVAL] = clamped }
+    suspend fun isWifiOnly(): Boolean = appContext.pushDataStore.data.map { it[WIFI_ONLY] ?: false }.first()
+    suspend fun setWifiOnly(value: Boolean) {
+        appContext.pushDataStore.edit { it[WIFI_ONLY] = value }
     }
 
-    /** 保存用户 JWT Token（注册 / 登录成功后调用） */
-    suspend fun saveUserToken(token: String) {
-        context.pushDataStore.edit { it[Keys.USER_TOKEN] = token.trim() }
+    suspend fun isAutoReconnect(): Boolean = appContext.pushDataStore.data.map { it[AUTO_RECONNECT] ?: true }.first()
+    suspend fun setAutoReconnect(value: Boolean) {
+        appContext.pushDataStore.edit { it[AUTO_RECONNECT] = value }
     }
 
-    /** 保存用户信息（序列化为 JSON 存储） */
-    suspend fun saveUserInfo(user: UserInfo) {
-        val encoded = json.encodeToString(UserInfo.serializer(), user)
-        context.pushDataStore.edit { it[Keys.USER_INFO] = encoded }
-    }
-
-    /** 清除用户认证信息（token + userInfo） */
-    suspend fun clearUserAuth() {
-        context.pushDataStore.edit {
-            it.remove(Keys.USER_TOKEN)
-            it.remove(Keys.USER_INFO)
-        }
-    }
-
-    /** 读取 assets/build_config.json，不存在或解析失败返回 null */
-    private fun loadBuildConfig(context: Context): JSONObject? {
-        return try {
-            val text = context.assets.open("build_config.json").bufferedReader().use { it.readText() }
-            JSONObject(text)
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    companion object {
-        const val DEFAULT_SERVER_URL = "ws://192.168.1.100:9502"
-        const val DEFAULT_HTTP_SERVER_URL = "http://192.168.1.100:9501"
-        const val DEFAULT_KEY = ""
-        const val DEFAULT_HEARTBEAT = 30
-        const val MIN_HEARTBEAT = 10
-        const val MAX_HEARTBEAT = 300
+    suspend fun getTheme(): String = appContext.pushDataStore.data.map { it[THEME] ?: "dark" }.first()
+    suspend fun setTheme(value: String) {
+        appContext.pushDataStore.edit { it[THEME] = value }
     }
 }

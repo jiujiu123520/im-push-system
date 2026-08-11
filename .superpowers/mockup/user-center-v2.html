@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>用户中心 UI · 更多方案</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: linear-gradient(135deg, #1e3a5f 0%, #2d1f4e 100%);
+  min-height: 100vh;
+  padding: 40px 20px;
+  color: #333;
+}
+h1 { text-align: center; color: #fff; margin-bottom: 10px; font-size: 28px; font-weight: 700; }
+.subtitle { text-align: center; color: rgba(255,255,255,0.85); margin-bottom: 50px; font-size: 15px; }
+
+.container { display: flex; flex-wrap: wrap; justify-content: center; gap: 40px; max-width: 1400px; margin: 0 auto; }
+.scheme-wrap { display: flex; flex-direction: column; align-items: center; }
+.scheme-label { text-align: center; color: #fff; margin-bottom: 16px; }
+.scheme-label h2 { font-size: 20px; margin-bottom: 4px; font-weight: 600; }
+.scheme-label p { font-size: 13px; opacity: 0.85; }
+
+/* ========== 手机外壳 ========== */
+.phone { width: 375px; height: 760px; background: #1a1a1a; border-radius: 44px; padding: 12px; box-shadow: 0 30px 60px rgba(0,0,0,0.3), 0 0 0 2px #333; position: relative; flex-shrink: 0; }
+.phone-notch { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: 120px; height: 28px; background: #1a1a1a; border-radius: 0 0 18px 18px; z-index: 100; }
+.screen { width: 100%; height: 100%; border-radius: 32px; overflow: hidden; position: relative; }
+.status-bar { height: 44px; padding: 0 20px 0 20px; display: flex; align-items: flex-end; justify-content: space-between; padding-bottom: 6px; font-size: 14px; font-weight: 600; position: relative; z-index: 5; }
+.hi { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 134px; height: 5px; border-radius: 3px; z-index: 20; }
+
+/* ========== 方案 D · Material 3 动态色彩 ========== */
+.d-screen { background: #fef7ff; }
+.d-sb { color: #1d1b1f; }
+.d-hi { background: rgba(29,27,31,0.3); }
+.d-topbar { background: #fef7ff; padding: 8px 16px 14px; display: flex; align-items: center; justify-content: space-between; }
+.d-topbar-title { font-size: 24px; font-weight: 400; color: #1d1b1f; letter-spacing: -0.5px; }
+.d-topbar-icon { width: 40px; height: 40px; border-radius: 20px; background: #e8def8; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+.d-hero { padding: 16px; }
+.d-hero-card {
+  background: linear-gradient(135deg, #d0bcff 0%, #b69df8 100%);
+  border-radius: 28px;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+.d-hero-card::after {
+  content: ''; position: absolute; right: -20px; bottom: -20px;
+  width: 100px; height: 100px; background: rgba(255,255,255,0.2);
+  border-radius: 50%;
+}
+.d-row { display: flex; align-items: center; gap: 14px; position: relative; z-index: 2; }
+.d-avatar { width: 64px; height: 64px; background: #fff; border-radius: 32px; display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 600; color: #6750a4; }
+.d-name { font-size: 22px; font-weight: 500; color: #1d1b1f; }
+.d-key { font-size: 12px; color: #49454f; margin-top: 2px; font-family: 'Courier New', monospace; }
+.d-pill { display: inline-flex; align-items: center; gap: 6px; background: #1d1b1f; color: #e8def8; padding: 5px 14px; border-radius: 20px; font-size: 12px; margin-top: 10px; }
+.d-pill-dot { width: 8px; height: 8px; background: #4ade80; border-radius: 50%; box-shadow: 0 0 8px #4ade80; }
+.d-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 16px; margin-top: 12px; }
+.d-stat {
+  background: #e8def8; border-radius: 20px; padding: 16px;
+}
+.d-stat-num { font-size: 28px; font-weight: 500; color: #1d1b1f; }
+.d-stat-lbl { font-size: 13px; color: #49454f; margin-top: 2px; }
+
+.d-menu-title { font-size: 14px; color: #49454f; padding: 20px 20px 8px; font-weight: 500; }
+.d-menu { padding: 0 16px; }
+.d-mitem {
+  display: flex; align-items: center; padding: 4px 16px;
+  background: #e8def8; border-radius: 16px; margin-bottom: 8px;
+}
+.d-micon {
+  width: 32px; height: 32px; border-radius: 16px; background: #d0bcff;
+  display: flex; align-items: center; justify-content: center;
+  margin-right: 14px; font-size: 16px;
+}
+.d-mtext { flex: 1; font-size: 16px; color: #1d1b1f; font-weight: 400; }
+.d-mval { font-size: 14px; color: #49454f; margin-right: 4px; }
+.d-chev { color: #1d1b1f; font-size: 18px; opacity: 0.5; }
+
+.d-fab {
+  position: absolute; bottom: 24px; right: 24px;
+  width: 56px; height: 56px; border-radius: 16px;
+  background: #6750a4; color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px; font-weight: 300;
+  box-shadow: 0 6px 20px rgba(103,80,164,0.4);
+  z-index: 10;
+}
+
+/* ========== 方案 E · 极简黑白 ========== */
+.e-screen { background: #fafafa; }
+.e-sb { color: #0a0a0a; }
+.e-hi { background: rgba(10,10,10,0.3); }
+.e-header { padding: 60px 28px 28px; }
+.e-name-xl { font-size: 40px; font-weight: 700; color: #0a0a0a; letter-spacing: -1.5px; line-height: 1.1; }
+.e-sub { font-size: 14px; color: #666; margin-top: 8px; font-family: 'Courier New', monospace; }
+.e-divider { height: 1px; background: #0a0a0a; margin: 24px 28px; }
+
+.e-metric-row { display: flex; gap: 28px; padding: 0 28px; }
+.e-metric-num { font-size: 36px; font-weight: 700; color: #0a0a0a; letter-spacing: -1px; }
+.e-metric-label { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+.e-metric { flex: 1; }
+
+.e-menu-full { padding: 0 28px; }
+.e-mitem {
+  display: flex; align-items: center; padding: 18px 0;
+  border-bottom: 1px solid #e5e5e5;
+}
+.e-mitem:last-child { border-bottom: none; }
+.e-m-num { width: 20px; font-size: 11px; color: #ccc; font-family: 'Courier New', monospace; }
+.e-m-text { flex: 1; font-size: 17px; color: #0a0a0a; font-weight: 400; }
+.e-m-tag { font-size: 11px; color: #666; padding: 3px 10px; border: 1px solid #ddd; border-radius: 12px; }
+.e-m-tag-dot { width: 6px; height: 6px; background: #111; border-radius: 50%; display: inline-block; margin-right: 5px; }
+
+.e-big-btn {
+  margin: 28px; padding: 20px; background: #0a0a0a;
+  border-radius: 16px; text-align: center;
+  color: #fff; font-size: 16px; font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+/* ========== 方案 F · 仪表盘 ========== */
+.f-screen { background: #0d1117; }
+.f-sb { color: #c9d1d9; }
+.f-hi { background: rgba(255,255,255,0.2); }
+.f-header { padding: 50px 20px 20px; }
+.f-greet { font-size: 13px; color: #6e7681; text-transform: uppercase; letter-spacing: 1px; }
+.f-title-big { font-size: 32px; font-weight: 700; color: #f0f6fc; margin-top: 6px; letter-spacing: -1px; }
+.f-title-sub { font-size: 12px; color: #6e7681; margin-top: 4px; font-family: 'Courier New', monospace; }
+
+.f-status-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px; background: rgba(46,160,67,0.1);
+  border: 1px solid rgba(46,160,67,0.3);
+  border-radius: 8px; margin: 16px 20px;
+}
+.f-status-dot { width: 8px; height: 8px; background: #2ea043; border-radius: 50%; box-shadow: 0 0 10px #2ea043; }
+.f-status-text { color: #3fb950; font-size: 13px; font-weight: 500; }
+
+.f-chart-card {
+  background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+  margin: 0 20px; padding: 16px;
+}
+.f-chart-title { font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+.f-bars { display: flex; align-items: flex-end; gap: 4px; height: 60px; }
+.f-bar { flex: 1; background: linear-gradient(180deg, #58a6ff 0%, #1f6feb 100%); border-radius: 2px 2px 0 0; }
+.f-bar.b1 { height: 30%; }
+.f-bar.b2 { height: 55%; }
+.f-bar.b3 { height: 40%; }
+.f-bar.b4 { height: 80%; }
+.f-bar.b5 { height: 65%; }
+.f-bar.b6 { height: 95%; }
+.f-bar.b7 { height: 50%; }
+.f-chart-lbl { display: flex; gap: 4px; margin-top: 6px; }
+.f-chart-lbl span { flex: 1; font-size: 9px; color: #484f58; text-align: center; }
+
+.f-stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 20px; }
+.f-stat-card {
+  background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 14px;
+}
+.f-stat-num { font-size: 24px; font-weight: 700; color: #f0f6fc; font-family: 'Courier New', monospace; }
+.f-stat-lbl { font-size: 11px; color: #8b949e; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.f-stat-up { font-size: 10px; color: #3fb950; margin-top: 4px; }
+
+.f-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 20px; }
+.f-btn {
+  padding: 14px; background: #21262d; border: 1px solid #30363d;
+  border-radius: 10px; text-align: center; font-size: 13px;
+  color: #c9d1d9;
+}
+.f-btn:active { background: #30363d; }
+.f-btn-emoji { font-size: 18px; display: block; margin-bottom: 4px; }
+
+.f-list-title { font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; padding: 16px 20px 8px; }
+.f-menu { padding: 0 20px; padding-bottom: 40px; }
+.f-mitem {
+  display: flex; align-items: center; padding: 14px 16px;
+  background: #161b22; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 8px;
+}
+.f-micon { width: 28px; height: 28px; border-radius: 6px; background: #21262d; display: flex; align-items: center; justify-content: center; margin-right: 12px; font-size: 14px; }
+.f-mtext { flex: 1; font-size: 14px; color: #c9d1d9; }
+.f-chev { color: #484f58; font-size: 16px; }
+
+/* ========== 选择按钮 ========== */
+.select-row { text-align: center; margin-top: 14px; }
+.select-btn { display: inline-block; padding: 8px 22px; border: 2px solid rgba(255,255,255,0.5); border-radius: 20px; color: #fff; cursor: pointer; font-size: 14px; background: transparent; transition: all 0.2s; }
+.select-btn:hover { background: rgba(255,255,255,0.15); border-color: #fff; }
+.select-btn.selected { background: #fff; color: #1e3a5f; border-color: #fff; }
+</style>
+</head>
+<body>
+
+<h1>🎨 更多用户中心 UI 方案</h1>
+<p class="subtitle">再来 3 个完全不同的设计方向 · 点击按钮选择或告诉我调整</p>
+
+<div class="container">
+
+  <!-- ========== 方案 D ========== -->
+  <div class="scheme-wrap">
+    <div class="scheme-label">
+      <h2>方案 D · Material 3</h2>
+      <p>圆角大色块 · Material You 风格</p>
+    </div>
+    <div class="phone">
+      <div class="phone-notch"></div>
+      <div class="screen d-screen">
+        <div class="status-bar d-sb"><span>9:41</span><span>●●● 🔋</span></div>
+        <div class="d-topbar">
+          <div class="d-topbar-title">你好</div>
+          <div class="d-topbar-icon">⚙️</div>
+        </div>
+        <div class="d-hero">
+          <div class="d-hero-card">
+            <div class="d-row">
+              <div class="d-avatar">P</div>
+              <div>
+                <div class="d-name">Push 用户</div>
+                <div class="d-key">a3f8****k29m</div>
+                <div class="d-pill"><span class="d-pill-dot"></span>已连接</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="d-stats">
+          <div class="d-stat"><div class="d-stat-num">128</div><div class="d-stat-lbl">今日消息</div></div>
+          <div class="d-stat"><div class="d-stat-num">2.4k</div><div class="d-stat-lbl">累计接收</div></div>
+        </div>
+        <div class="d-menu-title">设置</div>
+        <div class="d-menu">
+          <div class="d-mitem"><div class="d-micon">🌐</div><div class="d-mtext">服务器配置</div><div class="d-mval">已连接</div><div class="d-chev">›</div></div>
+          <div class="d-mitem"><div class="d-micon">🔑</div><div class="d-mtext">Key 管理</div><div class="d-mval">自定义</div><div class="d-chev">›</div></div>
+          <div class="d-mitem"><div class="d-micon">🔒</div><div class="d-mtext">权限引导</div><div class="d-chev">›</div></div>
+          <div class="d-mitem"><div class="d-micon">📬</div><div class="d-mtext">消息列表</div><div class="d-mval">128 条</div><div class="d-chev">›</div></div>
+        </div>
+        <div class="d-fab">＋</div>
+        <div class="home-indicator d-hi"></div>
+      </div>
+    </div>
+    <div class="select-row"><button class="select-btn" onclick="this.classList.toggle('selected')">选择方案 D</button></div>
+  </div>
+
+  <!-- ========== 方案 E ========== -->
+  <div class="scheme-wrap">
+    <div class="scheme-label">
+      <h2>方案 E · 极简黑白</h2>
+      <p>大量留白 · 单色调高级感</p>
+    </div>
+    <div class="phone">
+      <div class="phone-notch"></div>
+      <div class="screen e-screen">
+        <div class="status-bar e-sb"><span>9:41</span><span>●●● 🔋</span></div>
+        <div class="e-header">
+          <div class="e-name-xl">你好，<br>Push 用户</div>
+          <div class="e-sub">DEV · a3f8k29m</div>
+        </div>
+        <div class="e-divider"></div>
+        <div class="e-metric-row">
+          <div class="e-metric"><div class="e-metric-num">128</div><div class="e-metric-label">messages</div></div>
+          <div class="e-metric"><div class="e-metric-num">03:24</div><div class="e-metric-label">uptime</div></div>
+        </div>
+        <div class="e-divider"></div>
+        <div class="e-menu-full">
+          <div class="e-mitem"><div class="e-m-num">01</div><div class="e-m-text">服务器配置</div><div class="e-m-tag"><span class="e-m-tag-dot"></span>online</div></div>
+          <div class="e-mitem"><div class="e-m-num">02</div><div class="e-m-text">消息列表</div><div class="e-m-tag">128</div></div>
+          <div class="e-mitem"><div class="e-m-num">03</div><div class="e-m-text">Key 管理</div><div class="e-m-tag">custom</div></div>
+          <div class="e-mitem"><div class="e-m-num">04</div><div class="e-m-text">权限检查</div><div class="e-m-tag">4 / 5</div></div>
+          <div class="e-mitem"><div class="e-m-num">05</div><div class="e-m-text">关于</div><div class="e-m-tag">v1.0</div></div>
+        </div>
+        <div class="e-big-btn">发送测试推送</div>
+        <div class="home-indicator e-hi"></div>
+      </div>
+    </div>
+    <div class="select-row"><button class="select-btn" onclick="this.classList.toggle('selected')">选择方案 E</button></div>
+  </div>
+
+  <!-- ========== 方案 F ========== -->
+  <div class="scheme-wrap">
+    <div class="scheme-label">
+      <h2>方案 F · 仪表盘</h2>
+      <p>深色数据面板 · 科技极客风</p>
+    </div>
+    <div class="phone">
+      <div class="phone-notch"></div>
+      <div class="screen f-screen">
+        <div class="status-bar f-sb"><span>9:41</span><span>●●● 🔋</span></div>
+        <div class="f-header">
+          <div class="f-greet">DASHBOARD</div>
+          <div class="f-title-big">Push 用户</div>
+          <div class="f-title-sub">DEVICE · a3f8k29m</div>
+        </div>
+        <div class="f-status-bar">
+          <span class="f-status-dot"></span>
+          <span class="f-status-text">WebSocket CONNECTED</span>
+        </div>
+        <div class="f-chart-card">
+          <div class="f-chart-title">消息趋势 · 近7天</div>
+          <div class="f-bars">
+            <div class="f-bar b1"></div><div class="f-bar b2"></div><div class="f-bar b3"></div>
+            <div class="f-bar b4"></div><div class="f-bar b5"></div><div class="f-bar b6"></div>
+            <div class="f-bar b7"></div>
+          </div>
+          <div class="f-chart-lbl"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+        </div>
+        <div class="f-stat-grid">
+          <div class="f-stat-card"><div class="f-stat-num">128</div><div class="f-stat-lbl">Today</div><div class="f-stat-up">↑ +23%</div></div>
+          <div class="f-stat-card"><div class="f-stat-num">2,431</div><div class="f-stat-lbl">Total</div><div class="f-stat-up">↑ +156</div></div>
+        </div>
+        <div class="f-actions">
+          <div class="f-btn"><span class="f-btn-emoji">🔔</span>测试推送</div>
+          <div class="f-btn"><span class="f-btn-emoji">🔄</span>重新连接</div>
+        </div>
+        <div class="f-list-title">配置</div>
+        <div class="f-menu">
+          <div class="f-mitem"><div class="f-micon">🌐</div><div class="f-mtext">服务器设置</div><div class="f-chev">›</div></div>
+          <div class="f-mitem"><div class="f-micon">🔑</div><div class="f-mtext">Key 管理</div><div class="f-chev">›</div></div>
+        </div>
+        <div class="home-indicator f-hi"></div>
+      </div>
+    </div>
+    <div class="select-row"><button class="select-btn" onclick="this.classList.toggle('selected')">选择方案 F</button></div>
+  </div>
+
+</div>
+
+<script>
+document.querySelectorAll('.select-btn').forEach(btn => {
+  btn.onclick = function() { this.classList.toggle('selected'); };
+});
+</script>
+
+</body>
+</html>

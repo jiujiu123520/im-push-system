@@ -1,83 +1,100 @@
 package com.push.app.service
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
-import com.push.app.data.ConnectionState
-import com.push.app.data.PushRepository
+import androidx.core.app.NotificationCompat
+import com.push.app.MainActivity
+import com.push.app.R
+import com.push.app.data.PreferencesManager
+import com.push.app.network.PushWebSocket
+import com.push.app.util.NotificationHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/**
- * 前台保活 Service。
- *
- * 职责：
- * 1. 启动前台常驻通知（HyperOS / Android 14 下保活的基础）
- * 2. 通过 [PushRepository] 维持 WebSocket 长连接
- * 3. 订阅连接状态变化，实时刷新前台通知文案
- *
- * HyperOS 适配要点：
- * - foregroundServiceType=dataSync（已在清单声明）
- * - START_STICKY：被杀后系统尝试重建
- * - onTaskRemoved 中重新拉起自身，避免从最近任务划掉即被杀
- */
 class PushService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var stateObserverJob: Job? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var webSocket: PushWebSocket? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                Log.i(TAG, "ACTION_STOP")
                 stopPush()
                 return START_NOT_STICKY
             }
-            // ACTION_START 或 null 都视为启动
             else -> startPush()
         }
-        // 被系统杀死后尝试重建，保证长连接恢复
         return START_STICKY
     }
 
-    /** 启动保活：拉起前台通知并连接 WebSocket */
     private fun startPush() {
-        // 必须立即调用 startForeground，否则 Android 12+ 会抛出 ForegroundServiceStartNotAllowedException
-        startForeground(
-            NotificationHelper.FOREGROUND_NOTIFICATION_ID,
-            NotificationHelper.buildForegroundNotification(this, ConnectionState.CONNECTING),
-        )
+        acquireWakeLock()
+        createNotificationChannel()
+        startForeground(NOTIFICATION_ID, buildNotification())
 
-        val repo = PushRepository.get(this)
-
-        // 订阅连接状态，刷新前台通知文案
-        stateObserverJob?.cancel()
-        stateObserverJob = scope.launch {
-            repo.connectionState.collect { state ->
-                NotificationHelper.updateForegroundNotification(this@PushService, state)
-            }
-        }
-
-        // 发起连接
         scope.launch {
-            repo.connect()
+            val wsUrl = PreferencesManager.getWsUrl()
+            val key = PreferencesManager.getKey()
+            val autoReconnect = PreferencesManager.isAutoReconnect()
+            val heartbeatInterval = PreferencesManager.getHeartbeatInterval()
+
+            if (wsUrl.isBlank() || key.isBlank()) {
+                Log.w(TAG, "wsUrl or key is blank, abort")
+                stopSelf()
+                return@launch
+            }
+
+            webSocket?.destroy()
+            webSocket = PushWebSocket(object : PushWebSocket.Events {
+                override fun onOpen() {
+                    Log.i(TAG, "WebSocket connected")
+                    updateNotification("已连接")
+                }
+
+                override fun onMessage(text: String) {
+                    Log.i(TAG, "onMessage: $text")
+                    sendMessageBroadcast(text)
+                }
+
+                override fun onClose() {
+                    Log.i(TAG, "WebSocket closed, reconnecting...")
+                    updateNotification("重连中...")
+                }
+
+                override fun onFailure(t: Throwable) {
+                    Log.e(TAG, "WebSocket failure: ${t.message}")
+                    updateNotification("连接失败，重连中...")
+                }
+            }).apply {
+                setAutoReconnect(autoReconnect)
+                setHeartbeatInterval(heartbeatInterval)
+                connect(wsUrl, key)
+            }
         }
     }
 
-    /** 停止保活：断开连接并停止前台服务 */
     @Suppress("DEPRECATION")
     private fun stopPush() {
-        PushRepository.get(this).disconnect()
-        stateObserverJob?.cancel()
-        // stopForeground(int) 在 API 24+ 可用；低版本使用已废弃的 boolean 重载
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+        releaseWakeLock()
+        webSocket?.destroy()
+        webSocket = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
             stopForeground(true)
@@ -85,44 +102,101 @@ class PushService : Service() {
         stopSelf()
     }
 
-    /**
-     * 用户从最近任务列表划掉应用时触发。
-     * 重新启动自身，维持后台运行（HyperOS 保活关键点之一）。
-     */
-    override fun onTaskRemoved(rootIntent: Intent?) {
-        Log.i(TAG, "onTaskRemoved, schedule restart")
-        val restartIntent = Intent(applicationContext, PushService::class.java).apply {
-            action = ACTION_START
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "推送服务",
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = "推送服务常驻通知"
+                setShowBadge(false)
+            }
+            manager.createNotificationChannel(channel)
         }
-        // 通过 PendingIntent + Alarm 1s 后重启自身
-        val pendingIntent = android.app.PendingIntent.getService(
-            this,
-            1,
-            restartIntent,
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M)
-                android.app.PendingIntent.FLAG_ONE_SHOT or
-                    android.app.PendingIntent.FLAG_IMMUTABLE
-            else android.app.PendingIntent.FLAG_ONE_SHOT,
+    }
+
+    private fun buildNotification(): Notification {
+        val launchIntent = Intent(this, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, launchIntent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            else PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val alarm = getSystemService(ALARM_SERVICE) as android.app.AlarmManager
-        alarm.set(
-            android.app.AlarmManager.ELAPSED_REALTIME,
-            android.os.SystemClock.elapsedRealtime() + 1000L,
-            pendingIntent,
-        )
-        super.onTaskRemoved(rootIntent)
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(getString(R.string.app_name))
+            .setContentText("正在连接...")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setOngoing(true)
+            .setSilent(true)
+            .setContentIntent(pendingIntent)
+            .build()
+    }
+
+    private fun updateNotification(text: String) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(getString(R.string.app_name))
+            .setContentText(text)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setOngoing(true)
+            .setSilent(true)
+            .build()
+        manager.notify(NOTIFICATION_ID, notification)
+    }
+
+    private fun sendMessageBroadcast(message: String) {
+        val intent = Intent(ACTION_PUSH_MESSAGE).apply {
+            putExtra(EXTRA_MESSAGE, message)
+            setPackage(packageName)
+        }
+        sendBroadcast(intent)
+    }
+
+    private fun acquireWakeLock() {
+        try {
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "PushApp:ServiceWakeLock",
+            ).apply {
+                setReferenceCounted(false)
+                acquire(10 * 60 * 1000L)
+            }
+            Log.i(TAG, "WakeLock acquired")
+        } catch (e: Exception) {
+            Log.w(TAG, "acquireWakeLock failed: ${e.message}")
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            wakeLock?.let { if (it.isHeld) it.release() }
+            wakeLock = null
+            Log.i(TAG, "WakeLock released")
+        } catch (e: Exception) {
+            Log.w(TAG, "releaseWakeLock failed: ${e.message}")
+        }
     }
 
     override fun onDestroy() {
         Log.i(TAG, "onDestroy")
-        stateObserverJob?.cancel()
+        releaseWakeLock()
+        webSocket?.destroy()
         scope.cancel()
         super.onDestroy()
     }
 
     companion object {
         private const val TAG = "PushService"
+        private const val CHANNEL_ID = "push_service_channel"
+        private const val NOTIFICATION_ID = 1001
+
         const val ACTION_START = "com.push.app.action.START"
         const val ACTION_STOP = "com.push.app.action.STOP"
+        const val ACTION_PUSH_MESSAGE = "com.push.app.action.PUSH_MESSAGE"
+        const val EXTRA_MESSAGE = "extra_message"
     }
 }

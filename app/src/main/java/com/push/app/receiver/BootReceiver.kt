@@ -9,26 +9,23 @@ import com.push.app.data.PreferencesManager
 import com.push.app.service.PushService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/**
- * 开机自启接收器。
- *
- * 收到 BOOT_COMPLETED 后：若用户已配置 Key，则启动 [PushService] 维持长连接。
- */
 class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         val action = intent?.action
         Log.i(TAG, "onReceive: $action")
-        if (action !in BOOT_ACTIONS) return
 
-        // 使用 goAsync 避免阻塞主线程读取 DataStore
+        if (action != Intent.ACTION_BOOT_COMPLETED &&
+            action != Intent.ACTION_MY_PACKAGE_REPLACED
+        ) return
+
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val key = PreferencesManager(context).keyFlow.first()
+                PreferencesManager.init(context)
+                val key = PreferencesManager.getKey()
                 if (key.isNotBlank()) {
                     Log.i(TAG, "key exists, starting PushService")
                     startPushService(context)
@@ -43,7 +40,6 @@ class BootReceiver : BroadcastReceiver() {
         }
     }
 
-    /** 启动前台 Service（适配 Android 8+） */
     private fun startPushService(context: Context) {
         val serviceIntent = Intent(context, PushService::class.java).apply {
             action = PushService.ACTION_START
@@ -57,11 +53,5 @@ class BootReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "BootReceiver"
-        private val BOOT_ACTIONS = setOf(
-            Intent.ACTION_BOOT_COMPLETED,
-            "android.intent.action.QUICKBOOT_POWERON",
-            "com.htc.intent.action.QUICKBOOT_POWERON",
-            Intent.ACTION_MY_PACKAGE_REPLACED,
-        )
     }
 }

@@ -1,4 +1,4 @@
-package com.push.app.ui.screen
+﻿package com.push.app.ui.screen
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -312,7 +312,7 @@ fun RegisterScreen(
                 formError = null
                 scope.launch {
                     try {
-                        val serverUrl = repo.preferencesManager.httpServerUrlFlow.first()
+                        val serverUrl = repo.prefs.httpServerUrlFlow.first()
                         val result = authApi.register(
                             serverUrl = serverUrl,
                             username = username.trim(),
@@ -399,8 +399,8 @@ fun RegisterScreen(
                 val result = pendingResult
                 scope.launch {
                     if (result != null) {
-                        repo.preferencesManager.saveUserToken(result.token)
-                        result.user?.let { repo.preferencesManager.saveUserInfo(it) }
+                        repo.prefs.saveUserToken(result.token)
+                        result.user?.let { repo.prefs.saveUserInfo(it) }
                     }
                     securityCodeToShow = null
                     pendingResult = null
@@ -425,7 +425,7 @@ private fun loadCaptcha(
     scope.launch {
         onLoading(true)
         try {
-            val serverUrl = repo.preferencesManager.httpServerUrlFlow.first()
+            val serverUrl = repo.prefs.httpServerUrlFlow.first()
             val captcha = authApi.getCaptcha(serverUrl)
             if (captcha.token.isBlank() || captcha.image.isBlank()) {
                 onError("验证码加载失败")

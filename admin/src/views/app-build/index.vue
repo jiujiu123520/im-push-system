@@ -425,6 +425,10 @@ cat ~/.ssh/github_actions_key</pre>
                   <el-icon><AppleIcon /></el-icon>
                   iOS 源码
                 </el-radio-button>
+                <el-radio-button value="compose">
+                  <el-icon><MonitorIcon /></el-icon>
+                  Compose 全新 UI
+                </el-radio-button>
               </el-radio-group>
             </el-form-item>
             <!-- HBuilderX 模板选择 -->
@@ -463,6 +467,19 @@ cat ~/.ssh/github_actions_key</pre>
               <template #title>
                 <span style="font-size: 12px;">
                   iOS IPA 必须在 macOS + Xcode 环境编译。点击下方"开始构建"会生成已注入配置的 iOS 源码 ZIP 包，下载后在 Mac 上用 Xcode 打开编译即可。
+                </span>
+              </template>
+            </el-alert>
+            <el-alert
+              v-if="form.buildMethod === 'compose'"
+              type="success"
+              :closable="false"
+              show-icon
+              style="margin-top: 8px;"
+            >
+              <template #title>
+                <span style="font-size: 12px;">
+                  Jetpack Compose 全新 UI（玻璃拟态 + Material3）。生成的源码 ZIP 导入 Android Studio → Gradle Sync → Run 即可，服务器配置已自动注入。需要 Release 签名时在 Android Studio 中配置 Build → Generate Signed Bundle。
                 </span>
               </template>
             </el-alert>
@@ -747,7 +764,9 @@ import {
   getAppBuildConfigStatusApi,
   generateHBuilderXProjectApi,
   generateIosSourceApi,
-  getHBuilderXTemplatesApi
+  getHBuilderXTemplatesApi,
+  generateComposeSourceApi,
+  getComposeTemplatesApi
 } from '@/api/appBuild'
 import type { HBuilderXTemplate } from '@/api/appBuild'
 import { getKeyListApi } from '@/api/key'
@@ -765,7 +784,7 @@ interface BuildForm {
   version: string
   platform: 'android' | 'ios'
   buildType: 'release' | 'debug'
-  buildMethod: 'github' | 'hbuilderx' | 'ios_source'
+  buildMethod: 'github' | 'hbuilderx' | 'ios_source' | 'compose'
   hbuilderxTemplate: string
 }
 
@@ -1192,6 +1211,33 @@ async function handleGenerate() {
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
       ElMessage.success('iOS 源码包已生成，正在下载。请在 Mac 上用 Xcode 打开编译。')
+    } else if (form.buildMethod === 'compose') {
+      // Jetpack Compose 源码：生成 Android Studio 项目 ZIP
+      if (!form.serverAddress || !form.websocketAddress) {
+        ElMessage.warning('Compose 方式需要填写服务器地址和 WebSocket 地址')
+        submitting.value = false
+        return
+      }
+      const res: any = await generateComposeSourceApi({
+        app_name: form.name,
+        default_key: form.defaultKey,
+        server_url: form.serverAddress,
+        ws_url: form.websocketAddress,
+        package_name: form.packageName,
+        icon_base64: form.appIcon,
+        version_name: form.version,
+        version_code: Date.now() % 100000
+      })
+      const blob = new Blob([res.data], { type: 'application/zip' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${form.name || 'PushApp'}-compose.zip`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      ElMessage.success('Compose 源码包已生成，正在下载。导入 Android Studio 即可编译。')
     } else {
       // GitHub Actions 打包方式
       await createAppBuildApi({

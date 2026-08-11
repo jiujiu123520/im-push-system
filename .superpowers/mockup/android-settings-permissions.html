@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>设置页 · 权限引导完整版 预览</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+  min-height: 100vh; padding: 40px 20px; color: #333;
+}
+h1 { text-align: center; color: #fff; margin-bottom: 6px; font-size: 26px; }
+.sub { text-align: center; color: rgba(255,255,255,0.8); margin-bottom: 36px; font-size: 13px; }
+.wrap { display: flex; justify-content: center; gap: 40px; flex-wrap: wrap; }
+
+.phone { width: 412px; height: 915px; background: #0a0a0a; border-radius: 52px; padding: 14px; box-shadow: 0 40px 80px rgba(0,0,0,0.5), 0 0 0 2px #222; position: relative; }
+.notch { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); width: 110px; height: 28px; background: #0a0a0a; border-radius: 0 0 16px 16px; z-index: 100; }
+.screen { width: 100%; height: 100%; border-radius: 40px; overflow: hidden; position: relative; }
+.hi { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); width: 134px; height: 5px; border-radius: 3px; z-index: 30; }
+
+.bg-root { background: linear-gradient(180deg, #1e1b4b 0%, #312e81 35%, #581c87 100%); overflow: hidden; position: relative; }
+.blob { position: absolute; border-radius: 50%; filter: blur(50px); }
+.blob1 { top: -60px; right: -100px; width: 320px; height: 320px; background: rgba(236,72,153,0.4); }
+.blob2 { top: 300px; left: -80px; width: 280px; height: 280px; background: rgba(99,102,241,0.45); }
+.blob3 { bottom: 120px; right: 40px; width: 240px; height: 240px; background: rgba(168,85,247,0.38); }
+
+.sb { height: 54px; padding: 0 24px; display: flex; align-items: flex-end; justify-content: space-between; padding-bottom: 8px; font-size: 15px; font-weight: 600; color: #fff; position: relative; z-index: 5; }
+.scroll { height: calc(100% - 54px); overflow-y: auto; padding: 0 20px 20px; position: relative; z-index: 2; }
+.scroll::-webkit-scrollbar { display: none; }
+
+.glass-menu { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18); border-radius: 20px; padding: 6px 8px; }
+.glass-section-title { font-size: 11px; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; margin: 20px 4px 10px; }
+
+.setting-header { padding-top: 8px; display: flex; align-items: center; gap: 12px; }
+.back-btn { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.22); display: flex; align-items: center; justify-content: center; font-size: 18px; color: #fff; }
+.setting-title { font-size: 22px; font-weight: 700; color: #fff; }
+
+.mitem { display: flex; align-items: center; padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); gap: 14px; }
+.mitem:last-child { border-bottom: none; }
+.micon { width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+.mtext { flex: 1; font-size: 15px; color: #fff; font-weight: 500; }
+.msub { font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 2px; }
+.mchev { color: rgba(255,255,255,0.4); font-size: 18px; }
+
+.status-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
+.status-ok { background: rgba(34,197,94,0.2); color: #86efac; }
+.status-miss { background: rgba(239,68,68,0.2); color: #fca5a5; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; }
+.status-ok .status-dot { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+.status-miss .status-dot { background: #ef4444; }
+
+.switch-pill { width: 40px; height: 22px; border-radius: 11px; background: rgba(255,255,255,0.18); position: relative; flex-shrink: 0; }
+.switch-pill.on { background: #22c55e; }
+.switch-pill::after { content: ''; position: absolute; width: 18px; height: 18px; border-radius: 50%; background: #fff; top: 2px; left: 2px; transition: left 0.2s; }
+.switch-pill.on::after { left: 20px; }
+
+.ic-blue { background: rgba(59,130,246,0.2); }
+.ic-purple { background: rgba(139,92,246,0.2); }
+.ic-indigo { background: rgba(99,102,241,0.2); }
+.ic-pink { background: rgba(244,114,182,0.2); }
+.ic-amber { background: rgba(245,158,11,0.2); }
+.ic-green { background: rgba(34,197,94,0.2); }
+.ic-red { background: rgba(239,68,68,0.2); }
+.tc-blue { color: #60a5fa; }
+.tc-purple { color: #c4b5fd; }
+.tc-indigo { color: #a5b4fc; }
+.tc-pink { color: #f9a8d4; }
+.tc-amber { color: #fcd34d; }
+.tc-green { color: #86efac; }
+.tc-red { color: #fca5a5; }
+
+/* 权限引导卡片（紧凑横版） */
+.perm-item { display: flex; align-items: center; padding: 12px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); gap: 12px; }
+.perm-item:last-child { border-bottom: none; }
+.perm-icon-wrap { width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.perm-info { flex: 1; min-width: 0; }
+.perm-title { font-size: 15px; color: #fff; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+.perm-desc { font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 2px; }
+.perm-status { flex-shrink: 0; }
+
+.current-brand {
+  background: rgba(139,92,246,0.25);
+  border: 1px solid rgba(168,85,247,0.4);
+  border-radius: 14px;
+  padding: 12px 16px;
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 14px;
+}
+.brand-icon { font-size: 24px; }
+.brand-info { flex: 1; }
+.brand-label { font-size: 11px; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 1px; }
+.brand-name { font-size: 16px; color: #fff; font-weight: 600; margin-top: 2px; }
+.brand-chip { font-size: 10px; padding: 4px 10px; border-radius: 10px; background: rgba(139,92,246,0.3); color: #c4b5fd; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>📱 设置页 · 权限引导完整预览</h1>
+<p class="sub">权限引导适配所有安卓品牌 · 检测当前品牌跳转对应设置页</p>
+
+<div class="wrap">
+  <div class="phone">
+    <div class="notch"></div>
+    <div class="screen bg-root">
+      <div class="blob blob1"></div>
+      <div class="blob blob2"></div>
+      <div class="blob blob3"></div>
+
+      <div class="sb"><span>9:41</span><span>●●● ● 🔋</span></div>
+      <div class="scroll">
+
+        <div class="setting-header">
+          <div class="back-btn">‹</div>
+          <div class="setting-title">设置</div>
+        </div>
+
+        <!-- ========== 权限引导 ========== -->
+        <div class="glass-section-title">权限引导</div>
+
+        <!-- 当前品牌识别提示 -->
+        <div class="current-brand">
+          <div class="brand-icon">📱</div>
+          <div class="brand-info">
+            <div class="brand-label">检测到当前设备</div>
+            <div class="brand-name">Xiaomi 14 Ultra · HyperOS</div>
+          </div>
+          <div class="brand-chip">MIUI</div>
+        </div>
+
+        <div class="glass-menu">
+          <div class="perm-item">
+            <div class="perm-icon-wrap ic-blue tc-blue">🔔</div>
+            <div class="perm-info">
+              <div class="perm-title">通知权限 <span class="status-pill status-ok"><span class="status-dot"></span>已开启</span></div>
+              <div class="perm-desc">允许接收推送消息通知</div>
+            </div>
+            <div class="mchev">›</div>
+          </div>
+          <div class="perm-item">
+            <div class="perm-icon-wrap ic-purple tc-purple">🛡️</div>
+            <div class="perm-info">
+              <div class="perm-title">自启动 <span class="status-pill status-miss"><span class="status-dot"></span>未开启</span></div>
+              <div class="perm-desc">允许 APP 开机自启，保持后台在线</div>
+            </div>
+            <div class="mchev">›</div>
+          </div>
+          <div class="perm-item">
+            <div class="perm-icon-wrap ic-amber tc-amber">🔋</div>
+            <div class="perm-info">
+              <div class="perm-title">电池优化白名单 <span class="status-pill status-miss"><span class="status-dot"></span>未加入</span></div>
+              <div class="perm-desc">防止系统杀后台进程</div>
+            </div>
+            <div class="mchev">›</div>
+          </div>
+          <div class="perm-item">
+            <div class="perm-icon-wrap ic-pink tc-pink">🔒</div>
+            <div class="perm-info">
+              <div class="perm-title">锁屏清理保护 <span class="status-pill status-miss"><span class="status-dot"></span>未开启</span></div>
+              <div class="perm-desc">锁屏后保持 APP 运行</div>
+            </div>
+            <div class="mchev">›</div>
+          </div>
+          <div class="perm-item">
+            <div class="perm-icon-wrap ic-indigo tc-indigo">🪟</div>
+            <div class="perm-info">
+              <div class="perm-title">后台弹出界面 <span class="status-pill status-miss"><span class="status-dot"></span>未开启</span></div>
+              <div class="perm-desc">允许后台弹窗显示推送</div>
+            </div>
+            <div class="mchev">›</div>
+          </div>
+        </div>
+
+        <!-- ========== 通用 ========== -->
+        <div class="glass-section-title">通用</div>
+        <div class="glass-menu">
+          <div class="mitem">
+            <div class="micon ic-purple tc-purple">🎨</div>
+            <div style="flex:1;">
+              <div class="mtext">主题</div>
+              <div class="msub">深色（默认）</div>
+            </div>
+            <div class="mchev">›</div>
+          </div>
+          <div class="mitem">
+            <div class="micon ic-amber tc-amber">📳</div>
+            <div style="flex:1;">
+              <div class="mtext">震动反馈</div>
+              <div class="msub">推送时震动</div>
+            </div>
+            <div class="switch-pill on"></div>
+          </div>
+        </div>
+
+        <!-- ========== 网络 ========== -->
+        <div class="glass-section-title">网络</div>
+        <div class="glass-menu">
+          <div class="mitem">
+            <div class="micon ic-indigo tc-indigo">📶</div>
+            <div style="flex:1;">
+              <div class="mtext">仅 Wi-Fi 连接</div>
+              <div class="msub">节省流量</div>
+            </div>
+            <div class="switch-pill"></div>
+          </div>
+          <div class="mitem">
+            <div class="micon ic-amber tc-amber">🔄</div>
+            <div style="flex:1;">
+              <div class="mtext">自动重连</div>
+              <div class="msub">网络恢复时自动重连</div>
+            </div>
+            <div class="switch-pill on"></div>
+          </div>
+        </div>
+
+        <!-- ========== 存储 ========== -->
+        <div class="glass-section-title">存储</div>
+        <div class="glass-menu">
+          <div class="mitem">
+            <div class="micon ic-amber tc-amber">💾</div>
+            <div style="flex:1;">
+              <div class="mtext">存储占用</div>
+              <div class="msub">4.2 MB</div>
+            </div>
+          </div>
+          <div class="mitem">
+            <div class="micon ic-red tc-red">🗑️</div>
+            <div style="flex:1;">
+              <div class="mtext">清除缓存</div>
+              <div class="msub">消息记录、图片</div>
+            </div>
+            <div class="mchev">›</div>
+          </div>
+        </div>
+
+        <!-- ========== 关于 ========== -->
+        <div class="glass-section-title">关于</div>
+        <div class="glass-menu">
+          <div class="mitem">
+            <div class="micon ic-indigo tc-indigo">ℹ️</div>
+            <div style="flex:1;">
+              <div class="mtext">版本信息</div>
+              <div class="msub">v1.0.0</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== 危险 ========== -->
+        <div class="glass-section-title">危险</div>
+        <div class="glass-menu">
+          <div class="mitem">
+            <div class="micon ic-red tc-red">🚪</div>
+            <div class="mtext" style="flex:1;">退出登录</div>
+            <div class="mchev">›</div>
+          </div>
+        </div>
+
+        <div style="height:60px;"></div>
+      </div>
+    </div>
+    <div class="hi" style="background: rgba(255,255,255,0.3);"></div>
+  </div>
+
+</div>
+
+</body>
+</html>
