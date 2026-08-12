@@ -1,39 +1,39 @@
-var storage = require('./storage.js')
-var events = {
+import { addMessage, loadBootConfig } from './storage.js'
+
+const events = {
     _handlers: {},
-    on: function(evt, cb) {
+    on(evt, cb) {
         if (!this._handlers[evt]) this._handlers[evt] = []
         this._handlers[evt].push(cb)
     },
-    emit: function(evt, data) {
-        var arr = this._handlers[evt] || []
-        for (var i = 0; i < arr.length; i++) {
+    emit(evt, data) {
+        const arr = this._handlers[evt] || []
+        for (let i = 0; i < arr.length; i++) {
             try { arr[i](data) } catch(e) { console.error('[Ws] handler error', e) }
         }
     },
-    off: function(evt, cb) {
+    off(evt, cb) {
         if (!this._handlers[evt]) return
         if (!cb) { delete this._handlers[evt]; return }
-        this._handlers[evt] = this._handlers[evt].filter(function(h){ return h !== cb })
+        this._handlers[evt] = this._handlers[evt].filter(h => h !== cb)
     }
 }
 
-var MAX_MISSED_PONG = 3
-var RECONNECT_BASE = 1000
-var RECONNECT_MAX = 60000
-var state = 'disconnected'
-var connectTimer = null
-var heartbeatTimer = null
-var reconnectAttempts = 0
-var pendingPongs = 0
-var lastPongTime = 0
-var currentUrl = ''
-var currentKey = ''
-var heartbeatInterval = 30
-var autoReconnect = true
-var shouldReconnect = false
+const MAX_MISSED_PONG = 3
+const RECONNECT_BASE = 1000
+const RECONNECT_MAX = 60000
+let state = 'disconnected'
+let connectTimer = null
+let heartbeatTimer = null
+let reconnectAttempts = 0
+let pendingPongs = 0
+let currentUrl = ''
+let currentKey = ''
+let heartbeatInterval = 30
+let autoReconnect = true
+let shouldReconnect = false
 
-function connect(url, key) {
+export function connect(url, key) {
     if (!url || !key) {
         console.warn('[Ws] url or key empty, skip')
         return
@@ -42,9 +42,8 @@ function connect(url, key) {
     currentKey = key
     shouldReconnect = true
     reconnectAttempts = 0
-    currentKey = key
     try {
-        var cfg = storage.loadBootConfig()
+        const cfg = loadBootConfig()
         heartbeatInterval = (cfg.heartbeat_interval || 30)
         autoReconnect = cfg.auto_reconnect !== false
     } catch(e) {}
@@ -58,41 +57,36 @@ function _doConnect() {
 
     uni.connectSocket({
         url: currentUrl,
-        success: function() { console.log('[Ws] socket opened, sending auth') },
-        fail: function(err) {
+        success: () => console.log('[Ws] socket opened, sending auth'),
+        fail: (err) => {
             console.error('[Ws] connect fail', err)
             _onSocketLost()
         }
     })
 
-    uni.onSocketOpen(function() {
+    uni.onSocketOpen(() => {
         console.log('[Ws] onSocketOpen')
-        var auth = { type: 'auth', key: currentKey, device_id: _deviceId(), heartbeat_interval: heartbeatInterval }
+        const auth = { type: 'auth', key: currentKey, device_id: _deviceId(), heartbeat_interval: heartbeatInterval }
         uni.sendSocketMessage({ data: JSON.stringify(auth) })
         _startHeartbeat()
     })
 
-    uni.onSocketMessage(function(res) {
-        _handleMessage(res.data)
-    })
-
-    uni.onSocketError(function(err) {
+    uni.onSocketMessage((res) => { _handleMessage(res.data) })
+    uni.onSocketError((err) => {
         console.error('[Ws] onSocketError', err)
         _onSocketLost()
     })
-
-    uni.onSocketClose(function() {
+    uni.onSocketClose(() => {
         console.log('[Ws] onSocketClose')
         _onSocketLost()
     })
 }
 
 function _handleMessage(text) {
-    var env
+    let env
     try { env = JSON.parse(text) } catch(e) { return }
 
-    var t = env.type
-    if (!t) t = env.message === 'pong' ? 'pong' : null
+    const t = env.type || (env.message === 'pong' ? 'pong' : null)
 
     if (t === 'auth_result') {
         if (env.success || env.code === 0) {
@@ -109,36 +103,33 @@ function _handleMessage(text) {
             events.emit('state', state)
         }
     } else if (t === 'pong') {
-        lastPongTime = Date.now()
         pendingPongs = 0
     } else if (t === 'ping') {
         uni.sendSocketMessage({ data: JSON.stringify({ type: 'pong' }) })
     } else if (t === 'push') {
-        var msg = {
+        const msg = {
             id: env.id || _uuid(),
             title: env.title || '',
             content: env.content || '',
             priority: env.priority || 'default',
             timestamp: env.timestamp || Date.now()
         }
-        storage.addMessage(msg)
+        addMessage(msg)
         events.emit('message', msg)
     } else {
         if (env.code === 0 || env.code === -1) {
-            var title = (env.data && env.data.title) || env.title || ''
-            var content = (env.data && env.data.content) || env.content || ''
+            const title = (env.data && env.data.title) || env.title || ''
+            const content = (env.data && env.data.content) || env.content || ''
             if (title || content) {
-                var m = {
+                const m = {
                     id: (env.data && env.data.message_id) || _uuid(),
-                    title: title,
-                    content: content,
+                    title, content,
                     priority: (env.data && env.data.priority) || 'default',
                     timestamp: (env.data && env.data.timestamp) || Date.now()
                 }
-                storage.addMessage(m)
+                addMessage(m)
                 events.emit('message', m)
             } else if (env.message === 'pong') {
-                lastPongTime = Date.now()
                 pendingPongs = 0
             }
         }
@@ -148,10 +139,9 @@ function _handleMessage(text) {
 function _startHeartbeat() {
     _stopHeartbeat()
     pendingPongs = 0
-    lastPongTime = Date.now()
-    var intervalMs = heartbeatInterval * 1000
+    const intervalMs = heartbeatInterval * 1000
     if (intervalMs < 5000) intervalMs = 5000
-    heartbeatTimer = setInterval(function() {
+    heartbeatTimer = setInterval(() => {
         if (state !== 'connected' && state !== 'connecting') return
         try {
             uni.sendSocketMessage({ data: JSON.stringify({ type: 'ping' }) })
@@ -183,21 +173,21 @@ function _onSocketLost() {
 function _scheduleReconnect() {
     if (!shouldReconnect || !autoReconnect) return
     reconnectAttempts = Math.min(reconnectAttempts + 1, 20)
-    var shift = Math.min(reconnectAttempts - 1, 5)
-    var delay = RECONNECT_BASE * (1 << shift)
+    const shift = Math.min(reconnectAttempts - 1, 5)
+    let delay = RECONNECT_BASE * (1 << shift)
     delay = Math.max(RECONNECT_BASE, Math.min(RECONNECT_MAX, delay))
-    var jitter = Math.round(delay * 0.2 * (Math.random() * 2 - 1))
+    const jitter = Math.round(delay * 0.2 * (Math.random() * 2 - 1))
     delay = Math.max(500, delay + jitter)
     state = 'reconnecting'
     events.emit('state', state)
     console.log('[Ws] reconnect attempt=' + reconnectAttempts + ' delay=' + delay + 'ms')
     if (connectTimer) clearTimeout(connectTimer)
-    connectTimer = setTimeout(function() {
+    connectTimer = setTimeout(() => {
         if (shouldReconnect && autoReconnect) _doConnect()
     }, delay)
 }
 
-function disconnect() {
+export function disconnect() {
     shouldReconnect = false
     autoReconnect = false
     _stopHeartbeat()
@@ -207,39 +197,31 @@ function disconnect() {
     events.emit('state', state)
 }
 
-function reconnect() {
+export function reconnect() {
     shouldReconnect = true
     autoReconnect = true
     if (connectTimer) clearTimeout(connectTimer)
     if (state === 'disconnected') _scheduleReconnect()
 }
 
-function isConnected() { return state === 'connected' }
-function getState() { return state }
+export function isConnected() { return state === 'connected' }
+export function getState() { return state }
+export const on = events.on.bind(events)
+export const off = events.off.bind(events)
 
 function _uuid() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        var r = Math.random() * 16 | 0
-        var v = c === 'x' ? r : (r & 0x3 | 0x8)
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = Math.random() * 16 | 0
+        const v = c === 'x' ? r : (r & 0x3 | 0x8)
         return v.toString(16)
     })
 }
 
 function _deviceId() {
-    var id = uni.getStorageSync('push_device_id')
+    let id = uni.getStorageSync('push_device_id')
     if (!id) {
         id = _uuid()
         uni.setStorageSync('push_device_id', id)
     }
     return id
-}
-
-module.exports = {
-    connect: connect,
-    disconnect: disconnect,
-    reconnect: reconnect,
-    isConnected: isConnected,
-    getState: getState,
-    on: events.on,
-    off: events.off
 }
