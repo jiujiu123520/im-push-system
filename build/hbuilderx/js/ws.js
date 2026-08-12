@@ -23,8 +23,9 @@ const MAX_MISSED_PONG = 3
 const RECONNECT_BASE = 1000
 const RECONNECT_MAX = 60000
 let state = 'disconnected'
-let connectTimer = null
+let socketTask = null
 let heartbeatTimer = null
+let reconnectTimer = null
 let reconnectAttempts = 0
 let pendingPongs = 0
 let currentUrl = ''
@@ -32,10 +33,35 @@ let currentKey = ''
 let heartbeatInterval = 30
 let autoReconnect = true
 let shouldReconnect = false
+let listenersRegistered = false
+
+function registerListeners() {
+    if (listenersRegistered) return
+    listenersRegistered = true
+
+    uni.onSocketOpen(() => {
+        console.log('[Ws] onSocketOpen')
+        const auth = { type: 'auth', key: currentKey, device_id: _deviceId(), heartbeat_interval: heartbeatInterval }
+        try { uni.sendSocketMessage({ data: JSON.stringify(auth) }) } catch(e) {}
+        _startHeartbeat()
+    })
+
+    uni.onSocketMessage((res) => { _handleMessage(res.data) })
+
+    uni.onSocketError((err) => {
+        console.error('[Ws] onSocketError', JSON.stringify(err))
+        _onSocketLost()
+    })
+
+    uni.onSocketClose((res) => {
+        console.log('[Ws] onSocketClose', JSON.stringify(res || {}))
+        _onSocketLost()
+    })
+}
 
 export function connect(url, key) {
     if (!url || !key) {
-        console.warn('[Ws] url or key empty, skip')
+        console.warn('[Ws] url or key empty, skip connect', url ? '' : '(no url)', key ? '' : '(no key)')
         return
     }
     currentUrl = url
@@ -44,68 +70,73 @@ export function connect(url, key) {
     reconnectAttempts = 0
     try {
         const cfg = loadBootConfig()
-        heartbeatInterval = (cfg.heartbeat_interval || 30)
+        heartbeatInterval = parseInt(cfg.heartbeat_interval) || 30
         autoReconnect = cfg.auto_reconnect !== false
     } catch(e) {}
+
+    registerListeners()
+    _closeSocket()
     _doConnect()
 }
 
 function _doConnect() {
-    if (connectTimer) { try { uni.closeSocket() } catch(e){} }
     state = 'connecting'
     events.emit('state', state)
+    console.log('[Ws] connecting →', currentUrl)
 
-    uni.connectSocket({
-        url: currentUrl,
-        success: () => console.log('[Ws] socket opened, sending auth'),
-        fail: (err) => {
-            console.error('[Ws] connect fail', err)
-            _onSocketLost()
-        }
-    })
-
-    uni.onSocketOpen(() => {
-        console.log('[Ws] onSocketOpen')
-        const auth = { type: 'auth', key: currentKey, device_id: _deviceId(), heartbeat_interval: heartbeatInterval }
-        uni.sendSocketMessage({ data: JSON.stringify(auth) })
-        _startHeartbeat()
-    })
-
-    uni.onSocketMessage((res) => { _handleMessage(res.data) })
-    uni.onSocketError((err) => {
-        console.error('[Ws] onSocketError', err)
+    try {
+        socketTask = uni.connectSocket({
+            url: currentUrl,
+            success: () => console.log('[Ws] connectSocket success callback'),
+            fail: (err) => {
+                console.error('[Ws] connectSocket fail', JSON.stringify(err))
+                socketTask = null
+                _onSocketLost()
+            }
+        })
+    } catch(e) {
+        console.error('[Ws] connectSocket exception', e)
+        socketTask = null
         _onSocketLost()
-    })
-    uni.onSocketClose(() => {
-        console.log('[Ws] onSocketClose')
-        _onSocketLost()
-    })
+    }
+}
+
+function _closeSocket() {
+    _stopHeartbeat()
+    if (socketTask) {
+        try { socketTask.close({}) } catch(e) {}
+        socketTask = null
+    } else {
+        try { uni.closeSocket() } catch(e) {}
+    }
 }
 
 function _handleMessage(text) {
     let env
-    try { env = JSON.parse(text) } catch(e) { return }
+    try { env = JSON.parse(text) } catch(e) {
+        console.log('[Ws] non-JSON message:', text ? String(text).slice(0, 80) : '(empty)')
+        return
+    }
 
     const t = env.type || (env.message === 'pong' ? 'pong' : null)
 
     if (t === 'auth_result') {
         if (env.success || env.code === 0) {
-            console.log('[Ws] auth ok')
+            console.log('[Ws] ✅ auth ok')
             reconnectAttempts = 0
             state = 'connected'
             events.emit('state', state)
         } else {
-            console.warn('[Ws] auth failed', env.message)
+            console.warn('[Ws] ❌ auth failed:', env.message || env.msg || JSON.stringify(env))
             shouldReconnect = false
-            _stopHeartbeat()
-            uni.closeSocket()
+            _closeSocket()
             state = 'disconnected'
             events.emit('state', state)
         }
     } else if (t === 'pong') {
         pendingPongs = 0
     } else if (t === 'ping') {
-        uni.sendSocketMessage({ data: JSON.stringify({ type: 'pong' }) })
+        try { uni.sendSocketMessage({ data: JSON.stringify({ type: 'pong' }) }) } catch(e) {}
     } else if (t === 'push') {
         const msg = {
             id: env.id || _uuid(),
@@ -139,21 +170,20 @@ function _handleMessage(text) {
 function _startHeartbeat() {
     _stopHeartbeat()
     pendingPongs = 0
-    const intervalMs = heartbeatInterval * 1000
-    if (intervalMs < 5000) intervalMs = 5000
+    const intervalMs = Math.max(5000, heartbeatInterval * 1000)
     heartbeatTimer = setInterval(() => {
         if (state !== 'connected' && state !== 'connecting') return
         try {
             uni.sendSocketMessage({ data: JSON.stringify({ type: 'ping' }) })
             pendingPongs++
             if (pendingPongs >= MAX_MISSED_PONG) {
-                console.warn('[Ws] heartbeat timeout, reconnect')
+                console.warn('[Ws] ❤️ heartbeat timeout, close and reconnect')
                 pendingPongs = 0
-                uni.closeSocket()
+                _closeSocket()
             }
         } catch(e) {
             console.warn('[Ws] heartbeat send fail', e)
-            uni.closeSocket()
+            _closeSocket()
         }
     }, intervalMs)
 }
@@ -164,8 +194,10 @@ function _stopHeartbeat() {
 
 function _onSocketLost() {
     _stopHeartbeat()
+    if (state === 'disconnected') return
     state = 'disconnected'
     events.emit('state', state)
+    console.log('[Ws] socket lost, shouldReconnect=', shouldReconnect, 'autoReconnect=', autoReconnect)
     if (!shouldReconnect || !autoReconnect) return
     _scheduleReconnect()
 }
@@ -180,9 +212,9 @@ function _scheduleReconnect() {
     delay = Math.max(500, delay + jitter)
     state = 'reconnecting'
     events.emit('state', state)
-    console.log('[Ws] reconnect attempt=' + reconnectAttempts + ' delay=' + delay + 'ms')
-    if (connectTimer) clearTimeout(connectTimer)
-    connectTimer = setTimeout(() => {
+    console.log('[Ws] 🔄 reconnect attempt=' + reconnectAttempts + ' delay=' + delay + 'ms')
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    reconnectTimer = setTimeout(() => {
         if (shouldReconnect && autoReconnect) _doConnect()
     }, delay)
 }
@@ -190,9 +222,8 @@ function _scheduleReconnect() {
 export function disconnect() {
     shouldReconnect = false
     autoReconnect = false
-    _stopHeartbeat()
-    if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
-    try { uni.closeSocket() } catch(e) {}
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+    _closeSocket()
     state = 'disconnected'
     events.emit('state', state)
 }
@@ -200,8 +231,11 @@ export function disconnect() {
 export function reconnect() {
     shouldReconnect = true
     autoReconnect = true
-    if (connectTimer) clearTimeout(connectTimer)
-    if (state === 'disconnected') _scheduleReconnect()
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    if (state === 'disconnected') {
+        reconnectAttempts = 0
+        _scheduleReconnect()
+    }
 }
 
 export function isConnected() { return state === 'connected' }
