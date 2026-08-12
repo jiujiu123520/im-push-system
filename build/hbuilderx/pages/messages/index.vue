@@ -17,6 +17,12 @@
                 <text :class="['status-chip', curFilter === 'system' ? 'status-warn' : '']" @click="curFilter='system'">系统</text>
                 <text :class="['status-chip', curFilter === 'unread' ? 'status-ok' : '']" @click="curFilter='unread'">未读 {{ unreadCount }}</text>
             </view>
+            <view class="row-between" style="margin-top:16rpx;gap:16rpx;">
+                <view class="row" style="gap:12rpx;">
+                    <text class="chip-btn" @click="markAllRead" v-if="unreadCount > 0">✅ 一键已读</text>
+                    <text class="chip-btn chip-btn-danger" @click="confirmClear" v-if="messages.length > 0">🗑 清空</text>
+                </view>
+            </view>
         </view>
 
         <view class="glass-card" v-if="filteredMessages.length === 0" style="text-align:center;padding:80rpx 30rpx;">
@@ -24,24 +30,31 @@
             <view class="text-muted" style="font-size:26rpx;margin-top:16rpx;">暂无消息</view>
         </view>
 
-        <view v-for="(m, i) in filteredMessages" :key="m.id" class="glass-card" style="padding:24rpx 30rpx;margin:12rpx 24rpx;">
+        <view v-for="(m, i) in filteredMessages" :key="m.id" :class="['glass-card', m.read ? 'msg-read' : 'msg-unread']" style="padding:24rpx 30rpx;margin:12rpx 24rpx;">
             <view class="row-between">
-                <view style="font-size:28rpx;font-weight:600;color:rgba(255,255,255,0.95);">{{ m.title || '推送消息' }}</view>
+                <view class="row" style="gap:10rpx;align-items:center;">
+                    <view style="font-size:28rpx;font-weight:600;" :style="{ color: m.read ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.95)' }">{{ m.title || '推送消息' }}</view>
+                    <view v-if="!m.read" class="dot-unread"></view>
+                </view>
                 <view :class="['status-chip', m.priority === 'high' ? 'status-bad' : (m.priority === 'system' ? 'status-warn' : 'status-ok')]" v-if="m.priority">
                     {{ priorityLabel(m.priority) }}
                 </view>
             </view>
-            <view class="text-secondary" style="font-size:26rpx;margin-top:10rpx;line-height:1.5;">{{ m.content }}</view>
+            <view class="text-secondary" style="font-size:26rpx;margin-top:10rpx;line-height:1.5;" :style="{ color: m.read ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.75)' }">{{ m.content }}</view>
             <view class="row-between mt-16">
                 <view class="text-muted" style="font-size:22rpx;">{{ formatTime(m.timestamp) }}</view>
-                <text class="text-accent" style="font-size:24rpx;" @click="markRead(m.id)">已读</text>
+                <view class="row" style="gap:20rpx;">
+                    <text class="link-btn" @click="copyMsg(m)">📋 复制</text>
+                    <text v-if="!m.read" class="link-btn" @click="markRead(m.id)">已读</text>
+                    <text class="link-btn link-btn-danger" @click="deleteMsg(m.id)">🗑 删除</text>
+                </view>
             </view>
         </view>
     </view>
 </template>
 
 <script>
-import { getMessages, setMessages } from '../../js/storage.js'
+import { getMessages, setMessages, markAllRead as markAllReadApi, markRead as markReadApi, deleteMessage, clearMessages } from '../../js/storage.js'
 import { on, off } from '../../js/ws.js'
 
 export default {
@@ -73,12 +86,53 @@ export default {
         },
         _onWsMsg: function() { this._refresh() },
         markRead: function(id) {
-            var list = this.messages
-            for (var i = 0; i < list.length; i++) {
-                if (list[i].id === id) list[i].read = true
-            }
-            setMessages(list)
+            markReadApi(id)
             this._refresh()
+        },
+        markAllRead: function() {
+            markAllReadApi()
+            this._refresh()
+            uni.showToast({ title: '已全部标记为已读', icon: 'none' })
+        },
+        deleteMsg: function(id) {
+            var self = this
+            uni.showModal({
+                title: '确认删除',
+                content: '确定删除这条消息吗？',
+                success: function(res) {
+                    if (res.confirm) {
+                        deleteMessage(id)
+                        self._refresh()
+                    }
+                }
+            })
+        },
+        confirmClear: function() {
+            var self = this
+            uni.showModal({
+                title: '确认清空',
+                content: '确定清空全部消息吗？此操作不可恢复',
+                confirmColor: '#ff4d4f',
+                success: function(res) {
+                    if (res.confirm) {
+                        clearMessages()
+                        self._refresh()
+                        uni.showToast({ title: '已清空', icon: 'none' })
+                    }
+                }
+            })
+        },
+        copyMsg: function(m) {
+            var text = (m.title ? m.title + '\n' : '') + (m.content || '')
+            uni.setClipboardData({
+                data: text,
+                success: function() {
+                    uni.showToast({ title: '已复制到剪贴板', icon: 'success' })
+                },
+                fail: function() {
+                    uni.showToast({ title: '复制失败', icon: 'none' })
+                }
+            })
         },
         formatTime: function(ts) {
             if (!ts) return ''
@@ -94,3 +148,15 @@ export default {
     }
 }
 </script>
+
+<style>
+.msg-unread { border-left: 6rpx solid rgba(80,180,255,0.9); }
+.msg-read { opacity: 0.65; }
+.dot-unread { width: 14rpx; height: 14rpx; border-radius: 50%; background: #ff4d4f; display: inline-block; }
+.chip-btn { padding: 10rpx 20rpx; border-radius: 30rpx; font-size: 24rpx; background: rgba(80,180,255,0.25); color: #54b4ff; }
+.chip-btn:active { opacity: 0.7; }
+.chip-btn-danger { background: rgba(255,77,79,0.2); color: #ff7875; }
+.link-btn { font-size: 24rpx; color: rgba(255,255,255,0.55); }
+.link-btn:active { color: #54b4ff; }
+.link-btn-danger { color: #ff7875; }
+</style>
