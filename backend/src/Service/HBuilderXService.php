@@ -75,6 +75,7 @@ class HBuilderXService
         $pkgId     = trim((string)($params['package_id'] ?? 'com.example.push'));
         $apiBase   = rtrim((string)($params['api_base_url'] ?? ''), '/');
         $wsUrl     = rtrim((string)($params['ws_url'] ?? ''), '/');
+        $defaultKey = trim((string)($params['default_key'] ?? ''));
         $iconB64   = trim((string)($params['icon_base64'] ?? ''));
         $template  = trim((string)($params['template'] ?? 'new'));
         if (!in_array($template, ['new', 'old'], true)) $template = 'new';
@@ -92,7 +93,7 @@ class HBuilderXService
             // 有真实模板：复制模板文件，只注入动态配置
             $this->copyDir($templateDir, $tmpDir);
             $this->injectManifest($tmpDir, $appName, $pkgId);
-            $this->writeConfig($tmpDir, $apiBase, $wsUrl);
+            $this->writeConfig($tmpDir, $appName, $defaultKey, $apiBase, $wsUrl);
         } else {
             // 无模板：走最小脚手架兜底
             $this->scaffoldMinimalTemplate($tmpDir);
@@ -100,7 +101,7 @@ class HBuilderXService
             $this->writePagesJson($tmpDir);
             $this->writeMainJs($tmpDir);
             $this->writeAppVue($tmpDir, $appName);
-            $this->writeConfig($tmpDir, $apiBase, $wsUrl);
+            $this->writeConfig($tmpDir, $appName, $defaultKey, $apiBase, $wsUrl);
             $this->writeIndexHtml($tmpDir, $appName);
             $this->writePageScaffolds($tmpDir);
         }
@@ -167,25 +168,28 @@ class HBuilderXService
     }
 
     /**
-     * 重写 config.js（与模板的 APP_CONFIG 格式一致）
+     * 重写根目录 config.js（App.vue 从 ./config.js 读取）
      */
-    private function writeConfig(string $dir, string $apiBase, string $wsUrl): void
+    private function writeConfig(string $dir, string $appName, string $defaultKey, string $apiBase, string $wsUrl): void
     {
-        $static = $dir . '/static';
-        if (!is_dir($static)) @mkdir($static, 0755, true);
-        // 转义单引号
-        $apiBase = str_replace("'", "\\'", $apiBase);
-        $wsUrl = str_replace("'", "\\'", $wsUrl);
+        $appName  = str_replace("'", "\\'", $appName ?: 'PushApp');
+        $defaultKey = str_replace("'", "\\'", $defaultKey);
+        $apiBase  = str_replace("'", "\\'", $apiBase);
+        $wsUrl    = str_replace("'", "\\'", $wsUrl);
         $code = <<<"JS"
-// 应用配置（由后端动态注入）
+// 服务器配置 — 由 PushApp Backend 自动注入
+// 不要手动修改，由后台 APP 构建时生成
 export const APP_CONFIG = {
-    default_key: '',
+    app_name: '{$appName}',
+    default_key: '{$defaultKey}',
     server_url: '{$apiBase}',
     ws_url: '{$wsUrl}',
-    version_name: '1.0.0'
-}
+    version_name: '1.0.0',
+    build_time: '',
+    generator: 'PushApp Backend'
+};
 JS;
-        file_put_contents($static . '/config.js', $code);
+        file_put_contents($dir . '/config.js', $code);
     }
 
     /**
