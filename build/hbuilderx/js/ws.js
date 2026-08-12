@@ -1,4 +1,4 @@
-﻿import { addMessage, PUSH_HEARTBEAT, PUSH_AUTO_RECONNECT } from './storage.js'
+﻿import { addMessage, PUSH_HEARTBEAT, PUSH_AUTO_RECONNECT, PUSH_WIFI_ONLY } from './storage.js'
 
 const events = {
     _handlers: {},
@@ -32,6 +32,7 @@ let currentUrl = ''
 let currentKey = ''
 let heartbeatInterval = 30
 let autoReconnect = true
+let wifiOnly = false
 let shouldReconnect = false
 let listenersRegistered = false
 
@@ -85,13 +86,38 @@ function _loadSettings() {
         heartbeatInterval = (hb > 0 && hb <= 3600) ? hb : 30
         const ar = uni.getStorageSync(PUSH_AUTO_RECONNECT)
         autoReconnect = ar === '' || ar === null || ar === undefined ? true : (ar !== false && ar !== 0)
+        wifiOnly = uni.getStorageSync(PUSH_WIFI_ONLY) === true
     } catch(e) {
         heartbeatInterval = 30
         autoReconnect = true
+        wifiOnly = false
     }
 }
 
 function _doConnect() {
+    if (wifiOnly) {
+        uni.getNetworkType({
+            success: function(res) {
+                if (res.networkType !== 'wifi') {
+                    console.warn('[Ws] wifiOnly=true but network is', res.networkType, '→ block connect')
+                    state = 'error'
+                    events.emit('state', state)
+                    events.emit('error', {
+                        type: 'wifi_only',
+                        message: '仅 Wi-Fi 模式已开启，当前使用的是 ' + _networkLabel(res.networkType) + '，请切到 Wi-Fi 或关闭该选项'
+                    })
+                } else {
+                    _actuallyConnect()
+                }
+            },
+            fail: function() { _actuallyConnect() }
+        })
+        return
+    }
+    _actuallyConnect()
+}
+
+function _actuallyConnect() {
     state = 'connecting'
     events.emit('state', state)
     console.log('[Ws] connecting →', currentUrl)
@@ -283,4 +309,9 @@ function _deviceId() {
         uni.setStorageSync('push_device_id', id)
     }
     return id
+}
+
+function _networkLabel(type) {
+    const map = { wifi: 'Wi-Fi', '4g': '4G', '5g': '5G', '3g': '3G', '2g': '2G', ethernet: '有线', unknown: '未知', none: '无网络' }
+    return map[type] || String(type || '未知')
 }
