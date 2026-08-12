@@ -1,4 +1,4 @@
-﻿import { addMessage, loadBootConfig } from './storage.js'
+﻿import { addMessage, PUSH_HEARTBEAT, PUSH_AUTO_RECONNECT } from './storage.js'
 
 const events = {
     _handlers: {},
@@ -72,15 +72,23 @@ export function connect(url, key) {
     currentKey = key
     shouldReconnect = true
     reconnectAttempts = 0
-    try {
-        const cfg = loadBootConfig()
-        heartbeatInterval = parseInt(cfg.heartbeat_interval) || 30
-        autoReconnect = cfg.auto_reconnect !== false
-    } catch(e) {}
+    _loadSettings()
 
     registerListeners()
     _closeSocket()
     _doConnect()
+}
+
+function _loadSettings() {
+    try {
+        const hb = parseInt(uni.getStorageSync(PUSH_HEARTBEAT))
+        heartbeatInterval = (hb > 0 && hb <= 3600) ? hb : 30
+        const ar = uni.getStorageSync(PUSH_AUTO_RECONNECT)
+        autoReconnect = ar === '' || ar === null || ar === undefined ? true : (ar !== false && ar !== 0)
+    } catch(e) {
+        heartbeatInterval = 30
+        autoReconnect = true
+    }
 }
 
 function _doConnect() {
@@ -243,6 +251,17 @@ export function reconnect() {
         _scheduleReconnect()
     }
 }
+
+export function applySettings() {
+    _loadSettings()
+    if (state === 'connected' || state === 'connecting') {
+        _startHeartbeat()
+        const auth = { type: 'auth', key: currentKey, device_id: _deviceId(), heartbeat_interval: heartbeatInterval }
+        try { uni.sendSocketMessage({ data: JSON.stringify(auth) }) } catch(e) {}
+    }
+}
+
+export function getHeartbeatInterval() { return heartbeatInterval }
 
 export function isConnected() { return state === 'connected' }
 export function getState() { return state }

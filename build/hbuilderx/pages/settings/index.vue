@@ -126,7 +126,7 @@
 <script>
 import { checkUpdate } from '../../js/api.js'
 import { loadBootConfig, PUSH_VIBRATE, PUSH_WIFI_ONLY, PUSH_AUTO_RECONNECT, PUSH_HEARTBEAT, getMessages, clearMessages, PUSH_KEY, PUSH_USER_ID, PUSH_USER_TOKEN } from '../../js/storage.js'
-import { disconnect } from '../../js/ws.js'
+import { disconnect, applySettings } from '../../js/ws.js'
 import { getDeviceInfo, checkNotificationPerm, checkBatteryOpt, openNotificationSetting, openBatteryOpt, openBrandSetting } from '../../js/permissions.js'
 
 export default {
@@ -175,10 +175,13 @@ export default {
         toggleReconnect: function(e) {
             this.autoReconnect = e.detail.value
             uni.setStorageSync(PUSH_AUTO_RECONNECT, this.autoReconnect)
+            applySettings()
         },
         setHeartbeat: function(v) {
             this.heartbeat = v
             uni.setStorageSync(PUSH_HEARTBEAT, v)
+            applySettings()
+            uni.showToast({ title: '心跳间隔已更新为 ' + v + 's', icon: 'none' })
         },
         clearCache: function() {
             var self = this
