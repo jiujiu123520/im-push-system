@@ -1,4 +1,4 @@
-<script>
+﻿<script>
 import { ensureBootConfig, loadBootConfig, saveBootConfig, clearBootConfig } from './js/storage.js'
 import { connect, disconnect, reconnect, isConnected } from './js/ws.js'
 import { startKeepAlive, stopKeepAlive } from './js/keepalive.js'
@@ -31,7 +31,6 @@ export default {
 
     onHide: function () {
         console.log('[PushApp] onHide')
-        reconnect()
     },
 
     onError: function (err) {

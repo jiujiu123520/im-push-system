@@ -1,4 +1,4 @@
-import { addMessage, loadBootConfig } from './storage.js'
+﻿import { addMessage, loadBootConfig } from './storage.js'
 
 const events = {
     _handlers: {},
@@ -61,7 +61,11 @@ function registerListeners() {
 
 export function connect(url, key) {
     if (!url || !key) {
-        console.warn('[Ws] url or key empty, skip connect', url ? '' : '(no url)', key ? '' : '(no key)')
+        const reason = !url ? 'no_server' : 'no_key'
+        console.warn('[Ws] url or key empty, emit error', reason)
+        state = 'error'
+        events.emit('state', state)
+        events.emit('error', { type: reason, message: !url ? '未配置服务器地址' : '未配置推送 Key' })
         return
     }
     currentUrl = url
@@ -127,11 +131,13 @@ function _handleMessage(text) {
             state = 'connected'
             events.emit('state', state)
         } else {
-            console.warn('[Ws] ❌ auth failed:', env.message || env.msg || JSON.stringify(env))
+            var failMsg = env.message || env.msg || '鉴权失败'
+            console.warn('[Ws] ❌ auth failed:', failMsg)
             shouldReconnect = false
             _closeSocket()
-            state = 'disconnected'
+            state = 'error'
             events.emit('state', state)
+            events.emit('error', { type: 'auth_fail', message: failMsg })
         }
     } else if (t === 'pong') {
         pendingPongs = 0

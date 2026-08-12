@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 declare(strict_types=1);
 
 namespace App\Service;
@@ -75,6 +75,18 @@ class HBuilderXService
         $pkgId     = trim((string)($params['package_id'] ?? 'com.example.push'));
         $apiBase   = rtrim((string)($params['api_base_url'] ?? ''), '/');
         $wsUrl     = rtrim((string)($params['ws_url'] ?? ''), '/');
+
+        // 如果只填了 api_base_url 没填 ws_url，自动从 api_base_url 推导
+        // https://push.example.com → wss://push.example.com/ws
+        // http://push.example.com  → ws://push.example.com/ws
+        if ($wsUrl === '' && $apiBase !== '') {
+            $wsUrl = preg_replace('#^https?://#i', '', $apiBase);
+            if (strpos($apiBase, 'https://') === 0) {
+                $wsUrl = 'wss://' . $wsUrl . '/ws';
+            } else {
+                $wsUrl = 'ws://' . $wsUrl . '/ws';
+            }
+        }
         $defaultKey = trim((string)($params['default_key'] ?? ''));
         $iconB64   = trim((string)($params['icon_base64'] ?? ''));
         $template  = trim((string)($params['template'] ?? 'new'));

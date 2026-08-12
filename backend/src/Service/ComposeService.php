@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 declare(strict_types=1);
 
 namespace App\Service;
@@ -66,6 +66,12 @@ class ComposeService
         $defaultKey  = trim((string)($params['default_key'] ?? 'default_key'));
         $serverUrl   = rtrim((string)($params['server_url'] ?? ''), '/');
         $wsUrl       = rtrim((string)($params['ws_url'] ?? ''), '/');
+
+        // 自动推导 ws_url（同 HBuilderXService）
+        if ($wsUrl === '' && $serverUrl !== '') {
+            $host = preg_replace('#^https?://#i', '', $serverUrl);
+            $wsUrl = (strpos($serverUrl, 'https://') === 0 ? 'wss://' : 'ws://') . $host . '/ws';
+        }
         $versionName = trim((string)($params['version_name'] ?? '1.0.0'));
         $versionCode = (int)($params['version_code'] ?? 1);
         $iconB64     = trim((string)($params['icon_base64'] ?? ''));

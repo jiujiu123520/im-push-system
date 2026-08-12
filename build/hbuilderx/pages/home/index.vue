@@ -16,9 +16,10 @@
                 <view :class="['status-chip', stateClass]">{{ stateLabel }}</view>
             </view>
             <view class="text-primary" style="font-size:34rpx;font-weight:600;margin-top:12rpx;">{{ wsState }}</view>
-            <view class="text-muted" style="font-size:24rpx;margin-top:6rpx;">{{ wsUrl }}</view>
+            <view v-if="wsErrorMsg" class="text-error" style="font-size:24rpx;margin-top:8rpx;">⚠ {{ wsErrorMsg }}</view>
+            <view class="text-muted" style="font-size:24rpx;margin-top:6rpx;">{{ wsUrl || '未配置服务器地址' }}</view>
             <view class="row" style="margin-top:24rpx;">
-                <button class="btn-primary" style="flex:1;margin-right:16rpx;" @click="testPush">测试推送</button>
+                <button class="btn-primary" style="flex:1;margin-right:16rpx;" @click="testPush" :disabled="!canTest">测试推送</button>
                 <button class="btn-ghost" style="flex:1;" @click="reconnect">重新连接</button>
             </view>
         </view>
@@ -45,7 +46,7 @@
 </template>
 
 <script>
-import { connect, disconnect, reconnect, isConnected, on, off } from '../../js/ws.js'
+import { connect, disconnect, reconnect, isConnected, on, off, getState } from '../../js/ws.js'
 import { loadBootConfig, PUSH_KEY, PUSH_WS_URL, PUSH_SERVER_URL, getMessages } from '../../js/storage.js'
 import { notify } from '../../js/notify.js'
 import { testPush as apiTestPush } from '../../js/api.js'
@@ -58,41 +59,74 @@ export default {
             stateLabel: '离线',
             stateClass: 'status-bad',
             wsUrl: '',
+            wsErrorMsg: '',
+            keyValue: '',
             recentMessages: []
         }
     },
+    computed: {
+        canTest: function() { return !!this.keyValue }
+    },
     onShow: function() {
-        this.appName = loadBootConfig().app_name || 'PushApp'
         var cfg = loadBootConfig()
-        var key = uni.getStorageSync(PUSH_KEY) || cfg.default_key
+        this.appName = cfg.app_name || 'PushApp'
+        this.keyValue = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''
         this.wsUrl = uni.getStorageSync(PUSH_WS_URL) || cfg.ws_url || ''
         this.recentMessages = getMessages().slice(0, 3)
 
-        if (!key) {
+        if (!this.keyValue) {
             uni.navigateTo({ url: '/pages/key-input/index' })
             return
         }
+        if (!this.wsUrl) {
+            this.wsErrorMsg = '请先在"服务器配置"里填写服务器地址'
+            this.wsState = '未配置服务器'
+            this.stateLabel = '错误'
+            this.stateClass = 'status-bad'
+            return
+        }
 
+        this.wsErrorMsg = ''
         on('state', this._onState)
         on('message', this._onMessage)
-        if (this.wsUrl && !isConnected()) {
-            connect(this.wsUrl, key)
+        on('error', this._onError)
+        var st = getState()
+        this._onState(st)
+        if (!isConnected()) {
+            connect(this.wsUrl, this.keyValue)
         }
     },
     onHide: function() {
         off('state', this._onState)
         off('message', this._onMessage)
+        off('error', this._onError)
     },
     methods: {
         _onState: function(s) {
-            this.wsState = s === 'connected' ? 'WebSocket 已连接' : (s === 'connecting' || s === 'reconnecting' ? '正在连接…' : '未连接')
-            if (s === 'connected') {
+            if (s === 'error') {
+                this.wsState = '连接错误'
+                this.stateLabel = '错误'
+                this.stateClass = 'status-bad'
+            } else if (s === 'connected') {
+                this.wsState = 'WebSocket 已连接'
                 this.stateLabel = '在线'; this.stateClass = 'status-ok'
+                this.wsErrorMsg = ''
             } else if (s === 'connecting' || s === 'reconnecting') {
+                this.wsState = s === 'reconnecting' ? '正在自动重连…' : '正在连接…'
                 this.stateLabel = '连接中'; this.stateClass = 'status-warn'
-            } else {
+                this.wsErrorMsg = ''
+            } else if (s === 'disconnected') {
+                this.wsState = '连接已断开'
                 this.stateLabel = '离线'; this.stateClass = 'status-bad'
+            } else {
+                this.wsState = s
+                this.stateLabel = s; this.stateClass = 'status-bad'
             }
+        },
+        _onError: function(err) {
+            var msg = (err && err.message) || '连接错误'
+            this.wsErrorMsg = msg
+            uni.showToast({ title: msg, icon: 'none', duration: 2000 })
         },
         _onMessage: function(msg) {
             this.recentMessages = getMessages().slice(0, 3)
@@ -100,18 +134,21 @@ export default {
         },
         testPush: function() {
             var cfg = loadBootConfig()
-            var key = uni.getStorageSync(PUSH_KEY) || cfg.default_key
             var base = uni.getStorageSync(PUSH_SERVER_URL) || cfg.server_url
-            if (!key) { uni.showToast({ title: '请先配置 Key', icon: 'none' }); return }
+            if (!this.keyValue) { uni.showToast({ title: '请先配置 Key', icon: 'none' }); return }
             var self = this
-            apiTestPush(base, key).then(function(r) {
+            apiTestPush(base, this.keyValue).then(function(r) {
                 uni.showToast({ title: r && r.message ? r.message : '测试推送已发送', icon: 'success' })
             }).catch(function() {
                 uni.showToast({ title: '测试推送已发送（无响应）', icon: 'none' })
                 self._onMessage({ title: '测试推送', content: '这是一条测试推送消息', priority: 'default', timestamp: Date.now() })
             })
         },
-        reconnect: function() { reconnect() },
+        reconnect: function() {
+            if (!this.wsUrl) { uni.showToast({ title: '请先配置服务器地址', icon: 'none' }); return }
+            if (!this.keyValue) { uni.showToast({ title: '请先配置 Key', icon: 'none' }); return }
+            reconnect()
+        },
         goMessages: function() { uni.switchTab({ url: '/pages/messages/index' }) },
         goSettings: function() { uni.navigateTo({ url: '/pages/settings/index' }) },
         goKeyConfig: function() { uni.navigateTo({ url: '/pages/key-input/index' }) },
@@ -128,3 +165,7 @@ export default {
     }
 }
 </script>
+
+<style>
+.text-error { color: #ff7875; }
+</style>
