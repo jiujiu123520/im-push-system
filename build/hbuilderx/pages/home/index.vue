@@ -46,15 +46,16 @@
 </template>
 
 <script>
-
+import { loadBootConfig, PUSH_KEY, PUSH_WS_URL, PUSH_SERVER_URL, getMessages } from '../../js/storage.js'
+import { connect, reconnect, isConnected, getState, on, off } from '../../js/ws.js'
+import { notify } from '../../js/notify.js'
+import { testPush as apiTestPush } from '../../js/api.js'
 import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
-
-
-
 
 export default {
     data() {
         return {
+            themeClass: 'dark',
             appName: 'PushApp',
             wsState: '未连接',
             stateLabel: '离线',
@@ -68,40 +69,48 @@ export default {
     computed: {
         canTest: function() { return !!this.keyValue }
     },
-    
-            var self = this; self.themeClass = getTheme(); onThemeChange(function(t){ self.themeClass = t })
+    onShow: function() {
+        var self = this
+        self.themeClass = getTheme()
+        onThemeChange(function(t) { self.themeClass = t })
         var cfg = loadBootConfig()
-        this.appName = cfg.app_name || 'PushApp'
-        this.keyValue = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''
-        this.wsUrl = uni.getStorageSync(PUSH_WS_URL) || cfg.ws_url || ''
-        this.recentMessages = getMessages().slice(0, 3)
+        self.appName = cfg.app_name || 'PushApp'
+        self.keyValue = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''
+        self.wsUrl = uni.getStorageSync(PUSH_WS_URL) || cfg.ws_url || ''
+        self.recentMessages = getMessages().slice(0, 3)
 
-        if (!this.keyValue) {
+        if (!self.keyValue) {
             uni.navigateTo({ url: '/pages/key-input/index' })
             return
         }
-        if (!this.wsUrl) {
-            this.wsErrorMsg = '请先在"服务器配置"里填写服务器地址'
-            this.wsState = '未配置服务器'
-            this.stateLabel = '错误'
-            this.stateClass = 'status-bad'
+        if (!self.wsUrl) {
+            self.wsErrorMsg = '请先在"服务器配置"里填写服务器地址'
+            self.wsState = '未配置服务器'
+            self.stateLabel = '错误'
+            self.stateClass = 'status-bad'
             return
         }
 
-        this.wsErrorMsg = ''
-        on('state', this._onState)
-        on('message', this._onMessage)
-        on('error', this._onError)
+        self.wsErrorMsg = ''
+        on('state', self._onState)
+        on('message', self._onMessage)
+        on('error', self._onError)
         var st = getState()
-        this._onState(st)
+        self._onState(st)
         if (!isConnected()) {
-            connect(this.wsUrl, this.keyValue)
+            connect(self.wsUrl, self.keyValue)
         }
     },
     onHide: function() {
         off('state', this._onState)
         off('message', this._onMessage)
         off('error', this._onError)
+    },
+    onUnload: function() {
+        off('state', this._onState)
+        off('message', this._onMessage)
+        off('error', this._onError)
+        offThemeChange()
     },
     methods: {
         _onState: function(s) {
@@ -164,9 +173,8 @@ export default {
             if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
             return Math.floor(diff / 86400000) + '天前'
         }
-        onUnload: function() { offThemeChange() }
     }
-
+}
 </script>
 
 <style>

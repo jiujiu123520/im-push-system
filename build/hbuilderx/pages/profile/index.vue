@@ -66,13 +66,21 @@
 </template>
 
 <script>
-
+import { loadBootConfig, PUSH_KEY, PUSH_SERVER_URL, PUSH_WS_URL, PUSH_USER_ID, clearMessages } from '../../js/storage.js'
+import { on, off, getState } from '../../js/ws.js'
 import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
-
 
 export default {
     data() {
-        return { userId: '', key: '', serverUrl: '', wsUrl: '', wsStateLabel: '未连接', wsStateClass: 'status-bad' }
+        return {
+            themeClass: 'dark',
+            userId: '',
+            key: '',
+            serverUrl: '',
+            wsUrl: '',
+            wsStateLabel: '未连接',
+            wsStateClass: 'status-bad'
+        }
     },
     computed: {
         displayKey: function() {
@@ -80,17 +88,25 @@ export default {
             return this.key.length > 24 ? this.key.slice(0, 12) + '……' + this.key.slice(-8) : this.key
         }
     },
-    
-            var self = this; self.themeClass = getTheme(); onThemeChange(function(t){ self.themeClass = t })
+    onShow: function() {
+        var self = this
+        self.themeClass = getTheme()
+        onThemeChange(function(t) { self.themeClass = t })
         var cfg = loadBootConfig()
-        this.userId = uni.getStorageSync(PUSH_USER_ID) || ''
-        this.key = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''
-        this.serverUrl = uni.getStorageSync(PUSH_SERVER_URL) || cfg.server_url || ''
-        this.wsUrl = uni.getStorageSync(PUSH_WS_URL) || cfg.ws_url || ''
-        this._updateState()
-        on('state', this._updateState)
+        self.userId = uni.getStorageSync(PUSH_USER_ID) || ''
+        self.key = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''
+        self.serverUrl = uni.getStorageSync(PUSH_SERVER_URL) || cfg.server_url || ''
+        self.wsUrl = uni.getStorageSync(PUSH_WS_URL) || cfg.ws_url || ''
+        self._updateState()
+        on('state', self._updateState)
     },
-    onHide: function() { off('state', this._updateState) },
+    onHide: function() {
+        off('state', this._updateState)
+    },
+    onUnload: function() {
+        off('state', this._updateState)
+        offThemeChange()
+    },
     methods: {
         _updateState: function() {
             var s = getState()
@@ -113,7 +129,6 @@ export default {
                 }
             })
         }
-        onUnload: function() { offThemeChange() }
     }
-
+}
 </script>

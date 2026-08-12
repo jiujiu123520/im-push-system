@@ -54,13 +54,19 @@
 </template>
 
 <script>
-
+import { getMessages, markRead as markReadLocal, markAllRead as markAllReadLocal, deleteMessage as deleteMessageLocal, clearMessages as clearMessagesLocal } from '../../js/storage.js'
+import { on, off } from '../../js/ws.js'
 import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
-
 
 export default {
     data() {
-        return { messages: [], keyword: '', curFilter: 'all', unreadCount: 0 }
+        return {
+            themeClass: 'dark',
+            messages: [],
+            keyword: '',
+            curFilter: 'all',
+            unreadCount: 0
+        }
     },
     computed: {
         filteredMessages: function() {
@@ -75,12 +81,20 @@ export default {
             return arr
         }
     },
-    
-            var self = this; self.themeClass = getTheme(); onThemeChange(function(t){ self.themeClass = t })
-        this._refresh()
-        on('message', this._onWsMsg)
+    onShow: function() {
+        var self = this
+        self.themeClass = getTheme()
+        onThemeChange(function(t) { self.themeClass = t })
+        self._refresh()
+        on('message', self._onWsMsg)
     },
-    onHide: function() { off('message', this._onWsMsg) },
+    onHide: function() {
+        off('message', this._onWsMsg)
+    },
+    onUnload: function() {
+        off('message', this._onWsMsg)
+        offThemeChange()
+    },
     methods: {
         _refresh: function() {
             this.messages = getMessages()
@@ -88,11 +102,11 @@ export default {
         },
         _onWsMsg: function() { this._refresh() },
         markRead: function(id) {
-            markReadApi(id)
+            markReadLocal(id)
             this._refresh()
         },
         markAllRead: function() {
-            markAllReadApi()
+            markAllReadLocal()
             this._refresh()
             uni.showToast({ title: '已全部标记为已读', icon: 'none' })
         },
@@ -103,7 +117,7 @@ export default {
                 content: '确定删除这条消息吗？',
                 success: function(res) {
                     if (res.confirm) {
-                        deleteMessage(id)
+                        deleteMessageLocal(id)
                         self._refresh()
                     }
                 }
@@ -117,7 +131,7 @@ export default {
                 confirmColor: '#ff4d4f',
                 success: function(res) {
                     if (res.confirm) {
-                        clearMessages()
+                        clearMessagesLocal()
                         self._refresh()
                         uni.showToast({ title: '已清空', icon: 'none' })
                     }
@@ -147,9 +161,8 @@ export default {
             if (p === 'system') return '⚙ 系统'
             return '普通'
         }
-        onUnload: function() { offThemeChange() }
     }
-
+}
 </script>
 
 <style>
