@@ -30,36 +30,54 @@
 </template>
 
 <script>
-
+import { loadBootConfig, PUSH_KEY, PUSH_USER_TOKEN, PUSH_USER_ID } from '../../js/storage.js'
+import { login as apiLogin } from '../../js/api.js'
 import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
-
 
 export default {
     data() {
-        return { email: '', password: '', loading: false }
+        return {
+            themeClass: 'dark',
+            email: '',
+            password: '',
+            loading: false
+        }
+    },
+    onShow: function() {
+        var self = this
+        self.themeClass = getTheme()
+        onThemeChange(function(t) { self.themeClass = t })
+        var key = uni.getStorageSync(PUSH_KEY)
+        if (key) {
+            uni.switchTab({ url: '/pages/home/index' })
+        }
+    },
+    onUnload: function() {
+        offThemeChange()
     },
     methods: {
         doLogin: function() {
-            if (!this.email || !this.password) {
+            var self = this
+            if (!self.email || !self.password) {
                 uni.showToast({ title: '请填写完整', icon: 'none' }); return
             }
-            this.loading = true
+            self.loading = true
             var cfg = loadBootConfig()
-            var self = this
-            login(cfg.server_url, this.email, this.password).then(function(res) {
+            apiLogin(cfg.server_url, self.email, self.password).then(function(res) {
+                self.loading = false
                 if (res && res.code === 0) {
-                    uni.setStorageSync(PUSH_USER_TOKEN, res.data.token || '')
-                    uni.setStorageSync(PUSH_USER_ID, res.data.user_id || '')
-                    uni.setStorageSync(PUSH_KEY, res.data.push_key || '')
+                    uni.setStorageSync(PUSH_USER_TOKEN, (res.data && res.data.token) || res.token || '')
+                    var uid = (res.data && (res.data.user_id || res.data.id)) || res.user_id || res.id || ''
+                    if (uid) uni.setStorageSync(PUSH_USER_ID, String(uid))
+                    if (res.data && res.data.push_key) uni.setStorageSync(PUSH_KEY, res.data.push_key)
                     uni.showToast({ title: '登录成功', icon: 'success' })
                     setTimeout(function(){ uni.switchTab({ url: '/pages/home/index' }) }, 600)
                 } else {
                     uni.showToast({ title: (res && res.message) || '登录失败', icon: 'none' })
                 }
-                self.loading = false
             }).catch(function(err) {
                 self.loading = false
-                uni.showToast({ title: '网络错误', icon: 'none' })
+                uni.showToast({ title: (err && err.message) || '网络错误', icon: 'none' })
             })
         },
         goKeyInput: function() {
@@ -68,13 +86,6 @@ export default {
         doRegister: function() {
             uni.showToast({ title: '注册功能请在网页端完成', icon: 'none' })
         }
-    },
-    onLoad: function() {
-        var key = uni.getStorageSync(PUSH_KEY)
-        if (key) {
-            uni.switchTab({ url: '/pages/home/index' })
-        }
-        onUnload: function() { offThemeChange() }
     }
-
+}
 </script>
