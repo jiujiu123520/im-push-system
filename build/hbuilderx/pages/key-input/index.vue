@@ -24,7 +24,7 @@
         <view class="glass-card" style="margin-top:32rpx;">
             <view style="font-size:28rpx;font-weight:600;margin-bottom:8rpx;">🧪 测试服务器连接</view>
             <view style="font-size:24rpx;opacity:0.6;margin-bottom:20rpx;">一键验证 Key 和地址是否正确</view>
-            <button class="btn-secondary" style="width:100%;" @click="testConnection" :disabled="testing">
+            <button class="btn-ghost" style="width:100%;" @click="testConnection" :disabled="testing">
                 {{ testing ? '测试中…' : '测试连接' }}
             </button>
             <view v-if="testResult" style="margin-top:16rpx;font-size:24rpx;padding:16rpx;border-radius:12rpx;"
@@ -38,7 +38,7 @@
             <view style="font-size:24rpx;opacity:0.6;margin-bottom:20rpx;">邮箱/密码登录（可选，用于消息管理）</view>
             <input class="glass-input" placeholder="邮箱" placeholder-style="color:rgba(255,255,255,0.4)" v-model="email" type="email" />
             <input class="glass-input" placeholder="密码" placeholder-style="color:rgba(255,255,255,0.4)" v-model="password" password style="margin-top:20rpx;" />
-            <button class="btn-secondary" style="width:100%;margin-top:28rpx;" @click="doLogin" :disabled="loggingIn">
+            <button class="btn-ghost" style="width:100%;margin-top:28rpx;" @click="doLogin" :disabled="loggingIn">
                 {{ loggingIn ? '登录中…' : '登录' }}
             </button>
             <view v-if="loginResult" style="margin-top:16rpx;font-size:24rpx;padding:16rpx;border-radius:12rpx;"
