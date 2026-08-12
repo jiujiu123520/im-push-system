@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PushApp · 玻璃拟态新版预览</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: #050510;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    color: #fff;
+  }
+  .phone-frame {
+    width: 390px;
+    height: 844px;
+    background: #000;
+    border-radius: 50px;
+    padding: 12px;
+    box-shadow: 0 0 0 2px #333, 0 30px 60px rgba(0,0,0,0.6), 0 0 100px rgba(139,92,246,0.2);
+    position: relative;
+    overflow: hidden;
+  }
+  .phone-frame::before {
+    content: '';
+    position: absolute;
+    top: 20px; left: 50%; transform: translateX(-50%);
+    width: 120px; height: 30px;
+    background: #000; border-radius: 20px;
+    z-index: 100;
+  }
+  .screen {
+    width: 100%; height: 100%;
+    border-radius: 40px;
+    overflow: hidden;
+    position: relative;
+    background: linear-gradient(160deg, #0a0a1a 0%, #1a1535 50%, #2a1f55 100%);
+  }
+
+  /* 玻璃背景装饰球 */
+  .screen::before {
+    content: ''; position: absolute;
+    top: -60px; right: -60px;
+    width: 280px; height: 280px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(99,102,241,0.3) 0%, transparent 70%);
+    filter: blur(40px);
+    pointer-events: none; z-index: 0;
+  }
+  .screen::after {
+    content: ''; position: absolute;
+    bottom: -80px; left: -40px;
+    width: 320px; height: 320px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(236,72,153,0.22) 0%, transparent 70%);
+    filter: blur(50px);
+    pointer-events: none; z-index: 0;
+  }
+
+  .page {
+    position: absolute; inset: 0;
+    overflow-y: auto;
+    padding: 60px 20px 100px;
+    z-index: 1;
+    display: none;
+  }
+  .page.active { display: block; }
+  .page::-webkit-scrollbar { display: none; }
+
+  /* 顶部状态栏 */
+  .status-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 8px 20px;
+    font-size: 14px;
+    color: rgba(255,255,255,0.8);
+  }
+
+  /* 玻璃卡片 */
+  .glass-card {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 18px;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    padding: 20px;
+    margin-bottom: 14px;
+  }
+  .glass-card.highlight {
+    background: rgba(255,255,255,0.1);
+    border-color: rgba(255,255,255,0.2);
+  }
+
+  /* 连接状态 */
+  .conn-row {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 12px; border-radius: 20px;
+    font-size: 12px; font-weight: 500;
+  }
+  .chip.ok { background: rgba(52,211,153,0.2); color: #34d399; }
+  .chip.warn { background: rgba(251,191,36,0.2); color: #fbbf24; }
+  .chip.bad { background: rgba(248,113,113,0.2); color: #f87171; }
+  .chip.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .big-text { font-size: 24px; font-weight: 600; color: rgba(255,255,255,0.95); }
+  .sub-text { font-size: 13px; color: rgba(255,255,255,0.45); }
+  .err-text { font-size: 13px; color: #ff7875; margin-top: 4px; }
+
+  /* 按钮 */
+  .btn-row { display: flex; gap: 12px; margin-top: 16px; }
+  .btn {
+    flex: 1; padding: 14px 20px; border-radius: 12px;
+    font-size: 15px; font-weight: 500; text-align: center;
+    cursor: pointer; transition: transform .15s, opacity .15s;
+    border: none;
+  }
+  .btn:active { transform: scale(0.97); opacity: .85; }
+  .btn-primary {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: #fff;
+  }
+  .btn-ghost {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #fff;
+  }
+
+  /* 消息列表项 */
+  .msg-item {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px;
+    padding: 16px 18px;
+    margin-bottom: 10px;
+    position: relative;
+    border-left: 3px solid rgba(80,180,255,0.6);
+  }
+  .msg-item.read { border-left-color: transparent; opacity: 0.6; }
+  .msg-item h4 {
+    font-size: 15px; font-weight: 600;
+    color: rgba(255,255,255,0.9);
+    margin-bottom: 4px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .msg-item .prio-high {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+    background: rgba(248,113,113,0.2); color: #f87171;
+  }
+  .msg-item .prio-sys {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+    background: rgba(156,163,175,0.2); color: #a3a3a3;
+  }
+  .msg-item p {
+    font-size: 14px; color: rgba(255,255,255,0.7);
+    line-height: 1.5;
+    margin-bottom: 8px;
+  }
+  .msg-item .meta {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12px; color: rgba(255,255,255,0.4);
+  }
+  .msg-item .actions { display: flex; gap: 14px; }
+  .msg-item .actions span { cursor: pointer; font-size: 12px; color: rgba(255,255,255,0.55); }
+  .msg-item .actions span.danger { color: #ff7875; }
+
+  /* section 标题 */
+  .sec-title {
+    font-size: 13px; font-weight: 600;
+    color: rgba(255,255,255,0.5);
+    text-transform: uppercase; letter-spacing: 1px;
+    margin: 16px 4px 10px;
+  }
+
+  /* Tab bar */
+  .tabbar {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 70px;
+    background: rgba(15,12,30,0.95);
+    backdrop-filter: blur(20px);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    display: flex; z-index: 50;
+    border-radius: 0 0 40px 40px;
+    padding-bottom: 8px;
+  }
+  .tab-item {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 3px; cursor: pointer;
+    color: rgba(255,255,255,0.4);
+    font-size: 11px;
+    transition: color .2s;
+  }
+  .tab-item.active { color: #fff; }
+  .tab-item .icon { font-size: 22px; }
+
+  /* 搜索/筛选栏 */
+  .search-box {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 14px;
+    padding: 12px 16px;
+    font-size: 14px; color: rgba(255,255,255,0.5);
+  }
+  .filter-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .filter-tag {
+    font-size: 12px; padding: 5px 12px; border-radius: 20px;
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.6);
+    cursor: pointer; border: 1px solid transparent;
+  }
+  .filter-tag.active {
+    background: rgba(99,102,241,0.25);
+    color: #54b4ff;
+    border-color: rgba(99,102,241,0.3);
+  }
+  .action-btn {
+    font-size: 12px; padding: 6px 14px; border-radius: 20px;
+    background: rgba(80,180,255,0.2); color: #54b4ff;
+    cursor: pointer; display: inline-block;
+  }
+  .action-btn.danger { background: rgba(255,77,79,0.15); color: #ff7875; }
+
+  /* Profile 头像 */
+  .avatar-section { text-align: center; padding: 20px 0; }
+  .avatar {
+    width: 80px; height: 80px; border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #ec4899);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px; font-weight: 700;
+    margin: 0 auto 12px;
+    box-shadow: 0 10px 30px rgba(99,102,241,0.4);
+  }
+  .profile-name { font-size: 18px; font-weight: 600; color: rgba(255,255,255,0.95); }
+  .profile-sub { font-size: 13px; color: rgba(255,255,255,0.45); margin-top: 4px; }
+
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .stat-item {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 14px 10px; text-align: center;
+  }
+  .stat-num { font-size: 22px; font-weight: 700; color: #fff; }
+  .stat-label { font-size: 11px; color: rgba(255,255,255,0.45); margin-top: 4px; }
+
+  .list-item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .list-item:last-child { border-bottom: none; }
+  .list-item .li-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: rgba(255,255,255,0.08);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+  .list-item .li-text { flex: 1; }
+  .list-item .li-text h5 { font-size: 14px; color: rgba(255,255,255,0.9); font-weight: 500; }
+  .list-item .li-text p { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 2px; }
+  .list-item .li-arrow { color: rgba(255,255,255,0.3); font-size: 14px; }
+
+  /* 控制按钮（预览页用） */
+  .controls {
+    position: fixed; top: 20px; right: 20px;
+    display: flex; gap: 10px; flex-direction: column;
+    z-index: 1000;
+  }
+  .controls .nav-btn {
+    padding: 10px 18px; border-radius: 10px;
+    background: #1a1535; border: 1px solid rgba(139,92,246,0.3);
+    color: #fff; font-size: 13px; cursor: pointer;
+    text-align: left;
+  }
+  .controls .nav-btn:hover { background: #2a1f55; }
+  .controls .nav-btn.active {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    border-color: transparent;
+  }
+
+  /* 设置开关 */
+  .switch-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .switch-row:last-child { border-bottom: none; }
+  .switch-row h5 { font-size: 14px; color: rgba(255,255,255,0.9); font-weight: 500; }
+  .switch-row p { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 2px; }
+  .switch {
+    width: 44px; height: 26px; border-radius: 13px;
+    background: rgba(255,255,255,0.15); position: relative;
+    cursor: pointer; transition: background .2s;
+  }
+  .switch.on { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+  .switch::after {
+    content: ''; position: absolute;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #fff; top: 3px; left: 3px;
+    transition: transform .2s;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  }
+  .switch.on::after { transform: translateX(18px); }
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <button class="nav-btn active" onclick="showPage('home')">🏠 首页</button>
+  <button class="nav-btn" onclick="showPage('messages')">📬 消息</button>
+  <button class="nav-btn" onclick="showPage('profile')">👤 我的</button>
+  <button class="nav-btn" onclick="showPage('settings')">⚙ 设置</button>
+</div>
+
+<div class="phone-frame">
+  <div class="screen">
+
+    <!-- ========== 首页 ========== -->
+    <div class="page active" id="page-home">
+      <div class="status-bar">
+        <span>你好，Push 用户</span>
+        <span>⚙</span>
+      </div>
+      <div style="font-size: 28px; font-weight: 700; margin-top: -10px;">PushApp</div>
+
+      <div class="glass-card highlight" style="margin-top: 18px;">
+        <div class="conn-row">
+          <span style="font-size:13px; color: rgba(255,255,255,0.6);">连接状态</span>
+          <span class="chip ok"><span class="chip.dot"></span>在线</span>
+        </div>
+        <div class="big-text" style="margin-top: 6px;">WebSocket 已连接</div>
+        <div class="sub-text" style="margin-top: 4px;">wss://push.example.com/ws</div>
+        <div class="btn-row">
+          <button class="btn btn-primary">测试推送</button>
+          <button class="btn btn-ghost">重新连接</button>
+        </div>
+      </div>
+
+      <div class="sec-title">最近消息</div>
+
+      <div class="msg-item">
+        <h4>📢 系统升级通知 <span class="prio-high">高优先</span></h4>
+        <p>新版本 v2.0 已发布，新增玻璃拟态 UI、一键已读、消息复制等功能，建议尽快更新。</p>
+        <div class="meta">
+          <span>2 分钟前</span>
+          <span style="color:#54b4ff;">🔴 未读</span>
+        </div>
+      </div>
+
+      <div class="msg-item">
+        <h4>🎯 目标达成提醒 <span class="prio-sys">系统</span></h4>
+        <p>您关注的产品 PushApp 下载量突破 10,000 次！感谢您的使用。</p>
+        <div class="meta">
+          <span>15 分钟前</span>
+          <span>普通</span>
+        </div>
+      </div>
+
+      <div class="msg-item read">
+        <h4>🔔 设备在线提醒</h4>
+        <p>小米 Redmi K70 已连接 WebSocket 服务，当前在线设备：3 台。</p>
+        <div class="meta">
+          <span>1 小时前</span>
+          <span>已读</span>
+        </div>
+      </div>
+
+      <div class="sec-title">快捷操作</div>
+      <div class="btn-row" style="margin-top: 0;">
+        <button class="btn btn-ghost">📄 消息列表</button>
+        <button class="btn btn-ghost">🔑 服务器配置</button>
+      </div>
+    </div>
+
+    <!-- ========== 消息页 ========== -->
+    <div class="page" id="page-messages">
+      <div class="status-bar">
+        <span style="font-size: 22px; font-weight: 700;">消息列表</span>
+        <span>27 条</span>
+      </div>
+
+      <div class="glass-card" style="margin-top: 0;">
+        <div class="search-box">🔍 搜索消息内容</div>
+        <div class="filter-row">
+          <span class="filter-tag active">全部 27</span>
+          <span class="filter-tag">高优先</span>
+          <span class="filter-tag">系统</span>
+          <span class="filter-tag">未读 4</span>
+        </div>
+        <div style="margin-top: 12px; display: flex; gap: 8px;">
+          <span class="action-btn">✅ 一键已读</span>
+          <span class="action-btn danger">🗑 清空</span>
+        </div>
+      </div>
+
+      <div class="msg-item">
+        <h4>📢 系统升级通知 <span class="prio-high">高优先</span></h4>
+        <p>新版本 v2.0 已发布，新增玻璃拟态 UI、一键已读、消息复制等功能。</p>
+        <div class="meta">
+          <span>今天 14:32</span>
+          <div class="actions">
+            <span>📋 复制</span>
+            <span>已读</span>
+            <span class="danger">🗑 删除</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="msg-item">
+        <h4>🎯 目标达成提醒 <span class="prio-sys">系统</span></h4>
+        <p>PushApp 下载量突破 10,000 次！感谢使用。</p>
+        <div class="meta">
+          <span>今天 13:18</span>
+          <div class="actions">
+            <span>📋 复制</span>
+            <span>已读</span>
+            <span class="danger">🗑 删除</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="msg-item read">
+        <h4>🔔 设备在线提醒</h4>
+        <p>小米 Redmi K70 已连接，当前在线 3 台。</p>
+        <div class="meta">
+          <span>今天 12:05</span>
+          <div class="actions">
+            <span>📋 复制</span>
+            <span class="danger">🗑 删除</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="msg-item read">
+        <h4>💡 小技巧</h4>
+        <p>在「服务器配置」页可以切换 WebSocket 地址和 Push Key。</p>
+        <div class="meta">
+          <span>昨天 22:41</span>
+          <div class="actions">
+            <span>📋 复制</span>
+            <span class="danger">🗑 删除</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="msg-item read">
+        <h4>🔧 心跳保活已增强</h4>
+        <p>锁屏后 Doze 模式下保持连接的稳定性提升至 98%。</p>
+        <div class="meta">
+          <span>昨天 18:22</span>
+          <div class="actions">
+            <span>📋 复制</span>
+            <span class="danger">🗑 删除</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 我的 ========== -->
+    <div class="page" id="page-profile">
+      <div class="status-bar">
+        <span style="font-size: 22px; font-weight: 700;">我的</span>
+      </div>
+
+      <div class="avatar-section">
+        <div class="avatar">P</div>
+        <div class="profile-name">PushApp 用户</div>
+        <div class="profile-sub">Key: pk_xxxxxx·7 位有效</div>
+      </div>
+
+      <div class="stat-grid" style="margin: 0 4px 14px;">
+        <div class="stat-item">
+          <div class="stat-num">3</div>
+          <div class="stat-label">在线设备</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-num">27</div>
+          <div class="stat-label">收到消息</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-num">99%</div>
+          <div class="stat-label">连接稳定</div>
+        </div>
+      </div>
+
+      <div class="glass-card" style="padding: 0;">
+        <div class="list-item">
+          <div class="li-icon">📱</div>
+          <div class="li-text"><h5>设备管理</h5><p>3 台设备在线</p></div>
+          <div class="li-arrow">›</div>
+        </div>
+        <div class="list-item">
+          <div class="li-icon">🔑</div>
+          <div class="li-text"><h5>Push Key</h5><p>查看 / 重置</p></div>
+          <div class="li-arrow">›</div>
+        </div>
+        <div class="list-item">
+          <div class="li-icon">📊</div>
+          <div class="li-text"><h5>连接日志</h5><p>最近 30 天</p></div>
+          <div class="li-arrow">›</div>
+        </div>
+      </div>
+
+      <div class="glass-card" style="padding: 0;">
+        <div class="list-item">
+          <div class="li-icon">💬</div>
+          <div class="li-text"><h5>意见反馈</h5><p>帮助我们做得更好</p></div>
+          <div class="li-arrow">›</div>
+        </div>
+        <div class="list-item">
+          <div class="li-icon">ℹ️</div>
+          <div class="li-text"><h5>关于 PushApp</h5><p>v2.0.0 · 玻璃拟态版</p></div>
+          <div class="li-arrow">›</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 设置 ========== -->
+    <div class="page" id="page-settings">
+      <div class="status-bar">
+        <span style="font-size: 22px; font-weight: 700;">设置</span>
+      </div>
+
+      <!-- 权限引导 -->
+      <div class="sec-title">权限引导</div>
+      <div class="glass-card" style="padding: 0;">
+        <div class="list-item" style="padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div class="li-text" style="padding-left:0;">
+            <h5>📱 设备识别</h5>
+            <p>Xiaomi · Redmi K70 · Android 14</p>
+          </div>
+        </div>
+        <div class="list-item" style="padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div class="li-text" style="padding-left:0;">
+            <h5>🔔 通知权限</h5>
+            <p>允许接收推送消息</p>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span class="chip ok" style="font-size:11px; padding:2px 10px;">已开启</span>
+            <span class="li-arrow">›</span>
+          </div>
+        </div>
+        <div class="list-item" style="padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div class="li-text" style="padding-left:0;">
+            <h5>🔋 电池优化白名单</h5>
+            <p>防止系统杀后台进程</p>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span class="chip bad" style="font-size:11px; padding:2px 10px;">未加入</span>
+            <span class="li-arrow">›</span>
+          </div>
+        </div>
+        <div class="list-item" style="padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div class="li-text" style="padding-left:0;">
+            <h5>🛡️ 自启动</h5>
+            <p>允许 APP 开机自启</p>
+          </div>
+          <span class="li-arrow">›</span>
+        </div>
+        <div class="list-item" style="padding: 14px 20px;">
+          <div class="li-text" style="padding-left:0;">
+            <h5>🔒 后台弹窗</h5>
+            <p>允许后台通知弹窗</p>
+          </div>
+          <span class="li-arrow">›</span>
+        </div>
+      </div>
+
+      <!-- 通用 -->
+      <div class="sec-title">通用</div>
+      <div class="glass-card" style="padding: 0;">
+        <div class="list-item" style="padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div class="li-text" style="padding-left:0;"><h5>🎨 主题</h5></div>
+          <span style="font-size:13px; color:rgba(255,255,255,0.5);">深色（默认）</span>
+        </div>
+        <div class="switch-row" style="padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div>
+            <h5>📳 震动反馈</h5>
+          </div>
+          <div class="switch on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="list-item" style="padding: 14px 20px;">
+          <div class="li-text" style="padding-left:0;"><h5>🎵 通知铃声</h5></div>
+          <span style="font-size:13px; color:rgba(255,255,255,0.5);">默认</span>
+        </div>
+      </div>
+
+      <!-- 网络 -->
+      <div class="sec-title">网络</div>
+      <div class="glass-card" style="padding: 0;">
+        <div class="switch-row" style="padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div>
+            <h5>📶 仅 Wi-Fi 连接</h5>
+          </div>
+          <div class="switch" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="switch-row" style="padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div>
+            <h5>🔄 自动重连</h5>
+          </div>
+          <div class="switch on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="list-item" style="padding: 14px 20px;">
+          <div class="li-text" style="padding-left:0;"><h5>⚡ 心跳间隔</h5></div>
+          <div style="display:flex; gap:6px;">
+            <span class="filter-tag" style="font-size:11px; padding:3px 10px;">15s</span>
+            <span class="filter-tag active" style="font-size:11px; padding:3px 10px;">30s</span>
+            <span class="filter-tag" style="font-size:11px; padding:3px 10px;">60s</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 存储 -->
+      <div class="sec-title">存储</div>
+      <div class="glass-card" style="padding: 0;">
+        <div class="list-item" style="padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div class="li-text" style="padding-left:0;"><h5>💾 本地消息</h5></div>
+          <span style="font-size:13px; color:rgba(255,255,255,0.5);">27 条</span>
+        </div>
+        <div class="list-item" style="padding: 14px 20px;">
+          <div class="li-text" style="padding-left:0;"><h5>🗑 清除缓存</h5></div>
+          <span class="li-arrow">›</span>
+        </div>
+      </div>
+
+      <!-- 关于 -->
+      <div class="sec-title">关于</div>
+      <div class="glass-card" style="padding: 0;">
+        <div class="list-item" style="padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <div class="li-text" style="padding-left:0;"><h5>ℹ️ 版本信息</h5></div>
+          <span style="font-size:13px; color:rgba(255,255,255,0.5);">v2.0.0</span>
+        </div>
+        <div class="list-item" style="padding: 14px 20px;">
+          <div class="li-text" style="padding-left:0;"><h5>🏗 构建时间</h5></div>
+          <span style="font-size:12px; color:rgba(255,255,255,0.4);">2026-08-13 12:00</span>
+        </div>
+      </div>
+
+      <!-- 危险 -->
+      <div class="sec-title">危险</div>
+      <div class="glass-card" style="padding: 16px 20px;">
+        <button class="btn" style="width:100%; background:transparent; color:#ef4444; border:1px solid rgba(239,68,68,0.4); border-radius:12px; font-size:15px; font-weight:500; padding:14px;">🚪 退出登录</button>
+      </div>
+    </div>
+
+    <!-- ========== Tab Bar ========== -->
+    <div class="tabbar">
+      <div class="tab-item active" onclick="showPage('home')">
+        <span class="icon">🏠</span><span>首页</span>
+      </div>
+      <div class="tab-item" onclick="showPage('messages')">
+        <span class="icon">📬</span><span>消息</span>
+      </div>
+      <div class="tab-item" onclick="showPage('profile')">
+        <span class="icon">👤</span><span>我的</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  document.querySelectorAll('.tab-item').forEach((t,i) => {
+    t.classList.remove('active');
+    const map = ['home','messages','profile'];
+    if (map[i] === name) t.classList.add('active');
+  });
+  document.querySelectorAll('.nav-btn').forEach(b => {
+    b.classList.remove('active');
+    if (b.textContent.toLowerCase().includes(name)) b.classList.add('active');
+  });
+}
+</script>
+
+</body>
+</html>

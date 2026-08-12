@@ -238,4 +238,74 @@ class DeviceApiController
 
         return Response::success($responseData, 'ok');
     }
+
+    /**
+     * APP 检查更新（公开接口，无需鉴权）
+     * 路由：GET /api/check-update?platform=android&current_version=1.0.0
+     *
+     * 参数：
+     *   platform        (string) android | ios，默认 android
+     *   current_version (string) APP 当前版本号
+     *
+     * 返回：
+     *   has_update      是否有更新
+     *   latest_version  最新版本号
+     *   update_log      更新说明
+     *   apk_download_url / ipa_download_url  下载地址
+     *   force_update    是否强制更新
+     */
+    public function checkUpdate(array $context, array $params)
+    {
+        $query = $context['request']['query'] ?? [];
+        $platform = strtolower(trim((string)($query['platform'] ?? 'android')));
+        $currentVersion = trim((string)($query['current_version'] ?? ''));
+
+        $defaults = [
+            'apk_download_url' => '',
+            'ipa_download_url' => '',
+            'apk_version'      => '',
+            'ipa_version'      => '',
+            'update_log'       => '',
+            'force_update'     => 0,
+        ];
+
+        try {
+            $row = Database::fetch(
+                'SELECT config_value FROM admin_settings WHERE config_key = ? LIMIT 1',
+                ['settings_user_app']
+            );
+            if ($row && !empty($row['config_value'])) {
+                $stored = json_decode($row['config_value'], true);
+                if (is_array($stored)) $defaults = array_merge($defaults, $stored);
+            }
+        } catch (\Throwable $e) {
+            // 数据库还没初始化 admin_settings 表？直接返回无更新
+        }
+
+        $latestVersion = $platform === 'ios'
+            ? ($defaults['ipa_version'] ?? '')
+            : ($defaults['apk_version'] ?? '');
+        $downloadUrl = $platform === 'ios'
+            ? ($defaults['ipa_download_url'] ?? '')
+            : ($defaults['apk_download_url'] ?? '');
+        $updateLog = $defaults['update_log'] ?? '';
+        $forceUpdate = (int)($defaults['force_update'] ?? 0);
+
+        $hasUpdate = false;
+        if ($currentVersion !== '' && $latestVersion !== '') {
+            $hasUpdate = version_compare($latestVersion, $currentVersion, '>');
+        } elseif ($latestVersion !== '') {
+            $hasUpdate = true;
+        }
+
+        return Response::success([
+            'platform'       => $platform,
+            'has_update'     => $hasUpdate,
+            'latest_version' => $latestVersion,
+            'current_version'=> $currentVersion,
+            'update_log'     => $updateLog,
+            'download_url'   => $downloadUrl,
+            'force_update'   => $forceUpdate === 1,
+        ], $hasUpdate ? 'new_version_available' : 'already_latest');
+    }
 }

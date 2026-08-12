@@ -1,4 +1,4 @@
-<template>
+﻿<template>
     <view class="glass-bg">
         <view class="top-bar">
             <view class="row" style="margin-top:60rpx;">
@@ -103,9 +103,16 @@
                 <view>ℹ️ 版本信息</view>
                 <view class="text-secondary" style="font-size:24rpx;">v{{ versionName }}</view>
             </view>
-            <view class="row-between" style="padding:20rpx 0;">
+            <view class="row-between" style="padding:20rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
                 <view>🏗 构建时间</view>
                 <view class="text-secondary" style="font-size:22rpx;">{{ buildTime }}</view>
+            </view>
+            <view class="row-between" style="padding:24rpx 0;" @click="doCheckUpdate">
+                <view>
+                    <view>🔄 检查更新</view>
+                    <view class="text-muted" style="font-size:22rpx;">{{ updateTip }}</view>
+                </view>
+                <view class="text-muted" style="font-size:26rpx;">›</view>
             </view>
         </view>
 
@@ -117,6 +124,7 @@
 </template>
 
 <script>
+import { checkUpdate } from '../../js/api.js'
 import { loadBootConfig, PUSH_VIBRATE, PUSH_WIFI_ONLY, PUSH_AUTO_RECONNECT, PUSH_HEARTBEAT, getMessages, clearMessages, PUSH_KEY, PUSH_USER_ID, PUSH_USER_TOKEN } from '../../js/storage.js'
 import { disconnect } from '../../js/ws.js'
 import { getDeviceInfo, checkNotificationPerm, checkBatteryOpt, openNotificationSetting, openBatteryOpt, openBrandSetting } from '../../js/permissions.js'
@@ -133,6 +141,7 @@ export default {
             heartbeat: 30,
             messagesCount: 0,
             versionName: '1.0.0',
+            updateTip: '点击检查最新版本',
             buildTime: ''
         }
     },
@@ -183,6 +192,45 @@ export default {
                         uni.showToast({ title: '已清除', icon: 'success' })
                     }
                 }
+            })
+        },
+                doCheckUpdate: function() {
+            var self = this
+            var cfg = loadBootConfig()
+            var baseUrl = uni.getStorageSync('push_server_url') || cfg.server_url
+            var platform = uni.getSystemInfoSync().platform || 'android'
+            if (!baseUrl) { uni.showToast({ title: '未配置服务器地址', icon: 'none' }); return }
+            self.updateTip = '检查中…'
+            checkUpdate(baseUrl, self.versionName, platform).then(function(info) {
+                if (info && info.has_update) {
+                    var msg = '最新版本：v' + info.latest_version + '\n当前版本：v' + self.versionName
+                    if (info.update_log) msg += '\n\n更新说明：\n' + info.update_log
+                    if (info.download_url) msg += '\n\n下载地址：' + info.download_url
+                    self.updateTip = '发现新版本 v' + info.latest_version
+                    uni.showModal({
+                        title: '🎉 发现新版本',
+                        content: msg,
+                        confirmText: info.download_url ? '立即下载' : '知道了',
+                        success: function(r) {
+                            if (r.confirm && info.download_url) {
+                                // #ifdef APP-PLUS
+                                plus.runtime.openURL(info.download_url)
+                                // #endif
+                                // #ifndef APP-PLUS
+                                uni.setClipboardData({ data: info.download_url, success: function() {
+                                    uni.showToast({ title: '下载链接已复制', icon: 'success' })
+                                }})
+                                // #endif
+                            }
+                        }
+                    })
+                } else {
+                    self.updateTip = '已是最新版本'
+                    uni.showToast({ title: '已是最新版本 v' + self.versionName, icon: 'none' })
+                }
+            }).catch(function() {
+                self.updateTip = '检查失败，请稍后重试'
+                uni.showToast({ title: '网络错误', icon: 'none' })
             })
         },
         logout: function() {

@@ -70,11 +70,13 @@ class HBuilderXService
      */
     public function generateZip(array $params): string
     {
-        $userId    = (int)($params['user_id'] ?? 0);
-        $appName   = trim((string)($params['app_name'] ?? 'Push 推送'));
-        $pkgId     = trim((string)($params['package_id'] ?? 'com.example.push'));
-        $apiBase   = rtrim((string)($params['api_base_url'] ?? ''), '/');
-        $wsUrl     = rtrim((string)($params['ws_url'] ?? ''), '/');
+        $userId      = (int)($params['user_id'] ?? 0);
+        $appName     = trim((string)($params['app_name'] ?? 'Push 推送'));
+        $pkgId       = trim((string)($params['package_id'] ?? 'com.example.push'));
+        $apiBase     = rtrim((string)($params['api_base_url'] ?? ''), '/');
+        $wsUrl       = rtrim((string)($params['ws_url'] ?? ''), '/');
+        $versionName = trim((string)($params['version_name'] ?? '1.0.0'));
+        $versionCode = (int)($params['version_code'] ?? 1);
 
         // 如果只填了 api_base_url 没填 ws_url，自动从 api_base_url 推导
         // https://push.example.com → wss://push.example.com/ws
@@ -104,16 +106,16 @@ class HBuilderXService
         if ($hasTemplate) {
             // 有真实模板：复制模板文件，只注入动态配置
             $this->copyDir($templateDir, $tmpDir);
-            $this->injectManifest($tmpDir, $appName, $pkgId);
-            $this->writeConfig($tmpDir, $appName, $defaultKey, $apiBase, $wsUrl);
+            $this->injectManifest($tmpDir, $appName, $pkgId, $versionName, $versionCode);
+            $this->writeConfig($tmpDir, $appName, $defaultKey, $apiBase, $wsUrl, $versionName);
         } else {
             // 无模板：走最小脚手架兜底
             $this->scaffoldMinimalTemplate($tmpDir);
-            $this->writeManifest($tmpDir, $appName, $pkgId);
+            $this->writeManifest($tmpDir, $appName, $pkgId, $versionName, $versionCode);
             $this->writePagesJson($tmpDir);
             $this->writeMainJs($tmpDir);
             $this->writeAppVue($tmpDir, $appName);
-            $this->writeConfig($tmpDir, $appName, $defaultKey, $apiBase, $wsUrl);
+            $this->writeConfig($tmpDir, $appName, $defaultKey, $apiBase, $wsUrl, $versionName);
             $this->writeIndexHtml($tmpDir, $appName);
             $this->writePageScaffolds($tmpDir);
         }
@@ -147,19 +149,18 @@ class HBuilderXService
      * 向已有模板的 manifest.json 注入动态参数（app_name, package_id）
      * 保留模板原有的权限、图标、模块等配置
      */
-    private function injectManifest(string $dir, string $appName, string $pkgId): void
+    private function injectManifest(string $dir, string $appName, string $pkgId, string $versionName, int $versionCode): void
     {
         $path = $dir . '/manifest.json';
         if (!file_exists($path)) {
-            // 模板没有 manifest.json，走完整生成
-            $this->writeManifest($dir, $appName, $pkgId);
+            $this->writeManifest($dir, $appName, $pkgId, $versionName, $versionCode);
             return;
         }
 
         $json = file_get_contents($path);
         $arr = json_decode($json, true);
         if (!is_array($arr)) {
-            $this->writeManifest($dir, $appName, $pkgId);
+            $this->writeManifest($dir, $appName, $pkgId, $versionName, $versionCode);
             return;
         }
 
@@ -167,6 +168,8 @@ class HBuilderXService
         $arr['name'] = $appName;
         $arr['appid'] = '__UNI__' . substr(md5($pkgId . '|' . $appName), 0, 7);
         $arr['description'] = $appName . ' - 即时消息推送客户端';
+        $arr['versionName'] = $versionName;
+        $arr['versionCode'] = (string)$versionCode;
 
         // 注入 package_id
         if (isset($arr['app-plus']['distribute']['android'])) {
@@ -182,12 +185,14 @@ class HBuilderXService
     /**
      * 重写根目录 config.js（App.vue 从 ./config.js 读取）
      */
-    private function writeConfig(string $dir, string $appName, string $defaultKey, string $apiBase, string $wsUrl): void
+    private function writeConfig(string $dir, string $appName, string $defaultKey, string $apiBase, string $wsUrl, string $versionName): void
     {
         $appName  = str_replace("'", "\\'", $appName ?: 'PushApp');
         $defaultKey = str_replace("'", "\\'", $defaultKey);
         $apiBase  = str_replace("'", "\\'", $apiBase);
         $wsUrl    = str_replace("'", "\\'", $wsUrl);
+        $versionName = str_replace("'", "\\'", $versionName ?: '1.0.0');
+        $buildTime = date('Y-m-d H:i:s');
         $code = <<<"JS"
 // 服务器配置 — 由 PushApp Backend 自动注入
 // 不要手动修改，由后台 APP 构建时生成
@@ -196,8 +201,8 @@ export const APP_CONFIG = {
     default_key: '{$defaultKey}',
     server_url: '{$apiBase}',
     ws_url: '{$wsUrl}',
-    version_name: '1.0.0',
-    build_time: '',
+    version_name: '{$versionName}',
+    build_time: '{$buildTime}',
     generator: 'PushApp Backend'
 };
 JS;
@@ -235,7 +240,7 @@ TXT;
 
     // ---------- 兜底方法（无模板时使用） ----------
 
-    private function writeManifest(string $dir, string $appName, string $pkgId): void
+    private function writeManifest(string $dir, string $appName, string $pkgId, string $versionName, int $versionCode): void
     {
         $path = $dir . '/manifest.json';
         if (!is_dir(dirname($path))) @mkdir(dirname($path), 0755, true);
@@ -243,8 +248,8 @@ TXT;
             'name'         => $appName,
             'appid'        => '__UNI__' . substr(md5($pkgId . '|' . $appName), 0, 7),
             'description'  => $appName . ' - 即时消息推送客户端',
-            'versionName'  => '1.0.0',
-            'versionCode'  => '100',
+            'versionName'  => $versionName,
+            'versionCode'  => (string)$versionCode,
             'transformPx'  => false,
             'app-plus'     => [
                 'usingComponents' => true,

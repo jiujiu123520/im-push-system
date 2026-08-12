@@ -318,6 +318,9 @@ $router->put('/admin/keys/{id}/subscribers/{device_id}/repair', [\App\Controller
         // APP 端上报 iOS APNS device token（无需鉴权，通过 push_key + device_id）
         $router->post('/api/device/register-token', [\App\Controller\DeviceApiController::class, 'registerToken']);
 
+        // APP 端检查更新（完全公开，无需鉴权）
+        $router->get('/api/check-update', [\App\Controller\DeviceApiController::class, 'checkUpdate']);
+
         // ============================================================
         // 系统设置（管理员鉴权）
         // ============================================================
