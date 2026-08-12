@@ -1,5 +1,5 @@
 ﻿<template>
-    <view class="glass-bg">
+    <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
             <view class="row" style="margin-top:60rpx;">
                 <text class="icon-btn" @click="goBack" style="font-size:36rpx;width:72rpx;height:72rpx;">‹</text>
@@ -55,7 +55,10 @@
         <view class="glass-card" style="padding:16rpx 30rpx;">
             <view class="row-between" style="padding:20rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
                 <view>🎨 主题</view>
-                <view class="text-secondary" style="font-size:26rpx;">深色（默认）</view>
+                <view class="row" style="gap:12rpx;">
+                    <text :class="['status-chip', theme==='dark'?'status-ok':'']" style="cursor:pointer;" @click="setTheme('dark')">深色</text>
+                    <text :class="['status-chip', theme==='light'?'status-ok':'']" style="cursor:pointer;" @click="setTheme('light')">浅色</text>
+                </view>
             </view>
             <view class="row-between" style="padding:24rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
                 <view>📳 震动反馈</view>
@@ -63,7 +66,10 @@
             </view>
             <view class="row-between" style="padding:24rpx 0;">
                 <view>🎵 通知铃声</view>
-                <view class="text-secondary" style="font-size:24rpx;">默认</view>
+                <view class="row" style="gap:12rpx;">
+                    <text :class="['status-chip', ringtone==='default'?'status-ok':'']" style="cursor:pointer;" @click="setRingtone('default')">默认</text>
+                    <text :class="['status-chip', ringtone==='silent'?'status-ok':'']" style="cursor:pointer;" @click="setRingtone('silent')">静默</text>
+                </view>
             </view>
         </view>
 
@@ -124,14 +130,19 @@
 </template>
 
 <script>
+
 import { checkUpdate } from '../../js/api.js'
-import { loadBootConfig, PUSH_VIBRATE, PUSH_WIFI_ONLY, PUSH_AUTO_RECONNECT, PUSH_HEARTBEAT, getMessages, clearMessages, PUSH_KEY, PUSH_USER_ID, PUSH_USER_TOKEN } from '../../js/storage.js'
+import { loadBootConfig, PUSH_VIBRATE, PUSH_WIFI_ONLY, PUSH_AUTO_RECONNECT, PUSH_HEARTBEAT, PUSH_RINGTONE, getMessages, clearMessages, PUSH_KEY, PUSH_USER_ID, PUSH_USER_TOKEN } from '../../js/storage.js'
 import { disconnect, applySettings } from '../../js/ws.js'
 import { getDeviceInfo, checkNotificationPerm, checkBatteryOpt, openNotificationSetting, openBatteryOpt, openBrandSetting } from '../../js/permissions.js'
+import { getTheme, setTheme as applyThemeFn, onThemeChange, offThemeChange } from '../../js/theme.js'
 
 export default {
     data() {
         return {
+            themeClass: 'dark',
+            theme: 'dark',
+            ringtone: 'default',
             deviceInfo: { brand: '', model: '', os: '' },
             notifyOk: true,
             batteryOk: true,
@@ -146,6 +157,7 @@ export default {
         }
     },
     onShow: function() {
+            var self = this; self.themeClass = getTheme(); self.theme = self.themeClass; onThemeChange(function(t){ self.themeClass = t; self.theme = t })
         var cfg = loadBootConfig()
         this.deviceInfo = getDeviceInfo()
         this.notifyOk = checkNotificationPerm()
@@ -154,12 +166,22 @@ export default {
         this.wifiOnly = uni.getStorageSync(PUSH_WIFI_ONLY) === true
         this.autoReconnect = uni.getStorageSync(PUSH_AUTO_RECONNECT) !== false
         this.heartbeat = parseInt(uni.getStorageSync(PUSH_HEARTBEAT)) || 30
+        this.ringtone = uni.getStorageSync(PUSH_RINGTONE) || 'default'
         this.messagesCount = getMessages().length
         this.versionName = cfg.version_name || '1.0.0'
         this.buildTime = cfg.build_time || '—'
     },
     methods: {
         goBack: function() { uni.navigateBack({ delta: 1 }) },
+        setTheme: function(v) {
+            applyThemeFn(v)
+            uni.showToast({ title: '主题已切换', icon: 'none' })
+        },
+        setRingtone: function(v) {
+            this.ringtone = v
+            uni.setStorageSync(PUSH_RINGTONE, v)
+            uni.showToast({ title: v === 'silent' ? '通知将静默推送' : '使用系统默认铃声', icon: 'none' })
+        },
         openNotify: function() { openNotificationSetting() },
         openBattery: function() { openBatteryOpt() },
         openAutoStart: function() { openBrandSetting('autoStart') },
@@ -251,6 +273,8 @@ export default {
                 }
             })
         }
-    }
+    },
+    onUnload: function() { offThemeChange() }
 }
+
 </script>

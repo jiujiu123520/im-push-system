@@ -1,5 +1,5 @@
-<template>
-    <view class="glass-bg">
+﻿<template>
+    <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
             <view class="row-between" style="margin-top:60rpx;">
                 <view>
@@ -46,10 +46,11 @@
 </template>
 
 <script>
-import { connect, disconnect, reconnect, isConnected, on, off, getState } from '../../js/ws.js'
-import { loadBootConfig, PUSH_KEY, PUSH_WS_URL, PUSH_SERVER_URL, getMessages } from '../../js/storage.js'
-import { notify } from '../../js/notify.js'
-import { testPush as apiTestPush } from '../../js/api.js'
+
+import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
+
+
+
 
 export default {
     data() {
@@ -67,7 +68,8 @@ export default {
     computed: {
         canTest: function() { return !!this.keyValue }
     },
-    onShow: function() {
+    
+            var self = this; self.themeClass = getTheme(); onThemeChange(function(t){ self.themeClass = t })
         var cfg = loadBootConfig()
         this.appName = cfg.app_name || 'PushApp'
         this.keyValue = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''
@@ -162,8 +164,9 @@ export default {
             if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
             return Math.floor(diff / 86400000) + '天前'
         }
+        onUnload: function() { offThemeChange() }
     }
-}
+
 </script>
 
 <style>

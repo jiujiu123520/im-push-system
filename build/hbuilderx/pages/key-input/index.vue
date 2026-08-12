@@ -1,5 +1,5 @@
-<template>
-    <view class="glass-bg">
+﻿<template>
+    <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
             <view class="row" style="margin-top:60rpx;">
                 <text class="icon-btn" @click="goBack" style="font-size:36rpx;width:72rpx;height:72rpx;">‹</text>
@@ -24,7 +24,8 @@
 </template>
 
 <script>
-import { loadBootConfig, PUSH_KEY, PUSH_SERVER_URL, PUSH_WS_URL } from '../../js/storage.js'
+
+import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
 
 export default {
     data() {
@@ -48,6 +49,7 @@ export default {
             uni.showToast({ title: '已保存，正在连接…', icon: 'none' })
             setTimeout(function(){ uni.switchTab({ url: '/pages/home/index' }) }, 800)
         }
+        onUnload: function() { offThemeChange() }
     }
-}
+
 </script>

@@ -1,4 +1,7 @@
-import { PUSH_VIBRATE } from './storage.js'
+import { PUSH_VIBRATE, PUSH_RINGTONE } from './storage.js'
+
+const CHANNEL_NORMAL = 'push_normal'
+const CHANNEL_SILENT = 'push_silent'
 
 export function notify(title, content, priority) {
     if (!title && !content) return
@@ -21,12 +24,23 @@ function _nativeNotify(title, content, priority) {
     const main = plus.android.runtimeMainActivity()
     const nm = main.getSystemService(main.NOTIFICATION_SERVICE)
 
-    const channelId = 'push_alert'
+    const ringtone = uni.getStorageSync(PUSH_RINGTONE) || 'default'
+    const isSilent = ringtone === 'silent'
+    const channelId = isSilent ? CHANNEL_SILENT : CHANNEL_NORMAL
+
     if (Build.VERSION.SDK_INT >= 26) {
         const NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
-        const channel = new NotificationChannel(channelId, '推送提醒', NotificationManager.IMPORTANCE_DEFAULT)
-        channel.enableVibration(true)
-        nm.createNotificationChannel(channel)
+
+        if (!isSilent) {
+            const chNormal = new NotificationChannel(CHANNEL_NORMAL, '推送提醒 · 默认铃声', NotificationManager.IMPORTANCE_DEFAULT)
+            chNormal.enableVibration(true)
+            nm.createNotificationChannel(chNormal)
+        }
+
+        const chSilent = new NotificationChannel(CHANNEL_SILENT, '推送提醒 · 静默', NotificationManager.IMPORTANCE_LOW)
+        chSilent.enableVibration(false)
+        chSilent.setSound(null, null)
+        nm.createNotificationChannel(chSilent)
     }
 
     const intent = new Intent(main, main.getClass())

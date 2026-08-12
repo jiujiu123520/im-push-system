@@ -1,5 +1,5 @@
-<template>
-    <view class="glass-bg">
+﻿<template>
+    <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
             <view class="text-primary" style="font-size:56rpx;font-weight:800;letter-spacing:-1rpx;margin-top:40rpx;">PushApp</view>
             <view class="text-secondary" style="margin-top:8rpx;font-size:28rpx;">玻璃拟态版 · 即时推送</view>
@@ -30,8 +30,9 @@
 </template>
 
 <script>
-import { loadBootConfig, PUSH_KEY, PUSH_USER_TOKEN, PUSH_USER_ID } from '../../js/storage.js'
-import { login } from '../../js/api.js'
+
+import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
+
 
 export default {
     data() {
@@ -73,6 +74,7 @@ export default {
         if (key) {
             uni.switchTab({ url: '/pages/home/index' })
         }
+        onUnload: function() { offThemeChange() }
     }
-}
+
 </script>

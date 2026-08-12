@@ -1,5 +1,5 @@
-<template>
-    <view class="glass-bg">
+﻿<template>
+    <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
             <view class="row-between" style="margin-top:60rpx;">
                 <view class="top-bar-title">消息列表</view>
@@ -54,8 +54,9 @@
 </template>
 
 <script>
-import { getMessages, setMessages, markAllRead as markAllReadApi, markRead as markReadApi, deleteMessage, clearMessages } from '../../js/storage.js'
-import { on, off } from '../../js/ws.js'
+
+import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
+
 
 export default {
     data() {
@@ -74,7 +75,8 @@ export default {
             return arr
         }
     },
-    onShow: function() {
+    
+            var self = this; self.themeClass = getTheme(); onThemeChange(function(t){ self.themeClass = t })
         this._refresh()
         on('message', this._onWsMsg)
     },
@@ -145,8 +147,9 @@ export default {
             if (p === 'system') return '⚙ 系统'
             return '普通'
         }
+        onUnload: function() { offThemeChange() }
     }
-}
+
 </script>
 
 <style>

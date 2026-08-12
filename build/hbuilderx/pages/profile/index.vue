@@ -1,5 +1,5 @@
-<template>
-    <view class="glass-bg">
+﻿<template>
+    <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
             <view class="top-bar-title" style="margin-top:60rpx;">个人中心</view>
             <view class="top-bar-subtitle">你的 Push 账户信息</view>
@@ -66,8 +66,9 @@
 </template>
 
 <script>
-import { loadBootConfig, PUSH_USER_ID, PUSH_KEY, PUSH_SERVER_URL, PUSH_WS_URL, clearMessages } from '../../js/storage.js'
-import { on, off, getState } from '../../js/ws.js'
+
+import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
+
 
 export default {
     data() {
@@ -79,7 +80,8 @@ export default {
             return this.key.length > 24 ? this.key.slice(0, 12) + '……' + this.key.slice(-8) : this.key
         }
     },
-    onShow: function() {
+    
+            var self = this; self.themeClass = getTheme(); onThemeChange(function(t){ self.themeClass = t })
         var cfg = loadBootConfig()
         this.userId = uni.getStorageSync(PUSH_USER_ID) || ''
         this.key = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''
@@ -111,6 +113,7 @@ export default {
                 }
             })
         }
+        onUnload: function() { offThemeChange() }
     }
-}
+
 </script>

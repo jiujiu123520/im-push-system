@@ -31,6 +31,7 @@ export const PUSH_AUTO_RECONNECT = 'push_auto_reconnect'
 export const PUSH_VIBRATE = 'push_vibrate'
 export const PUSH_WIFI_ONLY = 'push_wifi_only'
 export const PUSH_THEME = 'push_theme'
+export const PUSH_RINGTONE = 'push_ringtone'
 
 const STORAGE_KEY = 'push_messages'
 

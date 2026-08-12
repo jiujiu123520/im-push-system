@@ -2,6 +2,7 @@
 import { ensureBootConfig, loadBootConfig, saveBootConfig, clearBootConfig } from './js/storage.js'
 import { connect, disconnect, reconnect, isConnected } from './js/ws.js'
 import { startKeepAlive, stopKeepAlive } from './js/keepalive.js'
+import { applyTheme } from './js/theme.js'
 import { APP_CONFIG } from './config.js'
 
 export default {
@@ -13,6 +14,7 @@ export default {
         saveBootConfig('server_url', APP_CONFIG.server_url)
         saveBootConfig('ws_url', APP_CONFIG.ws_url)
         saveBootConfig('default_key', APP_CONFIG.default_key)
+        applyTheme()
     },
 
     onShow: function () {
@@ -41,11 +43,4 @@ export default {
 
 <style>
 @import './css/glass.css';
-
-page {
-    background: linear-gradient(160deg, #0a0a1a 0%, #1a1535 50%, #2a1f55 100%);
-    color: rgba(255, 255, 255, 0.95);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    min-height: 100vh;
-}
 </style>
