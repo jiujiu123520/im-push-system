@@ -30,8 +30,8 @@
 </template>
 
 <script>
-var storage = require('../../js/storage.js')
-var api = require('../../js/api.js')
+import { loadBootConfig, PUSH_KEY, PUSH_USER_TOKEN, PUSH_USER_ID } from '../../js/storage.js'
+import { login } from '../../js/api.js'
 
 export default {
     data() {
@@ -43,13 +43,13 @@ export default {
                 uni.showToast({ title: '请填写完整', icon: 'none' }); return
             }
             this.loading = true
-            var cfg = storage.loadBootConfig()
+            var cfg = loadBootConfig()
             var self = this
-            api.login(cfg.server_url, this.email, this.password).then(function(res) {
+            login(cfg.server_url, this.email, this.password).then(function(res) {
                 if (res && res.code === 0) {
-                    uni.setStorageSync(storage.PUSH_USER_TOKEN, res.data.token || '')
-                    uni.setStorageSync(storage.PUSH_USER_ID, res.data.user_id || '')
-                    uni.setStorageSync(storage.PUSH_KEY, res.data.push_key || '')
+                    uni.setStorageSync(PUSH_USER_TOKEN, res.data.token || '')
+                    uni.setStorageSync(PUSH_USER_ID, res.data.user_id || '')
+                    uni.setStorageSync(PUSH_KEY, res.data.push_key || '')
                     uni.showToast({ title: '登录成功', icon: 'success' })
                     setTimeout(function(){ uni.switchTab({ url: '/pages/home/index' }) }, 600)
                 } else {
@@ -69,7 +69,7 @@ export default {
         }
     },
     onLoad: function() {
-        var key = uni.getStorageSync(storage.PUSH_KEY)
+        var key = uni.getStorageSync(PUSH_KEY)
         if (key) {
             uni.switchTab({ url: '/pages/home/index' })
         }

@@ -117,9 +117,9 @@
 </template>
 
 <script>
-var storage = require('../../js/storage.js')
-var ws = require('../../js/ws.js')
-var perms = require('../../js/permissions.js')
+import { loadBootConfig, PUSH_VIBRATE, PUSH_WIFI_ONLY, PUSH_AUTO_RECONNECT, PUSH_HEARTBEAT, getMessages, clearMessages, PUSH_KEY, PUSH_USER_ID, PUSH_USER_TOKEN } from '../../js/storage.js'
+import { disconnect } from '../../js/ws.js'
+import { getDeviceInfo, checkNotificationPerm, checkBatteryOpt, openNotificationSetting, openBatteryOpt, openBrandSetting } from '../../js/permissions.js'
 
 export default {
     data() {
@@ -137,39 +137,39 @@ export default {
         }
     },
     onShow: function() {
-        var cfg = storage.loadBootConfig()
-        this.deviceInfo = perms.getDeviceInfo()
-        this.notifyOk = perms.checkNotificationPerm()
-        this.batteryOk = perms.checkBatteryOpt()
-        this.vibrateOn = uni.getStorageSync(storage.PUSH_VIBRATE) !== false
-        this.wifiOnly = uni.getStorageSync(storage.PUSH_WIFI_ONLY) === true
-        this.autoReconnect = uni.getStorageSync(storage.PUSH_AUTO_RECONNECT) !== false
-        this.heartbeat = parseInt(uni.getStorageSync(storage.PUSH_HEARTBEAT)) || 30
-        this.messagesCount = storage.getMessages().length
+        var cfg = loadBootConfig()
+        this.deviceInfo = getDeviceInfo()
+        this.notifyOk = checkNotificationPerm()
+        this.batteryOk = checkBatteryOpt()
+        this.vibrateOn = uni.getStorageSync(PUSH_VIBRATE) !== false
+        this.wifiOnly = uni.getStorageSync(PUSH_WIFI_ONLY) === true
+        this.autoReconnect = uni.getStorageSync(PUSH_AUTO_RECONNECT) !== false
+        this.heartbeat = parseInt(uni.getStorageSync(PUSH_HEARTBEAT)) || 30
+        this.messagesCount = getMessages().length
         this.versionName = cfg.version_name || '1.0.0'
         this.buildTime = cfg.build_time || '—'
     },
     methods: {
         goBack: function() { uni.navigateBack({ delta: 1 }) },
-        openNotify: function() { perms.openNotificationSetting() },
-        openBattery: function() { perms.openBatteryOpt() },
-        openAutoStart: function() { perms.openBrandSetting('autoStart') },
-        openBrandPerm: function() { perms.openBrandSetting('permissionCenter') },
+        openNotify: function() { openNotificationSetting() },
+        openBattery: function() { openBatteryOpt() },
+        openAutoStart: function() { openBrandSetting('autoStart') },
+        openBrandPerm: function() { openBrandSetting('permissionCenter') },
         toggleVibrate: function(e) {
             this.vibrateOn = e.detail.value
-            uni.setStorageSync(storage.PUSH_VIBRATE, this.vibrateOn)
+            uni.setStorageSync(PUSH_VIBRATE, this.vibrateOn)
         },
         toggleWifiOnly: function(e) {
             this.wifiOnly = e.detail.value
-            uni.setStorageSync(storage.PUSH_WIFI_ONLY, this.wifiOnly)
+            uni.setStorageSync(PUSH_WIFI_ONLY, this.wifiOnly)
         },
         toggleReconnect: function(e) {
             this.autoReconnect = e.detail.value
-            uni.setStorageSync(storage.PUSH_AUTO_RECONNECT, this.autoReconnect)
+            uni.setStorageSync(PUSH_AUTO_RECONNECT, this.autoReconnect)
         },
         setHeartbeat: function(v) {
             this.heartbeat = v
-            uni.setStorageSync(storage.PUSH_HEARTBEAT, v)
+            uni.setStorageSync(PUSH_HEARTBEAT, v)
         },
         clearCache: function() {
             var self = this
@@ -178,7 +178,7 @@ export default {
                 content: '清除所有本地消息记录？',
                 success: function(r) {
                     if (r.confirm) {
-                        storage.clearMessages()
+                        clearMessages()
                         self.messagesCount = 0
                         uni.showToast({ title: '已清除', icon: 'success' })
                     }
@@ -186,16 +186,15 @@ export default {
             })
         },
         logout: function() {
-            var self = this
             uni.showModal({
                 title: '退出登录',
                 content: '断开 WebSocket 连接并清除登录信息？',
                 success: function(r) {
                     if (r.confirm) {
-                        ws.disconnect()
-                        uni.removeStorageSync(storage.PUSH_KEY)
-                        uni.removeStorageSync(storage.PUSH_USER_ID)
-                        uni.removeStorageSync(storage.PUSH_USER_TOKEN)
+                        disconnect()
+                        uni.removeStorageSync(PUSH_KEY)
+                        uni.removeStorageSync(PUSH_USER_ID)
+                        uni.removeStorageSync(PUSH_USER_TOKEN)
                         uni.navigateTo({ url: '/pages/login/index', success: function() { uni.switchTab({ url: '/pages/home/index' }) } })
                     }
                 }

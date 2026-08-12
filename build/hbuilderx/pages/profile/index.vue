@@ -66,8 +66,8 @@
 </template>
 
 <script>
-var storage = require('../../js/storage.js')
-var Ws = require('../../js/ws.js')
+import { loadBootConfig, PUSH_USER_ID, PUSH_KEY, PUSH_SERVER_URL, PUSH_WS_URL, clearMessages } from '../../js/storage.js'
+import { on, off, getState } from '../../js/ws.js'
 
 export default {
     data() {
@@ -80,18 +80,18 @@ export default {
         }
     },
     onShow: function() {
-        var cfg = storage.loadBootConfig()
-        this.userId = uni.getStorageSync(storage.PUSH_USER_ID) || ''
-        this.key = uni.getStorageSync(storage.PUSH_KEY) || cfg.default_key || ''
-        this.serverUrl = uni.getStorageSync(storage.PUSH_SERVER_URL) || cfg.server_url || ''
-        this.wsUrl = uni.getStorageSync(storage.PUSH_WS_URL) || cfg.ws_url || ''
+        var cfg = loadBootConfig()
+        this.userId = uni.getStorageSync(PUSH_USER_ID) || ''
+        this.key = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''
+        this.serverUrl = uni.getStorageSync(PUSH_SERVER_URL) || cfg.server_url || ''
+        this.wsUrl = uni.getStorageSync(PUSH_WS_URL) || cfg.ws_url || ''
         this._updateState()
-        Ws.on('state', this._updateState)
+        on('state', this._updateState)
     },
-    onHide: function() { Ws.off('state', this._updateState) },
+    onHide: function() { off('state', this._updateState) },
     methods: {
         _updateState: function() {
-            var s = Ws.getState()
+            var s = getState()
             if (s === 'connected') { this.wsStateLabel = '在线'; this.wsStateClass = 'status-ok' }
             else if (s === 'connecting' || s === 'reconnecting') { this.wsStateLabel = '连接中'; this.wsStateClass = 'status-warn' }
             else { this.wsStateLabel = '离线'; this.wsStateClass = 'status-bad' }
@@ -103,12 +103,11 @@ export default {
         goSettings: function() { uni.navigateTo({ url: '/pages/settings/index' }) },
         goKeyConfig: function() { uni.navigateTo({ url: '/pages/key-input/index' }) },
         clearMsgs: function() {
-            var self = this
             uni.showModal({
                 title: '清空消息',
                 content: '确定清空所有本地消息记录？',
                 success: function(r) {
-                    if (r.confirm) { storage.clearMessages(); uni.showToast({ title: '已清空', icon: 'success' }) }
+                    if (r.confirm) { clearMessages(); uni.showToast({ title: '已清空', icon: 'success' }) }
                 }
             })
         }

@@ -1,6 +1,6 @@
 <script>
 import { ensureBootConfig, loadBootConfig, saveBootConfig, clearBootConfig } from './js/storage.js'
-import Ws from './js/ws.js'
+import { connect, disconnect, reconnect, isConnected } from './js/ws.js'
 import { startKeepAlive, stopKeepAlive } from './js/keepalive.js'
 import { APP_CONFIG } from './config.js'
 
@@ -23,15 +23,15 @@ export default {
 
         if (key && wsUrl) {
             startKeepAlive()
-            if (!Ws.isConnected()) {
-                Ws.connect(wsUrl, key)
+            if (!isConnected()) {
+                connect(wsUrl, key)
             }
         }
     },
 
     onHide: function () {
         console.log('[PushApp] onHide')
-        Ws.reconnect()
+        reconnect()
     },
 
     onError: function (err) {

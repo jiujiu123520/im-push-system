@@ -41,8 +41,8 @@
 </template>
 
 <script>
-var storage = require('../../js/storage.js')
-var Ws = require('../../js/ws.js')
+import { getMessages, setMessages } from '../../js/storage.js'
+import { on, off } from '../../js/ws.js'
 
 export default {
     data() {
@@ -63,12 +63,12 @@ export default {
     },
     onShow: function() {
         this._refresh()
-        Ws.on('message', this._onWsMsg)
+        on('message', this._onWsMsg)
     },
-    onHide: function() { Ws.off('message', this._onWsMsg) },
+    onHide: function() { off('message', this._onWsMsg) },
     methods: {
         _refresh: function() {
-            this.messages = storage.getMessages()
+            this.messages = getMessages()
             this.unreadCount = this.messages.filter(function(m){ return !m.read }).length
         },
         _onWsMsg: function() { this._refresh() },
@@ -77,7 +77,7 @@ export default {
             for (var i = 0; i < list.length; i++) {
                 if (list[i].id === id) list[i].read = true
             }
-            storage.setMessages(list)
+            setMessages(list)
             this._refresh()
         },
         formatTime: function(ts) {

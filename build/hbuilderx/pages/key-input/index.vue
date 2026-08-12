@@ -24,27 +24,27 @@
 </template>
 
 <script>
-var storage = require('../../js/storage.js')
+import { loadBootConfig, PUSH_KEY, PUSH_SERVER_URL, PUSH_WS_URL } from '../../js/storage.js'
 
 export default {
     data() {
         return { key: '', serverUrl: '', wsUrl: '' }
     },
     onLoad: function() {
-        var cfg = storage.loadBootConfig()
-        this.serverUrl = uni.getStorageSync(storage.PUSH_SERVER_URL) || cfg.server_url || ''
-        this.wsUrl = uni.getStorageSync(storage.PUSH_WS_URL) || cfg.ws_url || ''
+        var cfg = loadBootConfig()
+        this.serverUrl = uni.getStorageSync(PUSH_SERVER_URL) || cfg.server_url || ''
+        this.wsUrl = uni.getStorageSync(PUSH_WS_URL) || cfg.ws_url || ''
     },
     methods: {
         goBack: function() { uni.navigateBack({ delta: 1 }) },
         confirm: function() {
             if (!this.key) { uni.showToast({ title: '请填写 Key', icon: 'none' }); return }
-            var cfg = storage.loadBootConfig()
+            var cfg = loadBootConfig()
             if (!this.serverUrl) this.serverUrl = cfg.server_url || ''
             if (!this.wsUrl) this.wsUrl = cfg.ws_url || ''
-            uni.setStorageSync(storage.PUSH_KEY, this.key)
-            uni.setStorageSync(storage.PUSH_SERVER_URL, this.serverUrl)
-            uni.setStorageSync(storage.PUSH_WS_URL, this.wsUrl)
+            uni.setStorageSync(PUSH_KEY, this.key)
+            uni.setStorageSync(PUSH_SERVER_URL, this.serverUrl)
+            uni.setStorageSync(PUSH_WS_URL, this.wsUrl)
             uni.showToast({ title: '已保存，正在连接…', icon: 'none' })
             setTimeout(function(){ uni.switchTab({ url: '/pages/home/index' }) }, 800)
         }

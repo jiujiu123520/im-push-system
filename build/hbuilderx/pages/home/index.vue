@@ -45,10 +45,10 @@
 </template>
 
 <script>
-var Ws = require('../../js/ws.js')
-var storage = require('../../js/storage.js')
-var notify = require('../../js/notify.js')
-var api = require('../../js/api.js')
+import { connect, disconnect, reconnect, isConnected, on, off } from '../../js/ws.js'
+import { loadBootConfig, PUSH_KEY, PUSH_WS_URL, PUSH_SERVER_URL, getMessages } from '../../js/storage.js'
+import { notify } from '../../js/notify.js'
+import { testPush as apiTestPush } from '../../js/api.js'
 
 export default {
     data() {
@@ -62,26 +62,26 @@ export default {
         }
     },
     onShow: function() {
-        this.appName = storage.loadBootConfig().app_name || 'PushApp'
-        var cfg = storage.loadBootConfig()
-        var key = uni.getStorageSync(storage.PUSH_KEY) || cfg.default_key
-        this.wsUrl = uni.getStorageSync(storage.PUSH_WS_URL) || cfg.ws_url || ''
-        this.recentMessages = storage.getMessages().slice(0, 3)
+        this.appName = loadBootConfig().app_name || 'PushApp'
+        var cfg = loadBootConfig()
+        var key = uni.getStorageSync(PUSH_KEY) || cfg.default_key
+        this.wsUrl = uni.getStorageSync(PUSH_WS_URL) || cfg.ws_url || ''
+        this.recentMessages = getMessages().slice(0, 3)
 
         if (!key) {
             uni.navigateTo({ url: '/pages/key-input/index' })
             return
         }
 
-        Ws.on('state', this._onState)
-        Ws.on('message', this._onMessage)
-        if (this.wsUrl && !Ws.isConnected()) {
-            Ws.connect(this.wsUrl, key)
+        on('state', this._onState)
+        on('message', this._onMessage)
+        if (this.wsUrl && !isConnected()) {
+            connect(this.wsUrl, key)
         }
     },
     onHide: function() {
-        Ws.off('state', this._onState)
-        Ws.off('message', this._onMessage)
+        off('state', this._onState)
+        off('message', this._onMessage)
     },
     methods: {
         _onState: function(s) {
@@ -95,23 +95,23 @@ export default {
             }
         },
         _onMessage: function(msg) {
-            this.recentMessages = storage.getMessages().slice(0, 3)
-            notify.notify(msg.title, msg.content, msg.priority)
+            this.recentMessages = getMessages().slice(0, 3)
+            notify(msg.title, msg.content, msg.priority)
         },
         testPush: function() {
-            var cfg = storage.loadBootConfig()
-            var key = uni.getStorageSync(storage.PUSH_KEY) || cfg.default_key
-            var base = uni.getStorageSync(storage.PUSH_SERVER_URL) || cfg.server_url
+            var cfg = loadBootConfig()
+            var key = uni.getStorageSync(PUSH_KEY) || cfg.default_key
+            var base = uni.getStorageSync(PUSH_SERVER_URL) || cfg.server_url
             if (!key) { uni.showToast({ title: '请先配置 Key', icon: 'none' }); return }
             var self = this
-            api.testPush(base, key).then(function(r) {
+            apiTestPush(base, key).then(function(r) {
                 uni.showToast({ title: r && r.message ? r.message : '测试推送已发送', icon: 'success' })
             }).catch(function() {
                 uni.showToast({ title: '测试推送已发送（无响应）', icon: 'none' })
                 self._onMessage({ title: '测试推送', content: '这是一条测试推送消息', priority: 'default', timestamp: Date.now() })
             })
         },
-        reconnect: function() { Ws.reconnect() },
+        reconnect: function() { reconnect() },
         goMessages: function() { uni.switchTab({ url: '/pages/messages/index' }) },
         goSettings: function() { uni.navigateTo({ url: '/pages/settings/index' }) },
         goKeyConfig: function() { uni.navigateTo({ url: '/pages/key-input/index' }) },
