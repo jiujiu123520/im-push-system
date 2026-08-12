@@ -6,7 +6,7 @@ namespace App\Service;
 /**
  * uni-app 玻璃拟态全新 UI 源码生成服务
  *
- * 复制项目内置的 build/hbuilderx-glass/ 模板，
+ * 复用 HBuilderX 新版模板（build/hbuilderx/），
  * 注入服务器配置后打包为 HBuilderX 可导入的 ZIP。
  */
 class ComposeService
@@ -25,7 +25,7 @@ class ComposeService
     public function getAvailableTypes(): array
     {
         $root = $this->projectRoot();
-        $tplDir = $root . '/build/hbuilderx-glass';
+        $tplDir = $root . '/build/hbuilderx';
         $hasTpl = is_dir($tplDir);
 
         $this->log('getAvailableTypes', [
@@ -71,7 +71,7 @@ class ComposeService
         $iconB64     = trim((string)($params['icon_base64'] ?? ''));
 
         $projectRoot = $this->projectRoot();
-        $tplSrcDir   = $projectRoot . '/build/hbuilderx-glass';
+        $tplSrcDir   = $projectRoot . '/build/hbuilderx';
 
         $this->log('generateZip START', [
             'projectRoot' => $projectRoot,
@@ -83,8 +83,8 @@ class ComposeService
 
         if (!is_dir($tplSrcDir)) {
             $fallbacks = [
-                dirname($projectRoot) . '/build/hbuilderx-glass',
-                BASE_PATH . '/../build/hbuilderx-glass',
+                dirname($projectRoot) . '/build/hbuilderx',
+                BASE_PATH . '/../build/hbuilderx',
             ];
             foreach ($fallbacks as $fb) {
                 $this->log('trying fallback', ['path' => $fb, 'exists' => is_dir($fb)]);
@@ -94,7 +94,7 @@ class ComposeService
 
         if (!is_dir($tplSrcDir)) {
             throw new \RuntimeException(
-                'uni-app 玻璃拟态模板不存在。已尝试路径：' . $projectRoot . '/build/hbuilderx-glass。' .
+                'uni-app 玻璃拟态模板不存在。已尝试路径：' . $projectRoot . '/build/hbuilderx。' .
                 '服务器上是否已 git pull 最新代码？'
             );
         }
@@ -140,7 +140,7 @@ class ComposeService
                 throw new \RuntimeException('无法创建 ZIP 文件，error=' . $res);
             }
 
-            $this->zipDir($zip, $tempDir, 'hbuilderx-glass');
+            $this->zipDir($zip, $tempDir, 'hbuilderx');
             $zip->close();
 
             $zipSize = filesize($zipPath);
@@ -207,7 +207,7 @@ JS;
 
 ## 快速打包（HBuilderX）
 
-### 1. 解压 ZIP 得到 `hbuilderx-glass/` 目录
+### 1. 解压 ZIP 得到 `hbuilderx/` 目录
 
 ### 2. 用 HBuilderX 打开
 - 菜单：**文件 → 打开目录** → 选择解压后的目录
@@ -246,7 +246,7 @@ APP 首次打开会自动读取这些默认值，用户也可以在"设置 → �
 
 ### 7. 目录结构
 ```
-hbuilderx-glass/
+hbuilderx/
 ├── App.vue            # 应用入口
 ├── main.js            # Vue 3 入口
 ├── config.js          # 服务器配置（后端注入）
