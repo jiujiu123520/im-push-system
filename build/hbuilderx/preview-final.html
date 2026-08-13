@@ -340,6 +340,12 @@ body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57
 .theme-chips{display:flex;gap:6px;flex-wrap:wrap;flex:1;justify-content:flex-end}
 .theme-chips .chip{padding:6px 12px;border-radius:999px;border:1px solid var(--ghost-bd);background:transparent;font-size:12px;color:var(--txt2);cursor:pointer;transition:all .2s}
 .theme-chips .chip.active{background:var(--btn-bg);color:#fff;border-color:transparent}
+.theme-swatch-row{display:flex;gap:10px}
+.theme-swatch{display:flex;flex-direction:column;align-items:center;padding:8px 6px;border-radius:12px;border:2px solid transparent;cursor:pointer;min-width:60px;transition:border-color .2s}
+.theme-swatch.active{border-color:#6366f1;background:rgba(99,102,241,.08)}
+.theme-swatch-swatch{width:34px;height:34px;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,.15);margin-bottom:4px;border:2px solid rgba(255,255,255,.3)}
+.theme-swatch-label{font-size:10px;color:var(--txt2);font-weight:500}
+.theme-swatch.active .theme-swatch-label{color:#6366f1;font-weight:600}
 
 .heart-chips{display:flex;gap:6px;flex:1;justify-content:flex-end}
 .heart-chips .chip{padding:5px 12px;border-radius:999px;border:1px solid var(--ghost-bd);background:transparent;font-size:12px;color:var(--txt2);cursor:pointer}
@@ -412,10 +418,21 @@ body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57
 
 <!-- 浮动主题控件（在手机框外面） -->
 <div class="theme-switcher">
-  <span class="label">🎨 主题切换</span>
-  <button data-theme-btn="light" class="active">☀️ 浅色</button>
-  <button data-theme-btn="dark">🌙 深色</button>
-  <button data-theme-btn="flat">🚀 扁平渐变</button>
+  <span class="label">🎨</span>
+  <div class="theme-swatch-row">
+    <div class="theme-swatch active" data-theme-btn="light">
+      <div class="theme-swatch-swatch" style="background:linear-gradient(135deg,#f0f2fa,#dce0ee)"></div>
+      <span class="theme-swatch-label">浅色</span>
+    </div>
+    <div class="theme-swatch" data-theme-btn="dark">
+      <div class="theme-swatch-swatch" style="background:linear-gradient(135deg,#0a0a1a,#2a1f55)"></div>
+      <span class="theme-swatch-label">深色</span>
+    </div>
+    <div class="theme-swatch" data-theme-btn="flat">
+      <div class="theme-swatch-swatch" style="background:linear-gradient(135deg,#0f0c29,#24243e)"></div>
+      <span class="theme-swatch-label">扁平</span>
+    </div>
+  </div>
 </div>
 
 <div class="phone-frame">
@@ -704,10 +721,19 @@ body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57
           <div class="setting-item">
             <span class="si-icon">🎨</span>
             <span class="si-label">主题</span>
-            <div class="theme-chips" id="themeChips">
-              <span class="chip active" data-theme-set="light">浅色</span>
-              <span class="chip" data-theme-set="dark">深色</span>
-              <span class="chip" data-theme-set="flat">扁平渐变</span>
+            <div class="theme-swatch-row" id="themeChips">
+              <div class="theme-swatch active" data-theme-set="light">
+                <div class="theme-swatch-swatch" style="background:linear-gradient(135deg,#f0f2fa,#dce0ee)"></div>
+                <span class="theme-swatch-label">浅色玻璃</span>
+              </div>
+              <div class="theme-swatch" data-theme-set="dark">
+                <div class="theme-swatch-swatch" style="background:linear-gradient(135deg,#0a0a1a,#2a1f55)"></div>
+                <span class="theme-swatch-label">深色玻璃</span>
+              </div>
+              <div class="theme-swatch" data-theme-set="flat">
+                <div class="theme-swatch-swatch" style="background:linear-gradient(135deg,#0f0c29,#24243e)"></div>
+                <span class="theme-swatch-label">扁平渐变</span>
+              </div>
             </div>
           </div>
           <div class="setting-item">
@@ -999,10 +1025,10 @@ body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57
 
   function switchTheme(theme){
     body.setAttribute('data-theme',theme);
-    document.querySelectorAll('.theme-switcher button').forEach(b=>{
+    document.querySelectorAll('.theme-switcher [data-theme-btn]').forEach(b=>{
       b.classList.toggle('active',b.dataset.themeBtn===theme);
     });
-    document.querySelectorAll('#themeChips .chip').forEach(c=>{
+    document.querySelectorAll('#themeChips [data-theme-set]').forEach(c=>{
       c.classList.toggle('active',c.dataset.themeSet===theme);
     });
   }
@@ -1017,11 +1043,11 @@ body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57
   }
 
   // 主题切换 - 浮动控件
-  document.querySelectorAll('.theme-switcher button').forEach(b=>{
+  document.querySelectorAll('.theme-switcher [data-theme-btn]').forEach(b=>{
     b.addEventListener('click',()=>switchTheme(b.dataset.themeBtn));
   });
   // 主题切换 - 设置页 chips
-  document.querySelectorAll('#themeChips .chip').forEach(c=>{
+  document.querySelectorAll('#themeChips [data-theme-set]').forEach(c=>{
     c.addEventListener('click',()=>switchTheme(c.dataset.themeSet));
   });
 
