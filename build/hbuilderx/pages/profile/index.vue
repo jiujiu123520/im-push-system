@@ -1,4 +1,4 @@
-﻿<template>
+<template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
             <view class="top-bar-title" style="margin-top:60rpx;">个人中心</view>
@@ -55,6 +55,10 @@
             </view>
             <view class="row-between" @click="goKeyConfig" style="padding:30rpx;border-bottom:1px solid rgba(255,255,255,0.08);">
                 <view>🔑 服务器配置</view>
+                <view class="text-muted">›</view>
+            </view>
+            <view class="row-between" @click="goHelp" style="padding:30rpx;border-bottom:1px solid rgba(255,255,255,0.08);">
+                <view>❓ 使用帮助</view>
                 <view class="text-muted">›</view>
             </view>
             <view class="row-between" @click="clearMsgs" style="padding:30rpx;">
@@ -120,6 +124,7 @@ export default {
         goMessages: function() { uni.switchTab({ url: '/pages/messages/index' }) },
         goSettings: function() { uni.navigateTo({ url: '/pages/settings/index' }) },
         goKeyConfig: function() { uni.navigateTo({ url: '/pages/key-input/index' }) },
+        goHelp: function() { uni.navigateTo({ url: '/pages/help/index' }) },
         clearMsgs: function() {
             uni.showModal({
                 title: '清空消息',

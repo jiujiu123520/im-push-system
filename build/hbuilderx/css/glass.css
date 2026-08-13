@@ -1,49 +1,10 @@
-/* ============================================================
+﻿/* ============================================================
    Theme Tokens — 单一事实源
+   默认：浅色玻璃（B）  可选：dark 深色玻璃（A） / flat 渐变卡片（C）
    ============================================================ */
 
-:root, page, page[data-theme="dark"] {
-    --bg-gradient-1: #0a0a1a;
-    --bg-gradient-2: #1a1535;
-    --bg-gradient-3: #2a1f55;
-
-    --ball-1: rgba(99, 102, 241, 0.25);
-    --ball-2: rgba(236, 72, 153, 0.18);
-
-    --card-bg: rgba(255, 255, 255, 0.06);
-    --card-border: rgba(255, 255, 255, 0.12);
-    --card-bg-hl: rgba(255, 255, 255, 0.12);
-    --card-border-hl: rgba(255, 255, 255, 0.2);
-
-    --text-primary: rgba(255, 255, 255, 0.95);
-    --text-secondary: rgba(255, 255, 255, 0.7);
-    --text-muted: rgba(255, 255, 255, 0.45);
-    --text-accent: #8b5cf6;
-
-    --btn-primary-bg-1: #6366f1;
-    --btn-primary-bg-2: #8b5cf6;
-    --btn-primary-text: #ffffff;
-    --btn-ghost-bg: rgba(255, 255, 255, 0.08);
-    --btn-ghost-text: #ffffff;
-    --btn-ghost-border: rgba(255, 255, 255, 0.15);
-
-    --input-bg: rgba(255, 255, 255, 0.08);
-    --input-bg-focus: rgba(255, 255, 255, 0.12);
-    --input-border: rgba(255, 255, 255, 0.15);
-    --input-border-focus: rgba(139, 92, 246, 0.6);
-    --input-text: #ffffff;
-
-    --divider: rgba(255, 255, 255, 0.08);
-    --icon-btn-bg: rgba(255, 255, 255, 0.08);
-    --icon-btn-border: rgba(255, 255, 255, 0.15);
-    --section-title: rgba(255, 255, 255, 0.5);
-
-    --tabbar-bg: rgba(20, 15, 40, 0.95);
-    --tabbar-color: rgba(255, 255, 255, 0.5);
-    --tabbar-selected: #ffffff;
-}
-
-page[data-theme="light"] {
+/* -------- 默认：浅色玻璃（B 风格） -------- */
+:root, page, page[data-theme="light"] {
     --bg-gradient-1: #f0f2fa;
     --bg-gradient-2: #e4e8f5;
     --bg-gradient-3: #dce0ee;
@@ -84,8 +45,103 @@ page[data-theme="light"] {
     --tabbar-selected: rgba(99, 102, 241, 1);
 }
 
-/* ============================================================
-   Base
+/* -------- 深色玻璃（A 风格） -------- */
+page[data-theme="dark"] {
+    --bg-gradient-1: #0a0a1a;
+    --bg-gradient-2: #1a1535;
+    --bg-gradient-3: #2a1f55;
+
+    --ball-1: rgba(99, 102, 241, 0.25);
+    --ball-2: rgba(236, 72, 153, 0.18);
+
+    --card-bg: rgba(255, 255, 255, 0.06);
+    --card-border: rgba(255, 255, 255, 0.12);
+    --card-bg-hl: rgba(255, 255, 255, 0.12);
+    --card-border-hl: rgba(255, 255, 255, 0.2);
+
+    --text-primary: rgba(255, 255, 255, 0.95);
+    --text-secondary: rgba(255, 255, 255, 0.7);
+    --text-muted: rgba(255, 255, 255, 0.45);
+    --text-accent: #8b5cf6;
+
+    --btn-primary-bg-1: #6366f1;
+    --btn-primary-bg-2: #8b5cf6;
+    --btn-primary-text: #ffffff;
+    --btn-ghost-bg: rgba(255, 255, 255, 0.08);
+    --btn-ghost-text: #ffffff;
+    --btn-ghost-border: rgba(255, 255, 255, 0.15);
+
+    --input-bg: rgba(255, 255, 255, 0.08);
+    --input-bg-focus: rgba(255, 255, 255, 0.12);
+    --input-border: rgba(255, 255, 255, 0.15);
+    --input-border-focus: rgba(139, 92, 246, 0.6);
+    --input-text: #ffffff;
+
+    --divider: rgba(255, 255, 255, 0.08);
+    --icon-btn-bg: rgba(255, 255, 255, 0.08);
+    --icon-btn-border: rgba(255, 255, 255, 0.15);
+    --section-title: rgba(255, 255, 255, 0.5);
+
+    --tabbar-bg: rgba(20, 15, 40, 0.95);
+    --tabbar-color: rgba(255, 255, 255, 0.5);
+    --tabbar-selected: #ffffff;
+}
+
+/* -------- 渐变卡片扁平（C 风格） -------- */
+page[data-theme="flat"] {
+    --bg-gradient-1: #0f0c29;
+    --bg-gradient-2: #302b63;
+    --bg-gradient-3: #24243e;
+
+    --ball-1: transparent;
+    --ball-2: transparent;
+
+    --card-bg: rgba(255, 255, 255, 0.06);
+    --card-border: rgba(255, 255, 255, 0.08);
+    --card-bg-hl: rgba(255, 255, 255, 0.12);
+    --card-border-hl: rgba(255, 255, 255, 0.15);
+
+    --text-primary: rgba(255, 255, 255, 0.95);
+    --text-secondary: rgba(255, 255, 255, 0.7);
+    --text-muted: rgba(255, 255, 255, 0.45);
+    --text-accent: #ff6b6b;
+
+    --btn-primary-bg-1: #ff6b6b;
+    --btn-primary-bg-2: #feca57;
+    --btn-primary-text: #ffffff;
+    --btn-ghost-bg: rgba(255, 255, 255, 0.1);
+    --btn-ghost-text: #ffffff;
+    --btn-ghost-border: rgba(255, 255, 255, 0.15);
+
+    --input-bg: rgba(255, 255, 255, 0.08);
+    --input-bg-focus: rgba(255, 255, 255, 0.14);
+    --input-border: rgba(255, 255, 255, 0.12);
+    --input-border-focus: rgba(255, 107, 107, 0.6);
+    --input-text: #ffffff;
+
+    --divider: rgba(255, 255, 255, 0.08);
+    --icon-btn-bg: rgba(255, 255, 255, 0.08);
+    --icon-btn-border: rgba(255, 255, 255, 0.12);
+    --section-title: rgba(255, 255, 255, 0.5);
+
+    --tabbar-bg: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+    --tabbar-color: rgba(255, 255, 255, 0.5);
+    --tabbar-selected: #ff6b6b;
+}
+
+/* flat 风格：去掉模糊光斑 */
+page[data-theme="flat"] .glass-bg::before,
+page[data-theme="flat"] .glass-bg::after { display: none; }
+
+/* flat 风格：卡片不使用 backdrop-blur，改为硬阴影 */
+page[data-theme="flat"] .glass-card,
+page[data-theme="flat"] .glass-card-highlight {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+Base
    ============================================================ */
 
 page {

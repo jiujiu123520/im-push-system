@@ -5,20 +5,21 @@
         { "path": "pages/home/index", "style": { "navigationStyle": "custom" } },
         { "path": "pages/messages/index", "style": { "navigationStyle": "custom" } },
         { "path": "pages/profile/index", "style": { "navigationStyle": "custom" } },
-        { "path": "pages/settings/index", "style": { "navigationStyle": "custom" } }
+        { "path": "pages/settings/index", "style": { "navigationStyle": "custom" } },
+        { "path": "pages/help/index", "style": { "navigationStyle": "custom" } }
     ],
     "globalStyle": {
         "navigationStyle": "custom",
         "navigationBarTextStyle": "white",
-        "backgroundColor": "#0a0a1a",
+        "backgroundColor": "#f0f2fa",
         "backgroundTextStyle": "light",
         "app-plus": { "usingComponents": true }
     },
     "tabBar": {
-        "color": "rgba(255,255,255,0.5)",
-        "selectedColor": "#ffffff",
-        "backgroundColor": "rgba(20,15,40,0.95)",
-        "borderStyle": "black",
+        "color": "rgba(15,23,42,0.5)",
+        "selectedColor": "#6366f1",
+        "backgroundColor": "#ffffff",
+        "borderStyle": "white",
         "list": [
             {
                 "pagePath": "pages/home/index",

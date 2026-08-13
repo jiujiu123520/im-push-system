@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>PushApp 最终综合预览</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",Segoe UI,Roboto,sans-serif}
+
+:root{color-scheme:light}
+body{
+  --bg1:#f0f2fa;--bg2:#e4e8f5;--bg3:#dce0ee;
+  --ball1:rgba(99,102,241,.18);--ball2:rgba(236,72,153,.12);
+  --card:rgba(255,255,255,.72);--card-border:rgba(0,0,0,.06);
+  --txt:rgba(15,23,42,.95);--txt2:rgba(15,23,42,.7);--txt3:rgba(15,23,42,.45);
+  --accent:#6366f1;
+  --btn-bg:linear-gradient(135deg,#6366f1,#8b5cf6);--btn-txt:#fff;
+  --ghost-bg:rgba(0,0,0,.04);--ghost-txt:rgba(15,23,42,.9);--ghost-bd:rgba(0,0,0,.1);
+  --tb-bg:rgba(255,255,255,.95);--tb-txt:rgba(15,23,42,.5);--tb-sel:#6366f1;
+  --divider:rgba(0,0,0,.06);
+  --ok:rgba(16,185,129,.12);--ok-txt:#10b981;
+  --warn:rgba(245,158,11,.15);--warn-txt:#ca8a04;
+  --bad:rgba(239,68,68,.12);--bad-txt:#dc2626;
+}
+body[data-theme="light"]{
+  --bg1:#f0f2fa;--bg2:#e4e8f5;--bg3:#dce0ee;
+  --ball1:rgba(99,102,241,.18);--ball2:rgba(236,72,153,.12);
+  --card:rgba(255,255,255,.72);--card-border:rgba(0,0,0,.06);
+  --txt:rgba(15,23,42,.95);--txt2:rgba(15,23,42,.7);--txt3:rgba(15,23,42,.45);
+  --accent:#6366f1;
+  --btn-bg:linear-gradient(135deg,#6366f1,#8b5cf6);--btn-txt:#fff;
+  --ghost-bg:rgba(0,0,0,.04);--ghost-txt:rgba(15,23,42,.9);--ghost-bd:rgba(0,0,0,.1);
+  --tb-bg:rgba(255,255,255,.95);--tb-txt:rgba(15,23,42,.5);--tb-sel:#6366f1;
+  --divider:rgba(0,0,0,.06);
+  --ok:rgba(16,185,129,.12);--ok-txt:#10b981;
+  --warn:rgba(245,158,11,.15);--warn-txt:#ca8a04;
+  --bad:rgba(239,68,68,.12);--bad-txt:#dc2626;
+}
+body[data-theme="dark"]{
+  --bg1:#0b0f1a;--bg2:#101528;--bg3:#1a1f35;
+  --ball1:rgba(99,102,241,.25);--ball2:rgba(236,72,153,.18);
+  --card:rgba(255,255,255,.05);--card-border:rgba(255,255,255,.08);
+  --txt:rgba(241,245,249,.95);--txt2:rgba(226,232,240,.7);--txt3:rgba(148,163,184,.5);
+  --accent:#818cf8;
+  --btn-bg:linear-gradient(135deg,#6366f1,#a78bfa);--btn-txt:#fff;
+  --ghost-bg:rgba(255,255,255,.06);--ghost-txt:rgba(241,245,249,.9);--ghost-bd:rgba(255,255,255,.1);
+  --tb-bg:rgba(17,21,39,.95);--tb-txt:rgba(148,163,184,.6);--tb-sel:#a78bfa;
+  --divider:rgba(255,255,255,.06);
+  --ok:rgba(52,211,153,.15);--ok-txt:#34d399;
+  --warn:rgba(251,191,36,.15);--warn-txt:#fbbf24;
+  --bad:rgba(248,113,113,.15);--bad-txt:#f87171;
+}
+body[data-theme="flat"]{
+  --bg1:#0f0c29;--bg2:#302b63;--bg3:#24243e;
+  --ball1:transparent;--ball2:transparent;
+  --card:rgba(255,255,255,.08);--card-border:rgba(255,255,255,.1);
+  --txt:#fff;--txt2:rgba(255,255,255,.8);--txt3:rgba(255,255,255,.55);
+  --accent:#ff6b6b;
+  --btn-bg:linear-gradient(135deg,#ff6b6b,#feca57);--btn-txt:#fff;
+  --ghost-bg:rgba(255,255,255,.12);--ghost-txt:#fff;--ghost-bd:rgba(255,255,255,.18);
+  --tb-bg:rgba(15,12,41,.92);--tb-txt:rgba(255,255,255,.55);--tb-sel:#ff6b6b;
+  --divider:rgba(255,255,255,.1);
+  --ok:rgba(46,204,113,.2);--ok-txt:#2ecc71;
+  --warn:rgba(241,196,15,.2);--warn-txt:#f1c40f;
+  --bad:rgba(231,76,60,.2);--bad-txt:#e74c3c;
+}
+
+body{
+  min-height:100vh;
+  background:linear-gradient(135deg,var(--bg1),var(--bg2) 50%,var(--bg3));
+  display:flex;align-items:center;justify-content:center;
+  padding:40px 20px;position:relative;overflow-x:hidden;
+  color:var(--txt);
+  transition:background .4s ease,color .3s ease;
+}
+body::before,body::after{
+  content:"";position:fixed;border-radius:50%;
+  pointer-events:none;filter:blur(80px);z-index:0;
+}
+body::before{width:400px;height:400px;background:var(--ball1);top:-100px;left:-100px;transition:background .4s}
+body::after{width:350px;height:350px;background:var(--ball2);bottom:-80px;right:-80px;transition:background .4s}
+
+/* 主题浮动控件 */
+.theme-switcher{
+  position:fixed;top:24px;left:50%;transform:translateX(-50%);
+  z-index:9999;display:flex;gap:6px;align-items:center;
+  background:var(--card);backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+  border:1px solid var(--card-border);border-radius:999px;
+  padding:6px 6px 6px 14px;box-shadow:0 8px 32px rgba(0,0,0,.12);
+}
+.theme-switcher .label{font-size:13px;font-weight:600;color:var(--txt2);margin-right:4px;white-space:nowrap}
+.theme-switcher button{
+  border:none;cursor:pointer;font-size:13px;font-weight:600;
+  padding:8px 14px;border-radius:999px;background:transparent;color:var(--txt2);
+  transition:all .25s;
+}
+.theme-switcher button:hover{color:var(--txt)}
+.theme-switcher button.active{
+  background:var(--btn-bg);color:#fff;box-shadow:0 4px 14px rgba(99,102,241,.35);
+}
+
+/* 手机外框 */
+.phone-frame{
+  width:390px;height:844px;border-radius:46px;position:relative;
+  background:linear-gradient(145deg,#1a1a1f,#0d0d12);
+  padding:10px;box-shadow:0 30px 80px rgba(0,0,0,.35),0 0 0 2px rgba(255,255,255,.06);
+  z-index:1;
+}
+.phone-screen{
+  width:100%;height:100%;border-radius:38px;overflow:hidden;position:relative;
+  background:linear-gradient(135deg,var(--bg1),var(--bg2) 50%,var(--bg3));
+  transition:background .4s;
+}
+.dynamic-island{
+  position:absolute;top:8px;left:50%;transform:translateX(-50%);
+  width:120px;height:32px;background:#000;border-radius:20px;z-index:50;
+}
+.status-bar{
+  position:absolute;top:0;left:0;right:0;height:44px;z-index:40;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 28px;color:var(--txt);font-size:14px;font-weight:600;
+}
+.status-bar .icons{display:flex;gap:5px;font-size:13px}
+
+/* 页面容器 */
+.pages{position:absolute;inset:0;top:44px;bottom:74px;overflow-y:auto;overflow-x:hidden;scroll-behavior:smooth}
+.pages::-webkit-scrollbar{display:none}
+.page{
+  display:none;padding:16px 18px 24px;min-height:100%;
+  animation:pageIn .35s ease;
+}
+.page.active{display:block}
+@keyframes pageIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+/* 通用组件 */
+.section-title{font-size:13px;font-weight:700;color:var(--txt3);margin:6px 2px 10px;letter-spacing:.5px;text-transform:uppercase}
+.glass-card{
+  background:var(--card);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--card-border);border-radius:18px;padding:16px;
+  margin-bottom:14px;
+  transition:background .3s,border-color .3s,box-shadow .3s;
+}
+body[data-theme="flat"] .glass-card{backdrop-filter:none;-webkit-backdrop-filter:none;box-shadow:0 8px 30px rgba(0,0,0,.35)}
+
+.row{display:flex;align-items:center;gap:10px}
+.row-between{display:flex;align-items:center;justify-content:space-between}
+.flex1{flex:1}
+.mt4{margin-top:4px}.mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}.mt24{margin-top:24px}
+.mb8{margin-bottom:8px}.mb12{margin-bottom:12px}
+.text-sm{font-size:13px;color:var(--txt2)}
+.text-xs{font-size:12px;color:var(--txt3)}
+.text-base{font-size:15px}
+.text-lg{font-size:18px;font-weight:700}
+.text-xl{font-size:22px;font-weight:800}
+.text-center{text-align:center}
+
+.btn-primary{
+  width:100%;border:none;cursor:pointer;color:#fff;font-size:15px;font-weight:700;
+  padding:14px 18px;border-radius:14px;background:var(--btn-bg);
+  box-shadow:0 6px 20px rgba(99,102,241,.3);transition:transform .15s,box-shadow .2s;
+}
+.btn-primary:active{transform:scale(.97);box-shadow:0 2px 8px rgba(99,102,241,.2)}
+.btn-ghost{
+  width:100%;border:1px solid var(--ghost-bd);cursor:pointer;font-size:14px;font-weight:600;
+  padding:12px 16px;border-radius:14px;background:var(--ghost-bg);color:var(--ghost-txt);
+  transition:all .2s;
+}
+.btn-ghost:active{transform:scale(.97)}
+
+.status-chip{
+  display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;
+  font-size:12px;font-weight:600;background:var(--ok);color:var(--ok-txt);
+}
+.status-chip.warn{background:var(--warn);color:var(--warn-txt)}
+.status-chip.bad{background:var(--bad);color:var(--bad-txt)}
+.status-chip.dot::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+
+.input{
+  width:100%;padding:14px 16px;border-radius:12px;font-size:14px;
+  border:1px solid var(--card-border);background:var(--ghost-bg);color:var(--txt);
+  outline:none;transition:border-color .2s,box-shadow .2s;font-family:inherit;
+}
+.input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(99,102,241,.15)}
+.input::placeholder{color:var(--txt3)}
+
+/* TabBar */
+.tb{
+  position:absolute;left:0;right:0;bottom:0;height:74px;
+  background:var(--tb-bg);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+  border-top:1px solid var(--divider);
+  display:flex;align-items:center;justify-content:space-around;padding-bottom:18px;z-index:45;
+  transition:background .3s;
+}
+.tb.hidden{transform:translateY(100%);pointer-events:none}
+.tb-item{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+  color:var(--tb-txt);cursor:pointer;padding:6px 0;user-select:none;
+  transition:color .25s,transform .2s;
+}
+.tb-item .icon{font-size:22px;transition:transform .25s}
+.tb-item .lbl{font-size:11px;font-weight:600}
+.tb-item.active{color:var(--tb-sel)}
+.tb-item.active .icon{transform:translateY(-3px) scale(1.15)}
+
+/* ============ 首页 ============ */
+.home-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.home-header h1{font-size:26px;font-weight:800;letter-spacing:-.5px}
+.home-header .gear{width:38px;height:38px;border-radius:12px;background:var(--ghost-bg);border:1px solid var(--card-border);display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer}
+.greeting{font-size:14px;color:var(--txt2);margin-bottom:14px}
+.conn-card .addr{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--txt3);word-break:break-all;margin-top:6px}
+.conn-actions{display:flex;gap:8px;margin-top:12px}
+.conn-actions button{flex:1;padding:10px;border-radius:12px;border:none;font-size:13px;font-weight:600;cursor:pointer}
+.btn-test{background:var(--btn-bg);color:#fff}
+.btn-reconnect{background:var(--ghost-bg);border:1px solid var(--ghost-bd);color:var(--ghost-txt)}
+
+.msg-card{padding:14px;margin-bottom:10px;position:relative;overflow:hidden}
+.msg-card .msg-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.msg-card .msg-title{font-size:14px;font-weight:700;color:var(--txt)}
+.msg-card .msg-body{font-size:13px;color:var(--txt2);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.msg-card .msg-time{font-size:11px;color:var(--txt3);margin-top:6px}
+
+.quick-row{display:flex;gap:10px;margin-top:6px}
+.quick-item{
+  flex:1;padding:16px 12px;border-radius:16px;
+  background:var(--card);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--card-border);cursor:pointer;text-align:center;
+  transition:transform .2s;
+}
+.quick-item:active{transform:scale(.96)}
+.quick-item .qi-icon{font-size:24px;margin-bottom:4px}
+.quick-item .qi-label{font-size:13px;font-weight:600;color:var(--txt)}
+
+/* ============ 消息列表 ============ */
+.nav-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.back-btn{width:36px;height:36px;border-radius:12px;background:var(--ghost-bg);border:1px solid var(--card-border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;color:var(--txt)}
+.nav-title{flex:1;font-size:18px;font-weight:800}
+.nav-title .count{font-size:13px;color:var(--txt3);font-weight:500;margin-left:4px}
+
+.search-wrap{position:relative;margin-bottom:12px}
+.search-wrap .input{padding-left:40px}
+.search-wrap .ic{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--txt3);font-size:15px}
+
+.filter-chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:12px}
+.filter-chips::-webkit-scrollbar{display:none}
+.filter-chips .chip{
+  flex-shrink:0;padding:7px 14px;border-radius:999px;
+  background:var(--ghost-bg);border:1px solid var(--ghost-bd);
+  font-size:12px;font-weight:600;color:var(--txt2);cursor:pointer;white-space:nowrap;
+  transition:all .2s;
+}
+.filter-chips .chip.active{background:var(--btn-bg);color:#fff;border-color:transparent}
+.filter-chips .chip.red{background:var(--bad);color:var(--bad-txt);border-color:transparent}
+
+.action-row{display:flex;gap:8px;margin-bottom:12px}
+.action-row button{flex:1;padding:9px;border-radius:12px;border:1px solid var(--ghost-bd);background:var(--ghost-bg);font-size:12px;font-weight:600;color:var(--ghost-txt);cursor:pointer}
+
+.msg-item{
+  background:var(--card);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--card-border);border-radius:16px;padding:14px;margin-bottom:10px;
+  position:relative;transition:all .25s;
+}
+.msg-item.unread{border-left:3px solid var(--accent)}
+.msg-item .mi-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.msg-item .mi-title{font-size:14px;font-weight:700;color:var(--txt);flex:1}
+.msg-item .mi-dot{width:8px;height:8px;border-radius:50%;background:#ef4444;flex-shrink:0}
+.msg-item .mi-body{font-size:13px;color:var(--txt2);line-height:1.55;margin-bottom:6px}
+.msg-item .mi-foot{display:flex;align-items:center;justify-content:space-between}
+.msg-item .mi-time{font-size:11px;color:var(--txt3)}
+.msg-item .mi-actions{display:flex;gap:4px}
+.msg-item .mi-actions button{
+  border:none;background:transparent;color:var(--txt3);cursor:pointer;
+  font-size:12px;padding:4px 8px;border-radius:8px;transition:all .15s;
+}
+.msg-item .mi-actions button:hover{background:var(--ghost-bg);color:var(--txt)}
+
+/* ============ 个人中心 ============ */
+.profile-card{text-align:center;padding:22px 16px}
+.avatar{
+  width:72px;height:72px;border-radius:50%;margin:0 auto 10px;
+  background:linear-gradient(135deg,#a855f7,#ec4899);
+  display:flex;align-items:center;justify-content:center;
+  font-size:28px;font-weight:800;color:#fff;
+  box-shadow:0 8px 24px rgba(168,85,247,.35);
+}
+.profile-name{font-size:18px;font-weight:800}
+.profile-id{font-size:12px;color:var(--txt3);margin:3px 0}
+.profile-key-row{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:8px}
+.profile-key-row .key{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--txt3);background:var(--ghost-bg);padding:4px 10px;border-radius:8px}
+.profile-key-row .cp-btn{background:transparent;border:none;cursor:pointer;color:var(--accent);font-size:14px}
+
+.addr-row{display:flex;align-items:flex-start;gap:8px;padding:8px 0}
+.addr-row .ar-label{width:74px;font-size:13px;color:var(--txt3);flex-shrink:0;padding-top:2px}
+.addr-row .ar-val{font-size:13px;color:var(--txt2);word-break:break-all;font-family:ui-monospace,Menlo,monospace;flex:1}
+
+.quick-list{background:var(--card);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--card-border);border-radius:18px;overflow:hidden;margin-bottom:14px}
+.quick-list .ql-item{
+  display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;
+  border-bottom:1px solid var(--divider);transition:background .15s;
+}
+.quick-list .ql-item:last-child{border-bottom:none}
+.quick-list .ql-item:active{background:var(--ghost-bg)}
+.quick-list .ql-icon{font-size:18px;width:28px;text-align:center}
+.quick-list .ql-text{flex:1;font-size:14px;color:var(--txt);font-weight:500}
+.quick-list .ql-arrow{color:var(--txt3);font-size:14px}
+.quick-list .ql-item.danger .ql-text{color:var(--bad-txt)}
+
+/* ============ 设置 ============ */
+.setting-group{background:var(--card);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--card-border);border-radius:18px;overflow:hidden;margin-bottom:14px}
+.setting-item{
+  display:flex;align-items:center;gap:12px;padding:14px 16px;
+  border-bottom:1px solid var(--divider);min-height:48px;
+}
+.setting-item:last-child{border-bottom:none}
+.setting-item .si-icon{font-size:17px;width:28px;text-align:center}
+.setting-item .si-label{flex:1;font-size:14px;color:var(--txt)}
+.setting-item .si-value{font-size:13px;color:var(--txt3)}
+.setting-item .si-actions{display:flex;gap:6px}
+
+/* switch */
+.sw{position:relative;width:48px;height:28px;border-radius:999px;background:rgba(0,0,0,.12);cursor:pointer;transition:background .25s;flex-shrink:0}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.2);transition:transform .25s}
+.sw.on{background:linear-gradient(135deg,#6366f1,#8b5cf6)}
+.sw.on::after{transform:translateX(20px)}
+body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57)}
+
+.theme-chips{display:flex;gap:6px;flex-wrap:wrap;flex:1;justify-content:flex-end}
+.theme-chips .chip{padding:6px 12px;border-radius:999px;border:1px solid var(--ghost-bd);background:transparent;font-size:12px;color:var(--txt2);cursor:pointer;transition:all .2s}
+.theme-chips .chip.active{background:var(--btn-bg);color:#fff;border-color:transparent}
+
+.heart-chips{display:flex;gap:6px;flex:1;justify-content:flex-end}
+.heart-chips .chip{padding:5px 12px;border-radius:999px;border:1px solid var(--ghost-bd);background:transparent;font-size:12px;color:var(--txt2);cursor:pointer}
+.heart-chips .chip.active{background:var(--accent);color:#fff;border-color:transparent}
+
+/* ============ Key 输入 ============ */
+.key-header{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+.key-title{font-size:20px;font-weight:800;flex:1}
+.key-header .sub{font-size:13px;color:var(--txt3);margin-top:2px}
+.input-group{margin-bottom:12px}
+.input-group label{font-size:12px;font-weight:600;color:var(--txt2);margin-bottom:6px;display:block}
+.divider-line{display:flex;align-items:center;gap:12px;margin:20px 0}
+.divider-line::before,.divider-line::after{content:"";flex:1;height:1px;background:var(--divider)}
+.divider-line span{font-size:12px;color:var(--txt3);font-weight:600}
+
+/* ============ 帮助 ============ */
+.help-acc{
+  background:var(--card);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--card-border);border-radius:16px;margin-bottom:10px;overflow:hidden;
+}
+.help-title{
+  width:100%;display:flex;align-items:center;gap:10px;padding:14px 16px;
+  background:transparent;border:none;cursor:pointer;font-size:14px;font-weight:700;
+  color:var(--txt);font-family:inherit;text-align:left;transition:background .15s;
+}
+.help-title:active{background:var(--ghost-bg)}
+.help-title .arrow{margin-left:auto;font-size:12px;color:var(--txt3);transition:transform .3s}
+.help-acc.open .help-title .arrow{transform:rotate(90deg)}
+.help-body{
+  max-height:0;overflow:hidden;transition:max-height .35s ease;
+  font-size:13px;color:var(--txt2);line-height:1.7;padding:0 16px;
+}
+.help-acc.open .help-body{max-height:400px;padding:0 16px 16px}
+.help-body ol{padding-left:18px}
+.help-body li{margin-bottom:4px}
+.help-body p{margin-bottom:6px}
+
+/* ============ 登录 ============ */
+.login-wrap{display:flex;flex-direction:column;min-height:100%}
+.login-logo{text-align:center;margin:30px 0 10px}
+.login-logo .big{font-size:48px}
+.login-logo h2{font-size:26px;font-weight:800;margin-top:8px}
+.login-logo p{font-size:13px;color:var(--txt3);margin-top:4px}
+.login-form{flex:1;margin-top:24px}
+.login-form .input-group{margin-bottom:14px}
+.login-form .input{padding:15px 16px}
+.login-foot{margin-top:auto;text-align:center;padding:12px 0}
+.login-foot .hint{font-size:13px;color:var(--txt3);margin-bottom:10px}
+
+/* ============ 隐藏 tb ============ */
+.no-tb .tb{display:none}
+.no-tb .pages{bottom:0}
+
+/* 动画提示 */
+.toast{
+  position:fixed;bottom:100px;left:50%;transform:translateX(-50%) translateY(20px);
+  background:rgba(0,0,0,.8);color:#fff;padding:10px 20px;border-radius:999px;
+  font-size:13px;z-index:10000;opacity:0;pointer-events:none;
+  transition:all .25s;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* 主题切换过渡 */
+.page,.glass-card,.quick-list,.setting-group,.tb,.phone-screen,.theme-switcher,.msg-item,.msg-card,.quick-item,.help-acc{
+  transition:background .35s ease,border-color .35s ease,color .3s ease,box-shadow .35s ease;
+}
+</style>
+</head>
+<body data-theme="light">
+
+<!-- 浮动主题控件（在手机框外面） -->
+<div class="theme-switcher">
+  <span class="label">🎨 主题切换</span>
+  <button data-theme-btn="light" class="active">☀️ 浅色</button>
+  <button data-theme-btn="dark">🌙 深色</button>
+  <button data-theme-btn="flat">🚀 扁平渐变</button>
+</div>
+
+<div class="phone-frame">
+  <div class="phone-screen">
+    <div class="dynamic-island"></div>
+    <div class="status-bar">
+      <span>9:41</span>
+      <span class="icons">📶 🔋 100%</span>
+    </div>
+
+    <div class="pages" id="pages">
+
+      <!-- ============ 1. 首页 home ============ -->
+      <div class="page active" data-page="home">
+        <div class="home-header">
+          <h1>PushApp</h1>
+          <div class="gear" data-goto="settings" title="设置">⚙️</div>
+        </div>
+        <div class="greeting">早上好，Push 用户 👋</div>
+
+        <!-- 连接状态 -->
+        <div class="glass-card">
+          <div class="row-between">
+            <div class="row">
+              <span class="status-chip ok dot">在线</span>
+              <span class="text-sm" style="font-weight:600">WebSocket 已连接</span>
+            </div>
+            <span class="text-xs">延迟 32ms</span>
+          </div>
+          <div class="addr">wss://push.example.com/v1/ws?key=xxxxxxxxxxxxxxxx&device=ios_abc123</div>
+          <div class="conn-actions">
+            <button class="btn-test" id="btnTestPush">🧪 测试推送</button>
+            <button class="btn-reconnect" id="btnReconnect">🔄 重新连接</button>
+          </div>
+        </div>
+
+        <div class="section-title">最近消息</div>
+        <div class="msg-card glass-card">
+          <div class="msg-head">
+            <span class="msg-title">支付通知</span>
+            <span class="status-chip bad">高优先</span>
+          </div>
+          <div class="msg-body">您的订单 #88219 已支付成功，金额 ¥299.00，商品将在 24 小时内发货。</div>
+          <div class="msg-time">2 分钟前</div>
+        </div>
+        <div class="msg-card glass-card">
+          <div class="msg-head">
+            <span class="msg-title">系统维护</span>
+            <span class="status-chip warn">系统</span>
+          </div>
+          <div class="msg-body">服务将于本周六凌晨 2:00-4:00 进行例行维护，期间可能短暂中断。</div>
+          <div class="msg-time">15 分钟前</div>
+        </div>
+        <div class="msg-card glass-card">
+          <div class="msg-head">
+            <span class="msg-title">好友动态</span>
+            <span class="status-chip">普通</span>
+          </div>
+          <div class="msg-body">小明 给你点了个赞 🎉 快来看看吧！还有 5 条新评论等着你回复。</div>
+          <div class="msg-time">1 小时前</div>
+        </div>
+
+        <div class="section-title">快捷操作</div>
+        <div class="quick-row">
+          <div class="quick-item" data-goto="messages">
+            <div class="qi-icon">📄</div>
+            <div class="qi-label">消息列表</div>
+          </div>
+          <div class="quick-item" data-goto="key-input">
+            <div class="qi-icon">🔑</div>
+            <div class="qi-label">服务器配置</div>
+          </div>
+        </div>
+        <div class="mt12">
+          <div class="quick-item" data-goto="profile" style="width:100%">
+            <div class="qi-icon">👤</div>
+            <div class="qi-label">个人中心</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 2. 消息列表 messages ============ -->
+      <div class="page" data-page="messages">
+        <div class="nav-header">
+          <div class="back-btn" data-goto="home">←</div>
+          <div class="nav-title">消息列表 <span class="count">27</span></div>
+          <div style="width:36px"></div>
+        </div>
+
+        <div class="search-wrap">
+          <span class="ic">🔍</span>
+          <input class="input" placeholder="搜索消息内容…" />
+        </div>
+
+        <div class="filter-chips">
+          <div class="chip active">全部 27</div>
+          <div class="chip">高优先 3</div>
+          <div class="chip">系统 2</div>
+          <div class="chip red">未读 4</div>
+          <div class="chip">已读 23</div>
+        </div>
+
+        <div class="action-row">
+          <button>✅ 一键已读</button>
+          <button>🗑 清空</button>
+        </div>
+
+        <div class="msg-item unread">
+          <div class="mi-head">
+            <span class="mi-title">您有一条新订单</span>
+            <span class="mi-dot"></span>
+            <span class="status-chip bad">高优先</span>
+          </div>
+          <div class="mi-body">客户 "远方数码" 下单了 100 件商品，总金额 ¥28,500.00，请尽快处理发货。</div>
+          <div class="mi-foot">
+            <span class="mi-time">10:32</span>
+            <div class="mi-actions">
+              <button>📋复制</button>
+              <button>🔴已读</button>
+              <button>🗑删除</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="msg-item unread">
+          <div class="mi-head">
+            <span class="mi-title">账户安全提醒</span>
+            <span class="mi-dot"></span>
+            <span class="status-chip warn">系统</span>
+          </div>
+          <div class="mi-body">检测到您的账号在新设备登录（iPhone 16 · 北京），如非本人操作请立即修改密码。</div>
+          <div class="mi-foot">
+            <span class="mi-time">09:15</span>
+            <div class="mi-actions">
+              <button>📋复制</button>
+              <button>🔴已读</button>
+              <button>🗑删除</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="msg-item">
+          <div class="mi-head">
+            <span class="mi-title">推送服务已升级</span>
+            <span class="status-chip">普通</span>
+          </div>
+          <div class="mi-body">v1.2.0 版本已发布，新增批量推送、Webhook 回调等功能。查看更新日志 →</div>
+          <div class="mi-foot">
+            <span class="mi-time">昨天</span>
+            <div class="mi-actions">
+              <button>📋复制</button>
+              <button>🗑删除</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="msg-item unread">
+          <div class="mi-head">
+            <span class="mi-title">发票开具成功</span>
+            <span class="mi-dot"></span>
+            <span class="status-chip bad">高优先</span>
+          </div>
+          <div class="mi-body">电子发票（No. 2026081400237）已开具成功，可在 APP 内下载 PDF。</div>
+          <div class="mi-foot">
+            <span class="mi-time">昨天</span>
+            <div class="mi-actions">
+              <button>📋复制</button>
+              <button>🔴已读</button>
+              <button>🗑删除</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="msg-item">
+          <div class="mi-head">
+            <span class="mi-title">欢迎使用 PushApp</span>
+            <span class="status-chip">普通</span>
+          </div>
+          <div class="mi-body">👋 感谢选择 PushApp！点击右上角 ⚙ 进入设置，完成权限开启以获得最佳推送体验。</div>
+          <div class="mi-foot">
+            <span class="mi-time">3 天前</span>
+            <div class="mi-actions">
+              <button>📋复制</button>
+              <button>🗑删除</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-center text-xs" style="padding:12px 0">—— 没有更多消息 ——</div>
+      </div>
+
+      <!-- ============ 3. 个人中心 profile ============ -->
+      <div class="page" data-page="profile">
+        <div class="nav-header">
+          <div class="back-btn" data-goto="home">←</div>
+          <div class="nav-title">个人中心</div>
+          <div style="width:36px"></div>
+        </div>
+
+        <div class="glass-card profile-card">
+          <div class="avatar">P</div>
+          <div class="profile-name">Push 用户</div>
+          <div class="profile-id">user_7f3a2b19e4</div>
+          <span class="status-chip ok dot" style="margin-top:4px">在线</span>
+          <div class="profile-key-row">
+            <span class="key">PK_xxxxxx••••••xxxx</span>
+            <button class="cp-btn" title="复制">📋</button>
+          </div>
+        </div>
+
+        <div class="section-title">服务器地址</div>
+        <div class="glass-card" style="padding:8px 16px">
+          <div class="addr-row">
+            <span class="ar-label">HTTP</span>
+            <span class="ar-val">https://push.example.com/v1</span>
+          </div>
+          <div class="addr-row">
+            <span class="ar-label">WebSocket</span>
+            <span class="ar-val">wss://push.example.com/v1/ws</span>
+          </div>
+        </div>
+
+        <div class="section-title">快捷入口</div>
+        <div class="quick-list">
+          <div class="ql-item" data-goto="settings">
+            <span class="ql-icon">⚙️</span><span class="ql-text">设置</span><span class="ql-arrow">›</span>
+          </div>
+          <div class="ql-item" data-goto="key-input">
+            <span class="ql-icon">🔑</span><span class="ql-text">服务器配置</span><span class="ql-arrow">›</span>
+          </div>
+          <div class="ql-item" data-goto="messages">
+            <span class="ql-icon">💬</span><span class="ql-text">消息列表</span><span class="ql-arrow">›</span>
+          </div>
+          <div class="ql-item" data-goto="help">
+            <span class="ql-icon">❓</span><span class="ql-text">使用帮助</span><span class="ql-arrow">›</span>
+          </div>
+          <div class="ql-item danger">
+            <span class="ql-icon">🗑</span><span class="ql-text">清空消息记录</span><span class="ql-arrow">›</span>
+          </div>
+        </div>
+
+        <div class="glass-card" style="text-align:center">
+          <div class="text-xs">PushApp v1.0.0 · © 2026 PushTeam</div>
+        </div>
+      </div>
+
+      <!-- ============ 4. 设置 settings ============ -->
+      <div class="page" data-page="settings">
+        <div class="nav-header">
+          <div class="back-btn" data-goto="home">←</div>
+          <div class="nav-title">设置</div>
+          <div style="width:36px"></div>
+        </div>
+
+        <div class="section-title">权限引导</div>
+        <div class="setting-group">
+          <div class="setting-item">
+            <span class="si-icon">📱</span>
+            <span class="si-label">设备权限</span>
+            <span class="status-chip ok">已授权</span>
+          </div>
+          <div class="setting-item">
+            <span class="si-icon">🔔</span>
+            <span class="si-label">通知权限</span>
+            <span class="status-chip ok">已开启</span>
+          </div>
+          <div class="setting-item">
+            <span class="si-icon">🔋</span>
+            <span class="si-label">电池优化</span>
+            <span class="status-chip warn">未设置</span>
+          </div>
+          <div class="setting-item">
+            <span class="si-icon">🛡</span>
+            <span class="si-label">自启动</span>
+            <span class="status-chip warn">未开启</span>
+          </div>
+          <div class="setting-item">
+            <span class="si-icon">🔒</span>
+            <span class="si-label">后台弹窗</span>
+            <span class="status-chip">已开启</span>
+          </div>
+        </div>
+
+        <div class="section-title">通用</div>
+        <div class="setting-group">
+          <div class="setting-item">
+            <span class="si-icon">🎨</span>
+            <span class="si-label">主题</span>
+            <div class="theme-chips" id="themeChips">
+              <span class="chip active" data-theme-set="light">浅色</span>
+              <span class="chip" data-theme-set="dark">深色</span>
+              <span class="chip" data-theme-set="flat">扁平渐变</span>
+            </div>
+          </div>
+          <div class="setting-item">
+            <span class="si-icon">📳</span>
+            <span class="si-label">震动反馈</span>
+            <div class="sw on" data-sw></div>
+          </div>
+          <div class="setting-item">
+            <span class="si-icon">🎵</span>
+            <span class="si-label">铃声</span>
+            <span class="si-value">默认</span>
+          </div>
+        </div>
+
+        <div class="section-title">网络</div>
+        <div class="setting-group">
+          <div class="setting-item">
+            <span class="si-icon">📶</span>
+            <span class="si-label">仅 Wi-Fi 连接</span>
+            <div class="sw" data-sw></div>
+          </div>
+          <div class="setting-item">
+            <span class="si-icon">🔄</span>
+            <span class="si-label">自动重连</span>
+            <div class="sw on" data-sw></div>
+          </div>
+          <div class="setting-item">
+            <span class="si-icon">⚡</span>
+            <span class="si-label">心跳间隔</span>
+            <div class="heart-chips" id="heartChips">
+              <span class="chip" data-hb="15">15s</span>
+              <span class="chip active" data-hb="30">30s</span>
+              <span class="chip" data-hb="60">60s</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title">存储</div>
+        <div class="setting-group">
+          <div class="setting-item">
+            <span class="si-icon">💾</span>
+            <span class="si-label">本地消息</span>
+            <span class="si-value">27 条 · 0.8 MB</span>
+          </div>
+          <div class="setting-item">
+            <span class="si-icon">🗑</span>
+            <span class="si-label" style="color:var(--bad-txt)">清除缓存</span>
+            <span class="si-value">立即清理</span>
+          </div>
+        </div>
+
+        <div class="section-title">关于</div>
+        <div class="setting-group">
+          <div class="setting-item">
+            <span class="si-icon">ℹ️</span>
+            <span class="si-label">版本</span>
+            <span class="si-value">v1.0.0</span>
+          </div>
+          <div class="setting-item">
+            <span class="si-icon">🏗</span>
+            <span class="si-label">构建时间</span>
+            <span class="si-value">2026-08-14 10:24</span>
+          </div>
+          <div class="setting-item">
+            <span class="si-icon">🔄</span>
+            <span class="si-label">检查更新</span>
+            <span class="si-value">最新版本</span>
+          </div>
+          <div class="setting-item" data-goto="help">
+            <span class="si-icon">❓</span>
+            <span class="si-label">使用帮助</span>
+            <span class="si-value">›</span>
+          </div>
+        </div>
+
+        <div class="glass-card" style="padding:4px">
+          <button class="btn-primary" style="background:linear-gradient(135deg,#ef4444,#dc2626);box-shadow:0 6px 20px rgba(239,68,68,.3)" id="btnLogout">
+            🚪 退出登录
+          </button>
+        </div>
+      </div>
+
+      <!-- ============ 5. 服务器配置 key-input ============ -->
+      <div class="page" data-page="key-input">
+        <div class="nav-header">
+          <div class="back-btn" data-goto="home">←</div>
+          <div class="nav-title">服务器配置</div>
+          <div style="width:36px"></div>
+        </div>
+
+        <div class="glass-card">
+          <div class="key-header">
+            <div>
+              <div class="key-title">🔑 连接 Push 服务</div>
+              <div class="sub">填写你的 Push Key 和服务器地址</div>
+            </div>
+          </div>
+
+          <div class="input-group">
+            <label>Push Key</label>
+            <input class="input" placeholder="PK_xxxxxxxxxxxxxxxx" value="PK_a1b2c3d4e5f6g7h8" />
+          </div>
+          <div class="input-group">
+            <label>HTTP 服务器地址</label>
+            <input class="input" placeholder="https://" value="https://push.example.com/v1" />
+          </div>
+          <div class="input-group">
+            <label>WebSocket 地址</label>
+            <input class="input" placeholder="wss://" value="wss://push.example.com/v1/ws" />
+          </div>
+
+          <button class="btn-primary" id="btnConfirmConnect">🔗 确认并连接</button>
+          <div class="mt12">
+            <button class="btn-ghost" id="btnTestServer">🧪 测试服务器连接</button>
+          </div>
+        </div>
+
+        <div class="divider-line"><span>或</span></div>
+
+        <div class="glass-card">
+          <div class="key-header">
+            <div class="key-title">👤 账号登录</div>
+            <div class="sub" style="margin-top:2px">使用邮箱 + 密码登录以同步多设备</div>
+          </div>
+          <div class="input-group">
+            <label>邮箱</label>
+            <input class="input" type="email" placeholder="you@example.com" />
+          </div>
+          <div class="input-group">
+            <label>密码</label>
+            <input class="input" type="password" placeholder="••••••••" />
+          </div>
+          <button class="btn-primary" id="btnLoginFromConfig">🔐 登录</button>
+        </div>
+      </div>
+
+      <!-- ============ 6. 帮助 help ============ -->
+      <div class="page" data-page="help">
+        <div class="nav-header">
+          <div class="back-btn" data-goto="home">←</div>
+          <div class="nav-title">使用帮助</div>
+          <div style="width:36px"></div>
+        </div>
+
+        <div class="help-acc open">
+          <button class="help-title">🚀 快速开始<span class="arrow">▶</span></button>
+          <div class="help-body">
+            <ol>
+              <li>打开 APP 后进入「服务器配置」页面</li>
+              <li>填写 Push Key（从服务端获取）和服务器地址</li>
+              <li>点击「确认并连接」，看到顶部显示「在线」即连接成功 ✅</li>
+            </ol>
+            <p>首次使用建议先点击「🧪 测试服务器连接」确认地址可用。</p>
+          </div>
+        </div>
+
+        <div class="help-acc">
+          <button class="help-title">🏠 首页功能说明<span class="arrow">▶</span></button>
+          <div class="help-body">
+            <p>首页顶部展示连接状态卡片，包括：</p>
+            <ol>
+              <li>当前连接状态（在线 / 离线）</li>
+              <li>WebSocket 服务器完整地址</li>
+              <li>网络延迟实时数据</li>
+              <li>测试推送 / 重新连接两个快捷按钮</li>
+            </ol>
+            <p>下方「最近消息」展示最新 3 条推送，「快捷操作」可以快速跳转。</p>
+          </div>
+        </div>
+
+        <div class="help-acc">
+          <button class="help-title">📋 消息列表功能<span class="arrow">▶</span></button>
+          <div class="help-body">
+            <p>消息列表支持以下操作：</p>
+            <ol>
+              <li>🔍 <b>搜索</b>：按关键词搜索消息内容</li>
+              <li>🏷 <b>筛选</b>：全部 / 高优先 / 系统 / 未读 分类查看</li>
+              <li>✅ <b>一键已读</b>：将所有未读标记为已读</li>
+              <li>🗑 <b>清空</b>：删除全部本地消息</li>
+              <li>单条操作：复制内容 / 标记已读 / 删除</li>
+            </ol>
+            <p>未读消息左侧有蓝色竖线 + 红点提示 🔴</p>
+          </div>
+        </div>
+
+        <div class="help-acc">
+          <button class="help-title">🎨 主题切换说明<span class="arrow">▶</span></button>
+          <div class="help-body">
+            <p>PushApp 内置三套精美主题，随时切换：</p>
+            <ol>
+              <li>☀️ <b>浅色玻璃</b>：默认，柔和的白色毛玻璃卡片</li>
+              <li>🌙 <b>深色玻璃</b>：护眼的暗夜毛玻璃风格</li>
+              <li>🚀 <b>扁平渐变</b>：深紫背景 + 暖橙主按钮，游戏感</li>
+            </ol>
+            <p>进入「设置 → 通用 → 主题」即可点击切换，实时生效。本预览页顶部也提供了快捷切换控件。</p>
+          </div>
+        </div>
+
+        <div class="help-acc">
+          <button class="help-title">📶 网络设置说明<span class="arrow">▶</span></button>
+          <div class="help-body">
+            <p>「设置 → 网络」提供三个选项：</p>
+            <ul style="padding-left:18px">
+              <li><b>仅 Wi-Fi</b>：勾选后只在 Wi-Fi 环境连接，节省移动流量</li>
+              <li><b>自动重连</b>：断线后自动尝试重新连接（推荐开启）</li>
+              <li><b>心跳间隔</b>：15s / 30s / 60s，间隔越小越省电但流量更多</li>
+            </ul>
+            <p>推荐配置：自动重连 ✅ + 心跳 30s（平衡省电与实时性）</p>
+          </div>
+        </div>
+
+        <div class="help-acc">
+          <button class="help-title">🔔 通知设置说明<span class="arrow">▶</span></button>
+          <div class="help-body">
+            <p>要获得最佳推送体验，请确保系统权限全部开启：</p>
+            <ol>
+              <li>📱 <b>设备权限</b>：必须开启才能接收推送</li>
+              <li>🔔 <b>通知权限</b>：关闭后将不会弹出通知</li>
+              <li>🔋 <b>电池优化</b>：建议关闭，防止被系统杀后台</li>
+              <li>🛡 <b>自启动</b>：开机自动启动 APP</li>
+              <li>🔒 <b>后台弹窗</b>：允许后台弹出通知详情</li>
+            </ol>
+            <p>前往系统设置 → 应用管理 → PushApp 手动开启。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ 7. 登录 login ============ -->
+      <div class="page" data-page="login">
+        <div class="login-wrap">
+          <div class="login-logo">
+            <div class="big">📨</div>
+            <h2>PushApp</h2>
+            <p>实时消息，触达每一刻</p>
+          </div>
+          <div class="login-form">
+            <div class="input-group">
+              <label>📧 邮箱</label>
+              <input class="input" type="email" placeholder="you@example.com" />
+            </div>
+            <div class="input-group">
+              <label>🔒 密码</label>
+              <input class="input" type="password" placeholder="••••••••" />
+            </div>
+            <button class="btn-primary" id="btnLoginMain">🔐 登录</button>
+          </div>
+          <div class="login-foot">
+            <div class="hint">或使用 Push Key 快速开始</div>
+            <button class="btn-ghost" id="btnUseKey" style="max-width:280px;margin:0 auto">🔑 使用 Key 进入</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TabBar -->
+    <div class="tb" id="tabBar">
+      <div class="tb-item active" data-tab="home">
+        <span class="icon">🏠</span><span class="lbl">首页</span>
+      </div>
+      <div class="tb-item" data-tab="messages">
+        <span class="icon">💬</span><span class="lbl">消息</span>
+      </div>
+      <div class="tb-item" data-tab="profile">
+        <span class="icon">👤</span><span class="lbl">我的</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  const body = document.body;
+  const pages = document.querySelectorAll('.page');
+  const tabBar = document.getElementById('tabBar');
+  const tbItems = document.querySelectorAll('.tb-item');
+
+  const NO_TB_PAGES = ['login','key-input','settings','help','messages'];
+
+  function showToast(msg){
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(()=>t.classList.remove('show'),1600);
+  }
+
+  function switchTheme(theme){
+    body.setAttribute('data-theme',theme);
+    document.querySelectorAll('.theme-switcher button').forEach(b=>{
+      b.classList.toggle('active',b.dataset.themeBtn===theme);
+    });
+    document.querySelectorAll('#themeChips .chip').forEach(c=>{
+      c.classList.toggle('active',c.dataset.themeSet===theme);
+    });
+  }
+
+  function showPage(name){
+    pages.forEach(p=>p.classList.toggle('active',p.dataset.page===name));
+    const needTb = !NO_TB_PAGES.includes(name);
+    tabBar.classList.toggle('hidden',!needTb);
+    document.querySelectorAll('[data-tab]').forEach(t=>{
+      t.classList.toggle('active',t.dataset.tab===name);
+    });
+  }
+
+  // 主题切换 - 浮动控件
+  document.querySelectorAll('.theme-switcher button').forEach(b=>{
+    b.addEventListener('click',()=>switchTheme(b.dataset.themeBtn));
+  });
+  // 主题切换 - 设置页 chips
+  document.querySelectorAll('#themeChips .chip').forEach(c=>{
+    c.addEventListener('click',()=>switchTheme(c.dataset.themeSet));
+  });
+
+  // TabBar
+  tbItems.forEach(t=>{
+    t.addEventListener('click',()=>{
+      const tab = t.dataset.tab;
+      showPage(tab);
+      tbItems.forEach(x=>x.classList.toggle('active',x===t));
+    });
+  });
+
+  // 所有 data-goto 跳转
+  document.addEventListener('click',e=>{
+    const el = e.target.closest('[data-goto]');
+    if(el){ showPage(el.dataset.goto); }
+  });
+
+  // 开关
+  document.querySelectorAll('.sw').forEach(s=>{
+    s.addEventListener('click',()=>s.classList.toggle('on'));
+  });
+
+  // 心跳 chip
+  const heartChips = document.getElementById('heartChips');
+  if(heartChips){
+    heartChips.addEventListener('click',e=>{
+      const c = e.target.closest('.chip');
+      if(!c) return;
+      heartChips.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));
+      c.classList.add('active');
+      showToast('心跳间隔：'+c.dataset.hb+'s');
+    });
+  }
+
+  // 消息筛选 chip
+  document.querySelectorAll('.filter-chips').forEach(grp=>{
+    grp.addEventListener('click',e=>{
+      const c = e.target.closest('.chip');
+      if(!c) return;
+      if(c.classList.contains('red')) showToast('🔴 筛选：未读消息');
+      else{
+        grp.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));
+        c.classList.add('active');
+      }
+    });
+  });
+
+  // 帮助手风琴
+  document.querySelectorAll('.help-acc').forEach(acc=>{
+    const btn = acc.querySelector('.help-title');
+    btn.addEventListener('click',()=>{
+      const wasOpen = acc.classList.contains('open');
+      document.querySelectorAll('.help-acc').forEach(a=>a.classList.remove('open'));
+      if(!wasOpen) acc.classList.add('open');
+    });
+  });
+
+  // 消息操作按钮
+  document.querySelectorAll('.msg-item').forEach(item=>{
+    item.addEventListener('click',e=>{
+      const btn = e.target.closest('button');
+      if(!btn) return;
+      const txt = btn.textContent.trim();
+      if(txt.includes('已读')){
+        item.classList.remove('unread');
+        const dot = item.querySelector('.mi-dot'); if(dot) dot.remove();
+        btn.remove();
+        showToast('✅ 已标记为已读');
+      } else if(txt.includes('复制')){
+        const body = item.querySelector('.mi-body').textContent;
+        navigator.clipboard && navigator.clipboard.writeText(body);
+        showToast('📋 已复制');
+      } else if(txt.includes('删除')){
+        item.style.transition='opacity .25s,transform .25s';
+        item.style.opacity='0';item.style.transform='translateX(30px)';
+        setTimeout(()=>item.remove(),250);
+      }
+    });
+  });
+
+  // 各种主按钮
+  document.getElementById('btnTestPush').addEventListener('click',()=>showToast('🧪 测试推送已发送！'));
+  document.getElementById('btnReconnect').addEventListener('click',()=>showToast('🔄 正在重新连接…'));
+  document.getElementById('btnConfirmConnect').addEventListener('click',()=>showToast('🔗 连接成功！'));
+  document.getElementById('btnTestServer').addEventListener('click',()=>showToast('✅ 服务器可达 · 延迟 32ms'));
+  document.getElementById('btnLogout').addEventListener('click',()=>{showToast('👋 已退出登录');setTimeout(()=>showPage('login'),500)});
+  document.getElementById('btnLoginMain').addEventListener('click',()=>showToast('🔐 登录成功！'));
+  document.getElementById('btnLoginFromConfig').addEventListener('click',()=>showToast('🔐 登录成功！'));
+  document.getElementById('btnUseKey').addEventListener('click',()=>showToast('🔑 请输入 Push Key'));
+
+  // 进入登录页（如果是首次访问）
+  // 默认首页展示
+})();
+</script>
+</body>
+</html>

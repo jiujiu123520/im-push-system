@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PushApp · 浅色主题预览</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#c7d2fe 0%,#fbcfe8 50%,#fde68a 100%);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;color:rgba(15,23,42,0.95);padding:40px 20px}
+
+.phone{width:390px;height:844px;background:#1a1a2e;border-radius:54px;padding:14px;box-shadow:0 30px 80px rgba(30,27,75,0.25),0 0 0 2px rgba(255,255,255,0.6);position:relative}
+.phone::before{content:"";position:absolute;top:14px;left:50%;transform:translateX(-50%);width:120px;height:30px;background:#1a1a2e;border-radius:0 0 18px 18px;z-index:999}
+.screen{width:100%;height:100%;border-radius:40px;overflow:hidden;position:relative;background:linear-gradient(160deg,#eef2ff,#fdf4ff,#fef3c7)}
+.blob{position:absolute;border-radius:50%;filter:blur(60px);opacity:0.55;pointer-events:none}
+.blob-1{width:280px;height:280px;top:-60px;left:-40px;background:radial-gradient(circle,#a5b4fc,transparent 70%)}
+.blob-2{width:320px;height:320px;bottom:-80px;right:-60px;background:radial-gradient(circle,#f9a8d4,transparent 70%)}
+
+.status-bar{position:relative;z-index:100;height:54px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 28px 6px;font-size:14px;font-weight:600;color:rgba(15,23,42,0.95)}
+.status-bar .right{display:flex;gap:6px;align-items:center;font-size:12px}
+
+.pages{position:relative;width:100%;height:calc(100% - 54px - 83px)}
+.page{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;opacity:0;transform:translateY(12px);pointer-events:none;transition:opacity .28s ease,transform .28s ease;padding:8px 18px 24px}
+.page.active{opacity:1;transform:translateY(0);pointer-events:auto}
+.page::-webkit-scrollbar{display:none}
+
+.nav{display:flex;align-items:center;justify-content:space-between;padding:10px 2px 18px}
+.nav h1{font-size:26px;font-weight:800;letter-spacing:-0.5px}
+.nav .sub{font-size:13px;color:rgba(15,23,42,0.45);margin-top:2px}
+.icon-btn{width:38px;height:38px;border-radius:12px;background:rgba(255,255,255,0.72);border:1px solid rgba(255,255,255,0.8);backdrop-filter:blur(24px);display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;box-shadow:0 2px 10px rgba(99,102,241,0.08);transition:transform .15s}
+.icon-btn:active{transform:scale(0.93)}
+
+.card{background:rgba(255,255,255,0.72);border:1px solid rgba(255,255,255,0.8);border-radius:18px;backdrop-filter:blur(24px);box-shadow:0 4px 20px rgba(99,102,241,0.08);padding:16px;margin-bottom:14px}
+.card-title{font-size:15px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+
+.conn-status{display:flex;align-items:center;gap:14px}
+.conn-avatar{width:48px;height:48px;border-radius:14px;background:linear-gradient(135deg,#6366f1,#ec4899);display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff;font-weight:800;flex-shrink:0}
+.conn-info{flex:1;min-width:0}
+.conn-info .name{font-size:15px;font-weight:700}
+.conn-info .addr{font-size:12px;color:rgba(15,23,42,0.45);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:"SF Mono",monospace}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600}
+.chip-online{background:rgba(34,197,94,0.12);color:#16a34a}
+.chip-connecting{background:rgba(234,179,8,0.15);color:#ca8a04}
+.chip-offline{background:rgba(239,68,68,0.12);color:#dc2626}
+
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.stat{text-align:center;padding:12px 6px;border-radius:14px;background:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.6)}
+.stat .num{font-size:20px;font-weight:800;background:linear-gradient(135deg,#6366f1,#8b5cf6);-webkit-background-clip:text;background-clip:text;color:transparent}
+.stat .lbl{font-size:11px;color:rgba(15,23,42,0.5);margin-top:2px}
+
+.msg-item{display:flex;gap:12px;padding:12px 2px;border-bottom:1px solid rgba(15,23,42,0.06);cursor:pointer}
+.msg-item:last-child{border-bottom:none}
+.msg-icon{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.msg-icon.purple{background:rgba(99,102,241,0.12)}
+.msg-icon.pink{background:rgba(236,72,153,0.12)}
+.msg-icon.blue{background:rgba(59,130,246,0.12)}
+.msg-icon.green{background:rgba(34,197,94,0.12)}
+.msg-icon.orange{background:rgba(249,115,22,0.12)}
+.msg-body{flex:1;min-width:0}
+.msg-body .top{display:flex;justify-content:space-between;align-items:center}
+.msg-body .title{font-size:14px;font-weight:600}
+.msg-body .time{font-size:11px;color:rgba(15,23,42,0.45)}
+.msg-body .desc{font-size:12.5px;color:rgba(15,23,42,0.65);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge{min-width:18px;height:18px;padding:0 5px;background:#ef4444;color:#fff;font-size:10px;font-weight:700;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;margin-left:8px}
+
+.quick-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.quick{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 4px;border-radius:14px;cursor:pointer;transition:background .15s}
+.quick:active{background:rgba(99,102,241,0.06)}
+.quick .ico{width:42px;height:42px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:20px}
+.quick .txt{font-size:11px;color:rgba(15,23,42,0.7)}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px 20px;border-radius:14px;font-size:14px;font-weight:600;border:none;cursor:pointer;transition:transform .12s,box-shadow .15s;font-family:inherit;width:100%}
+.btn-primary{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;box-shadow:0 6px 20px rgba(99,102,241,0.35)}
+.btn-primary:active{transform:scale(0.97);box-shadow:0 3px 12px rgba(99,102,241,0.3)}
+.btn-ghost{background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.15);color:#6366f1}
+.btn-block{display:flex;gap:10px;margin-top:14px}
+
+.input{width:100%;padding:13px 14px;border-radius:12px;background:rgba(255,255,255,0.6);border:1px solid rgba(15,23,42,0.08);font-size:14px;font-family:inherit;color:rgba(15,23,42,0.9);outline:none;transition:border-color .15s,box-shadow .15s}
+.input:focus{border-color:rgba(99,102,241,0.4);box-shadow:0 0 0 3px rgba(99,102,241,0.1)}
+.input::placeholder{color:rgba(15,23,42,0.35)}
+.input-wrap{margin-bottom:12px}
+.input-wrap label{display:block;font-size:12px;font-weight:600;color:rgba(15,23,42,0.65);margin-bottom:6px}
+
+.list-item{display:flex;align-items:center;gap:12px;padding:14px 2px;border-bottom:1px solid rgba(15,23,42,0.06);cursor:pointer}
+.list-item:last-child{border-bottom:none}
+.list-item:active{background:rgba(99,102,241,0.04)}
+.list-icon{width:34px;height:34px;border-radius:10px;background:rgba(99,102,241,0.1);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.list-label{flex:1;font-size:14px;font-weight:500}
+.list-value{font-size:12px;color:rgba(15,23,42,0.45);margin-right:6px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list-arrow{color:rgba(15,23,42,0.35);font-size:14px}
+
+.switch{width:44px;height:26px;border-radius:13px;background:rgba(15,23,42,0.12);position:relative;cursor:pointer;transition:background .2s;flex-shrink:0}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;background:#fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.15);transition:transform .2s}
+.switch.on{background:linear-gradient(135deg,#6366f1,#8b5cf6)}
+.switch.on::after{transform:translateX(18px)}
+
+.search{display:flex;align-items:center;gap:8px;padding:11px 14px;border-radius:14px;background:rgba(255,255,255,0.72);border:1px solid rgba(255,255,255,0.8);backdrop-filter:blur(24px);margin-bottom:12px;font-size:14px;color:rgba(15,23,42,0.9)}
+.search input{flex:1;border:none;outline:none;background:transparent;font-size:14px;font-family:inherit;color:inherit}
+.search .ico{color:rgba(15,23,42,0.45)}
+
+.chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 14px;margin-bottom:4px}
+.chips::-webkit-scrollbar{display:none}
+.chip-item{flex-shrink:0;padding:7px 14px;border-radius:18px;background:rgba(255,255,255,0.6);border:1px solid rgba(15,23,42,0.06);font-size:12.5px;color:rgba(15,23,42,0.6);cursor:pointer;font-weight:500;transition:all .15s}
+.chip-item.active{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border-color:transparent;box-shadow:0 4px 14px rgba(99,102,241,0.3)}
+
+.profile-head{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+.avatar-lg{width:68px;height:68px;border-radius:20px;background:linear-gradient(135deg,#6366f1,#ec4899);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;color:#fff;box-shadow:0 6px 20px rgba(99,102,241,0.25);flex-shrink:0}
+.profile-head .name{font-size:19px;font-weight:800}
+.profile-head .addr{font-size:12px;color:rgba(15,23,42,0.5);font-family:"SF Mono",monospace;margin-top:2px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.profile-head .edit{font-size:11px;color:#6366f1;font-weight:600;margin-top:6px;cursor:pointer;display:inline-block}
+
+.kv{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:4px}
+.kv-item{padding:10px 12px;border-radius:12px;background:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.6)}
+.kv-item .k{font-size:11px;color:rgba(15,23,42,0.45);margin-bottom:3px}
+.kv-item .v{font-size:12px;font-weight:600;font-family:"SF Mono",monospace;color:rgba(15,23,42,0.85);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.form-tabs{display:flex;gap:6px;padding:4px;background:rgba(15,23,42,0.05);border-radius:12px;margin-bottom:18px}
+.form-tab{flex:1;padding:10px;border-radius:10px;font-size:13px;font-weight:600;text-align:center;cursor:pointer;color:rgba(15,23,42,0.5);transition:all .15s}
+.form-tab.active{background:rgba(255,255,255,0.9);color:#6366f1;box-shadow:0 2px 8px rgba(99,102,241,0.15)}
+
+.login-hero{text-align:center;padding:10px 0 22px}
+.login-hero .logo{width:72px;height:72px;margin:0 auto 12px;border-radius:22px;background:linear-gradient(135deg,#6366f1,#ec4899);display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800;color:#fff;box-shadow:0 10px 30px rgba(99,102,241,0.35)}
+.login-hero h2{font-size:22px;font-weight:800;letter-spacing:-0.5px}
+.login-hero p{font-size:13px;color:rgba(15,23,42,0.55);margin-top:4px}
+.divider{display:flex;align-items:center;gap:10px;margin:18px 0}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:rgba(15,23,42,0.08)}
+.divider span{font-size:11px;color:rgba(15,23,42,0.4);font-weight:600}
+
+.tabbar{position:absolute;bottom:0;left:0;right:0;height:83px;background:rgba(255,255,255,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid rgba(15,23,42,0.06);display:flex;justify-content:space-around;align-items:flex-start;padding-top:10px;z-index:100}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:4px 0;color:rgba(15,23,42,0.4);transition:color .2s}
+.tab .ticon{font-size:22px;line-height:1}
+.tab .tlabel{font-size:10px;font-weight:600}
+.tab.active{color:#6366f1}
+.tab.active .ticon{transform:scale(1.15)}
+.tab .tbadge{position:absolute;background:#ef4444;color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 5px;min-width:14px;text-align:center;transform:translate(14px,-6px)}
+
+.section-title{font-size:12px;font-weight:700;color:rgba(15,23,42,0.45);text-transform:uppercase;letter-spacing:0.8px;margin:18px 2px 8px}
+
+.sub-page-header{display:flex;align-items:center;gap:10px;padding:8px 2px 14px}
+.back-btn{width:34px;height:34px;border-radius:10px;background:rgba(255,255,255,0.72);border:1px solid rgba(255,255,255,0.8);display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;backdrop-filter:blur(24px)}
+.sub-page-header h2{font-size:17px;font-weight:700}
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div class="screen">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+
+    <div class="status-bar">
+      <span>9:41</span>
+      <span class="right">📶 🔋 82%</span>
+    </div>
+
+    <div class="pages" id="pages">
+
+      <!-- 首页 -->
+      <div class="page active" data-page="home">
+        <div class="nav">
+          <div>
+            <div class="sub">欢迎回来 👋</div>
+            <h1>PushApp</h1>
+          </div>
+          <div class="icon-btn" onclick="showPage('settings')">⚙️</div>
+        </div>
+
+        <div class="card">
+          <div class="conn-status">
+            <div class="conn-avatar">P</div>
+            <div class="conn-info">
+              <div class="name">你的推送服务</div>
+              <div class="addr">ws://192.168.1.100:8080</div>
+            </div>
+            <span class="chip chip-online">● 在线</span>
+          </div>
+          <div class="stats" style="margin-top:14px">
+            <div class="stat"><div class="num">128</div><div class="lbl">今日消息</div></div>
+            <div class="stat"><div class="num">3</div><div class="lbl">未读</div></div>
+            <div class="stat"><div class="num">24h</div><div class="lbl">运行时长</div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">⚡ 快捷操作</div>
+          <div class="quick-grid">
+            <div class="quick" onclick="showPage('server')"><div class="ico" style="background:rgba(99,102,241,0.12)">🔑</div><div class="txt">服务器</div></div>
+            <div class="quick" onclick="showPage('login')"><div class="ico" style="background:rgba(236,72,153,0.12)">👤</div><div class="txt">登录</div></div>
+            <div class="quick"><div class="ico" style="background:rgba(34,197,94,0.12)">📤</div><div class="txt">发送测试</div></div>
+            <div class="quick"><div class="ico" style="background:rgba(249,115,22,0.12)">🔔</div><div class="txt">通知测试</div></div>
+            <div class="quick"><div class="ico" style="background:rgba(59,130,246,0.12)">📊</div><div class="txt">统计</div></div>
+            <div class="quick"><div class="ico" style="background:rgba(168,85,247,0.12)">🔐</div><div class="txt">安全</div></div>
+            <div class="quick"><div class="ico" style="background:rgba(239,68,68,0.12)">🗑️</div><div class="txt">清空</div></div>
+            <div class="quick"><div class="ico" style="background:rgba(100,116,139,0.12)">❓</div><div class="txt">帮助</div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">💬 最近消息 <span class="badge" style="position:static;margin-left:auto">3</span></div>
+          <div class="msg-item" onclick="showPage('messages')">
+            <div class="msg-icon purple">📨</div>
+            <div class="msg-body">
+              <div class="top"><span class="title">服务器告警</span><span class="time">刚刚</span></div>
+              <div class="desc">CPU 使用率超过 85%，请及时处理</div>
+            </div>
+          </div>
+          <div class="msg-item" onclick="showPage('messages')">
+            <div class="msg-icon green">✅</div>
+            <div class="msg-body">
+              <div class="top"><span class="title">部署成功</span><span class="time">2 分钟前</span></div>
+              <div class="desc">v2.3.1 已上线，全部服务健康</div>
+            </div>
+          </div>
+          <div class="msg-item" onclick="showPage('messages')">
+            <div class="msg-icon pink">❤️</div>
+            <div class="msg-body">
+              <div class="top"><span class="title">心跳检查</span><span class="time">15 分钟前</span></div>
+              <div class="desc">全部 5 个节点心跳正常</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 消息列表 -->
+      <div class="page" data-page="messages">
+        <div class="nav">
+          <div>
+            <h1>消息</h1>
+            <div class="sub">共 256 条，3 条未读</div>
+          </div>
+          <div class="icon-btn">🔄</div>
+        </div>
+
+        <div class="search">
+          <span class="ico">🔍</span>
+          <input placeholder="搜索消息…">
+        </div>
+
+        <div class="chips">
+          <div class="chip-item active">全部</div>
+          <div class="chip-item">未读</div>
+          <div class="chip-item">告警</div>
+          <div class="chip-item">系统</div>
+          <div class="chip-item">心跳</div>
+          <div class="chip-item">成功</div>
+        </div>
+
+        <div class="card" style="padding:4px 16px;margin-bottom:10px">
+          <div class="msg-item">
+            <div class="msg-icon orange">⚠️</div>
+            <div class="msg-body">
+              <div class="top"><span class="title">磁盘空间不足 <span class="badge" style="position:static">1</span></span><span class="time">刚刚</span></div>
+              <div class="desc">/dev/sda1 剩余空间低于 10%</div>
+            </div>
+          </div>
+          <div class="msg-item">
+            <div class="msg-icon purple">📨</div>
+            <div class="msg-body">
+              <div class="top"><span class="title">服务器告警 <span class="badge" style="position:static">1</span></span><span class="time">5 分钟前</span></div>
+              <div class="desc">CPU 使用率超过 85%，请及时处理</div>
+            </div>
+          </div>
+          <div class="msg-item">
+            <div class="msg-icon blue">🔔</div>
+            <div class="msg-body">
+              <div class="top"><span class="title">应用推送</span><span class="time">8 分钟前</span></div>
+              <div class="desc">新版本 v3.0.0 已提交审核</div>
+            </div>
+          </div>
+          <div class="msg-item">
+            <div class="msg-icon green">✅</div>
+            <div class="msg-body">
+              <div class="top"><span class="title">部署成功</span><span class="time">12 分钟前</span></div>
+              <div class="desc">v2.3.1 已上线，全部服务健康</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title">今天早些时候</div>
+        <div class="card" style="padding:4px 16px;margin-bottom:10px">
+          <div class="msg-item">
+            <div class="msg-icon pink">❤️</div>
+            <div class="msg-body">
+              <div class="top"><span class="title">心跳检查</span><span class="time">15 分钟前</span></div>
+              <div class="desc">全部 5 个节点心跳正常</div>
+            </div>
+          </div>
+          <div class="msg-item">
+            <div class="msg-icon purple">🔑</div>
+            <div class="msg-body">
+              <div class="top"><span class="title">密钥轮换</span><span class="time">1 小时前</span></div>
+              <div class="desc">API Key 已成功更新</div>
+            </div>
+          </div>
+          <div class="msg-item">
+            <div class="msg-icon blue">📊</div>
+            <div class="msg-body">
+              <div class="top"><span class="title">日报告</span><span class="time">3 小时前</span></div>
+              <div class="desc">昨日消息推送 12,847 条，成功率 99.8%</div>
+            </div>
+          </div>
+          <div class="msg-item">
+            <div class="msg-icon green">🔧</div>
+            <div class="msg-body">
+              <div class="top"><span class="title">配置更新</span><span class="time">今天 08:32</span></div>
+              <div class="desc">WebSocket 连接数限制已调整为 200</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title">昨天</div>
+        <div class="card" style="padding:4px 16px">
+          <div class="msg-item">
+            <div class="msg-icon orange">🔔</div>
+            <div class="msg-body">
+              <div class="top"><span class="title">定时提醒</span><span class="time">昨天 22:00</span></div>
+              <div class="desc">每日备份任务已完成</div>
+            </div>
+          </div>
+          <div class="msg-item">
+            <div class="msg-icon pink">❤️</div>
+            <div class="msg-body">
+              <div class="top"><span class="title">心跳检查</span><span class="time">昨天 18:00</span></div>
+              <div class="desc">全部节点心跳正常，延迟均值 12ms</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 个人中心 -->
+      <div class="page" data-page="profile">
+        <div class="nav">
+          <div>
+            <h1>我的</h1>
+          </div>
+          <div class="icon-btn">✏️</div>
+        </div>
+
+        <div class="card">
+          <div class="profile-head">
+            <div class="avatar-lg">P</div>
+            <div>
+              <div class="name">PushApp 用户</div>
+              <div class="addr">0x7a3f...e2c9</div>
+              <span class="chip chip-online" style="margin-top:6px;display:inline-flex">● Pro 会员</span>
+            </div>
+          </div>
+          <div class="kv">
+            <div class="kv-item">
+              <div class="k">API Key</div>
+              <div class="v">pk_live_...abcd</div>
+            </div>
+            <div class="kv-item">
+              <div class="k">设备 ID</div>
+              <div class="v">dev_9f2a...18</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title">账户</div>
+        <div class="card" style="padding:0">
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(99,102,241,0.12)">📬</div>
+            <div class="list-label">邮箱</div>
+            <div class="list-value">user@push.app</div>
+            <div class="list-arrow">›</div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(236,72,153,0.12)">📱</div>
+            <div class="list-label">手机号</div>
+            <div class="list-value">+86 138****56</div>
+            <div class="list-arrow">›</div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(34,197,94,0.12)">🔐</div>
+            <div class="list-label">安全设置</div>
+            <div class="list-arrow">›</div>
+          </div>
+        </div>
+
+        <div class="section-title">推送</div>
+        <div class="card" style="padding:0">
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(59,130,246,0.12)">📨</div>
+            <div class="list-label">消息模板</div>
+            <div class="list-arrow">›</div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(168,85,247,0.12)">🎯</div>
+            <div class="list-label">推送策略</div>
+            <div class="list-arrow">›</div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(249,115,22,0.12)">📈</div>
+            <div class="list-label">推送统计</div>
+            <div class="list-arrow">›</div>
+          </div>
+        </div>
+
+        <div class="section-title">其他</div>
+        <div class="card" style="padding:0">
+          <div class="list-item" onclick="showPage('settings')">
+            <div class="list-icon" style="background:rgba(100,116,139,0.12)">⚙️</div>
+            <div class="list-label">设置</div>
+            <div class="list-arrow">›</div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(34,197,94,0.12)">💬</div>
+            <div class="list-label">帮助与反馈</div>
+            <div class="list-arrow">›</div>
+          </div>
+          <div class="list-item" onclick="showPage('login')">
+            <div class="list-icon" style="background:rgba(239,68,68,0.12)">🚪</div>
+            <div class="list-label" style="color:#dc2626">退出登录</div>
+            <div class="list-arrow">›</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 设置 -->
+      <div class="page" data-page="settings">
+        <div class="sub-page-header">
+          <div class="back-btn" onclick="showPage('home')">‹</div>
+          <h2>设置</h2>
+        </div>
+
+        <div class="section-title">外观</div>
+        <div class="card" style="padding:0">
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(99,102,241,0.12)">🎨</div>
+            <div class="list-label">主题模式</div>
+            <div class="list-value">浅色</div>
+            <div class="list-arrow">›</div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(168,85,247,0.12)">🌈</div>
+            <div class="list-label">强调色</div>
+            <div class="list-value">紫蓝</div>
+            <div class="list-arrow">›</div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(59,130,246,0.12)">🔤</div>
+            <div class="list-label">字体大小</div>
+            <div class="list-value">标准</div>
+            <div class="list-arrow">›</div>
+          </div>
+        </div>
+
+        <div class="section-title">网络</div>
+        <div class="card" style="padding:0">
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(34,197,94,0.12)">🔌</div>
+            <div class="list-label">WebSocket 自动重连</div>
+            <div class="switch on" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(249,115,22,0.12)">📶</div>
+            <div class="list-label">仅 Wi-Fi 下同步</div>
+            <div class="switch" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(59,130,246,0.12)">⏱️</div>
+            <div class="list-label">请求超时</div>
+            <div class="list-value">30 秒</div>
+            <div class="list-arrow">›</div>
+          </div>
+        </div>
+
+        <div class="section-title">通知</div>
+        <div class="card" style="padding:0">
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(236,72,153,0.12)">🔔</div>
+            <div class="list-label">推送通知</div>
+            <div class="switch on" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(234,179,8,0.15)">🔕</div>
+            <div class="list-label">免打扰模式</div>
+            <div class="switch" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(168,85,247,0.12)">🔊</div>
+            <div class="list-label">声音与振动</div>
+            <div class="list-arrow">›</div>
+          </div>
+        </div>
+
+        <div class="section-title">数据</div>
+        <div class="card" style="padding:0">
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(249,115,22,0.12)">🗑️</div>
+            <div class="list-label">清除缓存</div>
+            <div class="list-value">12.4 MB</div>
+            <div class="list-arrow">›</div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(34,197,94,0.12)">☁️</div>
+            <div class="list-label">云同步</div>
+            <div class="switch on" onclick="this.classList.toggle('on')"></div>
+          </div>
+        </div>
+
+        <div class="section-title">关于</div>
+        <div class="card" style="padding:0">
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(100,116,139,0.12)">ℹ️</div>
+            <div class="list-label">版本信息</div>
+            <div class="list-value">v2.3.1</div>
+            <div class="list-arrow">›</div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(99,102,241,0.12)">📄</div>
+            <div class="list-label">服务条款</div>
+            <div class="list-arrow">›</div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(236,72,153,0.12)">🛡️</div>
+            <div class="list-label">隐私政策</div>
+            <div class="list-arrow">›</div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(59,130,246,0.12)">⭐</div>
+            <div class="list-label">给我们评分</div>
+            <div class="list-arrow">›</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 服务器配置 -->
+      <div class="page" data-page="server">
+        <div class="sub-page-header">
+          <div class="back-btn" onclick="showPage('home')">‹</div>
+          <h2>服务器配置</h2>
+        </div>
+
+        <div class="login-hero" style="padding:4px 0 16px">
+          <div class="logo" style="width:60px;height:60px;font-size:26px">🔑</div>
+          <h2>连接到你的服务</h2>
+          <p>填写服务器地址和 API Key</p>
+        </div>
+
+        <div class="form-tabs">
+          <div class="form-tab active">WebSocket</div>
+          <div class="form-tab">HTTP</div>
+        </div>
+
+        <div class="input-wrap">
+          <label>API Key</label>
+          <input class="input" type="text" placeholder="pk_live_xxxxxxxxxxxxxxxx" value="pk_live_7a3f9b2c...">
+        </div>
+
+        <div class="input-wrap">
+          <label>服务器地址 (WebSocket)</label>
+          <input class="input" type="text" placeholder="ws://your-server.com:8080" value="ws://192.168.1.100:8080">
+        </div>
+
+        <div class="input-wrap">
+          <label>HTTP API 地址（可选）</label>
+          <input class="input" type="text" placeholder="https://api.push.app/v1">
+        </div>
+
+        <div class="input-wrap">
+          <label>标签 / 分组（可选，逗号分隔）</label>
+          <input class="input" type="text" placeholder="alerts, mobile, ios">
+        </div>
+
+        <div class="btn-block">
+          <button class="btn btn-ghost">🔍 测试连接</button>
+        </div>
+        <div class="btn-block">
+          <button class="btn btn-primary" onclick="showPage('home')">🚀 保存并连接</button>
+        </div>
+
+        <div class="divider"><span>高级选项</span></div>
+
+        <div class="card" style="padding:0;margin-top:0">
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(34,197,94,0.12)">🔒</div>
+            <div class="list-label">启用 TLS/SSL</div>
+            <div class="switch on" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(249,115,22,0.12)">🔁</div>
+            <div class="list-label">自动重连</div>
+            <div class="switch on" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="list-item">
+            <div class="list-icon" style="background:rgba(59,130,246,0.12)">❤️</div>
+            <div class="list-label">心跳间隔</div>
+            <div class="list-value">30 秒</div>
+            <div class="list-arrow">›</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 登录 -->
+      <div class="page" data-page="login">
+        <div class="nav" style="justify-content:flex-end">
+          <div class="icon-btn" onclick="showPage('home')">✕</div>
+        </div>
+
+        <div class="login-hero">
+          <div class="logo">P</div>
+          <h2>欢迎使用 PushApp</h2>
+          <p>登录以管理你的推送服务</p>
+        </div>
+
+        <div class="input-wrap">
+          <label>邮箱地址</label>
+          <input class="input" type="email" placeholder="you@example.com" value="user@push.app">
+        </div>
+
+        <div class="input-wrap">
+          <label>密码</label>
+          <input class="input" type="password" placeholder="••••••••" value="••••••••">
+        </div>
+
+        <div class="list-item" style="padding:4px 2px 14px;justify-content:flex-end;border:none">
+          <div class="list-label" style="font-size:12px;color:#6366f1;font-weight:600">忘记密码？</div>
+        </div>
+
+        <button class="btn btn-primary" onclick="showPage('home')">登录</button>
+
+        <div class="divider"><span>或</span></div>
+
+        <div class="input-wrap">
+          <label>API Key 快速进入</label>
+          <input class="input" type="text" placeholder="粘贴你的 API Key 即可">
+        </div>
+        <button class="btn btn-ghost" style="margin-top:6px" onclick="showPage('server')">🔑 使用 Key 进入</button>
+
+        <div class="divider"><span>其他方式</span></div>
+        <div style="display:flex;gap:10px;margin-top:4px">
+          <button class="btn btn-ghost" style="flex:1">🍎 Apple</button>
+          <button class="btn btn-ghost" style="flex:1">🔵 Google</button>
+        </div>
+
+        <div style="text-align:center;font-size:11px;color:rgba(15,23,42,0.4);margin-top:20px">
+          还没有账号？ <span style="color:#6366f1;font-weight:600;cursor:pointer">立即注册</span>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="tabbar" id="tabbar">
+      <div class="tab active" data-tab="home" onclick="switchTab('home')">
+        <span class="ticon">🏠</span>
+        <span class="tlabel">首页</span>
+      </div>
+      <div class="tab" data-tab="messages" onclick="switchTab('messages')">
+        <span class="ticon">💬</span>
+        <span class="tlabel">消息</span>
+      </div>
+      <div class="tab" data-tab="profile" onclick="switchTab('profile')">
+        <span class="ticon">👤</span>
+        <span class="tlabel">我的</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function showPage(name){
+  document.querySelectorAll('.page').forEach(function(p){
+    p.classList.toggle('active', p.dataset.page===name);
+  });
+  var tabNames=['home','messages','profile'];
+  if(tabNames.indexOf(name)>-1){
+    document.querySelectorAll('.tab').forEach(function(t){
+      t.classList.toggle('active', t.dataset.tab===name);
+    });
+  }else{
+    document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
+  }
+}
+function switchTab(name){ showPage(name); }
+document.querySelectorAll('.chip-item').forEach(function(c){
+  c.addEventListener('click',function(){
+    c.parentElement.querySelectorAll('.chip-item').forEach(function(x){ x.classList.remove('active'); });
+    c.classList.add('active');
+  });
+});
+document.querySelectorAll('.form-tab').forEach(function(t){
+  t.addEventListener('click',function(){
+    t.parentElement.querySelectorAll('.form-tab').forEach(function(x){ x.classList.remove('active'); });
+    t.classList.add('active');
+  });
+});
+</script>
+</body>
+</html>

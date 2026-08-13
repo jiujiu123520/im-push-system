@@ -1,4 +1,4 @@
-﻿<template>
+<template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
             <view class="row" style="margin-top:60rpx;">
@@ -56,8 +56,9 @@
             <view class="row-between" style="padding:20rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
                 <view>🎨 主题</view>
                 <view class="row" style="gap:12rpx;">
-                    <text :class="['status-chip', theme==='dark'?'status-ok':'']" style="cursor:pointer;" @click="setTheme('dark')">深色</text>
-                    <text :class="['status-chip', theme==='light'?'status-ok':'']" style="cursor:pointer;" @click="setTheme('light')">浅色</text>
+                    <text :class="['status-chip', theme==='light'?'status-ok':'']" @click="setTheme('light')">浅色</text>
+                    <text :class="['status-chip', theme==='dark'?'status-ok':'']" @click="setTheme('dark')">深色</text>
+                    <text :class="['status-chip', theme==='flat'?'status-ok':'']" @click="setTheme('flat')">扁平渐变</text>
                 </view>
             </view>
             <view class="row-between" style="padding:24rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
@@ -120,6 +121,13 @@
                 </view>
                 <view class="text-muted" style="font-size:26rpx;">›</view>
             </view>
+            <view class="row-between" style="padding:24rpx 0;border-top:1px solid rgba(255,255,255,0.08);" @click="goHelp">
+                <view>
+                    <view>❓ 使用帮助</view>
+                    <view class="text-muted" style="font-size:22rpx;">常见问题与功能说明</view>
+                </view>
+                <view class="text-muted" style="font-size:26rpx;">›</view>
+            </view>
         </view>
 
         <view class="section-title">危险</view>
@@ -140,8 +148,8 @@ import { getTheme, setTheme as applyThemeFn, onThemeChange, offThemeChange } fro
 export default {
     data() {
         return {
-            themeClass: 'dark',
-            theme: 'dark',
+            themeClass: 'light',
+            theme: 'light',
             ringtone: 'default',
             deviceInfo: { brand: '', model: '', os: '' },
             notifyOk: true,
@@ -173,6 +181,7 @@ export default {
     },
     methods: {
         goBack: function() { uni.navigateBack({ delta: 1 }) },
+        goHelp: function() { uni.navigateTo({ url: '/pages/help/index' }) },
         setTheme: function(v) {
             applyThemeFn(v)
             uni.showToast({ title: '主题已切换', icon: 'none' })

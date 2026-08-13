@@ -1,19 +1,18 @@
-import { PUSH_THEME } from './storage.js'
+﻿import { PUSH_THEME } from './storage.js'
 
 const _listeners = []
 let _theme = ''
 
 const DARK = 'dark'
 const LIGHT = 'light'
+const FLAT = 'flat'
 
 function _readFromStorage() {
     try {
         const v = uni.getStorageSync(PUSH_THEME)
-        return (v === LIGHT || v === DARK) ? v : DARK
+        return (v === LIGHT || v === DARK || v === FLAT) ? v : LIGHT
     } catch(e) {
-        return DARK
-    }
-}
+        return LIGHT } }
 
 export function getTheme() {
     if (!_theme) _theme = _readFromStorage()
@@ -22,9 +21,10 @@ export function getTheme() {
 
 export function isDark() { return getTheme() === DARK }
 export function isLight() { return getTheme() === LIGHT }
+export function isFlat() { return getTheme() === FLAT }
 
 export function setTheme(theme) {
-    const t = theme === LIGHT ? LIGHT : DARK
+    const t = (theme === DARK || theme === LIGHT || theme === FLAT) ? theme : LIGHT
     if (_theme === t) return
     _theme = t
     try { uni.setStorageSync(PUSH_THEME, t) } catch(e) {}
@@ -35,7 +35,7 @@ export function setTheme(theme) {
 }
 
 export function toggleTheme() {
-    setTheme(isDark() ? LIGHT : DARK)
+    setTheme(isLight() ? DARK : (isDark() ? FLAT : LIGHT))
 }
 
 export function onThemeChange(cb) {
