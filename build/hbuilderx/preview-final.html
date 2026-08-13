@@ -383,18 +383,6 @@ body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57
 .help-body li{margin-bottom:4px}
 .help-body p{margin-bottom:6px}
 
-/* ============ 登录 ============ */
-.login-wrap{display:flex;flex-direction:column;min-height:100%}
-.login-logo{text-align:center;margin:30px 0 10px}
-.login-logo .big{font-size:48px}
-.login-logo h2{font-size:26px;font-weight:800;margin-top:8px}
-.login-logo p{font-size:13px;color:var(--txt3);margin-top:4px}
-.login-form{flex:1;margin-top:24px}
-.login-form .input-group{margin-bottom:14px}
-.login-form .input{padding:15px 16px}
-.login-foot{margin-top:auto;text-align:center;padding:12px 0}
-.login-foot .hint{font-size:13px;color:var(--txt3);margin-bottom:10px}
-
 /* ============ 隐藏 tb ============ */
 .no-tb .tb{display:none}
 .no-tb .pages{bottom:0}
@@ -851,25 +839,6 @@ body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57
           </div>
         </div>
 
-        <div class="divider-line"><span>或</span></div>
-
-        <div class="glass-card">
-          <div class="key-header">
-            <div class="key-title">👤 账号登录</div>
-            <div class="sub" style="margin-top:2px">使用邮箱 + 密码登录以同步多设备</div>
-          </div>
-          <div class="input-group">
-            <label>邮箱</label>
-            <input class="input" type="email" placeholder="you@example.com" />
-          </div>
-          <div class="input-group">
-            <label>密码</label>
-            <input class="input" type="password" placeholder="••••••••" />
-          </div>
-          <button class="btn-primary" id="btnLoginFromConfig">🔐 登录</button>
-        </div>
-      </div>
-
       <!-- ============ 6. 帮助 help ============ -->
       <div class="page" data-page="help">
         <div class="nav-header">
@@ -961,32 +930,6 @@ body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57
         </div>
       </div>
 
-      <!-- ============ 7. 登录 login ============ -->
-      <div class="page" data-page="login">
-        <div class="login-wrap">
-          <div class="login-logo">
-            <div class="big">📨</div>
-            <h2>PushApp</h2>
-            <p>实时消息，触达每一刻</p>
-          </div>
-          <div class="login-form">
-            <div class="input-group">
-              <label>📧 邮箱</label>
-              <input class="input" type="email" placeholder="you@example.com" />
-            </div>
-            <div class="input-group">
-              <label>🔒 密码</label>
-              <input class="input" type="password" placeholder="••••••••" />
-            </div>
-            <button class="btn-primary" id="btnLoginMain">🔐 登录</button>
-          </div>
-          <div class="login-foot">
-            <div class="hint">或使用 Push Key 快速开始</div>
-            <button class="btn-ghost" id="btnUseKey" style="max-width:280px;margin:0 auto">🔑 使用 Key 进入</button>
-          </div>
-        </div>
-      </div>
-
     </div>
 
     <!-- TabBar -->
@@ -1014,7 +957,7 @@ body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57
   const tabBar = document.getElementById('tabBar');
   const tbItems = document.querySelectorAll('.tb-item');
 
-  const NO_TB_PAGES = ['login','key-input','settings','help','messages'];
+  const NO_TB_PAGES = ['key-input','settings','help','messages'];
 
   function showToast(msg){
     const t = document.getElementById('toast');
@@ -1330,18 +1273,17 @@ body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57
   });
   document.getElementById('btnLogout').addEventListener('click', function(){
     PushClient.disconnect();
-    showToast('👋 已断开并退出');
-    setTimeout(function(){ showPage('login'); }, 500);
+    showToast('👋 已断开连接');
   });
-  document.getElementById('btnLoginMain').addEventListener('click', function(){
+  document.getElementById('btnLoginMain') && document.getElementById('btnLoginMain').addEventListener('click', function(){
     showToast('🔐 登录成功（demo）');
     setTimeout(function(){ showPage('key-input'); }, 600);
   });
-  document.getElementById('btnLoginFromConfig').addEventListener('click', function(){
+  document.getElementById('btnLoginFromConfig') && document.getElementById('btnLoginFromConfig').addEventListener('click', function(){
     showToast('🔐 登录成功（demo）');
     setTimeout(function(){ showPage('key-input'); }, 600);
   });
-  document.getElementById('btnUseKey').addEventListener('click', function(){
+  document.getElementById('btnUseKey') && document.getElementById('btnUseKey').addEventListener('click', function(){
     showPage('key-input');
   });
 

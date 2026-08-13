@@ -78,7 +78,7 @@ import { applySafeArea } from '../../js/safe-area.js'
 export default {
     data() {
         return {
-            themeClass: 'dark',
+            themeClass: 'light',
             userId: '',
             key: '',
             serverUrl: '',
