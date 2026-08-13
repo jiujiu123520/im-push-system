@@ -55,10 +55,19 @@
         <view class="glass-card" style="padding:16rpx 30rpx;">
             <view class="row-between" style="padding:20rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
                 <view>🎨 主题</view>
-                <view class="row" style="gap:12rpx;">
-                    <text :class="['status-chip', theme==='light'?'status-ok':'']" @click="setTheme('light')">浅色</text>
-                    <text :class="['status-chip', theme==='dark'?'status-ok':'']" @click="setTheme('dark')">深色</text>
-                    <text :class="['status-chip', theme==='flat'?'status-ok':'']" @click="setTheme('flat')">扁平渐变</text>
+                <view class="theme-swatch-row">
+                    <view :class="['theme-swatch', theme==='light'?'active':'']" @click="setTheme('light')">
+                        <view class="theme-swatch-swatch" style="background:linear-gradient(135deg,#f0f2fa,#dce0ee);"></view>
+                        <text class="theme-swatch-label">浅色玻璃</text>
+                    </view>
+                    <view :class="['theme-swatch', theme==='dark'?'active':'']" @click="setTheme('dark')">
+                        <view class="theme-swatch-swatch" style="background:linear-gradient(135deg,#0a0a1a,#2a1f55);"></view>
+                        <text class="theme-swatch-label">深色玻璃</text>
+                    </view>
+                    <view :class="['theme-swatch', theme==='flat'?'active':'']" @click="setTheme('flat')">
+                        <view class="theme-swatch-swatch" style="background:linear-gradient(135deg,#0f0c29,#24243e);"></view>
+                        <text class="theme-swatch-label">扁平渐变</text>
+                    </view>
                 </view>
             </view>
             <view class="row-between" style="padding:24rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
@@ -67,9 +76,9 @@
             </view>
             <view class="row-between" style="padding:24rpx 0;">
                 <view>🎵 通知铃声</view>
-                <view class="row" style="gap:12rpx;">
-                    <text :class="['status-chip', ringtone==='default'?'status-ok':'']" style="cursor:pointer;" @click="setRingtone('default')">默认</text>
-                    <text :class="['status-chip', ringtone==='silent'?'status-ok':'']" style="cursor:pointer;" @click="setRingtone('silent')">静默</text>
+                <view class="seg-group">
+                    <text :class="['seg-item', ringtone==='default'?'active':'']" @click="setRingtone('default')">默认</text>
+                    <text :class="['seg-item', ringtone==='silent'?'active':'']" @click="setRingtone('silent')">静默</text>
                 </view>
             </view>
         </view>
@@ -86,8 +95,8 @@
             </view>
             <view class="row-between" style="padding:24rpx 0;">
                 <view>⚡ 心跳间隔</view>
-                <view class="row" style="gap:12rpx;">
-                    <text v-for="v in [15,30,60]" :key="v" :class="['status-chip', heartbeat===v?'status-ok':'']" @click="setHeartbeat(v)">{{ v }}s</text>
+                <view class="seg-group">
+                    <text v-for="v in [15,30,60]" :key="v" :class="['seg-item', heartbeat===v?'active':'']" @click="setHeartbeat(v)">{{ v }}s</text>
                 </view>
             </view>
         </view>
