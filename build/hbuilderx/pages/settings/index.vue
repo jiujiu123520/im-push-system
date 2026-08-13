@@ -141,7 +141,7 @@
 
         <view class="section-title">危险</view>
         <view class="glass-card">
-            <button class="btn-ghost" style="color:#ef4444;border-color:rgba(239,68,68,0.4);" @click="logout">🚪 退出登录</button>
+            <button class="btn-ghost" style="color:#ef4444;border-color:rgba(239,68,68,0.4);" @click="logout">🚪 断开连接</button>
         </view>
     </view>
 </template>
@@ -149,7 +149,7 @@
 <script>
 
 import { checkUpdate } from '../../js/api.js'
-import { loadBootConfig, PUSH_VIBRATE, PUSH_WIFI_ONLY, PUSH_AUTO_RECONNECT, PUSH_HEARTBEAT, PUSH_RINGTONE, getMessages, clearMessages, getMessagesSize, formatBytes, PUSH_KEY, PUSH_USER_ID, PUSH_USER_TOKEN } from '../../js/storage.js'
+import { loadBootConfig, PUSH_VIBRATE, PUSH_WIFI_ONLY, PUSH_AUTO_RECONNECT, PUSH_HEARTBEAT, PUSH_RINGTONE, getMessages, clearMessages, getMessagesSize, formatBytes, PUSH_KEY } from '../../js/storage.js'
 import { disconnect, applySettings } from '../../js/ws.js'
 import { getDeviceInfo, checkNotificationPerm, checkBatteryOpt, openNotificationSetting, openBatteryOpt, openBrandSetting } from '../../js/permissions.js'
 import { getTheme, setTheme as applyThemeFn, onThemeChange, offThemeChange } from '../../js/theme.js'
@@ -290,8 +290,6 @@ export default {
                     if (r.confirm) {
                         disconnect()
                         uni.removeStorageSync(PUSH_KEY)
-                        uni.removeStorageSync(PUSH_USER_ID)
-                        uni.removeStorageSync(PUSH_USER_TOKEN)
                         self.onShow()
                         uni.showToast({ title: '已断开', icon: 'success' })
                     }

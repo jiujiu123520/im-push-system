@@ -1,7 +1,6 @@
-﻿export function request(method, url, data, token) {
+export function request(method, url, data) {
     return new Promise((resolve, reject) => {
         const header = { 'Content-Type': 'application/json' }
-        if (token) header['Authorization'] = 'Bearer ' + token
         uni.request({
             url, method, data, header, timeout: 10000,
             success: (res) => {
@@ -16,17 +15,10 @@
     })
 }
 
-export function login(baseUrl, email, password) {
-    return request('POST', baseUrl + '/api/user/login', { email, password })
-}
-
 export function testPush(baseUrl, key) {
     return request('POST', baseUrl + '/api/user/test-push', { key })
 }
 
-export function fetchMessages(baseUrl, key, page) {
-    return request('GET', baseUrl + '/api/user/messages?key=' + key + '&page=' + (page || 1))
-}
 export function checkUpdate(baseUrl, currentVersion, platform) {
     platform = platform || 'android'
     var url = baseUrl + '/api/check-update?platform=' + platform + '&current_version=' + encodeURIComponent(currentVersion)

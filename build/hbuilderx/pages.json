@@ -1,8 +1,7 @@
 {
     "pages": [
-        { "path": "pages/login/index", "style": { "navigationStyle": "custom" } },
-        { "path": "pages/key-input/index", "style": { "navigationStyle": "custom" } },
         { "path": "pages/home/index", "style": { "navigationStyle": "custom" } },
+        { "path": "pages/key-input/index", "style": { "navigationStyle": "custom" } },
         { "path": "pages/messages/index", "style": { "navigationStyle": "custom" } },
         { "path": "pages/profile/index", "style": { "navigationStyle": "custom" } },
         { "path": "pages/settings/index", "style": { "navigationStyle": "custom" } },

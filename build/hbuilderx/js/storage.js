@@ -24,7 +24,6 @@ export function clearBootConfig() {
 export const PUSH_KEY = 'push_key'
 export const PUSH_WS_URL = 'push_ws_url'
 export const PUSH_SERVER_URL = 'push_server_url'
-export const PUSH_USER_TOKEN = 'push_user_token'
 export const PUSH_USER_ID = 'push_user_id'
 export const PUSH_HEARTBEAT = 'push_heartbeat'
 export const PUSH_AUTO_RECONNECT = 'push_auto_reconnect'

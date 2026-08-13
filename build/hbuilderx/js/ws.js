@@ -1,4 +1,4 @@
-﻿import { addMessage, PUSH_HEARTBEAT, PUSH_AUTO_RECONNECT, PUSH_WIFI_ONLY } from './storage.js'
+import { addMessage, PUSH_HEARTBEAT, PUSH_AUTO_RECONNECT, PUSH_WIFI_ONLY } from './storage.js'
 
 const events = {
     _handlers: {},
@@ -167,7 +167,7 @@ function _handleMessage(text) {
             state = 'connected'
             events.emit('state', state)
         } else {
-            var failMsg = env.message || env.msg || '鉴权失败'
+            const failMsg = env.message || env.msg || '鉴权失败'
             console.warn('[Ws] ❌ auth failed:', failMsg)
             shouldReconnect = false
             _closeSocket()
@@ -175,10 +175,13 @@ function _handleMessage(text) {
             events.emit('state', state)
             events.emit('error', { type: 'auth_fail', message: failMsg })
         }
-    } } else if (t === 'pong') {
+        return
+    }
+
+    if (t === 'pong') {
         pendingPongs = 0
-        var recvTs = Date.now()
-        var remoteTs = typeof env.ts === 'number' ? env.ts : null
+        const recvTs = Date.now()
+        const remoteTs = typeof env.ts === 'number' ? env.ts : null
         if (remoteTs && remoteTs > 0 && recvTs >= remoteTs) {
             latency = recvTs - remoteTs
             events.emit('latency', latency)
@@ -186,9 +189,16 @@ function _handleMessage(text) {
             latency = recvTs - pendingPingAt
             pendingPingAt = 0
             events.emit('latency', latency)
-        } else if (t === 'ping') {
+        }
+        return
+    }
+
+    if (t === 'ping') {
         try { uni.sendSocketMessage({ data: JSON.stringify({ type: 'pong' }) }) } catch(e) {}
-    } else if (t === 'push') {
+        return
+    }
+
+    if (t === 'push') {
         const msg = {
             id: env.id || _uuid(),
             title: env.title || '',
@@ -198,26 +208,21 @@ function _handleMessage(text) {
         }
         addMessage(msg)
         events.emit('message', msg)
-    } else {
-        if (env.code === 0 || env.code === -1) {
-            const title = (env.data && env.data.title) || env.title || ''
-            const content = (env.data && env.data.content) || env.content || ''
-            if (title || content) {
-                const m = {
-                    id: (env.data && env.data.message_id) || _uuid(),
-                    title, content,
-                    priority: (env.data && env.data.priority) || 'default',
-                    timestamp: (env.data && env.data.timestamp) || Date.now()
-                }
-                addMessage(m)
-                events.emit('message', m)
-            } } else if (env.message === 'pong') {
-                pendingPongs = 0
-                if (pendingPingAt > 0) {
-                    latency = Date.now() - pendingPingAt
-                    pendingPingAt = 0
-                    events.emit('latency', latency)
-                }
+        return
+    }
+
+    if (env.code === 0 || env.code === -1) {
+        const title = (env.data && env.data.title) || env.title || ''
+        const content = (env.data && env.data.content) || env.content || ''
+        if (title || content) {
+            const m = {
+                id: (env.data && env.data.message_id) || _uuid(),
+                title, content,
+                priority: (env.data && env.data.priority) || 'default',
+                timestamp: (env.data && env.data.timestamp) || Date.now()
+            }
+            addMessage(m)
+            events.emit('message', m)
         }
     }
 }
