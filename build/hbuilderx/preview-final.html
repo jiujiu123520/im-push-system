@@ -101,6 +101,17 @@ body::after{width:350px;height:350px;background:var(--ball2);bottom:-80px;right:
   background:var(--btn-bg);color:#fff;box-shadow:0 4px 14px rgba(99,102,241,.35);
 }
 
+@media (max-width: 500px) {
+  .phone-frame {
+    transform-origin: top center;
+    transform: scale(calc((100vw - 32px) / 410px));
+    margin-top: -40px;
+    margin-bottom: -120px;
+  }
+  body { padding-top: 20px !important; }
+  .theme-switcher { position: static; transform: none; margin-bottom: 16px; }
+}
+
 /* 手机外框 */
 .phone-frame{
   width:390px;height:844px;border-radius:46px;position:relative;
@@ -432,7 +443,7 @@ body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57
               <span class="status-chip ok dot">在线</span>
               <span class="text-sm" style="font-weight:600">WebSocket 已连接</span>
             </div>
-            <span class="text-xs">延迟 32ms</span>
+            <span class="text-xs">延迟 <span id="latencyVal" style="color:var(--accent);font-weight:600;">—</span></span>
           </div>
           <div class="addr">wss://push.example.com/v1/ws?key=xxxxxxxxxxxxxxxx&device=ios_abc123</div>
           <div class="conn-actions">
@@ -1104,6 +1115,18 @@ body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57
 
   // 进入登录页（如果是首次访问）
   // 默认首页展示
+
+  (function(){
+    var el = document.getElementById('latencyVal');
+    if (!el) return;
+    var base = 35;
+    setInterval(function(){
+      var jitter = Math.round((Math.random() - 0.5) * 30);
+      var v = Math.max(8, base + jitter);
+      el.textContent = v + 'ms';
+    }, 2500);
+    el.textContent = (base + Math.round((Math.random()-0.5)*20)) + 'ms';
+  })();
 })();
 </script>
 </body>

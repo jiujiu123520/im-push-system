@@ -1,4 +1,4 @@
-﻿<template>
+<template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
             <view class="row-between" style="margin-top:60rpx;">
@@ -17,7 +17,10 @@
             </view>
             <view class="text-primary" style="font-size:34rpx;font-weight:600;margin-top:12rpx;">{{ wsState }}</view>
             <view v-if="wsErrorMsg" class="text-error" style="font-size:24rpx;margin-top:8rpx;">⚠ {{ wsErrorMsg }}</view>
-            <view class="text-muted" style="font-size:24rpx;margin-top:6rpx;">{{ wsUrl || '未配置服务器地址' }}</view>
+            <view class="row-between" style="margin-top:6rpx;">
+                <view class="text-muted" style="font-size:24rpx;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ wsUrl || '未配置服务器地址' }}</view>
+                <view class="text-muted" style="font-size:24rpx;">延迟 <text v-if="latency >= 0" style="color:var(--text-accent);font-weight:600;">{{ latency }}ms</text><text v-else>—</text></view>
+            </view>
             <view class="row" style="margin-top:24rpx;">
                 <button class="btn-primary" style="flex:1;margin-right:16rpx;" @click="testPush" :disabled="!canTest">测试推送</button>
                 <button class="btn-ghost" style="flex:1;" @click="reconnect">重新连接</button>
@@ -47,7 +50,7 @@
 
 <script>
 import { loadBootConfig, PUSH_KEY, PUSH_WS_URL, PUSH_SERVER_URL, getMessages } from '../../js/storage.js'
-import { connect, reconnect, isConnected, getState, on, off } from '../../js/ws.js'
+import { connect, reconnect, isConnected, getState, getLatency, on, off } from '../../js/ws.js'
 import { notify } from '../../js/notify.js'
 import { testPush as apiTestPush } from '../../js/api.js'
 import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
@@ -63,6 +66,7 @@ export default {
             wsUrl: '',
             wsErrorMsg: '',
             keyValue: '',
+            latency: -1,
             recentMessages: []
         }
     },
@@ -95,8 +99,10 @@ export default {
         on('state', self._onState)
         on('message', self._onMessage)
         on('error', self._onError)
+        on('latency', self._onLatency)
         var st = getState()
         self._onState(st)
+        self.latency = getLatency()
         if (!isConnected()) {
             connect(self.wsUrl, self.keyValue)
         }
@@ -105,11 +111,13 @@ export default {
         off('state', this._onState)
         off('message', this._onMessage)
         off('error', this._onError)
+        off('latency', this._onLatency)
     },
     onUnload: function() {
         off('state', this._onState)
         off('message', this._onMessage)
         off('error', this._onError)
+        off('latency', this._onLatency)
         offThemeChange()
     },
     methods: {
@@ -118,6 +126,7 @@ export default {
                 this.wsState = '连接错误'
                 this.stateLabel = '错误'
                 this.stateClass = 'status-bad'
+                this.latency = -1
             } else if (s === 'connected') {
                 this.wsState = 'WebSocket 已连接'
                 this.stateLabel = '在线'; this.stateClass = 'status-ok'
@@ -126,14 +135,18 @@ export default {
                 this.wsState = s === 'reconnecting' ? '正在自动重连…' : '正在连接…'
                 this.stateLabel = '连接中'; this.stateClass = 'status-warn'
                 this.wsErrorMsg = ''
+                this.latency = -1
             } else if (s === 'disconnected') {
                 this.wsState = '连接已断开'
                 this.stateLabel = '离线'; this.stateClass = 'status-bad'
+                this.latency = -1
             } else {
                 this.wsState = s
                 this.stateLabel = s; this.stateClass = 'status-bad'
+                this.latency = -1
             }
         },
+        _onLatency: function(v) { this.latency = v },
         _onError: function(err) {
             var msg = (err && err.message) || '连接错误'
             this.wsErrorMsg = msg

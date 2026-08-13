@@ -28,6 +28,8 @@ let heartbeatTimer = null
 let reconnectTimer = null
 let reconnectAttempts = 0
 let pendingPongs = 0
+let latency = -1
+let pendingPingAt = 0
 let currentUrl = ''
 let currentKey = ''
 let heartbeatInterval = 30
@@ -173,9 +175,18 @@ function _handleMessage(text) {
             events.emit('state', state)
             events.emit('error', { type: 'auth_fail', message: failMsg })
         }
-    } else if (t === 'pong') {
+    } } else if (t === 'pong') {
         pendingPongs = 0
-    } else if (t === 'ping') {
+        var recvTs = Date.now()
+        var remoteTs = typeof env.ts === 'number' ? env.ts : null
+        if (remoteTs && remoteTs > 0 && recvTs >= remoteTs) {
+            latency = recvTs - remoteTs
+            events.emit('latency', latency)
+        } else if (pendingPingAt > 0) {
+            latency = recvTs - pendingPingAt
+            pendingPingAt = 0
+            events.emit('latency', latency)
+        } else if (t === 'ping') {
         try { uni.sendSocketMessage({ data: JSON.stringify({ type: 'pong' }) }) } catch(e) {}
     } else if (t === 'push') {
         const msg = {
@@ -200,9 +211,13 @@ function _handleMessage(text) {
                 }
                 addMessage(m)
                 events.emit('message', m)
-            } else if (env.message === 'pong') {
+            } } else if (env.message === 'pong') {
                 pendingPongs = 0
-            }
+                if (pendingPingAt > 0) {
+                    latency = Date.now() - pendingPingAt
+                    pendingPingAt = 0
+                    events.emit('latency', latency)
+                }
         }
     }
 }
@@ -214,7 +229,8 @@ function _startHeartbeat() {
     heartbeatTimer = setInterval(() => {
         if (state !== 'connected' && state !== 'connecting') return
         try {
-            uni.sendSocketMessage({ data: JSON.stringify({ type: 'ping' }) })
+            pendingPingAt = Date.now()
+            uni.sendSocketMessage({ data: JSON.stringify({ type: 'ping', ts: Date.now() }) })
             pendingPongs++
             if (pendingPongs >= MAX_MISSED_PONG) {
                 console.warn('[Ws] ❤️ heartbeat timeout, close and reconnect')
@@ -264,6 +280,7 @@ export function disconnect() {
     autoReconnect = false
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
     _closeSocket()
+    latency = -1
     state = 'disconnected'
     events.emit('state', state)
 }
@@ -291,6 +308,7 @@ export function getHeartbeatInterval() { return heartbeatInterval }
 
 export function isConnected() { return state === 'connected' }
 export function getState() { return state }
+export function getLatency() { return latency }
 export const on = events.on.bind(events)
 export const off = events.off.bind(events)
 
