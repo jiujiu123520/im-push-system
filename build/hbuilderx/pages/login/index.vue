@@ -1,7 +1,7 @@
-﻿<template>
+<template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
-            <view class="text-primary" style="font-size:56rpx;font-weight:800;letter-spacing:-1rpx;margin-top:40rpx;">PushApp</view>
+            <view class="text-primary" style="font-size:56rpx;font-weight:800;letter-spacing:-1rpx;">PushApp</view>
             <view class="text-secondary" style="margin-top:8rpx;font-size:28rpx;">玻璃拟态版 · 即时推送</view>
         </view>
 
@@ -33,6 +33,7 @@
 import { loadBootConfig, PUSH_KEY, PUSH_USER_TOKEN, PUSH_USER_ID } from '../../js/storage.js'
 import { login as apiLogin } from '../../js/api.js'
 import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
+import { applySafeArea } from '../../js/safe-area.js'
 
 export default {
     data() {
@@ -44,6 +45,7 @@ export default {
         }
     },
     onShow: function() {
+        applySafeArea()
         var self = this
         self.themeClass = getTheme()
         onThemeChange(function(t) { self.themeClass = t })

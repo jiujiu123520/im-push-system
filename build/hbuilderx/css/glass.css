@@ -148,11 +148,15 @@ page {
     background: linear-gradient(160deg, var(--bg-gradient-1) 0%, var(--bg-gradient-2) 50%, var(--bg-gradient-3) 100%);
     color: var(--text-primary);
     min-height: 100vh;
+    --status-bar-h: 88rpx;
+    --tabbar-h: 150rpx;
 }
 
 .glass-bg {
     background: linear-gradient(160deg, var(--bg-gradient-1) 0%, var(--bg-gradient-2) 50%, var(--bg-gradient-3) 100%);
     min-height: 100vh;
+    padding-bottom: var(--tabbar-h);
+    box-sizing: border-box;
 }
 
 .glass-bg::before {
@@ -259,7 +263,7 @@ page {
 .status-bad { background: rgba(239,68,68,0.2); color: #ef4444; }
 
 .top-bar {
-    padding: 60rpx 32rpx 24rpx 32rpx;
+    padding: var(--status-bar-h) 32rpx 24rpx 32rpx;
     position: relative;
     z-index: 1;
 }

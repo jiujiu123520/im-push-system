@@ -1,7 +1,7 @@
-﻿<template>
+<template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
-            <view class="row-between" style="margin-top:60rpx;">
+            <view class="row-between" >
                 <view class="top-bar-title">消息列表</view>
                 <view class="text-muted" style="font-size:26rpx;">{{ messages.length }} 条</view>
             </view>
@@ -33,7 +33,7 @@
         <view v-for="(m, i) in filteredMessages" :key="m.id" :class="['glass-card', m.read ? 'msg-read' : 'msg-unread']" style="padding:24rpx 30rpx;margin:12rpx 24rpx;">
             <view class="row-between">
                 <view class="row" style="gap:10rpx;align-items:center;">
-                    <view style="font-size:28rpx;font-weight:600;" :style="{ color: m.read ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.95)' }">{{ m.title || '推送消息' }}</view>
+                    <view style="font-size:28rpx;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" :style="{ color: m.read ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.95)' }">{{ m.title || '推送消息' }}</view>
                     <view v-if="!m.read" class="dot-unread"></view>
                 </view>
                 <view :class="['status-chip', m.priority === 'high' ? 'status-bad' : (m.priority === 'system' ? 'status-warn' : 'status-ok')]" v-if="m.priority">
@@ -57,6 +57,7 @@
 import { getMessages, markRead as markReadLocal, markAllRead as markAllReadLocal, deleteMessage as deleteMessageLocal, clearMessages as clearMessagesLocal } from '../../js/storage.js'
 import { on, off } from '../../js/ws.js'
 import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
+import { applySafeArea } from '../../js/safe-area.js'
 
 export default {
     data() {
@@ -82,6 +83,7 @@ export default {
         }
     },
     onShow: function() {
+        applySafeArea()
         var self = this
         self.themeClass = getTheme()
         onThemeChange(function(t) { self.themeClass = t })

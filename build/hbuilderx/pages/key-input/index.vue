@@ -1,7 +1,7 @@
-﻿<template>
+<template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
-            <view class="row" style="margin-top:60rpx;">
+            <view class="row" >
                 <text class="icon-btn" @click="goBack" style="font-size:36rpx;width:72rpx;height:72rpx;">‹</text>
                 <text class="top-bar-title" style="margin-left:20rpx;">服务器配置</text>
             </view>
@@ -12,10 +12,10 @@
             <view style="font-size:28rpx;font-weight:600;margin-bottom:20rpx;">🔑 Push Key</view>
             <input class="glass-input" placeholder="粘贴你的 Push Key" placeholder-style="color:rgba(255,255,255,0.4)" v-model="key" />
 
-            <view style="font-size:28rpx;font-weight:600;margin-bottom:20rpx;margin-top:40rpx;">🌐 HTTP 服务器地址</view>
+            <view style="font-size:28rpx;font-weight:600;margin-bottom:20rpx;">🌐 HTTP 服务器地址</view>
             <input class="glass-input" placeholder="https://push.example.com" placeholder-style="color:rgba(255,255,255,0.4)" v-model="serverUrl" />
 
-            <view style="font-size:28rpx;font-weight:600;margin-bottom:20rpx;margin-top:40rpx;">🔗 WebSocket 地址</view>
+            <view style="font-size:28rpx;font-weight:600;margin-bottom:20rpx;">🔗 WebSocket 地址</view>
             <input class="glass-input" placeholder="wss://push.example.com/ws" placeholder-style="color:rgba(255,255,255,0.4)" v-model="wsUrl" />
 
             <button class="btn-primary" style="width:100%;margin-top:48rpx;" @click="confirm">确认并连接</button>
@@ -54,6 +54,7 @@
 import { loadBootConfig, PUSH_KEY, PUSH_SERVER_URL, PUSH_WS_URL, PUSH_USER_ID, PUSH_USER_TOKEN } from '../../js/storage.js'
 import { login, testPush } from '../../js/api.js'
 import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
+import { applySafeArea } from '../../js/safe-area.js'
 
 export default {
     data() {
@@ -73,6 +74,7 @@ export default {
         }
     },
     onShow: function() {
+        applySafeArea()
         var self = this
         self.themeClass = getTheme()
         onThemeChange(function(t) { self.themeClass = t })

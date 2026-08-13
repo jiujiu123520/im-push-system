@@ -1,7 +1,7 @@
-<template>
+﻿<template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
-            <view class="row" style="margin-top:60rpx;">
+            <view class="row" >
                 <text class="icon-btn" @click="goBack" style="font-size:36rpx;width:72rpx;height:72rpx;">‹</text>
                 <text class="top-bar-title" style="margin-left:20rpx;">设置</text>
             </view>
@@ -144,6 +144,7 @@ import { loadBootConfig, PUSH_VIBRATE, PUSH_WIFI_ONLY, PUSH_AUTO_RECONNECT, PUSH
 import { disconnect, applySettings } from '../../js/ws.js'
 import { getDeviceInfo, checkNotificationPerm, checkBatteryOpt, openNotificationSetting, openBatteryOpt, openBrandSetting } from '../../js/permissions.js'
 import { getTheme, setTheme as applyThemeFn, onThemeChange, offThemeChange } from '../../js/theme.js'
+import { applySafeArea } from '../../js/safe-area.js'
 
 export default {
     data() {
@@ -165,6 +166,7 @@ export default {
         }
     },
     onShow: function() {
+        applySafeArea()
             var self = this; self.themeClass = getTheme(); self.theme = self.themeClass; onThemeChange(function(t){ self.themeClass = t; self.theme = t })
         var cfg = loadBootConfig()
         this.deviceInfo = getDeviceInfo()

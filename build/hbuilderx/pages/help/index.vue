@@ -1,7 +1,7 @@
-<template>
+﻿<template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
-            <view class="row" style="margin-top:60rpx;">
+            <view class="row" >
                 <text class="icon-btn" @click="goBack" style="font-size:36rpx;width:72rpx;height:72rpx;">‹</text>
                 <text class="top-bar-title" style="margin-left:20rpx;">使用帮助</text>
             </view>
@@ -27,6 +27,7 @@
 
 <script>
 import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
+import { applySafeArea } from '../../js/safe-area.js'
 
 export default {
     data() {
@@ -96,6 +97,7 @@ export default {
         }
     },
     onShow: function() {
+        applySafeArea()
         var self = this
         self.themeClass = getTheme()
         onThemeChange(function(t) { self.themeClass = t })

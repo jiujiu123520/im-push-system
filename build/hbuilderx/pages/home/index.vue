@@ -1,7 +1,7 @@
-<template>
+﻿<template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
-            <view class="row-between" style="margin-top:60rpx;">
+            <view class="row-between" >
                 <view>
                     <view class="text-secondary" style="font-size:26rpx;">你好，Push 用户</view>
                     <view class="top-bar-title" style="margin-top:4rpx;">{{ appName }}</view>
@@ -33,7 +33,7 @@
         </view>
         <view class="glass-card" v-for="(m, i) in recentMessages" :key="m.id" style="padding:24rpx 30rpx;margin-top:8rpx;" @click="openMessages">
             <view class="row-between">
-                <view style="font-size:28rpx;font-weight:600;color:rgba(255,255,255,0.9);">{{ m.title || '推送消息' }}</view>
+                <view style="font-size:28rpx;font-weight:600;color:rgba(255,255,255,0.9);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ m.title || '推送消息' }}</view>
                 <view :class="['status-chip', m.priority === 'high' ? 'status-bad' : 'status-ok']" v-if="m.priority">{{ m.priority === 'high' ? '高优先' : '普通' }}</view>
             </view>
             <view class="text-secondary" style="font-size:26rpx;margin-top:6rpx;">{{ truncate(m.content, 60) }}</view>
@@ -54,6 +54,7 @@ import { connect, reconnect, isConnected, getState, getLatency, on, off } from '
 import { notify } from '../../js/notify.js'
 import { testPush as apiTestPush } from '../../js/api.js'
 import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
+import { applySafeArea } from '../../js/safe-area.js'
 
 export default {
     data() {
@@ -74,6 +75,7 @@ export default {
         canTest: function() { return !!this.keyValue }
     },
     onShow: function() {
+        applySafeArea()
         var self = this
         self.themeClass = getTheme()
         onThemeChange(function(t) { self.themeClass = t })

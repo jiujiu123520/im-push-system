@@ -1,7 +1,7 @@
-<template>
+﻿<template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
-            <view class="top-bar-title" style="margin-top:60rpx;">个人中心</view>
+            <view class="top-bar-title" >个人中心</view>
             <view class="top-bar-subtitle">你的 Push 账户信息</view>
         </view>
 
@@ -73,6 +73,7 @@
 import { loadBootConfig, PUSH_KEY, PUSH_SERVER_URL, PUSH_WS_URL, PUSH_USER_ID, clearMessages } from '../../js/storage.js'
 import { on, off, getState } from '../../js/ws.js'
 import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
+import { applySafeArea } from '../../js/safe-area.js'
 
 export default {
     data() {
@@ -93,6 +94,7 @@ export default {
         }
     },
     onShow: function() {
+        applySafeArea()
         var self = this
         self.themeClass = getTheme()
         onThemeChange(function(t) { self.themeClass = t })
