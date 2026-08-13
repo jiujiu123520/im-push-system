@@ -457,12 +457,12 @@ body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57
         <div class="glass-card">
           <div class="row-between">
             <div class="row">
-              <span class="status-chip ok dot">在线</span>
-              <span class="text-sm" style="font-weight:600">WebSocket 已连接</span>
+              <span class="status-chip dot" id="wsStateChip">未连接</span>
+              <span class="text-sm" id="wsStateText" style="font-weight:600">等待连接…</span>
             </div>
             <span class="text-xs">延迟 <span id="latencyVal" style="color:var(--accent);font-weight:600;">—</span></span>
           </div>
-          <div class="addr">wss://push.example.com/v1/ws?key=xxxxxxxxxxxxxxxx&device=ios_abc123</div>
+          <div class="addr" id="wsUrlLine">—</div>
           <div class="conn-actions">
             <button class="btn-test" id="btnTestPush">🧪 测试推送</button>
             <button class="btn-reconnect" id="btnReconnect">🔄 重新连接</button>
@@ -834,15 +834,15 @@ body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57
 
           <div class="input-group">
             <label>Push Key</label>
-            <input class="input" placeholder="PK_xxxxxxxxxxxxxxxx" value="PK_a1b2c3d4e5f6g7h8" />
+            <input class="input" id="keyInput" placeholder="PK_xxxxxxxxxxxxxxxx" value="PK_a1b2c3d4e5f6g7h8" />
           </div>
           <div class="input-group">
             <label>HTTP 服务器地址</label>
-            <input class="input" placeholder="https://" value="https://push.example.com/v1" />
+            <input class="input" id="httpInput" placeholder="https://" value="http://127.0.0.1:8898" />
           </div>
           <div class="input-group">
             <label>WebSocket 地址</label>
-            <input class="input" placeholder="wss://" value="wss://push.example.com/v1/ws" />
+            <input class="input" id="wsInput" placeholder="wss://" value="ws://127.0.0.1:8898/ws" />
           </div>
 
           <button class="btn-primary" id="btnConfirmConnect">🔗 确认并连接</button>
@@ -1129,30 +1129,222 @@ body[data-theme="flat"] .sw.on{background:linear-gradient(135deg,#ff6b6b,#feca57
     });
   });
 
-  // 各种主按钮
-  document.getElementById('btnTestPush').addEventListener('click',()=>showToast('🧪 测试推送已发送！'));
-  document.getElementById('btnReconnect').addEventListener('click',()=>showToast('🔄 正在重新连接…'));
-  document.getElementById('btnConfirmConnect').addEventListener('click',()=>showToast('🔗 连接成功！'));
-  document.getElementById('btnTestServer').addEventListener('click',()=>showToast('✅ 服务器可达 · 延迟 32ms'));
-  document.getElementById('btnLogout').addEventListener('click',()=>{showToast('👋 已退出登录');setTimeout(()=>showPage('login'),500)});
-  document.getElementById('btnLoginMain').addEventListener('click',()=>showToast('🔐 登录成功！'));
-  document.getElementById('btnLoginFromConfig').addEventListener('click',()=>showToast('🔐 登录成功！'));
-  document.getElementById('btnUseKey').addEventListener('click',()=>showToast('🔑 请输入 Push Key'));
+  // ============ 真· WebSocket 管理器 ============
+  const PushClient = (function(){
+    let ws = null;
+    let state = 'disconnected'; // disconnected | connecting | connected | error
+    let config = { key: '', http: '', wsUrl: '' };
+    let pingTimer = null;
+    let reconnectTimer = null;
+    let lastPingAt = 0;
 
-  // 进入登录页（如果是首次访问）
-  // 默认首页展示
+    function setState(s, extra){
+      state = s;
+      const chip = document.getElementById('wsStateChip');
+      const txt = document.getElementById('wsStateText');
+      const urlLine = document.getElementById('wsUrlLine');
+      const map = {
+        disconnected: { cls:'', label:'未连接', text:'等待连接…' },
+        connecting:   { cls:'', label:'连接中', text:'正在建立连接…' },
+        connected:    { cls:'ok', label:'在线', text:'WebSocket 已连接' },
+        error:        { cls:'err', label:'离线', text:'连接失败' },
+      };
+      const m = map[s] || map.disconnected;
+      if(chip){
+        chip.className = 'status-chip dot' + (m.cls ? ' ' + m.cls : '');
+        chip.textContent = m.label;
+      }
+      if(txt) txt.textContent = m.text + (extra ? ' · ' + extra : '');
+      if(urlLine && s !== 'disconnected') urlLine.textContent = config.wsUrl + '?key=' + (config.key||'') + '&device=preview_browser';
+    }
 
-  (function(){
-    var el = document.getElementById('latencyVal');
-    if (!el) return;
-    var base = 35;
-    setInterval(function(){
-      var jitter = Math.round((Math.random() - 0.5) * 30);
-      var v = Math.max(8, base + jitter);
-      el.textContent = v + 'ms';
-    }, 2500);
-    el.textContent = (base + Math.round((Math.random()-0.5)*20)) + 'ms';
+    function setLatency(ms){
+      const el = document.getElementById('latencyVal');
+      if(el) el.textContent = ms + 'ms';
+    }
+
+    function buildMessageCard(msg){
+      const colors = { high:'#ef4444', default:'#3b82f6', low:'#6b7280' };
+      const color = colors[msg.priority] || colors.default;
+      return `
+        <div class="msg-item unread" style="border-left:4px solid ${color}">
+          <div class="mi-head">
+            <div><div class="mi-title">${msg.title}</div><div class="mi-body">${msg.content}</div></div>
+            <span class="mi-dot"></span>
+          </div>
+          <div class="mi-actions">
+            <button>已读</button><button>复制</button><button>删除</button>
+          </div>
+        </div>`;
+    }
+
+    function prependMessage(msg){
+      const card = document.querySelector('.msg-card.glass-card');
+      if(!card) return;
+      const list = card.querySelector('.msg-list') || card;
+      const div = document.createElement('div');
+      div.innerHTML = buildMessageCard(msg).trim();
+      const item = div.firstElementChild;
+      card.insertBefore(item, card.firstElementChild);
+      // 最多留 8 条
+      const all = card.querySelectorAll('.msg-item');
+      if(all.length > 8) all[all.length-1].remove();
+    }
+
+    function connect(key, http, wsUrl){
+      disconnect();
+      config = { key: key || '', http: http || '', wsUrl: wsUrl || '' };
+      if(!config.key || !config.wsUrl){ setState('error','缺少 Key 或 WS 地址'); return; }
+      setState('connecting');
+      setLatency('—');
+
+      try {
+        ws = new WebSocket(config.wsUrl);
+      } catch(e){
+        setState('error', e.message);
+        return;
+      }
+
+      ws.onopen = function(){
+        // 发送 auth
+        ws.send(JSON.stringify({ type:'auth', key:config.key, device_id:'preview_browser', heartbeat_interval:10 }));
+        // 启动 ping
+        pingTimer = setInterval(function(){
+          if(ws && ws.readyState === 1){
+            lastPingAt = Date.now();
+            ws.send(JSON.stringify({ type:'ping', ts:lastPingAt }));
+          }
+        }, 10000);
+      };
+
+      ws.onmessage = function(ev){
+        let env;
+        try { env = JSON.parse(ev.data); } catch(e){ return; }
+        console.log('[WS ←]', env);
+
+        if(env.type === 'hello'){
+          // 服务器 hello，等 auth 结果
+        } else if(env.type === 'auth_ok'){
+          setState('connected', 'key=' + config.key.substring(0,8) + '…');
+          showToast('✅ 连接成功 · 已鉴权');
+        } else if(env.type === 'auth_fail'){
+          setState('error', env.message);
+          showToast('❌ 鉴权失败：' + env.message);
+          disconnect();
+        } else if(env.type === 'pong'){
+          let rtt = Date.now() - (env.ts || lastPingAt);
+          if(rtt < 0) rtt = 0;
+          if(rtt > 5000) rtt = 0;
+          setLatency(rtt);
+        } else if(env.type === 'push'){
+          prependMessage(env);
+          showToast('📬 收到推送：' + env.title);
+        }
+      };
+
+      ws.onerror = function(){
+        setState('error', '网络错误');
+        showToast('❌ WebSocket 连接失败');
+      };
+
+      ws.onclose = function(){
+        setState('disconnected');
+        setLatency('—');
+        if(pingTimer){ clearInterval(pingTimer); pingTimer = null; }
+        // 3 秒后自动重连（如果之前是 connected 过）
+        if(state === 'connected' || state === 'connecting'){
+          showToast('🔄 3 秒后自动重连…');
+          reconnectTimer = setTimeout(function(){
+            if(state === 'disconnected') connect(config.key, config.http, config.wsUrl);
+          }, 3000);
+        }
+      };
+    }
+
+    function disconnect(){
+      if(reconnectTimer){ clearTimeout(reconnectTimer); reconnectTimer = null; }
+      if(pingTimer){ clearInterval(pingTimer); pingTimer = null; }
+      if(ws){ try { ws.close(); } catch(e){} ws = null; }
+      setState('disconnected');
+    }
+
+    function reconnect(){
+      showToast('🔄 重新连接…');
+      connect(config.key, config.http, config.wsUrl);
+    }
+
+    function testPush(){
+      if(state !== 'connected'){ showToast('⚠️ 先连接服务器'); return; }
+      if(!config.http){ showToast('⚠️ 缺少 HTTP 地址'); return; }
+      showToast('📤 正在发送测试推送…');
+      fetch(config.http + '/api/user/test-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: config.key })
+      }).then(function(r){ return r.json(); }).then(function(d){
+        if(d && d.code === 0){ showToast('✅ ' + (d.message || '测试推送已发送')); }
+        else { showToast('⚠️ ' + (d && d.message || '响应异常')); }
+      }).catch(function(e){
+        showToast('❌ HTTP 错误：' + e.message);
+      });
+    }
+
+    function testServer(){
+      if(!config.http){ showToast('⚠️ 缺少 HTTP 地址'); return Promise.reject(); }
+      showToast('🧪 测试服务器连接…');
+      return fetch(config.http + '/api/user/test-push?key=' + config.key).then(function(r){
+        return r.json().then(function(d){
+          if(d.code === 0){
+            showToast('✅ 服务器可达 · devices_online=' + (d.devices_online || 0));
+            return true;
+          }
+          showToast('⚠️ ' + (d.message || '服务器返回异常'));
+          return false;
+        });
+      }).catch(function(e){
+        showToast('❌ 服务器不可达：' + e.message);
+        return false;
+      });
+    }
+
+    return { connect, disconnect, reconnect, testPush, testServer, get state(){ return state; }, get config(){ return config; } };
   })();
+
+  // 主按钮绑定
+  document.getElementById('btnTestPush').addEventListener('click', function(){ PushClient.testPush(); });
+  document.getElementById('btnReconnect').addEventListener('click', function(){ PushClient.reconnect(); });
+  document.getElementById('btnConfirmConnect').addEventListener('click', function(){
+    var key = document.getElementById('keyInput').value.trim();
+    var http = document.getElementById('httpInput').value.trim();
+    var wsUrl = document.getElementById('wsInput').value.trim();
+    if(!key){ showToast('⚠️ 请填写 Push Key'); return; }
+    if(!wsUrl){ showToast('⚠️ 请填写 WebSocket 地址'); return; }
+    showPage('home');
+    setTimeout(function(){ PushClient.connect(key, http, wsUrl); }, 300);
+  });
+  document.getElementById('btnTestServer').addEventListener('click', function(){
+    var key = document.getElementById('keyInput').value.trim();
+    var http = document.getElementById('httpInput').value.trim();
+    PushClient.config.key = key; PushClient.config.http = http;
+    PushClient.testServer();
+  });
+  document.getElementById('btnLogout').addEventListener('click', function(){
+    PushClient.disconnect();
+    showToast('👋 已断开并退出');
+    setTimeout(function(){ showPage('login'); }, 500);
+  });
+  document.getElementById('btnLoginMain').addEventListener('click', function(){
+    showToast('🔐 登录成功（demo）');
+    setTimeout(function(){ showPage('key-input'); }, 600);
+  });
+  document.getElementById('btnLoginFromConfig').addEventListener('click', function(){
+    showToast('🔐 登录成功（demo）');
+    setTimeout(function(){ showPage('key-input'); }, 600);
+  });
+  document.getElementById('btnUseKey').addEventListener('click', function(){
+    showPage('key-input');
+  });
+
 })();
 </script>
 </body>
