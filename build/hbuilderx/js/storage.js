@@ -1,4 +1,4 @@
-﻿const BOOT_KEY = 'push_boot_config'
+const BOOT_KEY = 'push_boot_config'
 
 export function ensureBootConfig() {
     if (!uni.getStorageSync(BOOT_KEY)) {
@@ -73,4 +73,19 @@ export function markRead(id) {
 export function deleteMessage(id) {
     var list = getMessages().filter(function(m){ return m.id !== id })
     setMessages(list)
+}
+
+export function getMessagesSize() {
+    try {
+        var raw = uni.getStorageSync(STORAGE_KEY)
+        if (!raw) return 0
+        if (typeof raw === 'string') return raw.length
+        return JSON.stringify(raw).length
+    } catch(e) { return 0 }
+}
+
+export function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B'
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+    return (bytes / 1024 / 1024).toFixed(2) + ' MB'
 }

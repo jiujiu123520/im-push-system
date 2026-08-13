@@ -105,7 +105,7 @@
         <view class="glass-card" style="padding:16rpx 30rpx;">
             <view class="row-between" style="padding:20rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
                 <view>💾 本地消息</view>
-                <view class="text-secondary" style="font-size:24rpx;">{{ messagesCount }} 条</view>
+                <view class="text-secondary" style="font-size:24rpx;">{{ messagesCount }} 条 · {{ messagesSizeStr }}</view>
             </view>
             <view class="row-between" style="padding:24rpx 0;">
                 <view>🗑 清除缓存</view>
@@ -149,7 +149,7 @@
 <script>
 
 import { checkUpdate } from '../../js/api.js'
-import { loadBootConfig, PUSH_VIBRATE, PUSH_WIFI_ONLY, PUSH_AUTO_RECONNECT, PUSH_HEARTBEAT, PUSH_RINGTONE, getMessages, clearMessages, PUSH_KEY, PUSH_USER_ID, PUSH_USER_TOKEN } from '../../js/storage.js'
+import { loadBootConfig, PUSH_VIBRATE, PUSH_WIFI_ONLY, PUSH_AUTO_RECONNECT, PUSH_HEARTBEAT, PUSH_RINGTONE, getMessages, clearMessages, getMessagesSize, formatBytes, PUSH_KEY, PUSH_USER_ID, PUSH_USER_TOKEN } from '../../js/storage.js'
 import { disconnect, applySettings } from '../../js/ws.js'
 import { getDeviceInfo, checkNotificationPerm, checkBatteryOpt, openNotificationSetting, openBatteryOpt, openBrandSetting } from '../../js/permissions.js'
 import { getTheme, setTheme as applyThemeFn, onThemeChange, offThemeChange } from '../../js/theme.js'
@@ -169,6 +169,7 @@ export default {
             autoReconnect: true,
             heartbeat: 30,
             messagesCount: 0,
+            messagesSizeStr: '0 B',
             versionName: '1.0.0',
             updateTip: '点击检查最新版本',
             buildTime: ''
@@ -187,6 +188,7 @@ export default {
         this.heartbeat = parseInt(uni.getStorageSync(PUSH_HEARTBEAT)) || 30
         this.ringtone = uni.getStorageSync(PUSH_RINGTONE) || 'default'
         this.messagesCount = getMessages().length
+        this.messagesSizeStr = formatBytes(getMessagesSize())
         this.versionName = cfg.version_name || '1.0.0'
         this.buildTime = cfg.build_time || '—'
     },
@@ -234,6 +236,7 @@ export default {
                     if (r.confirm) {
                         clearMessages()
                         self.messagesCount = 0
+                        self.messagesSizeStr = '0 B'
                         uni.showToast({ title: '已清除', icon: 'success' })
                     }
                 }
@@ -279,16 +282,18 @@ export default {
             })
         },
         logout: function() {
+            var self = this
             uni.showModal({
-                title: '退出登录',
-                content: '断开 WebSocket 连接并清除登录信息？',
+                title: '断开连接',
+                content: '断开 WebSocket 连接并清除 Key？',
                 success: function(r) {
                     if (r.confirm) {
                         disconnect()
                         uni.removeStorageSync(PUSH_KEY)
                         uni.removeStorageSync(PUSH_USER_ID)
                         uni.removeStorageSync(PUSH_USER_TOKEN)
-                        uni.navigateTo({ url: '/pages/login/index', success: function() { uni.switchTab({ url: '/pages/home/index' }) } })
+                        self.onShow()
+                        uni.showToast({ title: '已断开', icon: 'success' })
                     }
                 }
             })

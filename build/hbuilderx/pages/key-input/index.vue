@@ -32,45 +32,24 @@
                 {{ testResult.message }}
             </view>
         </view>
-
-        <view class="glass-card" style="margin-top:32rpx;margin-bottom:80rpx;">
-            <view style="font-size:28rpx;font-weight:600;margin-bottom:8rpx;">👤 账号登录</view>
-            <view style="font-size:24rpx;opacity:0.6;margin-bottom:20rpx;">邮箱/密码登录（可选，用于消息管理）</view>
-            <input class="glass-input" placeholder="邮箱" placeholder-style="color:rgba(255,255,255,0.4)" v-model="email" type="email" />
-            <input class="glass-input" placeholder="密码" placeholder-style="color:rgba(255,255,255,0.4)" v-model="password" password style="margin-top:20rpx;" />
-            <button class="btn-ghost" style="width:100%;margin-top:28rpx;" @click="doLogin" :disabled="loggingIn">
-                {{ loggingIn ? '登录中…' : '登录' }}
-            </button>
-            <view v-if="loginResult" style="margin-top:16rpx;font-size:24rpx;padding:16rpx;border-radius:12rpx;"
-                  :style="{ background: loginResult.ok ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', color: loginResult.ok ? '#22c55e' : '#ef4444' }">
-                {{ loginResult.message }}
-            </view>
-            <view v-if="isLoggedIn" style="margin-top:16rpx;font-size:22rpx;opacity:0.7;">已登录：{{ userId }}</view>
-        </view>
     </view>
 </template>
 
 <script>
-import { loadBootConfig, PUSH_KEY, PUSH_SERVER_URL, PUSH_WS_URL, PUSH_USER_ID, PUSH_USER_TOKEN } from '../../js/storage.js'
-import { login, testPush } from '../../js/api.js'
+import { loadBootConfig, PUSH_KEY, PUSH_SERVER_URL, PUSH_WS_URL } from '../../js/storage.js'
+import { testPush } from '../../js/api.js'
 import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
 import { applySafeArea } from '../../js/safe-area.js'
 
 export default {
     data() {
         return {
-            themeClass: 'dark',
+            themeClass: 'light',
             key: '',
             serverUrl: '',
             wsUrl: '',
-            email: '',
-            password: '',
             testing: false,
-            testResult: null,
-            loggingIn: false,
-            loginResult: null,
-            isLoggedIn: false,
-            userId: ''
+            testResult: null
         }
     },
     onShow: function() {
@@ -82,10 +61,6 @@ export default {
         self.key = uni.getStorageSync(PUSH_KEY) || ''
         self.serverUrl = uni.getStorageSync(PUSH_SERVER_URL) || cfg.server_url || ''
         self.wsUrl = uni.getStorageSync(PUSH_WS_URL) || cfg.ws_url || ''
-        var token = uni.getStorageSync(PUSH_USER_TOKEN)
-        var uid = uni.getStorageSync(PUSH_USER_ID)
-        self.isLoggedIn = !!(token && uid)
-        self.userId = uid || ''
     },
     onUnload: function() {
         offThemeChange()
@@ -122,37 +97,6 @@ export default {
                 self.testing = false
                 var msg = (err && err.data && err.data.message) || (err && err.message) || '连接失败，请检查地址和 Key'
                 self.testResult = { ok: false, message: '❌ ' + msg }
-            })
-        },
-        doLogin: function() {
-            var self = this
-            if (!self.serverUrl) {
-                self.loginResult = { ok: false, message: '请先填写服务器地址' }
-                return
-            }
-            if (!self.email || !self.password) {
-                self.loginResult = { ok: false, message: '请填写邮箱和密码' }
-                return
-            }
-            self.loggingIn = true
-            self.loginResult = null
-            login(self.serverUrl, self.email, self.password).then(function(res) {
-                self.loggingIn = false
-                var token = (res && res.data && res.data.token) || (res && res.token) || ''
-                var uid = (res && res.data && (res.data.user_id || res.data.id)) || (res && res.user_id) || (res && res.id) || ''
-                if (!token) {
-                    self.loginResult = { ok: false, message: '服务器未返回 token' }
-                    return
-                }
-                uni.setStorageSync(PUSH_USER_TOKEN, token)
-                if (uid) uni.setStorageSync(PUSH_USER_ID, String(uid))
-                self.isLoggedIn = true
-                self.userId = String(uid || self.email)
-                self.loginResult = { ok: true, message: '✅ 登录成功' }
-            }).catch(function(err) {
-                self.loggingIn = false
-                var msg = (err && err.data && err.data.message) || (err && err.message) || '登录失败'
-                self.loginResult = { ok: false, message: '❌ ' + msg }
             })
         }
     }
