@@ -64,12 +64,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: admin/package-lock.json
 
       - name: Install dependencies
         working-directory: admin
-        run: npm ci --prefer-offline 2>&1 | tail -5
+        run: npm ci 2>&1 | tail -5
 
       - name: Build
         working-directory: admin
@@ -85,8 +83,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: user/package-lock.json
 
       - name: Install dependencies
         working-directory: user
