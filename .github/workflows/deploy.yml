@@ -1,0 +1,131 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'tmp/**'
+      - 'build/output/**'
+      - '.github/workflows/**'
+  workflow_dispatch:
+    inputs:
+      no_build:
+        description: 'Skip admin/user npm build (only pull + restart)'
+        required: false
+        default: 'false'
+        type: boolean
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to ${{ secrets.SERVER_SSH_HOST }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Sync to production
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          GIT_REF: ${{ github.sha }}
+          SKIP_BUILD: ${{ github.event.inputs.no_build || 'false' }}
+        with:
+          host: ${{ secrets.SERVER_SSH_HOST }}
+          port: ${{ secrets.SERVER_SSH_PORT }}
+          username: ${{ secrets.SERVER_SSH_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -e
+            PROJECT=${{ secrets.SERVER_PROJECT_PATH }}
+            echo "=== 🚀 Deploy $GIT_REF ==="
+            echo "skip_build=$SKIP_BUILD"
+            echo ""
+
+            # 1. 修权限（防止之前 sudo 操作产生 root-owned 文件）
+            echo "=== 1. Fix ownership ==="
+            sudo chown -R ${{ secrets.SERVER_SSH_USER }}:${{ secrets.SERVER_SSH_USER }} "$PROJECT"
+            sudo chown www-data:www-data "$PROJECT/backend/.env" 2>/dev/null || true
+            sudo chmod 600 "$PROJECT/backend/.env" 2>/dev/null || true
+            echo "✅ ownership fixed"
+            echo ""
+
+            # 2. Pull code
+            echo "=== 2. Git pull ==="
+            cd "$PROJECT"
+            git fetch origin main --prune
+            BEFORE=$(git rev-parse HEAD)
+            git pull --ff-only origin main
+            AFTER=$(git rev-parse HEAD)
+            if [ "$BEFORE" = "$AFTER" ]; then
+              echo "ℹ️ Already up to date ($BEFORE)"
+            else
+              echo "✅ Updated: $BEFORE → $AFTER"
+              git log --oneline "$BEFORE..$AFTER" | head -5
+            fi
+            echo ""
+
+            # 3. Composer install
+            echo "=== 3. Composer install ==="
+            cd "$PROJECT/backend"
+            composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader 2>&1 | tail -5
+            echo "✅ composer done"
+            echo ""
+
+            # 4. Admin build
+            if [ "$SKIP_BUILD" != "true" ]; then
+              echo "=== 4. Admin build ==="
+              cd "$PROJECT/admin"
+              npm ci --prefer-offline 2>&1 | tail -3
+              npm run build 2>&1 | tail -5
+              echo "✅ admin built"
+
+              # 5. User build
+              echo ""
+              echo "=== 5. User build ==="
+              cd "$PROJECT/user"
+              npm ci --prefer-offline 2>&1 | tail -3
+              npm run build 2>&1 | tail -5
+              echo "✅ user built"
+            else
+              echo "=== Skipping npm builds (no_build=true) ==="
+            fi
+            echo ""
+
+            # 6. Fix dist ownership for nginx
+            echo "=== 6. Fix dist ownership ==="
+            sudo chown -R www-data:www-data "$PROJECT/admin/dist" "$PROJECT/user/dist" 2>/dev/null || true
+            echo "✅ dist ownership fixed"
+            echo ""
+
+            # 7. Restart services
+            echo "=== 7. Restart systemd services ==="
+            sudo systemctl restart push-http push-websocket
+            sleep 2
+            HTTP_STATUS=$(systemctl is-active push-http)
+            WS_STATUS=$(systemctl is-active push-websocket)
+            echo "push-http:    $HTTP_STATUS"
+            echo "push-websocket: $WS_STATUS"
+            if [ "$HTTP_STATUS" != "active" ] || [ "$WS_STATUS" != "active" ]; then
+              echo "❌ Service failed! Checking logs..."
+              sudo journalctl -u push-http -u push-websocket --no-pager -n 20 2>&1 | tail -20
+              exit 1
+            fi
+            echo "✅ All services active"
+            echo ""
+
+            # 8. Quick health check
+            echo "=== 8. Health check ==="
+            sleep 1
+            HEALTH=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9501/admin/login -X POST -H 'Content-Type: application/json' -d '{}' 2>&1)
+            echo "HTTP API (9501): $HEALTH"
+            if [ "$HEALTH" != "200" ] && [ "$HEALTH" != "401" ]; then
+              echo "⚠️  Health check returned $HEALTH (expected 200 or 401)"
+            else
+              echo "✅ API healthy"
+            fi
+
+            echo ""
+            echo "=== 🎉 Deploy complete ==="
