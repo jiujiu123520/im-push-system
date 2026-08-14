@@ -41,7 +41,18 @@ jobs:
       - name: Lint all PHP files
         working-directory: backend
         run: |
-          find src -name '*.php' -print0 | xargs -0 -n 1 php -l | grep -v "No syntax errors" | { grep . && exit 1 || echo "✅ All PHP files pass lint"; }
+          errors=0
+          while IFS= read -r -d '' file; do
+            if ! php -l "$file" > /dev/null 2>&1; then
+              php -l "$file"
+              errors=$((errors + 1))
+            fi
+          done < <(find src -name '*.php' -print0)
+          if [ $errors -gt 0 ]; then
+            echo "❌ $errors file(s) have syntax errors"
+            exit 1
+          fi
+          echo "✅ All PHP files pass lint"
 
   admin-build:
     name: Admin Build (Vue 3)
