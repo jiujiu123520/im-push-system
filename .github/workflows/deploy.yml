@@ -7,7 +7,6 @@ on:
       - 'docs/**'
       - 'tmp/**'
       - 'build/output/**'
-      - '.github/workflows/**'
   workflow_dispatch:
     inputs:
       no_build:
