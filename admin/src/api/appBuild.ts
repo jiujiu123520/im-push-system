@@ -122,19 +122,6 @@ export function downloadApkApi(buildId: string) {
   })
 }
 
-// HBuilderX 模板信息
-export interface HBuilderXTemplate {
-  id: string
-  name: string
-  description: string
-  available: boolean
-}
-
-// 获取 HBuilderX 模板列表
-export function getHBuilderXTemplatesApi() {
-  return get<{ templates: HBuilderXTemplate[] }>('/admin/app-build/hbuilderx/templates')
-}
-
 // 生成 HBuilderX 项目包
 export function generateHBuilderXProjectApi(data: {
   app_name: string
