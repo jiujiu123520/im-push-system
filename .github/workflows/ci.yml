@@ -34,9 +34,9 @@ jobs:
         env:
           COMPOSER_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Composer install (no dev, no script)
+      - name: Composer install (ignore swoole ext — CI runner has no Swoole)
         working-directory: backend
-        run: composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts 2>&1 | tail -20
+        run: composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts --ignore-platform-req=ext-swoole 2>&1 | tail -20
 
       - name: Lint all PHP files
         working-directory: backend
@@ -52,7 +52,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: admin/package-lock.json
 
@@ -73,7 +73,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: user/package-lock.json
 
