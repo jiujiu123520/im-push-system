@@ -1,7 +1,6 @@
 # .github/workflows/build-apk.yml
 name: Build Android APK
 
-# 自定义 run 名称,包含 build_id 便于在 GitHub Actions 列表中识别
 run-name: "Build ${{ inputs.build_id }} - ${{ inputs.app_name }}"
 
 on:
@@ -51,7 +50,6 @@ on:
 env:
   JAVA_VERSION: '17'
   ANDROID_SDK_VERSION: '34'
-  GRADLE_VERSION: '8.7'
 
 jobs:
   build:
@@ -78,33 +76,34 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: ${{ env.GRADLE_VERSION }}
+          gradle-version: '8.7'
 
-      - name: Make build scripts executable
-        run: chmod +x build/build_apk.sh build/inject_config.sh
+      - name: Make scripts executable
+        run: |
+          chmod +x gradlew build/build_apk.sh build/inject_config.sh
 
-      - name: Decode keystore
+      - name: Configure signing (keystore or debug fallback)
         env:
           KEYSTORE_BASE64: ${{ secrets.APK_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.APK_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "未配置 keystore Secret,将使用 debug 签名"
-            exit 0
-          fi
           mkdir -p build/keystore
-          echo "$KEYSTORE_BASE64" | base64 -d > build/keystore/release.keystore
-          # 注意: heredoc 必须顶格,不能有前导空格,否则 properties 文件会包含空格导致变量名错误
-          cat > build/keystore/keystore.properties <<EOF
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "🔐 使用 Release Keystore 签名"
+            echo "$KEYSTORE_BASE64" | base64 -d > build/keystore/release.keystore
+            cat > build/keystore/keystore.properties <<EOF
 STORE_FILE=$GITHUB_WORKSPACE/build/keystore/release.keystore
 KEY_ALIAS=$KEY_ALIAS
 STORE_PASSWORD=$KEYSTORE_PASSWORD
 KEY_PASSWORD=$KEY_PASSWORD
 EOF
-          chmod 600 build/keystore/keystore.properties build/keystore/release.keystore
-          echo "Keystore 已解码"
+            chmod 600 build/keystore/keystore.properties build/keystore/release.keystore
+          else
+            echo "📝 未配置 Release Keystore,将使用 debug 签名构建 APK"
+            rm -f build/keystore/keystore.properties build/keystore/release.keystore
+          fi
 
       - name: Decode icon (if provided)
         if: ${{ github.event.inputs.icon_base64 != '' }}
@@ -151,6 +150,7 @@ EOF
             echo "status=$STATUS" >> $GITHUB_OUTPUT
             echo "message=$MESSAGE" >> $GITHUB_OUTPUT
             echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+            echo "result.json: STATUS=$STATUS APK=$APK_PATH"
           else
             echo "status=failed" >> $GITHUB_OUTPUT
             echo "message=构建未产出 result.json" >> $GITHUB_OUTPUT
@@ -190,7 +190,6 @@ EOF
           username: ${{ secrets.SERVER_SSH_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            # 状态默认值: 当 result step 未执行(如 workflow 被 cancel)时使用 failed
             STATUS="${{ steps.result.outputs.status }}"
             MESSAGE="${{ steps.result.outputs.message }}"
             APK_PATH="${{ secrets.SERVER_PROJECT_PATH }}/build/output/${{ github.event.inputs.build_id }}/app-release.apk"
