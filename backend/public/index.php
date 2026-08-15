@@ -66,6 +66,30 @@ if ($runWs) {
             return ['status' => 'ok', 'time' => date('Y-m-d H:i:s')];
         });
 
+        // 版本信息（公开，APP "关于"页面调用）
+        $router->get('/api/version', function (array $ctx) {
+            $commit = 'unknown';
+            $commitTime = null;
+            $gitDir = dirname(__DIR__, 2) . '/.git';
+            if (is_dir($gitDir)) {
+                @exec('cd ' . escapeshellarg(dirname($gitDir)) . ' && git log -1 --format="%H|%h|%s|%ci" 2>/dev/null', $out, $code);
+                if ($code === 0 && !empty($out[0])) {
+                    $parts = explode('|', $out[0], 4);
+                    $commit = $parts[1] ?? substr($parts[0], 0, 7);
+                    $commitTime = $parts[3] ?? null;
+                }
+            }
+            return [
+                'name'       => 'IM Push Backend',
+                'version'    => '1.0.0',
+                'commit'     => $commit,
+                'commit_msg' => $parts[2] ?? null,
+                'commit_time'=> $commitTime,
+                'php_version'=> PHP_VERSION,
+                'server_time'=> date('Y-m-d H:i:s'),
+            ];
+        });
+
         $router->get('/', function (array $ctx) {
             return [
                 'name'    => 'IM Push Backend',
