@@ -599,7 +599,7 @@ class WebSocketServer
                 // 客户端响应服务端心跳 ping，重置未响应计数
                 $this->heartbeatManager->onPong($fd);
                 // 记录客户端 pong 日志（含设备状态，便于排查）
-                $clientTimestamp = $data['timestamp'] ?? 0;
+                $clientTimestamp = $data['timestamp'] ?? $data['ts'] ?? 0;
                 $deviceState = $data['device_state'] ?? null;
                 if ($deviceState && is_array($deviceState)) {
                     $this->logToFile(sprintf(
@@ -619,15 +619,25 @@ class WebSocketServer
                 break;
 
             case 'ping':
-                // 客户端主动心跳，响应 pong（携带服务器时间、毫秒时间戳、客户端时间回显、在线连接数）
-                $clientTimestamp = $data['timestamp'] ?? 0;
+                // 客户端主动心跳，响应 pong（精确回显客户端时间戳用于 latency 计算）
+                $clientTimestamp = $data['timestamp'] ?? $data['ts'] ?? 0;
                 $onlineCount = count($this->connectionManager->getAllOnlineFds());
-                $server->push($fd, $this->pack(0, 'pong', [
-                    'server_time' => time(),
-                    'server_time_ms' => (int)(microtime(true) * 1000),
-                    'client_timestamp' => $clientTimestamp,
-                    'online_count' => $onlineCount,
-                ], 'pong'));
+                $serverTimeMs = (int)(microtime(true) * 1000);
+                $payload = [
+                    'code'    => 0,
+                    'message' => 'pong',
+                    'type'    => 'pong',
+                    'success' => true,
+                    'time'    => time(),
+                    'ts'      => $clientTimestamp,  // 顶层回显，客户端 env.ts 直接读取算精确 RTT
+                    'data'    => [
+                        'server_time'      => time(),
+                        'server_time_ms'   => $serverTimeMs,
+                        'client_timestamp' => $clientTimestamp,
+                        'online_count'     => $onlineCount,
+                    ],
+                ];
+                $server->push($fd, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
                 // 心跳活跃，更新 Swoole Table 的 last_active（供僵尸连接巡检使用）
                 $this->connectionManager->updateLastActive($fd);
                 // 更新设备最后活跃时间
