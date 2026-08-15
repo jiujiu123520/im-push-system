@@ -37,8 +37,9 @@ class KeepAliveWorker(
             Log.i(TAG, "current connection state = $state")
             when (state) {
                 ConnectionState.DISCONNECTED,
-                ConnectionState.RECONNECTING -> {
-                    Log.i(TAG, "connection not healthy, trigger reconnect")
+                ConnectionState.RECONNECTING,
+                ConnectionState.ERROR -> {
+                    Log.i(TAG, "connection not healthy (state=$state), trigger reconnect")
                     repo.reconnect()
                 }
                 else -> { /* CONNECTING / CONNECTED 无需处理 */ }

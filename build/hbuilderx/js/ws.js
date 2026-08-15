@@ -47,7 +47,6 @@ function registerListeners() {
         console.log('[Ws] onSocketOpen')
         const auth = { type: 'auth', key: currentKey, device_id: _deviceId(), heartbeat_interval: heartbeatInterval }
         try { uni.sendSocketMessage({ data: JSON.stringify(auth) }) } catch(e) {}
-        _startHeartbeat()
     })
 
     uni.onSocketMessage((res) => { _handleMessage(res.data) })
@@ -167,6 +166,7 @@ function _handleMessage(text) {
             reconnectAttempts = 0
             state = 'connected'
             events.emit('state', state)
+            _startHeartbeat()
         } else {
             const failMsg = env.message || env.msg || '鉴权失败'
             console.warn('[Ws] ❌ auth failed:', failMsg)
@@ -309,11 +309,13 @@ export function disconnect() {
 export function reconnect() {
     shouldReconnect = true
     autoReconnect = true
-    if (reconnectTimer) clearTimeout(reconnectTimer)
-    if (state === 'disconnected') {
-        reconnectAttempts = 0
-        _scheduleReconnect()
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+    if (state === 'connected' || state === 'connecting' || state === 'reconnecting') {
+        _closeSocket()
+        state = 'disconnected'
     }
+    reconnectAttempts = 0
+    _scheduleReconnect()
 }
 
 export function applySettings() {

@@ -44,7 +44,7 @@ import { applySafeArea } from '../../js/safe-area.js'
 export default {
     data() {
         return {
-            themeClass: 'light',
+            themeClass: 'dark',
             key: '',
             serverUrl: '',
             wsUrl: '',
@@ -90,12 +90,13 @@ export default {
             }
             self.testing = true
             self.testResult = null
-            testPush(self.serverUrl, self.key).then(function(res) {
+            var deviceId = uni.getStorageSync('push_device_id') || ''
+            testPush(self.serverUrl, self.key, deviceId).then(function(res) {
                 self.testing = false
                 self.testResult = { ok: true, message: '✅ 连接成功！服务器响应正常。' }
             }).catch(function(err) {
                 self.testing = false
-                var msg = (err && err.data && err.data.message) || (err && err.message) || '连接失败，请检查地址和 Key'
+                var msg = (err && err.message) || (typeof err === 'string' ? err : '连接失败，请检查地址和 Key')
                 self.testResult = { ok: false, message: '❌ ' + msg }
             })
         }

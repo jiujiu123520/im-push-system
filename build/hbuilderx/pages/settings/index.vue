@@ -1,4 +1,4 @@
-﻿<template>
+<template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
             <view class="row" >
@@ -158,8 +158,8 @@ import { applySafeArea } from '../../js/safe-area.js'
 export default {
     data() {
         return {
-            themeClass: 'light',
-            theme: 'light',
+            themeClass: 'dark',
+            theme: 'dark',
             ringtone: 'default',
             deviceInfo: { brand: '', model: '', os: '' },
             notifyOk: true,

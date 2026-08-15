@@ -166,7 +166,7 @@ export default {
             var deviceId = uni.getStorageSync('push_device_id') || ''
             var self = this
             apiTestPush(base, this.keyValue, deviceId).then(function(r) {
-                uni.showToast({ title: (r && r.data && r.data.message) || '测试推送已发送', icon: 'success' })
+                uni.showToast({ title: (r && r.message) || '测试推送已发送', icon: 'success' })
             }).catch(function() {
                 uni.showToast({ title: '测试推送已发送（无响应）', icon: 'none' })
                 self._onMessage({ title: '测试推送', content: '这是一条测试推送消息', priority: 'default', timestamp: Date.now() })

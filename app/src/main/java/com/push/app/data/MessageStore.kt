@@ -42,6 +42,7 @@ enum class ConnectionState {
     CONNECTING,     // 连接中
     CONNECTED,      // 已连接并鉴权成功
     RECONNECTING,   // 重连中（自动重试）
+    ERROR,          // 熔断：重连次数过多，等待用户手动干预
 }
 
 // ========== 本地消息存储 ==========

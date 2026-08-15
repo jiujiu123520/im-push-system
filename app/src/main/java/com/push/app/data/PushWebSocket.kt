@@ -92,6 +92,8 @@ class PushWebSocket(
         private const val RECONNECT_MAX_MS = 60_000L
         // 连续未收到 pong 的容忍次数，达到即判定连接已死
         private const val MAX_MISSED_PONG = 3
+        // 最大自动重连次数，超过后熔断等待手动重连
+        private const val MAX_RECONNECT_ATTEMPTS = 10
     }
 
     private val json = Json {
@@ -328,13 +330,19 @@ class PushWebSocket(
             _state.value = ConnectionState.DISCONNECTED
             return
         }
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            Log.w(TAG, "too many reconnect attempts ($reconnectAttempts), giving up")
+            shouldReconnect = false
+            _state.value = ConnectionState.ERROR
+            return
+        }
         scheduleReconnect()
     }
 
     /** 安排一次重连（指数退避 + 抖动） */
     private fun scheduleReconnect() {
         reconnectJob?.cancel()
-        reconnectAttempts = (reconnectAttempts + 1).coerceAtMost(20)
+        reconnectAttempts = (reconnectAttempts + 1).coerceAtMost(MAX_RECONNECT_ATTEMPTS)
         // 限制 shift 位数防止溢出：最多移位 5 位（2^5=32倍），超出后维持最大退避
         val shiftBits = (reconnectAttempts - 1).coerceAtMost(5)
         val delayMs = (RECONNECT_BASE_MS * (1L shl shiftBits))
@@ -346,7 +354,7 @@ class PushWebSocket(
         _state.value = ConnectionState.RECONNECTING
         reconnectJob = scope.launch {
             delay(actualDelay)
-            if (shouldReconnect) openConnection()
+            if (shouldReconnect && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) openConnection()
         }
     }
 

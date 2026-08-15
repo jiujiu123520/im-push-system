@@ -51,6 +51,7 @@ class PushService : Service() {
                     ConnectionState.CONNECTING -> "连接中..."
                     ConnectionState.RECONNECTING -> "重连中..."
                     ConnectionState.DISCONNECTED -> "已断开"
+                    ConnectionState.ERROR -> "连接错误，请手动重连"
                 }
                 val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 manager.notify(NOTIFICATION_ID, buildNotification(text))
