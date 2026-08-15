@@ -1,4 +1,4 @@
-﻿<template>
+<template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
             <view class="row" >
@@ -100,10 +100,11 @@ export default {
         applySafeArea()
         var self = this
         self.themeClass = getTheme()
-        onThemeChange(function(t) { self.themeClass = t })
+        self._themeListener = function(t) { self.themeClass = t }
+        onThemeChange(self._themeListener)
     },
     onUnload: function() {
-        offThemeChange()
+        if (this._themeListener) { offThemeChange(this._themeListener); this._themeListener = null }
     },
     methods: {
         goBack: function() { uni.navigateBack({ delta: 1 }) },

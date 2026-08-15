@@ -97,7 +97,8 @@ export default {
         applySafeArea()
         var self = this
         self.themeClass = getTheme()
-        onThemeChange(function(t) { self.themeClass = t })
+        self._themeListener = function(t) { self.themeClass = t }
+        onThemeChange(self._themeListener)
         var cfg = loadBootConfig()
         self.userId = uni.getStorageSync(PUSH_USER_ID) || ''
         self.key = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''
@@ -111,7 +112,7 @@ export default {
     },
     onUnload: function() {
         off('state', this._updateState)
-        offThemeChange()
+        if (this._themeListener) { offThemeChange(this._themeListener); this._themeListener = null }
     },
     methods: {
         _updateState: function() {

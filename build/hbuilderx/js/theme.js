@@ -61,6 +61,6 @@ export function applyTheme() {
             document.documentElement.setAttribute('data-theme', t)
             document.body && document.body.setAttribute('data-theme', t)
         }
-        uni.$emit('themechange', t)
+        try { uni.$emit('themechange', t) } catch(e) {}
     } catch(e) {}
 }

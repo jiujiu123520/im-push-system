@@ -4,7 +4,9 @@
    ============================================================ */
 
 /* -------- 默认：浅色玻璃（B 风格） -------- */
-:root, page, page[data-theme="light"] {
+:root, page,
+page[data-theme="light"],
+.theme-light {
     --bg-gradient-1: #f0f2fa;
     --bg-gradient-2: #e4e8f5;
     --bg-gradient-3: #dce0ee;
@@ -47,7 +49,8 @@
 }
 
 /* -------- 深色玻璃（A 风格） -------- */
-page[data-theme="dark"] {
+page[data-theme="dark"],
+.theme-dark {
     --bg-gradient-1: #0a0a1a;
     --bg-gradient-2: #1a1535;
     --bg-gradient-3: #2a1f55;
@@ -90,7 +93,8 @@ page[data-theme="dark"] {
 }
 
 /* -------- 渐变卡片扁平（C 风格） -------- */
-page[data-theme="flat"] {
+page[data-theme="flat"],
+.theme-flat {
     --bg-gradient-1: #0f0c29;
     --bg-gradient-2: #302b63;
     --bg-gradient-3: #24243e;
@@ -134,11 +138,15 @@ page[data-theme="flat"] {
 
 /* flat 风格：去掉模糊光斑 */
 page[data-theme="flat"] .glass-bg::before,
-page[data-theme="flat"] .glass-bg::after { display: none; }
+page[data-theme="flat"] .glass-bg::after,
+.theme-flat.glass-bg::before,
+.theme-flat.glass-bg::after { display: none; }
 
 /* flat 风格：卡片不使用 backdrop-blur，改为硬阴影 */
 page[data-theme="flat"] .glass-card,
-page[data-theme="flat"] .glass-card-highlight {
+page[data-theme="flat"] .glass-card-highlight,
+.theme-flat .glass-card,
+.theme-flat .glass-card-highlight {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);

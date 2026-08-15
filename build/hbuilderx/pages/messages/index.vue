@@ -86,7 +86,8 @@ export default {
         applySafeArea()
         var self = this
         self.themeClass = getTheme()
-        onThemeChange(function(t) { self.themeClass = t })
+        self._themeListener = function(t) { self.themeClass = t }
+        onThemeChange(self._themeListener)
         self._refresh()
         on('message', self._onWsMsg)
     },
@@ -95,7 +96,7 @@ export default {
     },
     onUnload: function() {
         off('message', this._onWsMsg)
-        offThemeChange()
+        if (this._themeListener) { offThemeChange(this._themeListener); this._themeListener = null }
     },
     methods: {
         _refresh: function() {

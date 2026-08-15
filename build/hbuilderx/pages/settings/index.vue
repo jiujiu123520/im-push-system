@@ -177,7 +177,10 @@ export default {
     },
     onShow: function() {
         applySafeArea()
-            var self = this; self.themeClass = getTheme(); self.theme = self.themeClass; onThemeChange(function(t){ self.themeClass = t; self.theme = t })
+        var self = this
+        self.themeClass = getTheme(); self.theme = self.themeClass
+        self._themeListener = function(t) { self.themeClass = t; self.theme = t }
+        onThemeChange(self._themeListener)
         var cfg = loadBootConfig()
         this.deviceInfo = getDeviceInfo()
         this.notifyOk = checkNotificationPerm()
@@ -297,7 +300,9 @@ export default {
             })
         }
     },
-    onUnload: function() { offThemeChange() }
+    onUnload: function() {
+        if (this._themeListener) { offThemeChange(this._themeListener); this._themeListener = null }
+    }
 }
 
 </script>

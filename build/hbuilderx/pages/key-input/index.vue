@@ -56,14 +56,15 @@ export default {
         applySafeArea()
         var self = this
         self.themeClass = getTheme()
-        onThemeChange(function(t) { self.themeClass = t })
+        self._themeListener = function(t) { self.themeClass = t }
+        onThemeChange(self._themeListener)
         var cfg = loadBootConfig()
         self.key = uni.getStorageSync(PUSH_KEY) || ''
         self.serverUrl = uni.getStorageSync(PUSH_SERVER_URL) || cfg.server_url || ''
         self.wsUrl = uni.getStorageSync(PUSH_WS_URL) || cfg.ws_url || ''
     },
     onUnload: function() {
-        offThemeChange()
+        if (this._themeListener) { offThemeChange(this._themeListener); this._themeListener = null }
     },
     methods: {
         goBack: function() {
