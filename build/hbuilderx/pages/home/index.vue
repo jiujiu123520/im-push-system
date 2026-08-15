@@ -53,7 +53,7 @@ import { loadBootConfig, PUSH_KEY, PUSH_WS_URL, PUSH_SERVER_URL, getMessages } f
 import { connect, reconnect, isConnected, getState, getLatency, on, off } from '../../js/ws.js'
 import { notify } from '../../js/notify.js'
 import { testPush as apiTestPush } from '../../js/api.js'
-import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
+import { getTheme, applyTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
 import { applySafeArea } from '../../js/safe-area.js'
 
 export default {
@@ -80,6 +80,7 @@ export default {
         self.themeClass = getTheme()
         self._themeListener = function(t) { self.themeClass = t }
         onThemeChange(self._themeListener)
+        applyTheme()
         var cfg = loadBootConfig()
         self.appName = cfg.app_name || 'PushApp'
         self.keyValue = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''

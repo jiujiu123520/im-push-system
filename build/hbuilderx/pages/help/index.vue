@@ -26,7 +26,7 @@
 </template>
 
 <script>
-import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
+import { getTheme, applyTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
 import { applySafeArea } from '../../js/safe-area.js'
 
 export default {
@@ -102,6 +102,7 @@ export default {
         self.themeClass = getTheme()
         self._themeListener = function(t) { self.themeClass = t }
         onThemeChange(self._themeListener)
+        applyTheme()
     },
     onUnload: function() {
         if (this._themeListener) { offThemeChange(this._themeListener); this._themeListener = null }

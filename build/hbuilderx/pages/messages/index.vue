@@ -56,7 +56,7 @@
 <script>
 import { getMessages, markRead as markReadLocal, markAllRead as markAllReadLocal, deleteMessage as deleteMessageLocal, clearMessages as clearMessagesLocal } from '../../js/storage.js'
 import { on, off } from '../../js/ws.js'
-import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
+import { getTheme, applyTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
 import { applySafeArea } from '../../js/safe-area.js'
 
 export default {
@@ -88,6 +88,7 @@ export default {
         self.themeClass = getTheme()
         self._themeListener = function(t) { self.themeClass = t }
         onThemeChange(self._themeListener)
+        applyTheme()
         self._refresh()
         on('message', self._onWsMsg)
     },

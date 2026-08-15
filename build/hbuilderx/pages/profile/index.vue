@@ -72,7 +72,7 @@
 <script>
 import { loadBootConfig, PUSH_KEY, PUSH_SERVER_URL, PUSH_WS_URL, PUSH_USER_ID, clearMessages } from '../../js/storage.js'
 import { on, off, getState } from '../../js/ws.js'
-import { getTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
+import { getTheme, applyTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
 import { applySafeArea } from '../../js/safe-area.js'
 
 export default {
@@ -99,6 +99,7 @@ export default {
         self.themeClass = getTheme()
         self._themeListener = function(t) { self.themeClass = t }
         onThemeChange(self._themeListener)
+        applyTheme()
         var cfg = loadBootConfig()
         self.userId = uni.getStorageSync(PUSH_USER_ID) || ''
         self.key = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''

@@ -1,4 +1,5 @@
 import { addMessage, PUSH_HEARTBEAT, PUSH_AUTO_RECONNECT, PUSH_WIFI_ONLY } from './storage.js'
+import { APP_CONFIG } from '../config.js'
 
 const events = {
     _handlers: {},
@@ -45,7 +46,7 @@ function registerListeners() {
 
     uni.onSocketOpen(() => {
         console.log('[Ws] onSocketOpen')
-        const auth = { type: 'auth', key: currentKey, device_id: _deviceId(), heartbeat_interval: heartbeatInterval }
+        const auth = _buildAuth()
         try { uni.sendSocketMessage({ data: JSON.stringify(auth) }) } catch(e) {}
     })
 
@@ -336,7 +337,7 @@ export function applySettings() {
     _loadSettings()
     if (state === 'connected' || state === 'connecting') {
         _startHeartbeat()
-        const auth = { type: 'auth', key: currentKey, device_id: _deviceId(), heartbeat_interval: heartbeatInterval }
+        const auth = _buildAuth()
         try { uni.sendSocketMessage({ data: JSON.stringify(auth) }) } catch(e) {}
     }
 }
@@ -364,6 +365,42 @@ function _deviceId() {
         uni.setStorageSync('push_device_id', id)
     }
     return id
+}
+
+function _deviceInfo() {
+    var info = {
+        platform: '',
+        model: '',
+        os_version: '',
+        device_name: '',
+        app_version: APP_CONFIG.version_name || ''
+    }
+    try {
+        var sys = uni.getSystemInfoSync()
+        info.platform = (sys.platform || '').toLowerCase() || ''
+        if (info.platform === 'devtools') info.platform = 'web'
+        info.model = sys.model || ''
+        info.os_version = sys.system || ''
+        var brand = sys.brand || sys.brandModel || ''
+        var dn = sys.deviceName || sys.device || ''
+        info.device_name = (brand && brand !== 'unknown' ? brand + ' ' : '') + (dn || info.model || '')
+    } catch(e) {}
+    return info
+}
+
+function _buildAuth() {
+    var dev = _deviceInfo()
+    return {
+        type: 'auth',
+        key: currentKey,
+        device_id: _deviceId(),
+        device_name: dev.device_name,
+        model: dev.model,
+        os_version: dev.os_version,
+        platform: dev.platform,
+        app_version: dev.app_version,
+        heartbeat_interval: heartbeatInterval
+    }
 }
 
 function _networkLabel(type) {

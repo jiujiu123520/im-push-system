@@ -152,7 +152,7 @@ import { checkUpdate } from '../../js/api.js'
 import { loadBootConfig, PUSH_VIBRATE, PUSH_WIFI_ONLY, PUSH_AUTO_RECONNECT, PUSH_HEARTBEAT, PUSH_RINGTONE, getMessages, clearMessages, getMessagesSize, formatBytes, PUSH_KEY } from '../../js/storage.js'
 import { disconnect, applySettings } from '../../js/ws.js'
 import { getDeviceInfo, checkNotificationPerm, checkBatteryOpt, openNotificationSetting, openBatteryOpt, openBrandSetting } from '../../js/permissions.js'
-import { getTheme, setTheme as applyThemeFn, onThemeChange, offThemeChange } from '../../js/theme.js'
+import { getTheme, applyTheme, setTheme as applyThemeFn, onThemeChange, offThemeChange } from '../../js/theme.js'
 import { applySafeArea } from '../../js/safe-area.js'
 
 export default {
@@ -181,6 +181,7 @@ export default {
         self.themeClass = getTheme(); self.theme = self.themeClass
         self._themeListener = function(t) { self.themeClass = t; self.theme = t }
         onThemeChange(self._themeListener)
+        applyTheme()
         var cfg = loadBootConfig()
         this.deviceInfo = getDeviceInfo()
         this.notifyOk = checkNotificationPerm()
