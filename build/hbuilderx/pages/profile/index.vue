@@ -1,4 +1,4 @@
-﻿<template>
+<template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
             <view class="top-bar-title" >个人中心</view>
@@ -19,7 +19,7 @@
         </view>
 
         <view class="glass-card">
-            <view class="row-between" style="padding:16rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" style="padding:16rpx 0;border-bottom:1px solid var(--divider);">
                 <view>
                     <view style="font-size:26rpx;font-weight:600;">当前 Key</view>
                     <view class="text-muted" style="font-size:22rpx;">用于 WebSocket 认证</view>
@@ -29,7 +29,7 @@
                     <text class="text-muted" style="font-size:24rpx;" @click="copyKey">📋 复制</text>
                 </view>
             </view>
-            <view class="row-between" style="padding:16rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" style="padding:16rpx 0;border-bottom:1px solid var(--divider);">
                 <view>
                     <view style="font-size:26rpx;font-weight:600;">HTTP 服务器</view>
                 </view>
@@ -45,19 +45,19 @@
 
         <view class="section-title">快捷入口</view>
         <view class="glass-card" style="padding:0;">
-            <view class="row-between" @click="goMessages" style="padding:30rpx;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" @click="goMessages" style="padding:30rpx;border-bottom:1px solid var(--divider);">
                 <view>📄 消息列表</view>
                 <view class="text-muted">›</view>
             </view>
-            <view class="row-between" @click="goSettings" style="padding:30rpx;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" @click="goSettings" style="padding:30rpx;border-bottom:1px solid var(--divider);">
                 <view>⚙ 设置</view>
                 <view class="text-muted">›</view>
             </view>
-            <view class="row-between" @click="goKeyConfig" style="padding:30rpx;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" @click="goKeyConfig" style="padding:30rpx;border-bottom:1px solid var(--divider);">
                 <view>🔑 服务器配置</view>
                 <view class="text-muted">›</view>
             </view>
-            <view class="row-between" @click="goHelp" style="padding:30rpx;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" @click="goHelp" style="padding:30rpx;border-bottom:1px solid var(--divider);">
                 <view>❓ 使用帮助</view>
                 <view class="text-muted">›</view>
             </view>

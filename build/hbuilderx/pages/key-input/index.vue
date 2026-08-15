@@ -10,13 +10,13 @@
 
         <view class="glass-card" style="margin-top:80rpx;">
             <view style="font-size:28rpx;font-weight:600;margin-bottom:20rpx;">🔑 Push Key</view>
-            <input class="glass-input" placeholder="粘贴你的 Push Key" placeholder-style="color:rgba(255,255,255,0.4)" v-model="key" />
+            <input class="glass-input" placeholder="粘贴你的 Push Key" placeholder-style="" v-model="key" />
 
             <view style="font-size:28rpx;font-weight:600;margin-bottom:20rpx;">🌐 HTTP 服务器地址</view>
-            <input class="glass-input" placeholder="https://push.example.com" placeholder-style="color:rgba(255,255,255,0.4)" v-model="serverUrl" />
+            <input class="glass-input" placeholder="https://push.example.com" placeholder-style="" v-model="serverUrl" />
 
             <view style="font-size:28rpx;font-weight:600;margin-bottom:20rpx;">🔗 WebSocket 地址</view>
-            <input class="glass-input" placeholder="wss://push.example.com/ws" placeholder-style="color:rgba(255,255,255,0.4)" v-model="wsUrl" />
+            <input class="glass-input" placeholder="wss://push.example.com/ws" placeholder-style="" v-model="wsUrl" />
 
             <button class="btn-primary" style="width:100%;margin-top:48rpx;" @click="confirm">确认并连接</button>
         </view>

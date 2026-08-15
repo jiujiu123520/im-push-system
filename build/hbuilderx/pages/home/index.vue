@@ -33,7 +33,7 @@
         </view>
         <view class="glass-card" v-for="(m, i) in recentMessages" :key="m.id" style="padding:24rpx 30rpx;margin-top:8rpx;" @click="openMessages">
             <view class="row-between">
-                <view style="font-size:28rpx;font-weight:600;color:rgba(255,255,255,0.9);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ m.title || '推送消息' }}</view>
+                <view style="font-size:28rpx;font-weight:600;color:var(--text-primary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ m.title || '推送消息' }}</view>
                 <view :class="['status-chip', m.priority === 'high' ? 'status-bad' : 'status-ok']" v-if="m.priority">{{ m.priority === 'high' ? '高优先' : '普通' }}</view>
             </view>
             <view class="text-secondary" style="font-size:26rpx;margin-top:6rpx;">{{ truncate(m.content, 60) }}</view>

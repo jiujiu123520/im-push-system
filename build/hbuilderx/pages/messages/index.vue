@@ -9,7 +9,7 @@
 
         <view class="glass-card" style="margin-top:0;margin:20rpx 24rpx;">
             <view class="glass-input" style="padding:16rpx 24rpx;font-size:26rpx;">
-                🔍 <input placeholder="搜索消息内容" placeholder-style="color:rgba(255,255,255,0.4)" v-model="keyword" style="background:transparent;border:none;color:white;font-size:26rpx;flex:1;outline:none;" />
+                🔍 <input placeholder="搜索消息内容" v-model="keyword" style="background:transparent;border:none;color:var(--input-text);font-size:26rpx;flex:1;outline:none;" />
             </view>
             <view class="row" style="gap:12rpx;margin-top:20rpx;">
                 <text :class="['status-chip', curFilter === 'all' ? 'status-ok' : '']" @click="curFilter='all'">全部 {{ messages.length }}</text>
@@ -33,14 +33,14 @@
         <view v-for="(m, i) in filteredMessages" :key="m.id" :class="['glass-card', m.read ? 'msg-read' : 'msg-unread']" style="padding:24rpx 30rpx;margin:12rpx 24rpx;">
             <view class="row-between">
                 <view class="row" style="gap:10rpx;align-items:center;">
-                    <view style="font-size:28rpx;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" :style="{ color: m.read ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.95)' }">{{ m.title || '推送消息' }}</view>
+                    <view style="font-size:28rpx;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" :style="{ color: m.read ? 'var(--text-muted)' : 'var(--text-primary)' }">{{ m.title || '推送消息' }}</view>
                     <view v-if="!m.read" class="dot-unread"></view>
                 </view>
                 <view :class="['status-chip', m.priority === 'high' ? 'status-bad' : (m.priority === 'system' ? 'status-warn' : 'status-ok')]" v-if="m.priority">
                     {{ priorityLabel(m.priority) }}
                 </view>
             </view>
-            <view class="text-secondary" style="font-size:26rpx;margin-top:10rpx;line-height:1.5;" :style="{ color: m.read ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.75)' }">{{ m.content }}</view>
+            <view class="text-secondary" style="font-size:26rpx;margin-top:10rpx;line-height:1.5;" :style="{ color: m.read ? 'var(--text-muted)' : 'var(--text-secondary)' }">{{ m.content }}</view>
             <view class="row-between mt-16">
                 <view class="text-muted" style="font-size:22rpx;">{{ formatTime(m.timestamp) }}</view>
                 <view class="row" style="gap:20rpx;">
@@ -174,7 +174,4 @@ export default {
 .chip-btn { padding: 10rpx 20rpx; border-radius: 30rpx; font-size: 24rpx; background: rgba(80,180,255,0.25); color: #54b4ff; }
 .chip-btn:active { opacity: 0.7; }
 .chip-btn-danger { background: rgba(255,77,79,0.2); color: #ff7875; }
-.link-btn { font-size: 24rpx; color: rgba(255,255,255,0.55); }
-.link-btn:active { color: #54b4ff; }
-.link-btn-danger { color: #ff7875; }
 </style>

@@ -9,13 +9,13 @@
 
         <view class="section-title">权限引导</view>
         <view class="glass-card" style="padding:16rpx 30rpx;">
-            <view class="row-between" style="padding:20rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" style="padding:20rpx 0;border-bottom:1px solid var(--divider);">
                 <view>
                     <view style="font-size:28rpx;font-weight:600;">📱 设备识别</view>
                     <view class="text-muted" style="font-size:22rpx;">{{ deviceInfo.brand || '未知' }} · {{ deviceInfo.model || '—' }} · Android {{ deviceInfo.os || '—' }}</view>
                 </view>
             </view>
-            <view class="row-between" style="padding:24rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" style="padding:24rpx 0;border-bottom:1px solid var(--divider);">
                 <view>
                     <view>🔔 通知权限</view>
                     <view class="text-muted" style="font-size:22rpx;">允许接收推送消息</view>
@@ -25,7 +25,7 @@
                     <text class="text-muted" style="margin-left:16rpx;font-size:26rpx;" @click="openNotify">›</text>
                 </view>
             </view>
-            <view class="row-between" style="padding:24rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" style="padding:24rpx 0;border-bottom:1px solid var(--divider);">
                 <view>
                     <view>🔋 电池优化白名单</view>
                     <view class="text-muted" style="font-size:22rpx;">防止系统杀后台进程</view>
@@ -35,7 +35,7 @@
                     <text class="text-muted" style="margin-left:16rpx;font-size:26rpx;" @click="openBattery">›</text>
                 </view>
             </view>
-            <view class="row-between" style="padding:24rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" style="padding:24rpx 0;border-bottom:1px solid var(--divider);">
                 <view>
                     <view>🛡️ 自启动</view>
                     <view class="text-muted" style="font-size:22rpx;">允许 APP 开机自启</view>
@@ -53,7 +53,7 @@
 
         <view class="section-title">通用</view>
         <view class="glass-card" style="padding:16rpx 30rpx;">
-            <view class="row-between" style="padding:20rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" style="padding:20rpx 0;border-bottom:1px solid var(--divider);">
                 <view>🎨 主题</view>
                 <view class="theme-swatch-row">
                     <view :class="['theme-swatch', theme==='light'?'active':'']" @click="setTheme('light')">
@@ -70,7 +70,7 @@
                     </view>
                 </view>
             </view>
-            <view class="row-between" style="padding:24rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" style="padding:24rpx 0;border-bottom:1px solid var(--divider);">
                 <view>📳 震动反馈</view>
                 <switch :checked="vibrateOn" color="#6366f1" @change="toggleVibrate" />
             </view>
@@ -85,11 +85,11 @@
 
         <view class="section-title">网络</view>
         <view class="glass-card" style="padding:16rpx 30rpx;">
-            <view class="row-between" style="padding:24rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" style="padding:24rpx 0;border-bottom:1px solid var(--divider);">
                 <view>📶 仅 Wi-Fi 连接</view>
                 <switch :checked="wifiOnly" color="#6366f1" @change="toggleWifiOnly" />
             </view>
-            <view class="row-between" style="padding:24rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" style="padding:24rpx 0;border-bottom:1px solid var(--divider);">
                 <view>🔄 自动重连</view>
                 <switch :checked="autoReconnect" color="#6366f1" @change="toggleReconnect" />
             </view>
@@ -103,7 +103,7 @@
 
         <view class="section-title">存储</view>
         <view class="glass-card" style="padding:16rpx 30rpx;">
-            <view class="row-between" style="padding:20rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" style="padding:20rpx 0;border-bottom:1px solid var(--divider);">
                 <view>💾 本地消息</view>
                 <view class="text-secondary" style="font-size:24rpx;">{{ messagesCount }} 条 · {{ messagesSizeStr }}</view>
             </view>
@@ -115,11 +115,11 @@
 
         <view class="section-title">关于</view>
         <view class="glass-card" style="padding:16rpx 30rpx;">
-            <view class="row-between" style="padding:20rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" style="padding:20rpx 0;border-bottom:1px solid var(--divider);">
                 <view>ℹ️ 版本信息</view>
                 <view class="text-secondary" style="font-size:24rpx;">v{{ versionName }}</view>
             </view>
-            <view class="row-between" style="padding:20rpx 0;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <view class="row-between" style="padding:20rpx 0;border-bottom:1px solid var(--divider);">
                 <view>🏗 构建时间</view>
                 <view class="text-secondary" style="font-size:22rpx;">{{ buildTime }}</view>
             </view>
@@ -130,7 +130,7 @@
                 </view>
                 <view class="text-muted" style="font-size:26rpx;">›</view>
             </view>
-            <view class="row-between" style="padding:24rpx 0;border-top:1px solid rgba(255,255,255,0.08);" @click="goHelp">
+            <view class="row-between" style="padding:24rpx 0;border-top:1px solid var(--divider);" @click="goHelp">
                 <view>
                     <view>❓ 使用帮助</view>
                     <view class="text-muted" style="font-size:22rpx;">常见问题与功能说明</view>
