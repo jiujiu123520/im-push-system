@@ -62,6 +62,19 @@ function registerListeners() {
     })
 }
 
+function _normalizeWsUrl(url) {
+    if (!url) return url
+    var trimmed = url.trim().replace(/\/+$/, '')
+    if (/\/(ws|ws\/client)$/i.test(trimmed)) return trimmed
+    // 去掉尾部 path 后，如果没有端口也没有 path，补上 /ws/client
+    if (!/:\d+$/.test(trimmed.replace(/^wss?:\/\//, ''))) {
+        // 默认端口场景（wss → 443, ws → 80）：检查是否带 path
+        var afterProto = trimmed.replace(/^wss?:\/\//, '')
+        if (afterProto.indexOf('/') === -1) return trimmed + '/ws/client'
+    }
+    return trimmed
+}
+
 export function connect(url, key) {
     if (!url || !key) {
         const reason = !url ? 'no_server' : 'no_key'
@@ -71,7 +84,8 @@ export function connect(url, key) {
         events.emit('error', { type: reason, message: !url ? '未配置服务器地址' : '未配置推送 Key' })
         return
     }
-    currentUrl = url
+    currentUrl = _normalizeWsUrl(url)
+    if (currentUrl !== url) console.log('[Ws] normalized ws url:', url, '→', currentUrl)
     currentKey = key
     shouldReconnect = true
     reconnectAttempts = 0
