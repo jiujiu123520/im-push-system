@@ -89,7 +89,7 @@ fun SettingsScreen(
 
     LaunchedEffect(Unit) {
         notificationGranted = PermissionHelper.isNotificationEnabled(context)
-        batteryIgnored = PermissionHelper.isBatteryOptimizationIgnored(context)
+        batteryIgnored = PermissionHelper.isIgnoringBatteryOptimizations(context)
     }
 
     GlassBackground {
@@ -117,13 +117,13 @@ fun SettingsScreen(
                     batteryIgnored = batteryIgnored,
                     onRefreshStatus = {
                         notificationGranted = PermissionHelper.isNotificationEnabled(context)
-                        batteryIgnored = PermissionHelper.isBatteryOptimizationIgnored(context)
+                        batteryIgnored = PermissionHelper.isIgnoringBatteryOptimizations(context)
                     },
                     onOpenNotification = { PermissionHelper.openNotificationSettings(context) },
                     onOpenAutoStart = { PermissionHelper.openAutoStartSettings(context) },
                     onOpenBattery = { PermissionHelper.openBatteryOptimizationSettings(context) },
-                    onOpenLockCleanup = { PermissionHelper.openLockScreenCleanupSettings(context) },
-                    onOpenBackgroundPopup = { PermissionHelper.openBackgroundPopupSettings(context) },
+                    onOpenLockCleanup = { PermissionHelper.openLockscreenSettings(context) },
+                    onOpenBackgroundPopup = { PermissionHelper.openOverlaySettings(context) },
                 )
 
                 GlassCard(modifier = Modifier.fillMaxWidth()) {

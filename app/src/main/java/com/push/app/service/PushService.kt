@@ -15,8 +15,15 @@ import com.push.app.MainActivity
 import com.push.app.R
 import com.push.app.data.ConnectionState
 import com.push.app.data.PushRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 class PushService : Service() {
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -37,8 +44,8 @@ class PushService : Service() {
 
         val repo = PushRepository.get(this)
 
-        repo.connectionState.observeForever { state ->
-            runCatching {
+        serviceScope.launch {
+            repo.connectionState.collect { state ->
                 val text = when (state) {
                     ConnectionState.CONNECTED -> "已连接"
                     ConnectionState.CONNECTING -> "连接中..."
@@ -106,6 +113,7 @@ class PushService : Service() {
 
     override fun onDestroy() {
         Log.i(TAG, "onDestroy")
+        serviceScope.cancel()
         super.onDestroy()
     }
 

@@ -156,9 +156,16 @@ object PermissionHelper {
         }
     }
 
-    enum class Brand { XIAOMI, OPPO, SAMSUNG, HUAWEI, VIVO, GENERIC }
+    enum class Brand(val label: String, val shortLabel: String) {
+        XIAOMI("小米 / Redmi", "小米"),
+        OPPO("OPPO / OnePlus / Realme", "OPPO"),
+        SAMSUNG("Samsung", "三星"),
+        HUAWEI("华为 / Honor", "华为"),
+        VIVO("vivo / iQOO", "vivo"),
+        GENERIC("通用 Android", "通用");
+    }
 
-    private fun detectBrand(): Brand {
+    internal fun detectBrand(): Brand {
         val brand = Build.BRAND?.lowercase().orEmpty()
         val all = "$brand ${Build.MANUFACTURER?.lowercase().orEmpty()}"
         return when {

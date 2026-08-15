@@ -1,6 +1,7 @@
 package com.push.app.network
 
 import com.push.app.data.PreferencesManager
+import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -20,13 +21,13 @@ object ApiClient {
     }
 
     fun baseUrl(): String {
-        return runCatching { PreferencesManager.getServerUrl() }.getOrDefault("")
+        return runBlocking { runCatching { PreferencesManager.getServerUrl() }.getOrDefault("") }
     }
 
     private fun authorizationInterceptor(): Interceptor {
         return Interceptor { chain ->
             val original = chain.request()
-            val token = runCatching { PreferencesManager.getUserToken() }.getOrDefault("")
+            val token = runBlocking { runCatching { PreferencesManager.getUserToken() }.getOrDefault("") }
 
             val requestBuilder: Request.Builder = original.newBuilder()
                 .header("Content-Type", "application/json")

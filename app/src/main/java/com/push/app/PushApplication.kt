@@ -3,7 +3,6 @@ package com.push.app
 import android.app.Application
 import android.content.Context
 import androidx.work.Configuration
-import androidx.work.WorkManager
 import com.push.app.data.PreferencesManager
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -50,21 +49,12 @@ class PushApplication : Application(), Configuration.Provider {
         instance = this
         globalConfig = BuildConfig.load(this)
         PreferencesManager.init(this)
-        initializeWorkManager()
     }
 
-    private fun initializeWorkManager() {
-        val config = Configuration.Builder()
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
             .setMinimumLoggingLevel(android.util.Log.INFO)
             .build()
-        WorkManager.initialize(this, config)
-    }
-
-    override fun getWorkManagerConfiguration(): Configuration {
-        return Configuration.Builder()
-            .setMinimumLoggingLevel(android.util.Log.INFO)
-            .build()
-    }
 
     companion object {
         lateinit var instance: PushApplication
