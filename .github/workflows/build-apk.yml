@@ -69,9 +69,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          api-level: ${{ env.ANDROID_SDK_VERSION }}
-          build-tools-version: '34.0.0'
-          ndk-version: ''
+          packages: 'platforms;android-34 build-tools;34.0.0 platform-tools'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -192,7 +190,7 @@ jobs:
           strip_components: 3
 
       - name: Upload build log to server via SCP
-        if: always() && hashFiles('build/logs/${{ github.event.inputs.build_id }}.log') != ''
+        if: ${{ always() && hashFiles(format('build/logs/{0}.log', github.event.inputs.build_id)) != '' }}
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_SSH_HOST }}
