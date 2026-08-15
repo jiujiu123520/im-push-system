@@ -93,12 +93,12 @@ jobs:
           if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
             echo "🔐 使用 Release Keystore 签名(来自 GitHub Secrets)"
             echo "$KEYSTORE_BASE64" | base64 -d > build/keystore/release.keystore
-            cat > build/keystore/keystore.properties <<EOF
-STORE_FILE=$GITHUB_WORKSPACE/build/keystore/release.keystore
-KEY_ALIAS=$KEY_ALIAS
-STORE_PASSWORD=$KEYSTORE_PASSWORD
-KEY_PASSWORD=$KEY_PASSWORD
-EOF
+            {
+              echo "STORE_FILE=$GITHUB_WORKSPACE/build/keystore/release.keystore"
+              echo "KEY_ALIAS=$KEY_ALIAS"
+              echo "STORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "KEY_PASSWORD=$KEY_PASSWORD"
+            } > build/keystore/keystore.properties
             chmod 600 build/keystore/keystore.properties build/keystore/release.keystore
           else
             echo "📝 未配置 Release Keystore,自动生成临时签名..."
@@ -115,12 +115,12 @@ EOF
               -validity 10000 \
               -dname "CN=PushApp, OU=CI-Auto, O=PushApp, L=CI, ST=CI, C=US" \
               2>&1 | tail -5
-            cat > build/keystore/keystore.properties <<EOF
-STORE_FILE=$GITHUB_WORKSPACE/build/keystore/release.keystore
-KEY_ALIAS=pushapp_release
-STORE_PASSWORD=$AUTO_PASSWORD
-KEY_PASSWORD=$AUTO_PASSWORD
-EOF
+            {
+              echo "STORE_FILE=$GITHUB_WORKSPACE/build/keystore/release.keystore"
+              echo "KEY_ALIAS=pushapp_release"
+              echo "STORE_PASSWORD=$AUTO_PASSWORD"
+              echo "KEY_PASSWORD=$AUTO_PASSWORD"
+            } > build/keystore/keystore.properties
             chmod 600 build/keystore/keystore.properties build/keystore/release.keystore
             echo ""
             echo "⚠️  签名已自动生成(仅用于测试,每次不同签名!)"
