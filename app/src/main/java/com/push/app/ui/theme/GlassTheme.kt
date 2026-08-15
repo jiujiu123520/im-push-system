@@ -7,11 +7,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import com.push.app.data.PreferencesManager
 import com.push.app.ui.components.GlassCard as _GlassCard
 import com.push.app.ui.components.GlassTopBar as _GlassTopBar
 
@@ -40,12 +47,46 @@ private val LightColorScheme = lightColorScheme(
     onSurface = Color.Black,
 )
 
+private val FlatGradientColorScheme = darkColorScheme(
+    primary = Primary,
+    secondary = Secondary,
+    tertiary = Accent,
+    background = Color(0xFF1a1040),
+    surface = Color(0xFF221555),
+    surfaceVariant = Color(0xFF2d1d70),
+    onPrimary = Color.White,
+    onSecondary = Color.White,
+    onBackground = Color.White,
+    onSurface = Color.White,
+)
+
+enum class ThemeMode { DARK, LIGHT, FLAT }
+
+fun parseTheme(raw: String?): ThemeMode = when (raw?.lowercase()) {
+    "light" -> ThemeMode.LIGHT
+    "flat", "gradient", "flat_gradient" -> ThemeMode.FLAT
+    else -> ThemeMode.DARK
+}
+
 @Composable
 fun PushTheme(
-    darkTheme: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    var theme by remember { mutableStateOf(ThemeMode.DARK) }
+    val themeFlow = runCatching { PreferencesManager.themeFlow }.getOrNull()
+    val currentTheme by themeFlow?.collectAsState(initial = "dark")
+        ?: remember { mutableStateOf("dark") }
+
+    LaunchedEffect(currentTheme) {
+        theme = parseTheme(currentTheme)
+    }
+
+    val colorScheme = when (theme) {
+        ThemeMode.DARK -> DarkColorScheme
+        ThemeMode.LIGHT -> LightColorScheme
+        ThemeMode.FLAT -> FlatGradientColorScheme
+    }
+
     MaterialTheme(
         colorScheme = colorScheme,
         content = content,
@@ -57,21 +98,26 @@ fun GlassBackground(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit = {},
 ) {
+    val bgColor = MaterialTheme.colorScheme.background
+    val isLight = MaterialTheme.colorScheme.onBackground == Color.Black
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(
                 brush = Brush.verticalGradient(
-                    colors = listOf(BrandDeep, BrandDeep),
+                    colors = listOf(bgColor, bgColor),
                 ),
             )
             .drawBehind {
+                if (isLight) return@drawBehind
+
                 val orbColors = listOf(
-                    Primary.copy(alpha = 0.35f),
-                    Secondary.copy(alpha = 0.3f),
-                    Accent.copy(alpha = 0.25f),
-                    BrandBlue.copy(alpha = 0.25f),
-                    BrandPurple.copy(alpha = 0.25f),
+                    Primary.copy(alpha = 0.25f),
+                    Secondary.copy(alpha = 0.20f),
+                    Accent.copy(alpha = 0.18f),
+                    BrandBlue.copy(alpha = 0.20f),
+                    BrandPurple.copy(alpha = 0.20f),
                 )
                 val positions = listOf(
                     Offset(size.width * 0.15f, size.height * 0.2f),
