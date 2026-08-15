@@ -59,7 +59,7 @@ export default {
         self._themeListener = function(t) { self.themeClass = t }
         onThemeChange(self._themeListener)
         var cfg = loadBootConfig()
-        self.key = uni.getStorageSync(PUSH_KEY) || ''
+        self.key = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''
         self.serverUrl = uni.getStorageSync(PUSH_SERVER_URL) || cfg.server_url || ''
         self.wsUrl = uni.getStorageSync(PUSH_WS_URL) || cfg.ws_url || ''
     },
