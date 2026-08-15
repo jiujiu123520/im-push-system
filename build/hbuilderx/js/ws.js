@@ -37,6 +37,7 @@ let autoReconnect = true
 let wifiOnly = false
 let shouldReconnect = false
 let listenersRegistered = false
+let lostProcessing = false
 
 function registerListeners() {
     if (listenersRegistered) return
@@ -254,18 +255,33 @@ function _stopHeartbeat() {
 }
 
 function _onSocketLost() {
+    if (lostProcessing) return
+    lostProcessing = true
     _stopHeartbeat()
-    if (state === 'disconnected') return
+    socketTask = null
+    if (state === 'disconnected' || state === 'error') {
+        lostProcessing = false
+        return
+    }
     state = 'disconnected'
     events.emit('state', state)
-    console.log('[Ws] socket lost, shouldReconnect=', shouldReconnect, 'autoReconnect=', autoReconnect)
+    console.log('[Ws] socket lost, shouldReconnect=', shouldReconnect, 'autoReconnect=', autoReconnect, 'attempt=', reconnectAttempts)
+    lostProcessing = false
     if (!shouldReconnect || !autoReconnect) return
+    if (reconnectAttempts >= 10) {
+        console.warn('[Ws] too many reconnect attempts (' + reconnectAttempts + '), giving up')
+        shouldReconnect = false
+        state = 'error'
+        events.emit('state', state)
+        events.emit('error', { type: 'max_reconnect', message: '连接失败次数过多，请检查网络或手动重连' })
+        return
+    }
     _scheduleReconnect()
 }
 
 function _scheduleReconnect() {
     if (!shouldReconnect || !autoReconnect) return
-    reconnectAttempts = Math.min(reconnectAttempts + 1, 20)
+    reconnectAttempts = Math.min(reconnectAttempts + 1, 10)
     const shift = Math.min(reconnectAttempts - 1, 5)
     let delay = RECONNECT_BASE * (1 << shift)
     delay = Math.max(RECONNECT_BASE, Math.min(RECONNECT_MAX, delay))

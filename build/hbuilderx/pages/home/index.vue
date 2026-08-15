@@ -1,4 +1,4 @@
-﻿<template>
+<template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
             <view class="row-between" >
@@ -78,7 +78,8 @@ export default {
         applySafeArea()
         var self = this
         self.themeClass = getTheme()
-        onThemeChange(function(t) { self.themeClass = t })
+        self._themeListener = function(t) { self.themeClass = t }
+        onThemeChange(self._themeListener)
         var cfg = loadBootConfig()
         self.appName = cfg.app_name || 'PushApp'
         self.keyValue = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''
@@ -120,7 +121,7 @@ export default {
         off('message', this._onMessage)
         off('error', this._onError)
         off('latency', this._onLatency)
-        offThemeChange()
+        if (this._themeListener) { offThemeChange(this._themeListener); this._themeListener = null }
     },
     methods: {
         _onState: function(s) {
@@ -162,9 +163,10 @@ export default {
             var cfg = loadBootConfig()
             var base = uni.getStorageSync(PUSH_SERVER_URL) || cfg.server_url
             if (!this.keyValue) { uni.showToast({ title: '请先配置 Key', icon: 'none' }); return }
+            var deviceId = uni.getStorageSync('push_device_id') || ''
             var self = this
-            apiTestPush(base, this.keyValue).then(function(r) {
-                uni.showToast({ title: r && r.message ? r.message : '测试推送已发送', icon: 'success' })
+            apiTestPush(base, this.keyValue, deviceId).then(function(r) {
+                uni.showToast({ title: (r && r.data && r.data.message) || '测试推送已发送', icon: 'success' })
             }).catch(function() {
                 uni.showToast({ title: '测试推送已发送（无响应）', icon: 'none' })
                 self._onMessage({ title: '测试推送', content: '这是一条测试推送消息', priority: 'default', timestamp: Date.now() })

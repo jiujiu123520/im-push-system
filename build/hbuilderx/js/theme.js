@@ -1,4 +1,4 @@
-﻿import { PUSH_THEME } from './storage.js'
+import { PUSH_THEME } from './storage.js'
 
 const _listeners = []
 let _theme = ''
@@ -10,9 +10,10 @@ const FLAT = 'flat'
 function _readFromStorage() {
     try {
         const v = uni.getStorageSync(PUSH_THEME)
-        return (v === LIGHT || v === DARK || v === FLAT) ? v : LIGHT
-    } catch(e) {
-        return LIGHT } }
+        if (v === LIGHT || v === DARK || v === FLAT) return v
+    } catch(e) {}
+    return DARK
+}
 
 export function getTheme() {
     if (!_theme) _theme = _readFromStorage()
@@ -24,7 +25,7 @@ export function isLight() { return getTheme() === LIGHT }
 export function isFlat() { return getTheme() === FLAT }
 
 export function setTheme(theme) {
-    const t = (theme === DARK || theme === LIGHT || theme === FLAT) ? theme : LIGHT
+    const t = (theme === DARK || theme === LIGHT || theme === FLAT) ? theme : DARK
     if (_theme === t) return
     _theme = t
     try { uni.setStorageSync(PUSH_THEME, t) } catch(e) {}
@@ -45,6 +46,10 @@ export function onThemeChange(cb) {
 }
 
 export function offThemeChange(cb) {
+    if (typeof cb === 'undefined' || cb === null) {
+        _listeners.length = 0
+        return
+    }
     const i = _listeners.indexOf(cb)
     if (i !== -1) _listeners.splice(i, 1)
 }
@@ -52,12 +57,10 @@ export function offThemeChange(cb) {
 export function applyTheme() {
     const t = getTheme()
     try {
-        // H5 端：改根节点 data-theme 属性 → CSS 变量自动切换
         if (typeof document !== 'undefined' && document.documentElement) {
             document.documentElement.setAttribute('data-theme', t)
             document.body && document.body.setAttribute('data-theme', t)
         }
-        // APP-PLUS / 小程序：通过 uni.$emit 让各页面更新自己的 class
         uni.$emit('themechange', t)
     } catch(e) {}
 }
