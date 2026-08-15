@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
    Theme Tokens — 单一事实源
    默认：浅色玻璃（B）  可选：dark 深色玻璃（A） / flat 渐变卡片（C）
    ============================================================ */
@@ -22,6 +22,7 @@ page[data-theme="light"],
     --text-primary: rgba(15, 23, 42, 0.95);
     --text-secondary: rgba(15, 23, 42, 0.7);
     --text-muted: rgba(15, 23, 42, 0.45);
+    --text-read: rgba(15, 23, 42, 0.55);
     --text-accent: #6366f1;
 
     --btn-primary-bg-1: #6366f1;
@@ -66,6 +67,7 @@ page[data-theme="dark"],
     --text-primary: rgba(255, 255, 255, 0.95);
     --text-secondary: rgba(255, 255, 255, 0.7);
     --text-muted: rgba(255, 255, 255, 0.45);
+    --text-read: rgba(255, 255, 255, 0.6);
     --text-accent: #8b5cf6;
 
     --btn-primary-bg-1: #6366f1;
@@ -110,6 +112,7 @@ page[data-theme="flat"],
     --text-primary: rgba(255, 255, 255, 0.95);
     --text-secondary: rgba(255, 255, 255, 0.7);
     --text-muted: rgba(255, 255, 255, 0.45);
+    --text-read: rgba(255, 255, 255, 0.6);
     --text-accent: #ff6b6b;
 
     --btn-primary-bg-1: #ff6b6b;
