@@ -54,7 +54,7 @@ export function checkNotificationPerm() {
     try {
         if (typeof plus === 'undefined') return true
         const main = plus.android.runtimeMainActivity()
-        const nm = main.getSystemService(main.NOTIFICATION_SERVICE)
+        const nm = main.getSystemService('notification')  // Context.NOTIFICATION_SERVICE 实际值
         return nm.areNotificationsEnabled()
     } catch(e) { return false }
 }
@@ -130,7 +130,7 @@ export function checkBatteryOpt() {
     try {
         if (typeof plus === 'undefined') return true
         const main = plus.android.runtimeMainActivity()
-        const pm = main.getSystemService(main.POWER_SERVICE)
+        const pm = main.getSystemService('power')  // Context.POWER_SERVICE 实际值
         return pm.isIgnoringBatteryOptimizations(main.getPackageName())
     } catch(e) { return true }
 }

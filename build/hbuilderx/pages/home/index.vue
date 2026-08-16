@@ -55,6 +55,7 @@ import { notify } from '../../js/notify.js'
 import { testPush as apiTestPush } from '../../js/api.js'
 import { getTheme, applyTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
 import { applySafeArea } from '../../js/safe-area.js'
+import { requestNotificationPerm } from '../../js/permissions.js'
 import * as _cfg from '../../config.js'
 
 const _DEFAULT_CONFIG = {
@@ -140,6 +141,12 @@ export default {
         if (!isConnected()) {
             connect(self.wsUrl, self.keyValue)
         }
+
+        // 通知权限请求（老版时机：页面渲染完延迟 1 秒，此时 Activity 已 resumed，
+        // ActivityCompat.requestPermissions 弹框才可靠；App.vue onShow 冷启动时太早会静默失败）
+        setTimeout(function() {
+            try { requestNotificationPerm() } catch(e) {}
+        }, 1000)
     },
     onHide: function() {
         off('state', this._onState)

@@ -37,7 +37,7 @@ export function ensureChannels() {
         var Build = plus.android.importClass('android.os.Build')
         if (Build.VERSION.SDK_INT < 26) return
         var main = plus.android.runtimeMainActivity()
-        var nm = main.getSystemService(main.NOTIFICATION_SERVICE)
+        var nm = main.getSystemService('notification')  // Context.NOTIFICATION_SERVICE 实际值，实例代理取不到静态常量
         var NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
         var NotificationManager = plus.android.importClass('android.app.NotificationManager')
 
@@ -88,7 +88,7 @@ function _nativeNotify(title, content, priority) {
     var Build = plus.android.importClass('android.os.Build')
 
     var main = plus.android.runtimeMainActivity()
-    var nm = main.getSystemService(main.NOTIFICATION_SERVICE)
+    var nm = main.getSystemService('notification')  // Context.NOTIFICATION_SERVICE 实际值，实例代理取不到静态常量
     var notificationId = Math.floor(Math.random() * 100000) + 1
 
     var ringtone = 'default'

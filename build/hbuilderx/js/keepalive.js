@@ -4,7 +4,7 @@ export function startKeepAlive() {
     try {
         if (typeof plus === 'undefined' || !plus.android) return
         const main = plus.android.runtimeMainActivity()
-        const pm = main.getSystemService(main.POWER_SERVICE)
+        const pm = main.getSystemService('power')  // Context.POWER_SERVICE 实际值，实例代理取不到静态常量
         const PowerManager = plus.android.importClass('android.os.PowerManager')
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, 'PushApp:KeepAlive')
         wakeLock.setReferenceCounted(false)
