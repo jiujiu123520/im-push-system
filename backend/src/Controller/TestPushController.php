@@ -670,6 +670,7 @@ class TestPushController
                 'sent_at' => date('Y-m-d H:i:s'),
             ],
             'priority'   => 'high',
+            'timestamp'  => time(),
         ];
 
         // 调用 PushDispatcher 推送到当前设备
@@ -679,6 +680,46 @@ class TestPushController
         $elapsedMs = (int)((microtime(true) - $startTime) * 1000);
 
         $success = $result['success_count'] > 0;
+
+        // 派生推送状态
+        $sfSuccess = (int)$result['success_count'];
+        $sfFail    = (int)$result['fail_count'];
+        $sfStoredOffline = !empty($result['stored_offline']);
+        if ($sfSuccess > 0 && $sfFail === 0) {
+            $sfStatus = 1;
+        } elseif ($sfSuccess > 0 && $sfFail > 0) {
+            $sfStatus = 2;
+        } elseif ($sfStoredOffline) {
+            $sfStatus = 4;
+        } else {
+            $sfStatus = 0;
+        }
+
+        // 记录 APP 自测推送日志
+        try {
+            Database::insert(
+                'INSERT INTO push_logs (api_key_id, target_type, target_value, title, content, success_count, fail_count, fail_reason, status, elapsed_ms, detail)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    (int)$keyRow['id'],
+                    'device',
+                    $deviceId,
+                    '【通道测试】',
+                    'APP 端自测推送',
+                    $sfSuccess,
+                    $sfFail,
+                    $result['fail_reason'] ?? '',
+                    $sfStatus,
+                    $elapsedMs,
+                    json_encode([
+                        'is_self_test' => true,
+                        'device_id'    => $deviceId,
+                        'fail_detail'  => $result['fail_detail'] ?? [],
+                    ], JSON_UNESCAPED_UNICODE),
+                ]
+            );
+        } catch (\Throwable $e) {
+        }
 
         return [
             'online'     => $online,

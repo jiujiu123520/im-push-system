@@ -1121,12 +1121,12 @@ class PushDispatcher
             'title'     => $message['title'] ?? '',
             'content'   => $message['content'] ?? '',
             'priority'  => $message['priority'] ?? 'default',
-            'timestamp' => $message['timestamp'] ?? time(),
+            'timestamp' => $message['timestamp'] ?? (time() * 1000),
             // 兼容旧格式
             'code'      => 0,
             'message'   => 'message',
             'data'      => $message,
-            'time'      => time(),
+            'time'      => time() * 1000,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 

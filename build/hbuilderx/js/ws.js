@@ -166,6 +166,14 @@ function _closeSocket() {
     }
 }
 
+function _normalizeTs(ts) {
+    if (!ts) return Date.now()
+    var n = Number(ts)
+    if (!n || n <= 0) return Date.now()
+    if (n < 1e12) return n * 1000
+    return n
+}
+
 function _handleMessage(text) {
     let env
     try { env = JSON.parse(text) } catch(e) {
@@ -220,7 +228,7 @@ function _handleMessage(text) {
             title: env.title || '',
             content: env.content || '',
             priority: env.priority || 'default',
-            timestamp: env.timestamp || Date.now()
+            timestamp: _normalizeTs(env.timestamp)
         }
         addMessage(msg)
         events.emit('message', msg)
@@ -235,7 +243,7 @@ function _handleMessage(text) {
                 id: (env.data && env.data.message_id) || _uuid(),
                 title, content,
                 priority: (env.data && env.data.priority) || 'default',
-                timestamp: (env.data && env.data.timestamp) || Date.now()
+                timestamp: _normalizeTs(env.data && env.data.timestamp)
             }
             addMessage(m)
             events.emit('message', m)
