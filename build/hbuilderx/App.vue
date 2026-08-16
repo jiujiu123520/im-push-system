@@ -5,7 +5,27 @@ import { connect, disconnect, reconnect, isConnected } from './js/ws.js'
 import { startKeepAlive, stopKeepAlive } from './js/keepalive.js'
 import { applyTheme } from './js/theme.js'
 import { requestNotificationPerm } from './js/permissions.js'
-import { APP_CONFIG } from './config.js'
+
+const _DEFAULT_CONFIG = {
+    app_name: 'PushApp',
+    default_key: 'sQhrgtacqssANoklLtQsKwEOda0es8E7',
+    server_url: 'https://api1.98dyy.cn',
+    ws_url: 'wss://api1.98dyy.cn/ws/client',
+    version_name: '1.0.0',
+    build_time: ''
+}
+
+let APP_CONFIG = _DEFAULT_CONFIG
+try {
+    const _m = require('./config.js')
+    if (_m && _m.APP_CONFIG && typeof _m.APP_CONFIG === 'object') {
+        APP_CONFIG = Object.assign({}, _DEFAULT_CONFIG, _m.APP_CONFIG)
+    }
+} catch(e) {
+    try {
+        APP_CONFIG = Object.assign({}, _DEFAULT_CONFIG, (typeof __uniConfig !== 'undefined' && __uniConfig.APP_CONFIG) || {})
+    } catch(e2) {}
+}
 
 function _looksEmpty(v) {
     if (!v) return true
@@ -35,7 +55,6 @@ export default {
             saveBootConfig('ws_url', APP_CONFIG.ws_url)
             saveBootConfig('default_key', APP_CONFIG.default_key)
             saveBootConfig('version_name', APP_CONFIG.version_name)
-            saveBootConfig('build_time', APP_CONFIG.build_time || '')
         } catch(e) {
             console.warn('[PushApp] boot config save failed:', e.message)
         }
@@ -53,8 +72,8 @@ export default {
         console.log('[PushApp] onShow')
         try { requestNotificationPerm() } catch(e) {}
         var config = loadBootConfig()
-        var key = uni.getStorageSync('push_key') || config.default_key
-        var wsUrl = uni.getStorageSync('push_ws_url') || config.ws_url
+        var key = uni.getStorageSync('push_key') || config.default_key || APP_CONFIG.default_key
+        var wsUrl = uni.getStorageSync('push_ws_url') || config.ws_url || APP_CONFIG.ws_url
 
         if (key && wsUrl) {
             startKeepAlive()

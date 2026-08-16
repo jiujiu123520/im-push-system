@@ -63,21 +63,22 @@ export function requestNotificationPerm() {
     try {
         if (typeof plus === 'undefined') return
         const Build = plus.android.importClass('android.os.Build')
-        if (Build.VERSION.SDK_INT < 33) return
-
         const main = plus.android.runtimeMainActivity()
         const nm = main.getSystemService(main.NOTIFICATION_SERVICE)
         if (nm.areNotificationsEnabled()) return
 
-        const ActivityCompat = plus.android.importClass('androidx.core.app.ActivityCompat')
-        const Manifest = plus.android.importClass('android.Manifest')
-        try {
-            ActivityCompat.requestPermissions(main, [Manifest.permission.POST_NOTIFICATIONS], 1001)
-        } catch(e) {
+        if (Build.VERSION.SDK_INT >= 33) {
             try {
-                openNotificationSetting()
-            } catch(e2) {}
+                const ActivityCompat = plus.android.importClass('androidx.core.app.ActivityCompat')
+                const Manifest = plus.android.importClass('android.Manifest')
+                ActivityCompat.requestPermissions(main, [Manifest.permission.POST_NOTIFICATIONS], 1001)
+            } catch(e) {
+                console.warn('[Perm] requestPermissions fail, fall back to settings', e)
+            }
         }
+        setTimeout(function() {
+            try { openNotificationSetting() } catch(e) {}
+        }, 600)
     } catch(e) {
         console.warn('[Perm] requestNotificationPerm fail', e)
     }

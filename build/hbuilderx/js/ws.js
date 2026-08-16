@@ -1,5 +1,12 @@
 import { addMessage, PUSH_HEARTBEAT, PUSH_AUTO_RECONNECT, PUSH_WIFI_ONLY } from './storage.js'
-import { APP_CONFIG } from '../config.js'
+
+let _appVersion = '1.0.0'
+try {
+    const _m = require('../config.js')
+    if (_m && _m.APP_CONFIG && _m.APP_CONFIG.version_name) {
+        _appVersion = _m.APP_CONFIG.version_name
+    }
+} catch(e) {}
 
 const events = {
     _handlers: {},
@@ -381,7 +388,7 @@ function _deviceInfo() {
         model: '',
         os_version: '',
         device_name: '',
-        app_version: APP_CONFIG.version_name || ''
+        app_version: _appVersion || ''
     }
     try {
         var sys = uni.getSystemInfoSync()
