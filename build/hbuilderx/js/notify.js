@@ -85,38 +85,106 @@ function _nativeNotify(title, content, priority) {
     var Intent = plus.android.importClass('android.content.Intent')
     var PendingIntent = plus.android.importClass('android.app.PendingIntent')
     var NotificationManager = plus.android.importClass('android.app.NotificationManager')
-    var NotificationCompat = plus.android.importClass('androidx.core.app.NotificationCompat')
     var Build = plus.android.importClass('android.os.Build')
 
     var main = plus.android.runtimeMainActivity()
     var nm = main.getSystemService(main.NOTIFICATION_SERVICE)
+    var notificationId = Math.floor(Math.random() * 100000) + 1
 
     var ringtone = 'default'
     try { ringtone = uni.getStorageSync(PUSH_RINGTONE) || 'default' } catch(e) {}
     var isSilent = ringtone === 'silent'
     var channelId = isSilent ? CHANNEL_SILENT : CHANNEL_NORMAL
 
+    // ========== 1. 渠道（老版逻辑：已存在则检查是否被用户禁用） ==========
     if (Build.VERSION.SDK_INT >= 26) {
         var NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
         if (!isSilent) {
             _createNormalChannel(nm, NotificationChannel, NotificationManager)
         }
         _createSilentChannel(nm, NotificationChannel, NotificationManager)
+        try {
+            var ch = nm.getNotificationChannel(channelId)
+            if (ch !== null && ch !== undefined && ch.getImportance() === 0) {
+                console.warn('[Notify] 通知渠道被用户禁用')
+                uni.showToast({ title: '通知渠道被关闭，请在设置中开启', icon: 'none', duration: 2500 })
+                return false
+            }
+        } catch(e) {}
     }
 
-    var intent = new Intent(main, main.getClass())
-    intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-    var pi = PendingIntent.getActivity(main, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)
+    // ========== 2. 点击 Intent（老版：getLaunchIntentForPackage 打开应用） ==========
+    var contentIntent = null
+    try {
+        var launchIntent = main.getPackageManager().getLaunchIntentForPackage(main.getPackageName())
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        var flags = Build.VERSION.SDK_INT >= 31 ? 0x04000000 | 0x08000000 : 0x04000000
+        contentIntent = PendingIntent.getActivity(main, notificationId, launchIntent, flags)
+    } catch(e) {
+        console.warn('[Notify] 创建 PendingIntent 失败（不致命）', e)
+    }
 
-    var builder = new NotificationCompat.Builder(main, channelId)
-        .setSmallIcon(android.R.drawable.ic_dialog_info)
-        .setContentTitle(title)
-        .setContentText(content)
-        .setAutoCancel(true)
-        .setContentIntent(pi)
-        .setPriority(priority === 'high' ? NotificationCompat.PRIORITY_HIGH : NotificationCompat.PRIORITY_DEFAULT)
+    // ========== 3. Builder（老版双路径：NotificationCompat 失败回退原生 Builder） ==========
+    var builder = null
+    var useCompat = false
+    try {
+        var NotificationCompat = plus.android.importClass('androidx.core.app.NotificationCompat')
+        builder = new NotificationCompat.Builder(main, channelId)
+        useCompat = true
+    } catch(e) {
+        try {
+            var Notification = plus.android.importClass('android.app.Notification')
+            builder = new Notification.Builder(main, channelId)
+        } catch(e2) {
+            console.error('[Notify] 两种 Builder 都创建失败', e, e2)
+            return false
+        }
+    }
 
-    nm.notify(Date.now() & 0x7fffffff, builder.build())
+    // ========== 4. 设置属性（老版完整参数） ==========
+    try {
+        builder.setContentTitle(title)
+        builder.setContentText(content)
+        builder.setSmallIcon(17301651)  // android.R.drawable.ic_dialog_info
+        if (contentIntent !== null) {
+            builder.setContentIntent(contentIntent)
+        }
+        builder.setAutoCancel(true)
+        try { builder.setTicker('收到推送：' + title) } catch(_) {}
+        try {
+            var JavaSystem = plus.android.importClass('java.lang.System')
+            builder.setWhen(JavaSystem.currentTimeMillis())
+            try { builder.setShowWhen(true) } catch(_) {}
+        } catch(_) {}
+        try { builder.setPriority(priority === 'high' ? 2 : 0) } catch(_) {}
+        try { builder.setDefaults(-1) } catch(_) {}
+        try { builder.setVisibility(1) } catch(_) {}
+        try { builder.setCategory('msg') } catch(_) {}
+        // 全屏 Intent（锁屏优先显示，老版逻辑）
+        if (Build.VERSION.SDK_INT >= 28 && contentIntent !== null) {
+            try {
+                var fsFlags = Build.VERSION.SDK_INT >= 31 ? 0x04000000 | 0x08000000 : 0x04000000
+                var fsIntent = main.getPackageManager().getLaunchIntentForPackage(main.getPackageName())
+                var fullScreenPi = PendingIntent.getActivity(main, notificationId + 10000, fsIntent, fsFlags)
+                builder.setFullScreenIntent(fullScreenPi, true)
+            } catch(_) {}
+        }
+        // 大文本
+        if (content && content.length > 50) {
+            try {
+                var BigTextStyle = plus.android.importClass(useCompat ? 'androidx.core.app.NotificationCompat$BigTextStyle' : 'android.app.Notification$BigTextStyle')
+                var bigText = new BigTextStyle()
+                bigText.bigText(content)
+                bigText.setBigContentTitle(title)
+                builder.setStyle(bigText)
+            } catch(_) {}
+        }
+    } catch(e) {
+        console.error('[Notify] 设置 Builder 属性失败', e)
+    }
+
+    // ========== 5. 显示 ==========
+    nm.notify(notificationId, builder.build())
 
     var vibrateOn = true
     try { vibrateOn = uni.getStorageSync(PUSH_VIBRATE) !== false } catch(e) {}
