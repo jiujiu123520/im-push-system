@@ -100,7 +100,7 @@ function _v(v, fb) {
 export default {
     data() {
         return {
-            themeClass: 'light',
+            themeClass: 'theme-light',
             userId: '',
             key: APP_CONFIG.default_key,
             serverUrl: APP_CONFIG.server_url,
@@ -118,8 +118,8 @@ export default {
     onShow: function() {
         applySafeArea()
         var self = this
-        self.themeClass = getTheme()
-        self._themeListener = function(t) { self.themeClass = t }
+        self.themeClass = 'theme-' + getTheme()
+        self._themeListener = function(t) { self.themeClass = 'theme-' + t }
         onThemeChange(self._themeListener)
         applyTheme()
         try {

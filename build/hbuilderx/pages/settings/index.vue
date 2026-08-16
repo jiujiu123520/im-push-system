@@ -174,7 +174,7 @@ try {
 export default {
     data() {
         return {
-            themeClass: 'dark',
+            themeClass: 'theme-dark',
             theme: 'dark',
             ringtone: 'default',
             deviceInfo: { brand: '', model: '', os: '' },
@@ -194,8 +194,8 @@ export default {
     onShow: function() {
         applySafeArea()
         var self = this
-        self.themeClass = getTheme(); self.theme = self.themeClass
-        self._themeListener = function(t) { self.themeClass = t; self.theme = t }
+        self.theme = getTheme(); self.themeClass = 'theme-' + self.theme
+        self._themeListener = function(t) { self.theme = t; self.themeClass = 'theme-' + t }
         onThemeChange(self._themeListener)
         applyTheme()
         var cfg = loadBootConfig()

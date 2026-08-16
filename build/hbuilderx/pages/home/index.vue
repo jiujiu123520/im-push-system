@@ -81,7 +81,7 @@ function _v(v, fb) {
 export default {
     data() {
         return {
-            themeClass: 'dark',
+            themeClass: 'theme-dark',
             appName: APP_CONFIG.app_name,
             wsState: '未连接',
             stateLabel: '离线',
@@ -99,8 +99,8 @@ export default {
     onShow: function() {
         applySafeArea()
         var self = this
-        self.themeClass = getTheme()
-        self._themeListener = function(t) { self.themeClass = t }
+        self.themeClass = 'theme-' + getTheme()
+        self._themeListener = function(t) { self.themeClass = 'theme-' + t }
         onThemeChange(self._themeListener)
         applyTheme()
         try {

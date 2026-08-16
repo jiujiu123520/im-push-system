@@ -74,7 +74,7 @@ function _v(v, fallback) {
 export default {
     data() {
         return {
-            themeClass: 'dark',
+            themeClass: 'theme-dark',
             key: APP_CONFIG.default_key,
             serverUrl: APP_CONFIG.server_url,
             wsUrl: APP_CONFIG.ws_url,
@@ -85,8 +85,8 @@ export default {
     onShow: function() {
         applySafeArea()
         var self = this
-        self.themeClass = getTheme()
-        self._themeListener = function(t) { self.themeClass = t }
+        self.themeClass = 'theme-' + getTheme()
+        self._themeListener = function(t) { self.themeClass = 'theme-' + t }
         onThemeChange(self._themeListener)
         applyTheme()
         try {

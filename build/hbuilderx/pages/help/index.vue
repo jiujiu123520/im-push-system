@@ -32,7 +32,7 @@ import { applySafeArea } from '../../js/safe-area.js'
 export default {
     data() {
         return {
-            themeClass: 'light',
+            themeClass: 'theme-light',
             expanded: [true, false, false, false, false, false],
             sections: [
                 {
@@ -99,8 +99,8 @@ export default {
     onShow: function() {
         applySafeArea()
         var self = this
-        self.themeClass = getTheme()
-        self._themeListener = function(t) { self.themeClass = t }
+        self.themeClass = 'theme-' + getTheme()
+        self._themeListener = function(t) { self.themeClass = 'theme-' + t }
         onThemeChange(self._themeListener)
         applyTheme()
     },
