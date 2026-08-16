@@ -5,6 +5,8 @@ import { connect, disconnect, reconnect, isConnected } from './js/ws.js'
 import { startKeepAlive, stopKeepAlive } from './js/keepalive.js'
 import { applyTheme } from './js/theme.js'
 import { requestNotificationPerm } from './js/permissions.js'
+import { ensureChannels } from './js/notify.js'
+import * as _cfg from './config.js'
 
 const _DEFAULT_CONFIG = {
     app_name: 'PushApp',
@@ -15,17 +17,7 @@ const _DEFAULT_CONFIG = {
     build_time: ''
 }
 
-let APP_CONFIG = _DEFAULT_CONFIG
-try {
-    const _m = require('./config.js')
-    if (_m && _m.APP_CONFIG && typeof _m.APP_CONFIG === 'object') {
-        APP_CONFIG = Object.assign({}, _DEFAULT_CONFIG, _m.APP_CONFIG)
-    }
-} catch(e) {
-    try {
-        APP_CONFIG = Object.assign({}, _DEFAULT_CONFIG, (typeof __uniConfig !== 'undefined' && __uniConfig.APP_CONFIG) || {})
-    } catch(e2) {}
-}
+const APP_CONFIG = Object.assign({}, _DEFAULT_CONFIG, (_cfg && _cfg.APP_CONFIG) || {})
 
 function _looksEmpty(v) {
     if (!v) return true
@@ -66,6 +58,7 @@ export default {
             console.warn('[PushApp] user config ensure failed:', e.message)
         }
         try { applyTheme() } catch(e) { console.warn('[PushApp] applyTheme failed:', e.message) }
+        try { ensureChannels() } catch(e) { console.warn('[PushApp] ensureChannels failed:', e.message) }
     },
 
     onShow: function () {

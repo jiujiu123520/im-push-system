@@ -1,12 +1,7 @@
 import { addMessage, PUSH_HEARTBEAT, PUSH_AUTO_RECONNECT, PUSH_WIFI_ONLY } from './storage.js'
+import * as _cfg from '../config.js'
 
-let _appVersion = '1.0.0'
-try {
-    const _m = require('../config.js')
-    if (_m && _m.APP_CONFIG && _m.APP_CONFIG.version_name) {
-        _appVersion = _m.APP_CONFIG.version_name
-    }
-} catch(e) {}
+const _appVersion = (_cfg && _cfg.APP_CONFIG && _cfg.APP_CONFIG.version_name) || '1.0.0'
 
 const events = {
     _handlers: {},
