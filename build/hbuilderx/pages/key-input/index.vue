@@ -46,6 +46,7 @@ import { loadBootConfig, PUSH_KEY, PUSH_SERVER_URL, PUSH_WS_URL } from '../../js
 import { testPush } from '../../js/api.js'
 import { getTheme, applyTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
 import { applySafeArea } from '../../js/safe-area.js'
+import { getDeviceId } from '../../js/device-id.js'
 import * as _cfg from '../../config.js'
 
 const _DEFAULT_CONFIG = {
@@ -142,7 +143,7 @@ export default {
             }
             self.testing = true
             self.testResult = null
-            var deviceId = uni.getStorageSync('push_device_id') || ''
+            var deviceId = getDeviceId()
             testPush(self.serverUrl, self.key, deviceId).then(function(res) {
                 self.testing = false
                 self.testResult = { ok: true, message: '✅ 连接成功！服务器响应正常。' }

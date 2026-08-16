@@ -1,5 +1,6 @@
 import { addMessage, PUSH_HEARTBEAT, PUSH_AUTO_RECONNECT, PUSH_WIFI_ONLY } from './storage.js'
 import * as _cfg from '../config.js'
+import { getDeviceId } from './device-id.js'
 
 const _appVersion = (_cfg && _cfg.APP_CONFIG && _cfg.APP_CONFIG.version_name) || '1.0.0'
 
@@ -369,12 +370,7 @@ function _uuid() {
 }
 
 function _deviceId() {
-    let id = uni.getStorageSync('push_device_id')
-    if (!id) {
-        id = _uuid()
-        uni.setStorageSync('push_device_id', id)
-    }
-    return id
+    return getDeviceId()
 }
 
 function _deviceInfo() {

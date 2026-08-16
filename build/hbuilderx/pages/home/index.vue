@@ -56,6 +56,7 @@ import { testPush as apiTestPush } from '../../js/api.js'
 import { getTheme, applyTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
 import { applySafeArea } from '../../js/safe-area.js'
 import { requestNotificationPerm } from '../../js/permissions.js'
+import { getDeviceId } from '../../js/device-id.js'
 import * as _cfg from '../../config.js'
 
 const _DEFAULT_CONFIG = {
@@ -201,7 +202,7 @@ export default {
             var cfg = loadBootConfig()
             var base = uni.getStorageSync(PUSH_SERVER_URL) || cfg.server_url
             if (!this.keyValue) { uni.showToast({ title: '请先配置 Key', icon: 'none' }); return }
-            var deviceId = uni.getStorageSync('push_device_id') || ''
+            var deviceId = getDeviceId()
             var self = this
             apiTestPush(base, this.keyValue, deviceId).then(function(r) {
                 uni.showToast({ title: (r && r.message) || '测试推送已发送', icon: 'success' })

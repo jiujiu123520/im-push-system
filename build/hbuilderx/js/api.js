@@ -1,15 +1,7 @@
+import { getDeviceId } from './device-id.js'
+
 function _deviceId() {
-    let id = ''
-    try { id = uni.getStorageSync('push_device_id') || '' } catch(e) {}
-    if (!id) {
-        id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-            const r = Math.random() * 16 | 0
-            const v = c === 'x' ? r : (r & 0x3 | 0x8)
-            return v.toString(16)
-        })
-        try { uni.setStorageSync('push_device_id', id) } catch(e) {}
-    }
-    return id
+    return getDeviceId()
 }
 
 export function request(method, url, data) {
