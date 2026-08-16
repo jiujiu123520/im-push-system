@@ -66,6 +66,13 @@ const _DEFAULT_CONFIG = {
     build_time: ''
 }
 const APP_CONFIG = Object.assign({}, _DEFAULT_CONFIG, (_cfg && _cfg.APP_CONFIG) || {})
+// config.js 字段为空时保留硬编码兜底（Object.assign 空字符串也会覆盖默认值）
+Object.keys(_DEFAULT_CONFIG).forEach(function(k) {
+    var v = APP_CONFIG[k]
+    if (!v || typeof v !== 'string' || v.length < 2 || /example\.com|placeholder/i.test(v)) {
+        APP_CONFIG[k] = _DEFAULT_CONFIG[k]
+    }
+})
 
 function _v(v, fb) {
     if (!v || typeof v !== 'string' || v.length < 2) return fb
