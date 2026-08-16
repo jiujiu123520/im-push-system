@@ -7,6 +7,10 @@ export interface HBuilderXTemplate {
   name: string
   description: string
   available: boolean
+  /** 模板最后一次修改时间（unix 秒，可能为 null） */
+  updated_at?: number | null
+  /** 模板最后一次修改对应的 git commit 短哈希（可能为 null） */
+  commit?: string | null
 }
 
 // 用户端 APP 下载信息

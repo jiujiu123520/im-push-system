@@ -73,6 +73,15 @@
                     <el-tag v-if="!tpl.available" size="small" type="info" effect="plain">未安装</el-tag>
                   </div>
                   <div class="tpl-desc">{{ tpl.description }}</div>
+                  <div v-if="tpl.updated_at || tpl.commit" class="tpl-time">
+                    最后更新：
+                    <template v-if="tpl.updated_at">{{ formatTplTime(tpl.updated_at) }}</template>
+                    <template v-else>未知</template>
+                    <span v-if="tpl.commit" class="tpl-commit">{{ tpl.commit }}</span>
+                    <el-tooltip content="时间为服务器上该模板源码最后一次修改（git 提交时间），据此判断下载的是否为最新源码">
+                      <el-icon class="tpl-tip"><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </div>
                 </div>
               </div>
             </div>
@@ -134,7 +143,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Cellphone, Iphone, Download, MagicStick } from '@element-plus/icons-vue'
+import { Cellphone, Iphone, Download, MagicStick, QuestionFilled } from '@element-plus/icons-vue'
 import { getAppInfoApi, getAppDownloadQrApi, getHBuilderXTemplatesApi, generateHBuilderXApi } from '@/api/app'
 import type { HBuilderXTemplate } from '@/api/app'
 import { getToken } from '@/utils/auth'
@@ -145,6 +154,15 @@ interface Template {
   name: string
   description: string
   available: boolean
+  updated_at?: number | null
+  commit?: string | null
+}
+
+// 格式化模板最后更新时间（后端返回 unix 秒）
+function formatTplTime(unixSec: number): string {
+  const d = new Date(unixSec * 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 const info = ref<any>({})
@@ -321,6 +339,18 @@ onMounted(loadInfo)
   .tpl-desc {
     margin-top: 4px; font-size: $font-size-xs; color: var(--text-secondary);
     line-height: 1.5;
+  }
+  .tpl-time {
+    margin-top: 4px; font-size: $font-size-xs; color: var(--text-secondary);
+    display: flex; align-items: center; gap: 4px;
+    .tpl-commit {
+      padding: 0 6px; border-radius: 4px;
+      background: var(--el-fill-color-light);
+      font-family: monospace; font-size: 11px; line-height: 18px;
+    }
+    .tpl-tip {
+      font-size: 13px; color: var(--el-text-color-placeholder); cursor: help;
+    }
   }
 }
 

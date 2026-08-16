@@ -52,14 +52,76 @@ class HBuilderXService
                 'name'        => '新版模板',
                 'description' => '推荐使用，改进 UI：消息模糊搜索、设置组件美化、提示适配、无限滚动优化',
                 'available'   => is_dir($newDir) && $this->dirHasFiles($newDir),
+                'updated_at'  => $this->getTemplateUpdatedAt($newDir),
+                'commit'      => $this->getTemplateCommit($newDir),
             ],
             [
                 'id'          => 'old',
                 'name'        => '旧版模板',
                 'description' => '兼容旧版 APP 源码，适合已使用旧版模板的用户',
                 'available'   => is_dir($oldDir) && $this->dirHasFiles($oldDir),
+                'updated_at'  => $this->getTemplateUpdatedAt($oldDir),
+                'commit'      => $this->getTemplateCommit($oldDir),
             ],
         ];
+    }
+
+    /**
+     * 模板最后一次修改时间（unix 秒）：
+     * 优先取 git 里最后一次触碰该模板目录的提交时间，失败则取目录内最新文件 mtime
+     */
+    private function getTemplateUpdatedAt(string $dir): ?int
+    {
+        if (!is_dir($dir)) {
+            return null;
+        }
+
+        // git log 方式（部署机上有 .git 时最准确）
+        $relDir = 'build/' . basename($dir);
+        $cmd = 'git -C ' . escapeshellarg($this->projectRoot())
+            . ' log -1 --format=%ct -- ' . escapeshellarg($relDir) . ' 2>/dev/null';
+        $out = @shell_exec($cmd);
+        if ($out !== null && preg_match('/^\s*(\d{9,11})\s*$/', $out, $m)) {
+            return (int)$m[1];
+        }
+
+        // 兜底：目录内最新文件 mtime
+        $latest = null;
+        try {
+            $it = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::LEAVES_ONLY
+            );
+            foreach ($it as $f) {
+                if ($f->isFile()) {
+                    $mtime = $f->getMTime();
+                    if ($latest === null || $mtime > $latest) {
+                        $latest = $mtime;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            return null;
+        }
+        return $latest;
+    }
+
+    /**
+     * 模板最后一次修改对应的 git commit 短哈希（取不到返回 null）
+     */
+    private function getTemplateCommit(string $dir): ?string
+    {
+        if (!is_dir($dir)) {
+            return null;
+        }
+        $relDir = 'build/' . basename($dir);
+        $cmd = 'git -C ' . escapeshellarg($this->projectRoot())
+            . ' log -1 --format=%h -- ' . escapeshellarg($relDir) . ' 2>/dev/null';
+        $out = @shell_exec($cmd);
+        if ($out !== null && preg_match('/^\s*([0-9a-f]{7,40})\s*$/i', $out, $m)) {
+            return $m[1];
+        }
+        return null;
     }
 
     /**

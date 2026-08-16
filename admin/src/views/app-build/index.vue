@@ -453,6 +453,15 @@ cat ~/.ssh/github_actions_key</pre>
                       <el-tag v-if="!tpl.available" size="small" type="info" effect="plain">未安装</el-tag>
                     </div>
                     <div class="hbx-tpl-desc">{{ tpl.description }}</div>
+                    <div v-if="tpl.updated_at || tpl.commit" class="hbx-tpl-time">
+                      最后更新：
+                      <template v-if="tpl.updated_at">{{ formatTplTime(tpl.updated_at) }}</template>
+                      <template v-else>未知</template>
+                      <span v-if="tpl.commit" class="hbx-tpl-commit">{{ tpl.commit }}</span>
+                      <el-tooltip content="时间为服务器上该模板源码最后一次修改（git 提交时间），据此判断下载的是否为最新源码">
+                        <el-icon class="hbx-tpl-tip"><QuestionFilledIcon /></el-icon>
+                      </el-tooltip>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -741,6 +750,7 @@ import {
   Check as CheckIcon,
   Loading as LoadingIcon,
   CircleCheckFilled as CircleCheckFilledIcon,
+  QuestionFilled as QuestionFilledIcon,
   Cpu as CpuIcon,
   Coin as CoinIcon,
   Monitor as MonitorIcon,
@@ -1428,6 +1438,13 @@ async function fetchHBuilderXTemplates() {
       }
     }
   } catch {}
+}
+
+// 格式化模板最后更新时间（后端返回 unix 秒）
+function formatTplTime(unixSec: number): string {
+  const d = new Date(unixSec * 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 // 自动填充所有参数
@@ -2541,6 +2558,19 @@ onBeforeUnmount(() => {
   .hbx-tpl-desc {
     margin-top: 4px; font-size: 12px; color: var(--el-text-color-secondary);
     line-height: 1.5;
+  }
+  .hbx-tpl-time {
+    margin-top: 4px; font-size: 12px; color: var(--el-text-color-secondary);
+    display: flex; align-items: center; gap: 4px;
+    .hbx-tpl-commit {
+      padding: 0 6px; border-radius: 4px;
+      background: var(--el-fill-color-light);
+      color: var(--el-text-color-regular);
+      font-family: monospace; font-size: 11px; line-height: 18px;
+    }
+    .hbx-tpl-tip {
+      font-size: 13px; color: var(--el-text-color-placeholder); cursor: help;
+    }
   }
 }
 </style>
