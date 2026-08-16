@@ -10,19 +10,19 @@
 
         <view class="glass-card" style="margin-top:80rpx;">
             <view style="font-size:28rpx;font-weight:600;margin-bottom:20rpx;">🔑 Push Key</view>
-            <input class="glass-input" placeholder="粘贴你的 Push Key" placeholder-style="" v-model="key"
+            <input class="glass-input" placeholder="粘贴你的 Push Key" placeholder-style="color:rgba(150,150,160,0.6);" v-model="key"
                    cursor-spacing="20" adjust-position="true" confirm-type="done"
- />
+                   :style="{ background: inputStyle.bg, color: inputStyle.text, borderColor: inputStyle.border }" />
 
             <view style="font-size:28rpx;font-weight:600;margin-bottom:20rpx;">🌐 HTTP 服务器地址</view>
-            <input class="glass-input" placeholder="https://push.example.com" placeholder-style="" v-model="serverUrl"
+            <input class="glass-input" placeholder="https://push.example.com" placeholder-style="color:rgba(150,150,160,0.6);" v-model="serverUrl"
                    cursor-spacing="20" adjust-position="true" confirm-type="done"
- />
+                   :style="{ background: inputStyle.bg, color: inputStyle.text, borderColor: inputStyle.border }" />
 
             <view style="font-size:28rpx;font-weight:600;margin-bottom:20rpx;">🔗 WebSocket 地址</view>
-            <input class="glass-input" placeholder="wss://push.example.com/ws" placeholder-style="" v-model="wsUrl"
+            <input class="glass-input" placeholder="wss://push.example.com/ws" placeholder-style="color:rgba(150,150,160,0.6);" v-model="wsUrl"
                    cursor-spacing="20" adjust-position="true" confirm-type="done"
- />
+                   :style="{ background: inputStyle.bg, color: inputStyle.text, borderColor: inputStyle.border }" />
 
             <button class="btn-primary" style="width:100%;margin-top:48rpx;" @click="confirm">确认并连接</button>
         </view>
@@ -74,14 +74,17 @@ export default {
             serverUrl: APP_CONFIG.server_url,
             wsUrl: APP_CONFIG.ws_url,
             testing: false,
-            testResult: null
+            testResult: null,
+            inputStyle: { bg: 'rgba(255,255,255,0.08)', text: '#ffffff', border: 'rgba(255,255,255,0.15)' }
         }
     },
     onShow: function() {
         applySafeArea()
         var self = this
-        self.themeClass = 'theme-' + getTheme()
-        self._themeListener = function(t) { self.themeClass = 'theme-' + t }
+        var t = getTheme()
+        self.themeClass = 'theme-' + t
+        self._updateInputStyle(t)
+        self._themeListener = function(nt) { self.themeClass = 'theme-' + nt; self._updateInputStyle(nt) }
         onThemeChange(self._themeListener)
         applyTheme()
         try {
@@ -99,6 +102,15 @@ export default {
         if (this._themeListener) { offThemeChange(this._themeListener); this._themeListener = null }
     },
     methods: {
+        // 原生 input 的 CSS var() 穿透不可靠，用 JS 直接注入 rgba 颜色（恢复 7e739ac 修复）
+        _updateInputStyle: function(theme) {
+            var dark = theme !== 'light'
+            this.inputStyle = {
+                bg: dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+                text: dark ? '#ffffff' : 'rgba(15,23,42,0.95)',
+                border: dark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)'
+            }
+        },
         goBack: function() {
             uni.navigateBack({ delta: 1 })
         },
