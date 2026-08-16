@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.work.Configuration
 import com.push.app.data.PreferencesManager
+import com.push.app.util.NotificationHelper
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -49,6 +50,7 @@ class PushApplication : Application(), Configuration.Provider {
         instance = this
         globalConfig = BuildConfig.load(this)
         PreferencesManager.init(this)
+        NotificationHelper.createChannels(this)
     }
 
     override val workManagerConfiguration: Configuration

@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.push.app.data.model.PushMessage
 import com.push.app.network.ApiClient
+import com.push.app.util.NotificationHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -70,6 +71,14 @@ class PushRepository private constructor(
         onPushMessage = { msg ->
             scope.launch {
                 store.add(msg)
+                runCatching {
+                    NotificationHelper.showPushNotification(
+                        context = context,
+                        id = msg.id,
+                        title = msg.title.ifBlank { "新推送" },
+                        content = msg.content.ifBlank { "你有一条新消息" },
+                    )
+                }
             }
         },
     )
