@@ -1,4 +1,5 @@
 import { PUSH_VIBRATE, PUSH_RINGTONE } from './storage.js'
+import { checkNotificationPerm, requestNotificationPerm } from './permissions.js'
 
 const CHANNEL_NORMAL = 'push_normal'
 const CHANNEL_SILENT = 'push_silent'
@@ -7,6 +8,9 @@ export function notify(title, content, priority) {
     if (!title && !content) return
     try {
         if (typeof plus !== 'undefined' && plus.android) {
+            if (!checkNotificationPerm()) {
+                requestNotificationPerm()
+            }
             _nativeNotify(title, content, priority)
         }
     } catch(e) {

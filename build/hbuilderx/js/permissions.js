@@ -59,6 +59,30 @@ export function checkNotificationPerm() {
     } catch(e) { return false }
 }
 
+export function requestNotificationPerm() {
+    try {
+        if (typeof plus === 'undefined') return
+        const Build = plus.android.importClass('android.os.Build')
+        if (Build.VERSION.SDK_INT < 33) return
+
+        const main = plus.android.runtimeMainActivity()
+        const nm = main.getSystemService(main.NOTIFICATION_SERVICE)
+        if (nm.areNotificationsEnabled()) return
+
+        const ActivityCompat = plus.android.importClass('androidx.core.app.ActivityCompat')
+        const Manifest = plus.android.importClass('android.Manifest')
+        try {
+            ActivityCompat.requestPermissions(main, [Manifest.permission.POST_NOTIFICATIONS], 1001)
+        } catch(e) {
+            try {
+                openNotificationSetting()
+            } catch(e2) {}
+        }
+    } catch(e) {
+        console.warn('[Perm] requestNotificationPerm fail', e)
+    }
+}
+
 export function checkBatteryOpt() {
     try {
         if (typeof plus === 'undefined') return true

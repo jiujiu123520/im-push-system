@@ -198,7 +198,11 @@ export default {
         truncate: function(s, n) { return (s || '').length > n ? (s || '').slice(0, n) + '…' : (s || '') },
         timeAgo: function(ts) {
             if (!ts) return ''
-            var diff = Date.now() - ts
+            var n = Number(ts)
+            if (!n || n <= 0) return ''
+            if (n < 1e12) n = n * 1000
+            var diff = Date.now() - n
+            if (diff < 0) diff = 0
             if (diff < 60000) return '刚刚'
             if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
             if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'

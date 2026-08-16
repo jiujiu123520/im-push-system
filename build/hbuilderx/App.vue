@@ -4,6 +4,7 @@ import { ensureBootConfig, loadBootConfig, saveBootConfig, clearBootConfig,
 import { connect, disconnect, reconnect, isConnected } from './js/ws.js'
 import { startKeepAlive, stopKeepAlive } from './js/keepalive.js'
 import { applyTheme } from './js/theme.js'
+import { requestNotificationPerm } from './js/permissions.js'
 import { APP_CONFIG } from './config.js'
 
 function _looksEmpty(v) {
@@ -50,6 +51,7 @@ export default {
 
     onShow: function () {
         console.log('[PushApp] onShow')
+        try { requestNotificationPerm() } catch(e) {}
         var config = loadBootConfig()
         var key = uni.getStorageSync('push_key') || config.default_key
         var wsUrl = uni.getStorageSync('push_ws_url') || config.ws_url

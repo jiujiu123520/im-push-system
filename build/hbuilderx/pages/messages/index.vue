@@ -1,4 +1,4 @@
-﻿<template>
+<template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
             <view class="row-between" >
@@ -156,8 +156,12 @@ export default {
         },
         formatTime: function(ts) {
             if (!ts) return ''
-            var d = new Date(ts)
-            var pad = function(n){ return n < 10 ? '0' + n : '' + n }
+            var n = Number(ts)
+            if (!n || n <= 0) return ''
+            if (n < 1e12) n = n * 1000
+            var d = new Date(n)
+            if (isNaN(d.getTime())) return ''
+            var pad = function(n2){ return n2 < 10 ? '0' + n2 : '' + n2 }
             return pad(d.getMonth()+1) + '/' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
         },
         priorityLabel: function(p) {
