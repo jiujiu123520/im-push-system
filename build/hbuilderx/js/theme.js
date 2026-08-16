@@ -26,7 +26,6 @@ export function isFlat() { return getTheme() === FLAT }
 
 export function setTheme(theme) {
     const t = (theme === DARK || theme === LIGHT || theme === FLAT) ? theme : DARK
-    if (_theme === t) return
     _theme = t
     try { uni.setStorageSync(PUSH_THEME, t) } catch(e) {}
     applyTheme()

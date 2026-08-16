@@ -256,7 +256,7 @@ class DeviceApiController
      */
     public function checkUpdate(array $context, array $params)
     {
-        $query = $context['request']['query'] ?? [];
+        $query = $context['get'] ?? [];
         $platform = strtolower(trim((string)($query['platform'] ?? 'android')));
         $currentVersion = trim((string)($query['current_version'] ?? ''));
 

@@ -149,6 +149,7 @@
 <script>
 
 import { checkUpdate } from '../../js/api.js'
+import { APP_CONFIG } from '../../config.js'
 import { loadBootConfig, PUSH_VIBRATE, PUSH_WIFI_ONLY, PUSH_AUTO_RECONNECT, PUSH_HEARTBEAT, PUSH_RINGTONE, getMessages, clearMessages, getMessagesSize, formatBytes, PUSH_KEY } from '../../js/storage.js'
 import { disconnect, applySettings } from '../../js/ws.js'
 import { getDeviceInfo, checkNotificationPerm, checkBatteryOpt, openNotificationSetting, openBatteryOpt, openBrandSetting } from '../../js/permissions.js'
@@ -170,9 +171,9 @@ export default {
             heartbeat: 30,
             messagesCount: 0,
             messagesSizeStr: '0 B',
-            versionName: '1.0.0',
+            versionName: APP_CONFIG.version_name,
             updateTip: '点击检查最新版本',
-            buildTime: ''
+            buildTime: APP_CONFIG.build_time
         }
     },
     onShow: function() {
@@ -193,8 +194,13 @@ export default {
         this.ringtone = uni.getStorageSync(PUSH_RINGTONE) || 'default'
         this.messagesCount = getMessages().length
         this.messagesSizeStr = formatBytes(getMessagesSize())
-        this.versionName = cfg.version_name || '1.0.0'
-        this.buildTime = cfg.build_time || '—'
+        var _v3 = function(v, fb) {
+            if (!v || typeof v !== 'string' || v.length < 2) return fb
+            if (/default_key|placeholder/i.test(v)) return fb
+            return v
+        }
+        this.versionName = _v3(cfg.version_name, APP_CONFIG.version_name)
+        this.buildTime = _v3(cfg.build_time, APP_CONFIG.build_time) || '—'
     },
     methods: {
         goBack: function() { uni.navigateBack({ delta: 1 }) },

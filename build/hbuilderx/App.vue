@@ -33,6 +33,8 @@ export default {
             saveBootConfig('server_url', APP_CONFIG.server_url)
             saveBootConfig('ws_url', APP_CONFIG.ws_url)
             saveBootConfig('default_key', APP_CONFIG.default_key)
+            saveBootConfig('version_name', APP_CONFIG.version_name)
+            saveBootConfig('build_time', APP_CONFIG.build_time || '')
         } catch(e) {
             console.warn('[PushApp] boot config save failed:', e.message)
         }
