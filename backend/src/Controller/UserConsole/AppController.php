@@ -119,35 +119,40 @@ class AppController extends BaseUserController
             return $this->fail($context, 'api_base_url 不是合法 URL');
         }
 
-        // 如果用户没提供 api_base_url，用请求的 scheme://host + 配置的 user_api_prefix
+        // 从请求推导当前站点 scheme://host[:port]（api 和 ws 兜底共用）
+        $server = $context['server'] ?? [];
+        $isTls = !empty($server['https']) || ($server['server_port'] ?? null) == 443;
+        $scheme = $isTls ? 'https' : 'http';
+        $wsScheme = $isTls ? 'wss' : 'ws';
+        $host = $server['http_host'] ?? ($server['server_name'] ?? 'localhost');
+        $port = $server['server_port'] ?? null;
+        $portSuffix = '';
+        if ($port && !(($scheme === 'http' && $port == 80) || ($scheme === 'https' && $port == 443))) {
+            $portSuffix = ':' . $port;
+        }
+        $siteBase = "{$scheme}://{$host}{$portSuffix}";
+
+        // 如果用户没提供 api_base_url，用当前站点根地址
+        // 注意：设备端 API 挂在根路径 /api/*（/api/device/messages 等），
+        // 不能用用户控制台的 /user-api/ 前缀，否则 APP 内所有请求 404
         if ($apiBaseUrl === '') {
-            $settingsPaths = Database::fetch("SELECT config_value FROM admin_settings WHERE config_key = 'settings_paths' LIMIT 1");
-            $apiPrefix = '/user-api/';
-            if ($settingsPaths !== false) {
-                $p = json_decode((string)$settingsPaths['config_value'], true);
-                if (is_array($p) && !empty($p['user_api_prefix'])) {
-                    $apiPrefix = rtrim((string)$p['user_api_prefix'], '/') . '/';
-                }
-            }
-            $server = $context['server'] ?? [];
-            $scheme = (!empty($server['https']) || ($server['server_port'] ?? null) == 443) ? 'https' : 'http';
-            $host = $server['http_host'] ?? ($server['server_name'] ?? 'localhost');
-            $port = $server['server_port'] ?? null;
-            $portSuffix = '';
-            if ($port && !(($scheme === 'http' && $port == 80) || ($scheme === 'https' && $port == 443))) {
-                $portSuffix = ':' . $port;
-            }
-            $apiBaseUrl = "{$scheme}://{$host}{$portSuffix}{$apiPrefix}";
+            $apiBaseUrl = $siteBase . '/';
         }
         if ($wsUrl === '') {
-            $wsScheme = (!empty($server['https']) || ($server['server_port'] ?? null) == 443) ? 'wss' : 'ws';
-            $host = $server['http_host'] ?? ($server['server_name'] ?? 'localhost');
-            $port = $server['server_port'] ?? null;
-            $portSuffix = '';
-            if ($port && !(($wsScheme === 'ws' && $port == 80) || ($wsScheme === 'wss' && $port == 443))) {
-                $portSuffix = ':' . $port;
-            }
             $wsUrl = "{$wsScheme}://{$host}{$portSuffix}/ws";
+        }
+
+        // 默认推送 Key：表单没传时取当前用户第一个启用中的 Key，
+        // 之前不传导致生成的 config.js default_key 为空，APP 连不上（no_key）
+        $defaultKey = trim((string)($body['default_key'] ?? ''));
+        if ($defaultKey === '') {
+            $keyRow = Database::fetch(
+                'SELECT key_value FROM api_keys WHERE user_id = ? AND status = 1 ORDER BY id ASC LIMIT 1',
+                [$userId]
+            );
+            if (is_array($keyRow) && !empty($keyRow['key_value'])) {
+                $defaultKey = (string)$keyRow['key_value'];
+            }
         }
 
         $service = new \App\Service\HBuilderXService();
@@ -158,6 +163,7 @@ class AppController extends BaseUserController
                 'package_id'  => $packageId,
                 'api_base_url'=> rtrim($apiBaseUrl, '/') . '/',
                 'ws_url'      => rtrim($wsUrl, '/') . '/',
+                'default_key' => $defaultKey,
                 'icon_base64' => $iconBase64,
                 'template'    => $template,
             ]);
