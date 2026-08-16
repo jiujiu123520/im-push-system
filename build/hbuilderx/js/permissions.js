@@ -59,28 +59,70 @@ export function checkNotificationPerm() {
     } catch(e) { return false }
 }
 
-export function requestNotificationPerm() {
+// 检查 Android 13+ POST_NOTIFICATIONS 运行时权限（老版 showNotification 双重校验用）
+export function checkPostNotificationsPerm() {
     try {
-        if (typeof plus === 'undefined') return
+        if (typeof plus === 'undefined') return true
+        const Build = plus.android.importClass('android.os.Build')
+        if (Build.VERSION.SDK_INT < 33) return true
+        const main = plus.android.runtimeMainActivity()
+        const ContextCompat = plus.android.importClass('androidx.core.content.ContextCompat')
+        const Manifest = plus.android.importClass('android.Manifest')
+        const PackageManager = plus.android.importClass('android.content.pm.PackageManager')
+        const has = ContextCompat.checkSelfPermission(main, Manifest.permission.POST_NOTIFICATIONS)
+        return has === PackageManager.PERMISSION_GRANTED
+    } catch(e) {
+        console.warn('[Perm] checkPostNotificationsPerm fail', e)
+        return true
+    }
+}
+
+// 请求通知权限（老版三层递进：全局检查 → 系统弹框 → 用户确认后跳设置页）
+// opts.guide = true 时弹 uni.showModal 引导（收到推送时用，用户有动力开启）
+export function requestNotificationPerm(opts) {
+    try {
+        if (typeof plus === 'undefined') return false
+        const guide = opts && opts.guide
         const Build = plus.android.importClass('android.os.Build')
         const main = plus.android.runtimeMainActivity()
         const nm = main.getSystemService(main.NOTIFICATION_SERVICE)
-        if (nm.areNotificationsEnabled()) return
+        if (nm.areNotificationsEnabled()) return true
 
+        // Android 13+：先弹系统授权框
         if (Build.VERSION.SDK_INT >= 33) {
-            try {
-                const ActivityCompat = plus.android.importClass('androidx.core.app.ActivityCompat')
-                const Manifest = plus.android.importClass('android.Manifest')
-                ActivityCompat.requestPermissions(main, [Manifest.permission.POST_NOTIFICATIONS], 1001)
-            } catch(e) {
-                console.warn('[Perm] requestPermissions fail, fall back to settings', e)
+            if (!checkPostNotificationsPerm()) {
+                try {
+                    const ActivityCompat = plus.android.importClass('androidx.core.app.ActivityCompat')
+                    const Manifest = plus.android.importClass('android.Manifest')
+                    ActivityCompat.requestPermissions(main, [Manifest.permission.POST_NOTIFICATIONS], 1001)
+                    console.log('[Perm] 请求通知权限（Android 13+）')
+                } catch(e) {
+                    console.warn('[Perm] requestPermissions fail, fall back to settings', e)
+                }
+                return false
             }
         }
-        setTimeout(function() {
-            try { openNotificationSetting() } catch(e) {}
-        }, 600)
+
+        // 运行时权限已授予/不适用但全局关闭，或 <13 全局关闭：
+        // 仅在 guide=true（收到推送时）弹窗引导，避免启动/切前台反复打扰
+        if (!guide) return false
+
+        console.log('[Perm] 通知权限未开启，引导用户去设置')
+        uni.showModal({
+            title: '开启通知权限',
+            content: '为了让您及时收到推送消息，请在设置中开启通知权限',
+            confirmText: '去设置',
+            cancelText: '稍后再说',
+            success: (res) => {
+                if (res.confirm) {
+                    openNotificationSetting()
+                }
+            }
+        })
+        return false
     } catch(e) {
         console.warn('[Perm] requestNotificationPerm fail', e)
+        return false
     }
 }
 

@@ -1,7 +1,34 @@
 import { PUSH_VIBRATE, PUSH_RINGTONE } from './storage.js'
+import { checkNotificationPerm, checkPostNotificationsPerm, requestNotificationPerm } from './permissions.js'
 
 const CHANNEL_NORMAL = 'push_normal'
 const CHANNEL_SILENT = 'push_silent'
+
+// 创建"默认铃声"渠道（老版增强：锁屏可见 + 灯光 + 振动模式；已存在则跳过，不覆盖用户手动改的设置）
+function _createNormalChannel(nm, NotificationChannel, NotificationManager) {
+    var exist = nm.getNotificationChannel(CHANNEL_NORMAL)
+    if (exist !== null && exist !== undefined) return exist
+    var ch = new NotificationChannel(CHANNEL_NORMAL, '推送提醒 · 默认铃声', NotificationManager.IMPORTANCE_DEFAULT)
+    ch.enableVibration(true)
+    ch.setShowBadge(true)
+    ch.setDescription('推送消息通知（锁屏可见）')
+    ch.setLockscreenVisibility(1)  // VISIBILITY_PUBLIC 锁屏完全可见
+    try { ch.setLightColor(0xFF00FF00) } catch(e) {}
+    try { ch.setVibrationPattern([0, 200, 200, 200]) } catch(e) {}
+    nm.createNotificationChannel(ch)
+    return ch
+}
+
+// 创建"静默"渠道（已存在则跳过）
+function _createSilentChannel(nm, NotificationChannel, NotificationManager) {
+    var exist = nm.getNotificationChannel(CHANNEL_SILENT)
+    if (exist !== null && exist !== undefined) return exist
+    var ch = new NotificationChannel(CHANNEL_SILENT, '推送提醒 · 静默', NotificationManager.IMPORTANCE_LOW)
+    ch.enableVibration(false)
+    ch.setSound(null, null)
+    nm.createNotificationChannel(ch)
+    return ch
+}
 
 // 提前创建通知渠道（App 启动时调用，确保设置页可见 APP）
 export function ensureChannels() {
@@ -14,14 +41,8 @@ export function ensureChannels() {
         var NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
         var NotificationManager = plus.android.importClass('android.app.NotificationManager')
 
-        var chNormal = new NotificationChannel(CHANNEL_NORMAL, '推送提醒 · 默认铃声', NotificationManager.IMPORTANCE_DEFAULT)
-        chNormal.enableVibration(true)
-        nm.createNotificationChannel(chNormal)
-
-        var chSilent = new NotificationChannel(CHANNEL_SILENT, '推送提醒 · 静默', NotificationManager.IMPORTANCE_LOW)
-        chSilent.enableVibration(false)
-        chSilent.setSound(null, null)
-        nm.createNotificationChannel(chSilent)
+        _createNormalChannel(nm, NotificationChannel, NotificationManager)
+        _createSilentChannel(nm, NotificationChannel, NotificationManager)
     } catch(e) {
         console.warn('[Notify] ensureChannels fail', e)
     }
@@ -31,6 +52,28 @@ export function notify(title, content, priority) {
     if (!title && !content) return
     try {
         if (typeof plus !== 'undefined' && plus.android) {
+            // ========== 1. 检查全局通知开关（老版双重校验） ==========
+            if (checkNotificationPerm() === false) {
+                console.warn('[Notify] 通知权限未开启（全局禁用）')
+                uni.showToast({
+                    title: '通知权限未开启',
+                    icon: 'none',
+                    duration: 2500
+                })
+                requestNotificationPerm({ guide: true })
+                return false
+            }
+            // ========== 2. Android 13+ 检查 POST_NOTIFICATIONS 运行时权限 ==========
+            if (checkPostNotificationsPerm() === false) {
+                console.warn('[Notify] POST_NOTIFICATIONS 运行时权限未授予')
+                uni.showToast({
+                    title: '请授予通知权限（设置中开启）',
+                    icon: 'none',
+                    duration: 2500
+                })
+                requestNotificationPerm({ guide: true })
+                return false
+            }
             _nativeNotify(title, content, priority)
         }
     } catch(e) {
@@ -56,14 +99,9 @@ function _nativeNotify(title, content, priority) {
     if (Build.VERSION.SDK_INT >= 26) {
         var NotificationChannel = plus.android.importClass('android.app.NotificationChannel')
         if (!isSilent) {
-            var chNormal = new NotificationChannel(CHANNEL_NORMAL, '推送提醒 · 默认铃声', NotificationManager.IMPORTANCE_DEFAULT)
-            chNormal.enableVibration(true)
-            nm.createNotificationChannel(chNormal)
+            _createNormalChannel(nm, NotificationChannel, NotificationManager)
         }
-        var chSilent = new NotificationChannel(CHANNEL_SILENT, '推送提醒 · 静默', NotificationManager.IMPORTANCE_LOW)
-        chSilent.enableVibration(false)
-        chSilent.setSound(null, null)
-        nm.createNotificationChannel(chSilent)
+        _createSilentChannel(nm, NotificationChannel, NotificationManager)
     }
 
     var intent = new Intent(main, main.getClass())
