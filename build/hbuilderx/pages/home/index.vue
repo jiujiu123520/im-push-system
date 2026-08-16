@@ -57,6 +57,7 @@ import { getTheme, applyTheme, onThemeChange, offThemeChange } from '../../js/th
 import { applySafeArea } from '../../js/safe-area.js'
 import { requestNotificationPerm } from '../../js/permissions.js'
 import { getDeviceId } from '../../js/device-id.js'
+import { updateKeepAliveStatus } from '../../js/keepalive.js'
 import * as _cfg from '../../config.js'
 
 const _DEFAULT_CONFIG = {
@@ -164,6 +165,7 @@ export default {
     },
     methods: {
         _onState: function(s) {
+            updateKeepAliveStatus(s === 'connected')
             if (s === 'error') {
                 this.wsState = '连接错误'
                 this.stateLabel = '错误'
