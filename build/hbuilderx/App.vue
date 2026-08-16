@@ -19,11 +19,16 @@ const _DEFAULT_CONFIG = {
 
 const APP_CONFIG = Object.assign({}, _DEFAULT_CONFIG, (_cfg && _cfg.APP_CONFIG) || {})
 // config.js 字段为空时保留硬编码兜底（Object.assign 空字符串也会覆盖默认值）
+// 同时剥离首尾的反引号/引号/空白（从文档复制地址时 markdown 装饰字符会混入，导致 URL 非法）
 Object.keys(_DEFAULT_CONFIG).forEach(function(k) {
     var v = APP_CONFIG[k]
-    if (!v || typeof v !== 'string' || v.length < 2 || /example\.com|placeholder/i.test(v)) {
-        APP_CONFIG[k] = _DEFAULT_CONFIG[k]
+    if (typeof v === 'string') {
+        v = v.replace(/^[\s`'"]+|[\s`'"]+$/g, '')
     }
+    if (!v || typeof v !== 'string' || v.length < 2 || /example\.com|placeholder/i.test(v)) {
+        v = _DEFAULT_CONFIG[k]
+    }
+    APP_CONFIG[k] = v
 })
 
 function _looksEmpty(v) {

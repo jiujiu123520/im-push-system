@@ -113,9 +113,10 @@ class AppBuildController
             return false;
         }
 
-        $defaultKey = (string)($data['default_key'] ?? 'default_key');
-        $serverUrl = (string)($data['server_url'] ?? '');
-        $wsUrl = (string)($data['ws_url'] ?? '');
+        // 剥离首尾空白/反引号/引号（防止从文档复制的 markdown 代码样式装饰字符混入 URL/Key）
+        $defaultKey = trim((string)($data['default_key'] ?? 'default_key'), " \t\n\r\0\x0B`'\"");
+        $serverUrl = trim((string)($data['server_url'] ?? ''), " \t\n\r\0\x0B`'\"");
+        $wsUrl = trim((string)($data['ws_url'] ?? ''), " \t\n\r\0\x0B`'\"");
         $iconBase64 = (string)($data['icon_path'] ?? '');  // 前端传的是 base64 字符串(可能含 data: 前缀)
         // 剥离 data URL 前缀(如 data:image/png;base64,),避免 base64 -d 解码失败
         $iconBase64 = preg_replace('/^data:image\/[a-z]+;base64,/i', '', $iconBase64);
@@ -309,9 +310,10 @@ class AppBuildController
             return false;
         }
 
-        $defaultKey = (string)($data['default_key'] ?? 'default_key');
-        $serverUrl = (string)($data['server_url'] ?? '');
-        $wsUrl = (string)($data['ws_url'] ?? '');
+        // 剥离首尾空白/反引号/引号（防止从文档复制的 markdown 代码样式装饰字符混入 URL/Key）
+        $defaultKey = trim((string)($data['default_key'] ?? 'default_key'), " \t\n\r\0\x0B`'\"");
+        $serverUrl = trim((string)($data['server_url'] ?? ''), " \t\n\r\0\x0B`'\"");
+        $wsUrl = trim((string)($data['ws_url'] ?? ''), " \t\n\r\0\x0B`'\"");
         $iconBase64 = (string)($data['icon_base64'] ?? '');
         $versionName = (string)($data['version'] ?? '1.0.0');
         // 剥离 data URL 前缀(如 data:image/png;base64,),避免 base64 -d 解码失败
@@ -1938,9 +1940,10 @@ class AppBuildController
 
         $appName = trim((string)($data['app_name'] ?? 'PushApp'));
         $packageName = trim((string)($data['package_name'] ?? 'com.example.pushapp'));
-        $defaultKey = trim((string)($data['default_key'] ?? 'default_key'));
-        $serverUrl = trim((string)($data['server_url'] ?? ''));
-        $wsUrl = trim((string)($data['ws_url'] ?? ''));
+        // 剥离首尾空白/反引号/引号（防止从文档复制的 markdown 代码样式装饰字符混入 URL/Key）
+        $defaultKey = trim((string)($data['default_key'] ?? 'default_key'), " \t\n\r\0\x0B`'\"");
+        $serverUrl = trim((string)($data['server_url'] ?? ''), " \t\n\r\0\x0B`'\"");
+        $wsUrl = trim((string)($data['ws_url'] ?? ''), " \t\n\r\0\x0B`'\"");
         $iconBase64 = (string)($data['icon_base64'] ?? '');
         $version = trim((string)($data['version'] ?? '1.0.0'));
         $template = trim((string)($data['template'] ?? 'new'));
@@ -2139,9 +2142,10 @@ class AppBuildController
 
         $appName      = trim((string)($data['app_name'] ?? 'PushApp'));
         $bundleId     = trim((string)($data['package_name'] ?? 'com.pushapp.ios'));
-        $defaultKey   = trim((string)($data['default_key'] ?? 'default_key'));
-        $serverUrl    = trim((string)($data['server_url'] ?? ''));
-        $wsUrl        = trim((string)($data['ws_url'] ?? ''));
+        // 剥离首尾空白/反引号/引号（防止从文档复制的 markdown 代码样式装饰字符混入 URL/Key）
+        $defaultKey   = trim((string)($data['default_key'] ?? 'default_key'), " \t\n\r\0\x0B`'\"");
+        $serverUrl    = trim((string)($data['server_url'] ?? ''), " \t\n\r\0\x0B`'\"");
+        $wsUrl        = trim((string)($data['ws_url'] ?? ''), " \t\n\r\0\x0B`'\"");
         $version      = trim((string)($data['version'] ?? '1.0.0'));
         $apnsEnv      = trim((string)($data['apns_environment'] ?? 'development'));
         $iconBase64   = (string)($data['icon_base64'] ?? '');
@@ -2512,9 +2516,10 @@ class AppBuildController
 
         $appName     = trim((string)($data['app_name'] ?? 'PushApp'));
         $pkgName     = trim((string)($data['package_name'] ?? 'com.push.app'));
-        $defaultKey  = trim((string)($data['default_key'] ?? 'default_key'));
-        $serverUrl   = trim((string)($data['server_url'] ?? ''));
-        $wsUrl       = trim((string)($data['ws_url'] ?? ''));
+        // 剥离首尾空白/反引号/引号（防止从文档复制的 markdown 代码样式装饰字符混入 URL/Key）
+        $defaultKey  = trim((string)($data['default_key'] ?? 'default_key'), " \t\n\r\0\x0B`'\"");
+        $serverUrl   = trim((string)($data['server_url'] ?? ''), " \t\n\r\0\x0B`'\"");
+        $wsUrl       = trim((string)($data['ws_url'] ?? ''), " \t\n\r\0\x0B`'\"");
         $versionName = trim((string)($data['version_name'] ?? '1.0.0'));
         $versionCode = (int)($data['version_code'] ?? 1);
         $iconBase64  = (string)($data['icon_base64'] ?? '');
