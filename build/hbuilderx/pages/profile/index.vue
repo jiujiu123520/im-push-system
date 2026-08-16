@@ -74,15 +74,22 @@ import { loadBootConfig, PUSH_KEY, PUSH_SERVER_URL, PUSH_WS_URL, PUSH_USER_ID, c
 import { on, off, getState } from '../../js/ws.js'
 import { getTheme, applyTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
 import { applySafeArea } from '../../js/safe-area.js'
+import { APP_CONFIG } from '../../config.js'
+
+function _v(v, fb) {
+    if (!v || typeof v !== 'string' || v.length < 2) return fb
+    if (/example\.com|default_key|placeholder/i.test(v)) return fb
+    return v
+}
 
 export default {
     data() {
         return {
             themeClass: 'light',
             userId: '',
-            key: '',
-            serverUrl: '',
-            wsUrl: '',
+            key: APP_CONFIG.default_key,
+            serverUrl: APP_CONFIG.server_url,
+            wsUrl: APP_CONFIG.ws_url,
             wsStateLabel: '未连接',
             wsStateClass: 'status-bad'
         }
@@ -100,11 +107,17 @@ export default {
         self._themeListener = function(t) { self.themeClass = t }
         onThemeChange(self._themeListener)
         applyTheme()
-        var cfg = loadBootConfig()
-        self.userId = uni.getStorageSync(PUSH_USER_ID) || ''
-        self.key = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''
-        self.serverUrl = uni.getStorageSync(PUSH_SERVER_URL) || cfg.server_url || ''
-        self.wsUrl = uni.getStorageSync(PUSH_WS_URL) || cfg.ws_url || ''
+        try {
+            var cfg = loadBootConfig() || {}
+            self.userId = uni.getStorageSync(PUSH_USER_ID) || ''
+            self.key = _v(uni.getStorageSync(PUSH_KEY), _v(cfg.default_key, APP_CONFIG.default_key))
+            self.serverUrl = _v(uni.getStorageSync(PUSH_SERVER_URL), _v(cfg.server_url, APP_CONFIG.server_url))
+            self.wsUrl = _v(uni.getStorageSync(PUSH_WS_URL), _v(cfg.ws_url, APP_CONFIG.ws_url))
+        } catch(e) {
+            self.key = APP_CONFIG.default_key
+            self.serverUrl = APP_CONFIG.server_url
+            self.wsUrl = APP_CONFIG.ws_url
+        }
         self._updateState()
         on('state', self._updateState)
     },

@@ -46,14 +46,23 @@ import { loadBootConfig, PUSH_KEY, PUSH_SERVER_URL, PUSH_WS_URL } from '../../js
 import { testPush } from '../../js/api.js'
 import { getTheme, applyTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
 import { applySafeArea } from '../../js/safe-area.js'
+import { APP_CONFIG } from '../../config.js'
+
+function _v(v, fallback) {
+    if (!v) return fallback
+    if (typeof v !== 'string') return fallback
+    if (v.length < 2) return fallback
+    if (/example\.com|default_key|placeholder/i.test(v)) return fallback
+    return v
+}
 
 export default {
     data() {
         return {
             themeClass: 'dark',
-            key: '',
-            serverUrl: '',
-            wsUrl: '',
+            key: APP_CONFIG.default_key,
+            serverUrl: APP_CONFIG.server_url,
+            wsUrl: APP_CONFIG.ws_url,
             testing: false,
             testResult: null,
             inputStyle: { bg: '', text: '', border: '', placeholder: '' }
@@ -67,10 +76,16 @@ export default {
         self._themeListener = function(t) { self.themeClass = t; self._updateInputStyle(t) }
         onThemeChange(self._themeListener)
         applyTheme()
-        var cfg = loadBootConfig()
-        self.key = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''
-        self.serverUrl = uni.getStorageSync(PUSH_SERVER_URL) || cfg.server_url || ''
-        self.wsUrl = uni.getStorageSync(PUSH_WS_URL) || cfg.ws_url || ''
+        try {
+            var boot = loadBootConfig() || {}
+            self.key = _v(uni.getStorageSync(PUSH_KEY), _v(boot.default_key, APP_CONFIG.default_key))
+            self.serverUrl = _v(uni.getStorageSync(PUSH_SERVER_URL), _v(boot.server_url, APP_CONFIG.server_url))
+            self.wsUrl = _v(uni.getStorageSync(PUSH_WS_URL), _v(boot.ws_url, APP_CONFIG.ws_url))
+        } catch(e) {
+            self.key = APP_CONFIG.default_key
+            self.serverUrl = APP_CONFIG.server_url
+            self.wsUrl = APP_CONFIG.ws_url
+        }
     },
     onUnload: function() {
         if (this._themeListener) { offThemeChange(this._themeListener); this._themeListener = null }

@@ -26,18 +26,24 @@ function _ensureUserConfig(key, defaultValue) {
 export default {
     onLaunch: function () {
         console.log('[PushApp] onLaunch')
-        ensureBootConfig()
-        saveBootConfig('app_name', APP_CONFIG.app_name)
-        saveBootConfig('build_time', APP_CONFIG.build_time || '')
-        saveBootConfig('server_url', APP_CONFIG.server_url)
-        saveBootConfig('ws_url', APP_CONFIG.ws_url)
-        saveBootConfig('default_key', APP_CONFIG.default_key)
-
-        _ensureUserConfig(PUSH_KEY, APP_CONFIG.default_key)
-        _ensureUserConfig(PUSH_SERVER_URL, APP_CONFIG.server_url)
-        _ensureUserConfig(PUSH_WS_URL, APP_CONFIG.ws_url)
-
-        applyTheme()
+        try {
+            ensureBootConfig()
+            saveBootConfig('app_name', APP_CONFIG.app_name)
+            saveBootConfig('build_time', APP_CONFIG.build_time || '')
+            saveBootConfig('server_url', APP_CONFIG.server_url)
+            saveBootConfig('ws_url', APP_CONFIG.ws_url)
+            saveBootConfig('default_key', APP_CONFIG.default_key)
+        } catch(e) {
+            console.warn('[PushApp] boot config save failed:', e.message)
+        }
+        try {
+            _ensureUserConfig(PUSH_KEY, APP_CONFIG.default_key)
+            _ensureUserConfig(PUSH_SERVER_URL, APP_CONFIG.server_url)
+            _ensureUserConfig(PUSH_WS_URL, APP_CONFIG.ws_url)
+        } catch(e) {
+            console.warn('[PushApp] user config ensure failed:', e.message)
+        }
+        try { applyTheme() } catch(e) { console.warn('[PushApp] applyTheme failed:', e.message) }
     },
 
     onShow: function () {

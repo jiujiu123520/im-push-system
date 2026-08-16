@@ -55,18 +55,25 @@ import { notify } from '../../js/notify.js'
 import { testPush as apiTestPush } from '../../js/api.js'
 import { getTheme, applyTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
 import { applySafeArea } from '../../js/safe-area.js'
+import { APP_CONFIG } from '../../config.js'
+
+function _v(v, fb) {
+    if (!v || typeof v !== 'string' || v.length < 2) return fb
+    if (/example\.com|default_key|placeholder/i.test(v)) return fb
+    return v
+}
 
 export default {
     data() {
         return {
             themeClass: 'dark',
-            appName: 'PushApp',
+            appName: APP_CONFIG.app_name,
             wsState: '未连接',
             stateLabel: '离线',
             stateClass: 'status-bad',
-            wsUrl: '',
+            wsUrl: APP_CONFIG.ws_url,
             wsErrorMsg: '',
-            keyValue: '',
+            keyValue: APP_CONFIG.default_key,
             latency: -1,
             recentMessages: []
         }
@@ -81,10 +88,16 @@ export default {
         self._themeListener = function(t) { self.themeClass = t }
         onThemeChange(self._themeListener)
         applyTheme()
-        var cfg = loadBootConfig()
-        self.appName = cfg.app_name || 'PushApp'
-        self.keyValue = uni.getStorageSync(PUSH_KEY) || cfg.default_key || ''
-        self.wsUrl = uni.getStorageSync(PUSH_WS_URL) || cfg.ws_url || ''
+        try {
+            var cfg = loadBootConfig() || {}
+            self.appName = _v(cfg.app_name, APP_CONFIG.app_name)
+            self.keyValue = _v(uni.getStorageSync(PUSH_KEY), _v(cfg.default_key, APP_CONFIG.default_key))
+            self.wsUrl = _v(uni.getStorageSync(PUSH_WS_URL), _v(cfg.ws_url, APP_CONFIG.ws_url))
+        } catch(e) {
+            self.appName = APP_CONFIG.app_name
+            self.keyValue = APP_CONFIG.default_key
+            self.wsUrl = APP_CONFIG.ws_url
+        }
         self.recentMessages = getMessages().slice(0, 3)
 
         if (!self.keyValue) {
