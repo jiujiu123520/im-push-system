@@ -9,7 +9,9 @@
 
         <view class="glass-card" style="margin-top:0;margin:20rpx 24rpx;">
             <view class="glass-input" style="padding:16rpx 24rpx;font-size:26rpx;">
-                🔍 <input placeholder="搜索消息内容" v-model="keyword" style="background:transparent;border:none;color:var(--input-text);font-size:26rpx;flex:1;outline:none;" />
+                🔍 <input placeholder="搜索消息内容" v-model="keyword" :style="searchInputStyle"
+                       cursor-spacing="20" adjust-position="true" confirm-type="search"
+                       placeholder-style="color:rgba(150,150,160,0.6);" />
             </view>
             <view class="row" style="gap:12rpx;margin-top:20rpx;">
                 <text :class="['status-chip', curFilter === 'all' ? 'status-ok' : '']" @click="curFilter='all'">全部 {{ messages.length }}</text>
@@ -66,7 +68,9 @@ export default {
             messages: [],
             keyword: '',
             curFilter: 'all',
-            unreadCount: 0
+            unreadCount: 0,
+            // 原生 input 的 CSS var() 穿透不可靠，用 JS 注入 rgba（同 key-input 修复）
+            searchInputStyle: 'background:transparent;border:none;color:#ffffff;font-size:26rpx;flex:1;outline:none;'
         }
     },
     computed: {
@@ -85,8 +89,10 @@ export default {
     onShow: function() {
         applySafeArea()
         var self = this
-        self.themeClass = 'theme-' + getTheme()
-        self._themeListener = function(t) { self.themeClass = 'theme-' + t }
+        var t = getTheme()
+        self.themeClass = 'theme-' + t
+        self._updateSearchStyle(t)
+        self._themeListener = function(nt) { self.themeClass = 'theme-' + nt; self._updateSearchStyle(nt) }
         onThemeChange(self._themeListener)
         applyTheme()
         self._refresh()
@@ -100,6 +106,11 @@ export default {
         if (this._themeListener) { offThemeChange(this._themeListener); this._themeListener = null }
     },
     methods: {
+        _updateSearchStyle: function(theme) {
+            var dark = theme !== 'light'
+            var textColor = dark ? '#ffffff' : 'rgba(15,23,42,0.95)'
+            this.searchInputStyle = 'background:transparent;border:none;color:' + textColor + ';font-size:26rpx;flex:1;outline:none;'
+        },
         _refresh: function() {
             this.messages = getMessages()
             this.unreadCount = this.messages.filter(function(m){ return !m.read }).length
