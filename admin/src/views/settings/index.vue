@@ -1327,6 +1327,16 @@
           </el-button>
         </div>
 
+        <el-alert
+          v-if="systemInfoFetchFailed"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="系统信息获取失败"
+          description="接口调用失败，以下数据可能不准确，请点击右上角刷新重试"
+          style="margin-bottom: 12px"
+        />
+
         <div class="info-grid">
           <div class="info-item">
             <div class="info-label">
@@ -1875,10 +1885,11 @@ function regenerateSecret(key: 'jwtSecret' | 'aesKey') {
 
 // ---- 系统信息 ----
 const systemInfoLoading = ref(false)
+const systemInfoFetchFailed = ref(false)
 const systemInfo = reactive({
-  version: 'v2.5.0',
-  phpVersion: '8.2.7',
-  swooleVersion: '5.0.3',
+  version: '-',
+  phpVersion: '-',
+  swooleVersion: '-',
   redisStatus: 'ok' as 'ok' | 'error',
   mysqlStatus: 'ok' as 'ok' | 'error',
   diskUsed: 0,
@@ -1918,15 +1929,18 @@ async function fetchSystemInfo() {
   try {
     const res = await getSystemInfoApi()
     const d = res.data
-    systemInfo.version = d.version || systemInfo.version
+    if (d.version) systemInfo.version = d.version
+    if (d.php_version) systemInfo.phpVersion = d.php_version
+    if (d.swoole_version) systemInfo.swooleVersion = d.swoole_version
+    if (d.redis_status) systemInfo.redisStatus = d.redis_status === 'ok' ? 'ok' : 'error'
+    if (d.mysql_status) systemInfo.mysqlStatus = d.mysql_status === 'ok' ? 'ok' : 'error'
     systemInfo.diskUsed = d.disk?.used || 0
     systemInfo.diskTotal = d.disk?.total || 0
     systemInfo.uptime = d.uptime || 0
+    systemInfoFetchFailed.value = false
   } catch {
-    // 接口未就绪时使用占位数据
-    systemInfo.diskUsed = 18.6 * 1024 * 1024 * 1024
-    systemInfo.diskTotal = 50 * 1024 * 1024 * 1024
-    systemInfo.uptime = 86400 * 12 + 3600 * 5
+    // 接口失败时如实提示，不用占位数据伪装
+    systemInfoFetchFailed.value = true
   } finally {
     systemInfoLoading.value = false
   }

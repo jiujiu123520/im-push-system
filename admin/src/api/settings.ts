@@ -94,6 +94,10 @@ export function clearCacheApi() {
 export function getSystemInfoApi() {
   return get<{
     version: string
+    php_version: string
+    swoole_version: string
+    redis_status: string
+    mysql_status: string
     uptime: number
     cpu: number
     memory: { used: number; total: number }

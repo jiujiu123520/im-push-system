@@ -461,8 +461,34 @@ class SettingsController
             if ($cpu > 100) $cpu = 100.0;
         }
 
+        // PHP / Swoole 版本
+        $phpVersion = PHP_VERSION;
+        $swooleVersion = defined('SWOOLE_VERSION') ? SWOOLE_VERSION : (extension_loaded('swoole') ? phpversion('swoole') : '-');
+
+        // Redis 状态
+        $redisStatus = 'error';
+        try {
+            \App\Service\Redis::getInstance()->ping();
+            $redisStatus = 'ok';
+        } catch (\Throwable $e) {
+            $redisStatus = 'error';
+        }
+
+        // MySQL 状态
+        $mysqlStatus = 'error';
+        try {
+            \App\Service\Database::getInstance()->query('SELECT 1');
+            $mysqlStatus = 'ok';
+        } catch (\Throwable $e) {
+            $mysqlStatus = 'error';
+        }
+
         return [
             'version' => $version,
+            'php_version' => $phpVersion,
+            'swoole_version' => $swooleVersion,
+            'redis_status' => $redisStatus,
+            'mysql_status' => $mysqlStatus,
             'uptime'  => $uptime,
             'cpu'     => $cpu,
             'memory'  => [
