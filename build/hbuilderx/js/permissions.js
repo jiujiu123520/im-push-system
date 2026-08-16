@@ -77,7 +77,22 @@ export function checkPostNotificationsPerm() {
     }
 }
 
-// 请求通知权限（老版三层递进：全局检查 → 系统弹框 → 用户确认后跳设置页）
+// 引导弹窗：用户确认后跳 APP 通知设置页
+function _guideToSettings() {
+    uni.showModal({
+        title: '开启通知权限',
+        content: '系统授权框未能弹出（可能已被系统记住拒绝记录）。请在设置中手动开启"显示通知"',
+        confirmText: '去设置',
+        cancelText: '稍后再说',
+        success: (res) => {
+            if (res.confirm) {
+                openNotificationSetting()
+            }
+        }
+    })
+}
+
+// 请求通知权限（老版三层递进：全局检查 → 系统弹框 → 复查 → 引导跳设置页）
 // opts.guide = true 时弹 uni.showModal 引导（收到推送时用，用户有动力开启）
 export function requestNotificationPerm(opts) {
     try {
@@ -85,7 +100,7 @@ export function requestNotificationPerm(opts) {
         const guide = opts && opts.guide
         const Build = plus.android.importClass('android.os.Build')
         const main = plus.android.runtimeMainActivity()
-        const nm = main.getSystemService(main.NOTIFICATION_SERVICE)
+        const nm = main.getSystemService('notification')  // Context.NOTIFICATION_SERVICE 实际值
         if (nm.areNotificationsEnabled()) return true
 
         // Android 13+：先弹系统授权框
@@ -99,6 +114,33 @@ export function requestNotificationPerm(opts) {
                 } catch(e) {
                     console.warn('[Perm] requestPermissions fail, fall back to settings', e)
                 }
+                // 小米/Android 13+ 系统：授权框每个权限生命周期最多弹 2 次，
+                // 被拒过则 requestPermissions 静默失败（框不出现）。
+                // 延迟复查：仍未授予则引导用户去设置页手动开
+                setTimeout(function() {
+                    try {
+                        const nm2 = plus.android.runtimeMainActivity().getSystemService('notification')
+                        if (nm2.areNotificationsEnabled()) {
+                            console.log('[Perm] 用户已通过系统弹框授权')
+                            return
+                        }
+                        if (!checkPostNotificationsPerm()) {
+                            console.warn('[Perm] 授权框未出现或被拒（系统拒绝记录），引导手动开启')
+                            if (guide) {
+                                _guideToSettings()
+                            } else {
+                                // 冷启动场景：仅首次引导，避免每次启动都打扰
+                                try {
+                                    var guided = uni.getStorageSync('push_perm_guided')
+                                    if (!guided) {
+                                        uni.setStorageSync('push_perm_guided', 1)
+                                        _guideToSettings()
+                                    }
+                                } catch(_) {}
+                            }
+                        }
+                    } catch(e) {}
+                }, 1500)
                 return false
             }
         }
@@ -108,17 +150,7 @@ export function requestNotificationPerm(opts) {
         if (!guide) return false
 
         console.log('[Perm] 通知权限未开启，引导用户去设置')
-        uni.showModal({
-            title: '开启通知权限',
-            content: '为了让您及时收到推送消息，请在设置中开启通知权限',
-            confirmText: '去设置',
-            cancelText: '稍后再说',
-            success: (res) => {
-                if (res.confirm) {
-                    openNotificationSetting()
-                }
-            }
-        })
+        _guideToSettings()
         return false
     } catch(e) {
         console.warn('[Perm] requestNotificationPerm fail', e)
@@ -157,16 +189,16 @@ export function openNotificationSetting() {
         const Build = plus.android.importClass('android.os.Build')
         let intent
         if (Build.VERSION.SDK_INT >= 26) {
-            const nm = main.getSystemService(main.NOTIFICATION_SERVICE)
-            intent = new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+            // APP 级通知设置页（小米 HyperOS/原生 Android 都有"显示通知"总开关），
+            // 比单渠道设置页更上层，用户能直接开总开关
+            intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
             intent.putExtra(Settings.EXTRA_APP_PACKAGE, main.getPackageName())
-            const channels = nm.getActiveNotificationChannels()
-            if (channels && channels.length > 0) {
-                intent.putExtra(Settings.EXTRA_CHANNEL_ID, channels[0].getId())
-            }
         } else {
             intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            const Uri = plus.android.importClass('android.net.Uri')
+            intent.setData(Uri.parse('package:' + main.getPackageName()))
         }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         main.startActivity(intent)
     } catch(e) { openSystemSetting() }
 }
