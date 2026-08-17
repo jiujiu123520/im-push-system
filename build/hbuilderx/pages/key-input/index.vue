@@ -157,14 +157,26 @@ export default {
         try { boot = loadBootConfig() || {} } catch(e) {}
 
         // 读取三级配置：本地存储（自动清洗）→ boot 配置（清洗）→ config.js 硬编码
-        self.key = _readClean(PUSH_KEY, _clean(boot.default_key) || APP_CONFIG.default_key)
-        self.serverUrl = _readClean(PUSH_SERVER_URL, _clean(boot.server_url) || APP_CONFIG.server_url)
-        self.wsUrl = _readClean(PUSH_WS_URL, _clean(boot.ws_url) || APP_CONFIG.ws_url)
+        var finalKey = _readClean(PUSH_KEY, _clean(boot.default_key) || APP_CONFIG.default_key)
+        var finalServer = _readClean(PUSH_SERVER_URL, _clean(boot.server_url) || APP_CONFIG.server_url)
+        var finalWs = _readClean(PUSH_WS_URL, _clean(boot.ws_url) || APP_CONFIG.ws_url)
 
-        // 顶部"当前生效配置"展示同样的清洗结果
-        self.currentKey = self.key
-        self.currentServerUrl = self.serverUrl
-        self.currentWsUrl = self.wsUrl
+        // 顶部"当前生效配置"先赋值
+        self.currentKey = finalKey
+        self.currentServerUrl = finalServer
+        self.currentWsUrl = finalWs
+
+        // uni-app Vue2 在 APP-PLUS 上给原生 <input> 直接赋值有时不触发视图更新
+        // 用 $nextTick + $set 强制刷新（兼容 Android 12+ 原生 input 组件）
+        this.$nextTick(function() {
+            self.$set(self, 'key', finalKey)
+            self.$set(self, 'serverUrl', finalServer)
+            self.$set(self, 'wsUrl', finalWs)
+            // 二次 nextTick 确保 input 组件拿到值
+            self.$nextTick(function() {
+                self.$forceUpdate()
+            })
+        })
     },
     onUnload: function() {
         if (this._themeListener) { offThemeChange(this._themeListener); this._themeListener = null }
