@@ -1,7 +1,7 @@
 <template>
     <view :class="['glass-bg', themeClass]">
         <view class="top-bar">
-            <view class="row" >
+            <view class="row">
                 <text class="icon-btn" @click="goBack" style="font-size:36rpx;width:72rpx;height:72rpx;">‹</text>
                 <text class="top-bar-title" style="margin-left:20rpx;">服务器配置</text>
             </view>
@@ -28,31 +28,34 @@
             </view>
         </view>
 
-        <!-- 编辑表单 -->
+        <!-- 编辑表单（用 textarea 代替 input — uni-app APP-PLUS 上 textarea 更稳定） -->
         <view class="glass-card" style="margin-top:32rpx;">
             <view style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20rpx;">
                 <view style="font-size:28rpx;font-weight:600;">🔑 Push Key</view>
                 <text v-if="keyState !== 'empty'" :style="{ fontSize: '22rpx', color: keyState === 'ok' ? '#22c55e' : '#ef4444' }">{{ keyState === 'ok' ? '✓ 格式正确' : '✗ 长度不足' }}</text>
             </view>
-            <input class="glass-input" placeholder="粘贴你的 Push Key" placeholder-style="color:rgba(150,150,160,0.6);" v-model="key"
-                   cursor-spacing="20" adjust-position="true" confirm-type="done"
-                   :style="{ background: inputStyle.bg, color: inputStyle.text, borderColor: inputStyle.border }" />
+            <textarea class="glass-input" placeholder="粘贴你的 Push Key" placeholder-style="color:rgba(150,150,160,0.6);"
+                      :value="key" @input="onInputKey"
+                      cursor-spacing="20" auto-height
+                      :style="{ background: inputStyle.bg, color: inputStyle.text, borderColor: inputStyle.border }" />
 
             <view style="display:flex;align-items:center;justify-content:space-between;margin:32rpx 0 20rpx;">
                 <view style="font-size:28rpx;font-weight:600;">🌐 HTTP 服务器地址</view>
                 <text v-if="serverUrl" :style="{ fontSize: '22rpx', color: urlState.server ? '#22c55e' : '#ef4444' }">{{ urlState.server ? '✓ 地址有效' : '✗ 格式错误' }}</text>
             </view>
-            <input class="glass-input" placeholder="https://push.example.com" placeholder-style="color:rgba(150,150,160,0.6);" v-model="serverUrl"
-                   cursor-spacing="20" adjust-position="true" confirm-type="done" @blur="syncWsFromServer"
-                   :style="{ background: inputStyle.bg, color: inputStyle.text, borderColor: inputStyle.border }" />
+            <textarea class="glass-input" placeholder="https://push.example.com" placeholder-style="color:rgba(150,150,160,0.6);"
+                      :value="serverUrl" @input="onInputServer" @blur="syncWsFromServer"
+                      cursor-spacing="20" auto-height
+                      :style="{ background: inputStyle.bg, color: inputStyle.text, borderColor: inputStyle.border }" />
 
             <view style="display:flex;align-items:center;justify-content:space-between;margin:32rpx 0 20rpx;">
                 <view style="font-size:28rpx;font-weight:600;">🔗 WebSocket 地址</view>
                 <text v-if="wsUrl" :style="{ fontSize: '22rpx', color: urlState.ws ? '#22c55e' : '#ef4444' }">{{ urlState.ws ? '✓ 地址有效' : '✗ 格式错误' }}</text>
             </view>
-            <input class="glass-input" placeholder="wss://push.example.com/ws（留空自动生成）" placeholder-style="color:rgba(150,150,160,0.6);" v-model="wsUrl"
-                   cursor-spacing="20" adjust-position="true" confirm-type="done"
-                   :style="{ background: inputStyle.bg, color: inputStyle.text, borderColor: inputStyle.border }" />
+            <textarea class="glass-input" placeholder="wss://push.example.com/ws（留空自动生成）" placeholder-style="color:rgba(150,150,160,0.6);"
+                      :value="wsUrl" @input="onInputWs"
+                      cursor-spacing="20" auto-height
+                      :style="{ background: inputStyle.bg, color: inputStyle.text, borderColor: inputStyle.border }" />
             <view style="font-size:22rpx;opacity:0.5;margin-top:12rpx;">留空将根据 HTTP 地址自动生成（https→wss + /ws/client）</view>
 
             <button class="btn-primary" style="width:100%;margin-top:48rpx;" @click="confirm">保存并连接</button>
@@ -90,20 +93,17 @@ const _DEFAULT_CONFIG = {
     build_time: ''
 }
 const APP_CONFIG = Object.assign({}, _DEFAULT_CONFIG, (_cfg && _cfg.APP_CONFIG) || {})
-// config.js 字段为空/带装饰字符时保留硬编码兜底
 Object.keys(_DEFAULT_CONFIG).forEach(function(k) {
     var v = _clean(APP_CONFIG[k])
     if (!v || v.length < 2 || /example\.com|placeholder/i.test(v)) v = _DEFAULT_CONFIG[k]
     APP_CONFIG[k] = v
 })
 
-// 核心清洗：剥离首尾反引号/引号/空白（从文档复制地址时 markdown 装饰字符会混入）
 function _clean(v) {
     if (!v || typeof v !== 'string') return ''
     return v.replace(/^[\s`'"]+|[\s`'"]+$/g, '').trim()
 }
 
-// 读取 + 清洗：值为空/占位符时回退；脏值自动写回存储修复
 function _readClean(storageKey, fallback) {
     var raw = ''
     try { raw = uni.getStorageSync(storageKey) } catch(e) {}
@@ -120,9 +120,9 @@ export default {
     data() {
         return {
             themeClass: 'theme-dark',
-            key: APP_CONFIG.default_key,
-            serverUrl: APP_CONFIG.server_url,
-            wsUrl: APP_CONFIG.ws_url,
+            key: '',
+            serverUrl: '',
+            wsUrl: '',
             currentKey: '',
             currentServerUrl: '',
             currentWsUrl: '',
@@ -138,8 +138,8 @@ export default {
         },
         urlState: function() {
             return {
-                server: /^https?:\/\/[a-z0-9.-]+(:\d+)?(\/.*)?$/i.test(this.serverUrl.trim()),
-                ws: /^wss?:\/\/[a-z0-9.-]+(:\d+)?(\/.*)?$/i.test(this.wsUrl.trim())
+                server: /^https?:\/\/[a-z0-9.-]+(:\d+)?(\/.*)?$/i.test((this.serverUrl || '').trim()),
+                ws: /^wss?:\/\/[a-z0-9.-]+(:\d+)?(\/.*)?$/i.test((this.wsUrl || '').trim())
             }
         }
     },
@@ -166,29 +166,21 @@ export default {
         self.currentServerUrl = finalServer
         self.currentWsUrl = finalWs
 
-        // uni-app Vue2 在 APP-PLUS 上给原生 <input> 直接赋值有时不触发视图更新
-        // 用 $nextTick + $set 强制刷新（兼容 Android 12+ 原生 input 组件）
+        // textarea 在 APP-PLUS 上比 input 更稳定，用 $nextTick + \$set 双重保险
         this.$nextTick(function() {
-            self.$set(self, 'key', finalKey)
-            self.$set(self, 'serverUrl', finalServer)
-            self.$set(self, 'wsUrl', finalWs)
-            // 二次 nextTick 确保 input 组件拿到值
-            self.$nextTick(function() {
-                self.$forceUpdate()
-            })
+            self.key = finalKey
+            self.serverUrl = finalServer
+            self.wsUrl = finalWs
+            self.$forceUpdate()
         })
     },
     onUnload: function() {
         if (this._themeListener) { offThemeChange(this._themeListener); this._themeListener = null }
     },
-    watch: {
-        // 输入时实时清洗装饰字符，防止再次保存脏值
-        key: function(v) { var c = _clean(v); if (c !== v) this.key = c },
-        serverUrl: function(v) { var c = _clean(v); if (c !== v) this.serverUrl = c },
-        wsUrl: function(v) { var c = _clean(v); if (c !== v) this.wsUrl = c }
-    },
     methods: {
-        // 原生 input 的 CSS var() 穿透不可靠，用 JS 直接注入 rgba 颜色
+        onInputKey: function(e) { this.key = _clean(e && e.detail ? e.detail.value : e) },
+        onInputServer: function(e) { this.serverUrl = _clean(e && e.detail ? e.detail.value : e) },
+        onInputWs: function(e) { this.wsUrl = _clean(e && e.detail ? e.detail.value : e) },
         _updateInputStyle: function(theme) {
             var dark = theme !== 'light'
             this.inputStyle = {
@@ -200,7 +192,6 @@ export default {
         goBack: function() {
             uni.navigateBack({ delta: 1 })
         },
-        // WS 地址留空或与旧 HTTP 不匹配时，根据 HTTP 自动派生
         syncWsFromServer: function() {
             var s = (this.serverUrl || '').trim()
             if (!/^https?:\/\//i.test(s)) return
@@ -231,9 +222,9 @@ export default {
         },
         confirm: function() {
             var self = this
-            var key = (self.key || '').trim()
-            var serverUrl = (self.serverUrl || '').trim()
-            var wsUrl = (self.wsUrl || '').trim()
+            var key = _clean(self.key)
+            var serverUrl = _clean(self.serverUrl)
+            var wsUrl = _clean(self.wsUrl)
 
             if (!key) { uni.showToast({ title: '请填写 Push Key', icon: 'none' }); return }
             if (key.length < 16) { uni.showToast({ title: 'Key 长度不足，请检查', icon: 'none' }); return }
@@ -252,8 +243,8 @@ export default {
         },
         testConnection: function() {
             var self = this
-            var serverUrl = (self.serverUrl || '').trim()
-            var key = (self.key || '').trim()
+            var serverUrl = _clean(self.serverUrl)
+            var key = _clean(self.key)
             if (!serverUrl || !key) {
                 self.testResult = { ok: false, message: '请先填写服务器地址和 Push Key' }
                 return
@@ -295,5 +286,6 @@ export default {
     flex: 1;
     font-size: 24rpx;
     word-break: break-all;
+    opacity: 0.9;
 }
 </style>

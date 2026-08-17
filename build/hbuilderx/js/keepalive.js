@@ -61,11 +61,15 @@ export function startKeepAlive(connected) {
         if (_lastStartTs && (now - _lastStartTs) < 5000) return
         _lastStartTs = now
 
-        _showForegroundNotification(connected === true)
         _acquireWakeLock()
         _acquireWifiLock()
         setupAlarmHeartbeat()
         _registerScreenReceiver()
+
+        // 常驻通知不在此处显示 — 由 ws.js state 变化时通过 updateKeepAliveStatus 触发
+        // 避免 startKeepAlive() 时立刻显示"正在连接..."然后永远不变
+        // 第一次状态更新（home 页面 onShow 时 getState + connect 触发 state 变化）会自动显示
+
         console.log('[KeepAlive] 前台服务保活已启动')
     } catch(e) {
         console.warn('[KeepAlive] start fail', e)

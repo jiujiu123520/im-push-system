@@ -88,15 +88,22 @@ function registerListeners() {
 
 function _normalizeWsUrl(url) {
     if (!url) return url
-    var trimmed = url.trim().replace(/\/+$/, '')
-    if (/\/(ws|ws\/client)$/i.test(trimmed)) return trimmed
+    // 关键修复：先剥离首尾反引号/引号/空白（用户从文档复制地址时 markdown 装饰字符会混入）
+    var cleaned = String(url).replace(/^[\s`'"]+|[\s`'"]+$/g, '').trim()
+    cleaned = cleaned.replace(/\/+$/, '')
+    if (/\/(ws|ws\/client)$/i.test(cleaned)) return cleaned
     // 去掉尾部 path 后，如果没有端口也没有 path，补上 /ws/client
-    if (!/:\d+$/.test(trimmed.replace(/^wss?:\/\//, ''))) {
+    if (!/:\d+$/.test(cleaned.replace(/^wss?:\/\//, ''))) {
         // 默认端口场景（wss → 443, ws → 80）：检查是否带 path
-        var afterProto = trimmed.replace(/^wss?:\/\//, '')
-        if (afterProto.indexOf('/') === -1) return trimmed + '/ws/client'
+        var afterProto = cleaned.replace(/^wss?:\/\//, '')
+        if (afterProto.indexOf('/') === -1) return cleaned + '/ws/client'
     }
-    return trimmed
+    return cleaned
+}
+
+function _cleanAuthKey(key) {
+    if (!key) return key
+    return String(key).replace(/^[\s`'"]+|[\s`'"]+$/g, '').trim()
 }
 
 export function connect(url, key) {
@@ -110,7 +117,7 @@ export function connect(url, key) {
     }
     currentUrl = _normalizeWsUrl(url)
     if (currentUrl !== url) console.log('[Ws] normalized ws url:', url, '→', currentUrl)
-    currentKey = key
+    currentKey = _cleanAuthKey(key)
     shouldReconnect = true
     reconnectAttempts = 0
     _loadSettings()
