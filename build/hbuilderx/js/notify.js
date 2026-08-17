@@ -122,11 +122,19 @@ function _nativeNotify(title, content, priority) {
         }
     }
 
+    // ========== 4.5 获取小图标（移植老版 getNotificationSmallIcon） ==========
+    let smallIcon = 17301651
+    try {
+        const appInfo = main.getApplicationInfo()
+        const icon = appInfo.icon
+        if (icon && icon > 0) smallIcon = icon
+    } catch(e) { console.warn('[Notify] 获取 APP 图标失败，使用默认', e) }
+
     // ========== 5. 设置属性（老版完整参数 + PRIORITY_MAX） ==========
     try {
         builder.setContentTitle(notifTitle)
         builder.setContentText(notifContent)
-        builder.setSmallIcon(17301651)  // android.R.drawable.ic_dialog_info
+        builder.setSmallIcon(smallIcon)
         if (contentIntent) builder.setContentIntent(contentIntent)
         builder.setAutoCancel(true)
         try { builder.setTicker('收到推送：' + notifTitle) } catch(_) {}
