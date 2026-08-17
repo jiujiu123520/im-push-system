@@ -1,6 +1,26 @@
 import { addMessage, PUSH_HEARTBEAT, PUSH_AUTO_RECONNECT, PUSH_WIFI_ONLY } from './storage.js'
 import * as _cfg from '../config.js'
 import { getDeviceId } from './device-id.js'
+import { setAlarmHandler } from './keepalive.js'
+
+// AlarmManager 闹钟唤醒时回调（移植老版策略）：
+// 已连接 → 立即发 ping 保活；断开 → 触发重连
+setAlarmHandler(function() {
+    if (state === 'connected') {
+        try {
+            uni.sendSocketMessage({ data: JSON.stringify({ type: 'ping', ts: Date.now() }) })
+            console.log('[Ws] ⏰ alarm heartbeat sent')
+        } catch(e) {
+            console.warn('[Ws] alarm heartbeat send fail', e)
+            _onSocketLost()
+        }
+    } else if (shouldReconnect && currentUrl && currentKey) {
+        console.log('[Ws] ⏰ alarm trigger reconnect')
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+        reconnectAttempts = 0
+        _doConnect()
+    }
+})
 
 const _appVersion = (_cfg && _cfg.APP_CONFIG && _cfg.APP_CONFIG.version_name) || '1.0.0'
 

@@ -69,16 +69,21 @@ const _DEFAULT_CONFIG = {
     build_time: ''
 }
 const APP_CONFIG = Object.assign({}, _DEFAULT_CONFIG, (_cfg && _cfg.APP_CONFIG) || {})
-// config.js 字段为空时保留硬编码兜底（Object.assign 空字符串也会覆盖默认值）
+// config.js 字段为空时保留硬编码兜底 + 剥离首尾反引号/引号/空白
 Object.keys(_DEFAULT_CONFIG).forEach(function(k) {
     var v = APP_CONFIG[k]
-    if (!v || typeof v !== 'string' || v.length < 2 || /example\.com|placeholder/i.test(v)) {
+    if (typeof v === 'string') v = v.replace(/^[\s`'"]+|[\s`'"]+$/g, '').trim()
+    if (!v || v.length < 2 || /example\.com|placeholder/i.test(v)) {
         APP_CONFIG[k] = _DEFAULT_CONFIG[k]
+    } else {
+        APP_CONFIG[k] = v
     }
 })
 
 function _v(v, fb) {
-    if (!v || typeof v !== 'string' || v.length < 2) return fb
+    if (!v || typeof v !== 'string') return fb
+    v = v.replace(/^[\s`'"]+|[\s`'"]+$/g, '').trim()  // 剥离反引号/引号/空白
+    if (v.length < 2) return fb
     if (/example\.com|default_key|placeholder/i.test(v)) return fb
     return v
 }

@@ -2,7 +2,7 @@
 import { ensureBootConfig, loadBootConfig, saveBootConfig, clearBootConfig,
          PUSH_KEY, PUSH_SERVER_URL, PUSH_WS_URL } from './js/storage.js'
 import { connect, disconnect, reconnect, isConnected } from './js/ws.js'
-import { startKeepAlive, stopKeepAlive } from './js/keepalive.js'
+import { startKeepAlive, stopKeepAlive, checkBatteryOptimization, checkXiaomiAutoStart } from './js/keepalive.js'
 import { applyTheme } from './js/theme.js'
 import { requestNotificationPerm } from './js/permissions.js'
 import { ensureChannels } from './js/notify.js'
@@ -86,6 +86,15 @@ export default {
                 connect(wsUrl, key)
             }
         }
+
+        // 保活权限引导（移植老版：延迟弹出避免和通知权限弹窗叠加）
+        // 2 秒后电池优化白名单，4 秒后小米自启动（各自有节流/只提示一次逻辑）
+        setTimeout(function() {
+            try { checkBatteryOptimization() } catch(e) {}
+        }, 2000)
+        setTimeout(function() {
+            try { checkXiaomiAutoStart() } catch(e) {}
+        }, 4000)
     },
 
     onHide: function () {
