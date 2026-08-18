@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
    Theme Tokens — 单一事实源
    默认：浅色玻璃（B）  可选：dark 深色玻璃（A） / flat 渐变卡片（C）
    ============================================================ */
@@ -247,20 +247,72 @@ page {
     font-size: 30rpx;
 }
 
+/* ============================================================
+   重要：APP-PLUS 原生 <input> / <textarea> 组件完全不识别 CSS 变量！
+   如果写 color: var(--input-text) 会导致文字透明（看不见输入的内容）！
+   所以 .glass-input 的 color 必须写具体色值，主题切换时通过 [data-theme] 前缀覆盖。
+   ============================================================ */
 .glass-input {
-    background: var(--input-bg);
-    border: 1px solid var(--input-border);
+    background: rgba(0, 0, 0, 0.04);
+    border: 1px solid rgba(0, 0, 0, 0.1);
     border-radius: 14rpx;
     padding: 24rpx 30rpx;
-    color: var(--input-text);
+    /* 浅色：具体 rgba，不用 CSS 变量！ */
+    color: rgba(15, 23, 42, 0.95) !important;
     font-size: 28rpx;
     width: 100%;
     box-sizing: border-box;
+    /* 强制占位符也用具体色（部分机型 input::placeholder 也不认变量） */
+    -webkit-text-fill-color: rgba(15, 23, 42, 0.95);
 }
 
 .glass-input:focus {
-    border-color: var(--input-border-focus);
-    background: var(--input-bg-focus);
+    border-color: rgba(99, 102, 241, 0.5);
+    background: rgba(0, 0, 0, 0.08);
+}
+
+/* 深色主题覆盖：硬编码具体色值，不用 var(--xxx) */
+page[data-theme="dark"] .glass-input,
+.theme-dark .glass-input {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff;
+}
+page[data-theme="dark"] .glass-input:focus,
+.theme-dark .glass-input:focus {
+    border-color: rgba(139, 92, 246, 0.6);
+    background: rgba(255, 255, 255, 0.12);
+}
+
+/* flat 主题覆盖：硬编码具体色值 */
+page[data-theme="flat"] .glass-input,
+.theme-flat .glass-input {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff;
+}
+page[data-theme="flat"] .glass-input:focus,
+.theme-flat .glass-input:focus {
+    border-color: rgba(255, 107, 107, 0.6);
+    background: rgba(255, 255, 255, 0.14);
+}
+
+/* 占位符：同样用具体色值，避免 var(...) */
+input::placeholder,
+textarea::placeholder {
+    color: rgba(15, 23, 42, 0.35) !important;
+}
+page[data-theme="dark"] input::placeholder,
+.theme-dark input::placeholder,
+page[data-theme="flat"] input::placeholder,
+.theme-flat input::placeholder,
+page[data-theme="dark"] textarea::placeholder,
+.theme-dark textarea::placeholder,
+page[data-theme="flat"] textarea::placeholder,
+.theme-flat textarea::placeholder {
+    color: rgba(255, 255, 255, 0.35) !important;
 }
 
 .status-chip {
@@ -402,12 +454,6 @@ page {
     background: var(--btn-primary-bg-1);
     color: #fff;
     box-shadow: 0 2rpx 8rpx rgba(99,102,241,.3);
-}
-
-/* -------- placeholder: 跟随主题 -------- */
-input::placeholder,
-textarea::placeholder {
-    color: var(--input-placeholder);
 }
 
 /* -------- 链接按钮（主题自适应） -------- */

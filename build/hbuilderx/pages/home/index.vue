@@ -202,8 +202,9 @@ export default {
             uni.showToast({ title: msg, icon: 'none', duration: 2000 })
         },
         _onMessage: function(msg) {
+            // 关键修复：ws.js 收到 push 已经调了 showNotification()，这里不能再重复调 notify()
+            // 否则会每条推送显示 2 次通知栏！
             this.recentMessages = getMessages().slice(0, 3)
-            notify(msg.title, msg.content, msg.priority)
         },
         testPush: function() {
             var cfg = loadBootConfig()
@@ -212,10 +213,29 @@ export default {
             var deviceId = getDeviceId()
             var self = this
             apiTestPush(base, this.keyValue, deviceId).then(function(r) {
-                uni.showToast({ title: (r && r.message) || '测试推送已发送', icon: 'success' })
+                uni.showToast({ title: (r && r.message) || '测试推送已发送，请留意通知栏', icon: 'success' })
             }).catch(function() {
-                uni.showToast({ title: '测试推送已发送（无响应）', icon: 'none' })
-                self._onMessage({ title: '测试推送', content: '这是一条测试推送消息', priority: 'default', timestamp: Date.now() })
+                uni.showToast({ title: '测试推送已发送（无响应），本地模拟一条', icon: 'none' })
+                // 本地模拟推送：先存消息列表 + 本地弹通知
+                try {
+                    var addMsg = require('../../js/storage.js').addMessage
+                    var testMsg = {
+                        id: 'local-test-' + Date.now(),
+                        title: '📣 测试推送',
+                        content: '这是一条本地测试消息，如果通知栏能看到说明链路正常 ✅',
+                        priority: 'high',
+                        timestamp: Date.now(),
+                        read: false
+                    }
+                    if (addMsg) addMsg(testMsg)
+                    self.recentMessages = getMessages().slice(0, 3)
+                    // 本地直接弹通知栏
+                    try { notify(testMsg.title, testMsg.content, testMsg.priority) } catch (e) {
+                        console.error('[Home] 本地测试通知失败', e)
+                    }
+                } catch (e2) {
+                    console.error('[Home] 本地模拟推送异常', e2)
+                }
             })
         },
         reconnect: function() {

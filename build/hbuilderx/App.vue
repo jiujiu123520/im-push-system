@@ -81,8 +81,11 @@ export default {
         var wsUrl = uni.getStorageSync('push_ws_url') || config.ws_url || APP_CONFIG.ws_url
 
         if (key && wsUrl) {
-            startKeepAlive()
-            if (!isConnected()) {
+            // 关键修复：传 connected 参数给 startKeepAlive，常驻通知才会显示「已连接」而非一直显示「正在连接...」
+            var connected = false
+            try { connected = isConnected() } catch(e) { connected = false }
+            startKeepAlive(connected)
+            if (!connected) {
                 connect(wsUrl, key)
             }
         }

@@ -1,3 +1,13 @@
+// ============================================================
+// 权限模块（完全移植老版本 requestNotificationPerm 三层递进逻辑）
+// 1. 检查全局通知 nm.areNotificationsEnabled()
+// 2. Android 13+ 检查 POST_NOTIFICATIONS 运行时权限
+// 3. 系统授权框（ActivityCompat.requestPermissions）
+// 4. 1.5s 复查：Android 13+ 同一权限生命周期最多弹 2 次，
+//    被拒过则 requestPermissions 静默失败 → 引导跳设置页手动开启
+// 5. 冷启动节流：首次启动只引导一次，存 push_perm_guided 标记
+// ============================================================
+
 const BRAND_ACTIONS = {
     'Xiaomi': {
         autoStart: ['miui.intent.action.OP_AUTO_START'],
@@ -54,12 +64,13 @@ export function checkNotificationPerm() {
     try {
         if (typeof plus === 'undefined') return true
         const main = plus.android.runtimeMainActivity()
-        const nm = main.getSystemService('notification')  // Context.NOTIFICATION_SERVICE 实际值
+        const Context = plus.android.importClass('android.content.Context')
+        const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
         return nm.areNotificationsEnabled()
     } catch(e) { return false }
 }
 
-// 检查 Android 13+ POST_NOTIFICATIONS 运行时权限（老版 showNotification 双重校验用）
+// 检查 Android 13+ POST_NOTIFICATIONS 运行时权限
 export function checkPostNotificationsPerm() {
     try {
         if (typeof plus === 'undefined') return true
@@ -77,11 +88,17 @@ export function checkPostNotificationsPerm() {
     }
 }
 
+// 全局通知权限 + 运行时权限 双重检查
+export function checkNotificationPermFull() {
+    if (!checkNotificationPerm()) return false
+    return checkPostNotificationsPerm()
+}
+
 // 引导弹窗：用户确认后跳 APP 通知设置页
-function _guideToSettings() {
+function _guideToSettings(msg) {
     uni.showModal({
         title: '开启通知权限',
-        content: '系统授权框未能弹出（可能已被系统记住拒绝记录）。请在设置中手动开启"显示通知"',
+        content: msg || '系统授权框未能弹出（可能已被系统记住拒绝记录）。请在设置中手动开启"显示通知"',
         confirmText: '去设置',
         cancelText: '稍后再说',
         success: (res) => {
@@ -92,42 +109,64 @@ function _guideToSettings() {
     })
 }
 
-// 请求通知权限（老版三层递进：全局检查 → 系统弹框 → 复查 → 引导跳设置页）
-// opts.guide = true 时弹 uni.showModal 引导（收到推送时用，用户有动力开启）
+/**
+ * 请求通知权限（老版三层递进：全局检查 → 系统弹框 → 1.5s 复查 → 引导跳设置页）
+ * @param {object} opts
+ * @param {boolean} opts.guide - true 时弹 uni.showModal 强制引导（收到推送时用，用户有动力开启）
+ *                              false/不传时冷启动场景：仅首次引导，存 push_perm_guided 节流
+ */
 export function requestNotificationPerm(opts) {
     try {
         if (typeof plus === 'undefined') return false
         const guide = opts && opts.guide
         const Build = plus.android.importClass('android.os.Build')
         const main = plus.android.runtimeMainActivity()
-        const nm = main.getSystemService('notification')  // Context.NOTIFICATION_SERVICE 实际值
-        if (nm.areNotificationsEnabled()) return true
+        const Context = plus.android.importClass('android.content.Context')
+        const nm = main.getSystemService(Context.NOTIFICATION_SERVICE)
 
-        // Android 13+：先弹系统授权框
+        // 第一层：全局通知已开启 → 直接过
+        if (nm.areNotificationsEnabled()) {
+            console.log('[Perm] 通知权限已开启（全局开关）')
+            // 再确认一下运行时权限（理论上全局开了运行时也开了）
+            if (Build.VERSION.SDK_INT >= 33 && !checkPostNotificationsPerm()) {
+                // 极少数情况：全局开了但运行时没开 → 补一下请求
+                try {
+                    const ActivityCompat = plus.android.importClass('androidx.core.app.ActivityCompat')
+                    const Manifest = plus.android.importClass('android.Manifest')
+                    ActivityCompat.requestPermissions(main, [Manifest.permission.POST_NOTIFICATIONS], 1001)
+                } catch (_) {}
+            }
+            return true
+        }
+
+        // 第二层：Android 13+ → 先弹系统授权框
         if (Build.VERSION.SDK_INT >= 33) {
             if (!checkPostNotificationsPerm()) {
                 try {
                     const ActivityCompat = plus.android.importClass('androidx.core.app.ActivityCompat')
                     const Manifest = plus.android.importClass('android.Manifest')
                     ActivityCompat.requestPermissions(main, [Manifest.permission.POST_NOTIFICATIONS], 1001)
-                    console.log('[Perm] 请求通知权限（Android 13+）')
+                    console.log('[Perm] 请求通知权限（Android 13+ 系统授权框）')
                 } catch(e) {
-                    console.warn('[Perm] requestPermissions fail, fall back to settings', e)
+                    console.warn('[Perm] ActivityCompat.requestPermissions 失败，回退引导设置', e)
                 }
-                // 小米/Android 13+ 系统：授权框每个权限生命周期最多弹 2 次，
+
+                // 关键修复（老版核心逻辑）：
+                // Android 13+ 对同一权限生命周期最多弹 2 次系统授权框，
                 // 被拒过则 requestPermissions 静默失败（框不出现）。
-                // 延迟复查：仍未授予则引导用户去设置页手动开
+                // 延迟 1.5s 复查：仍未授予 → 判断是「被拒/没弹」 → 引导用户去设置页手动开
                 setTimeout(function() {
                     try {
-                        const nm2 = plus.android.runtimeMainActivity().getSystemService('notification')
+                        const nm2 = plus.android.runtimeMainActivity().getSystemService(Context.NOTIFICATION_SERVICE)
                         if (nm2.areNotificationsEnabled()) {
-                            console.log('[Perm] 用户已通过系统弹框授权')
+                            console.log('[Perm] 用户已通过系统授权框授予通知权限 ✅')
                             return
                         }
                         if (!checkPostNotificationsPerm()) {
-                            console.warn('[Perm] 授权框未出现或被拒（系统拒绝记录），引导手动开启')
+                            console.warn('[Perm] 1.5s 复查：系统授权框未出现或被拒（系统拒绝记录）→ 引导手动开启')
                             if (guide) {
-                                _guideToSettings()
+                                // 收到推送场景：强制引导（用户有动力开启）
+                                _guideToSettings('收到了新推送但通知权限未开启，请在设置中手动开启"显示通知"以查看消息')
                             } else {
                                 // 冷启动场景：仅首次引导，避免每次启动都打扰
                                 try {
@@ -135,25 +174,42 @@ export function requestNotificationPerm(opts) {
                                     if (!guided) {
                                         uni.setStorageSync('push_perm_guided', 1)
                                         _guideToSettings()
+                                    } else {
+                                        console.log('[Perm] 冷启动已引导过一次，跳过（用户去设置里可手动开启）')
                                     }
-                                } catch(_) {}
+                                } catch(_) {
+                                    // 存储失败也强制引导一次
+                                    _guideToSettings()
+                                }
                             }
                         }
-                    } catch(e) {}
+                    } catch(e) {
+                        console.warn('[Perm] 1.5s 复查异常', e)
+                    }
                 }, 1500)
                 return false
             }
         }
 
-        // 运行时权限已授予/不适用但全局关闭，或 <13 全局关闭：
-        // 仅在 guide=true（收到推送时）弹窗引导，避免启动/切前台反复打扰
-        if (!guide) return false
+        // 第三层：<Android 13 全局开关关闭，或运行时权限已授予但全局仍关闭
+        //   - guide=true（收到推送时）：强制弹窗引导
+        //   - guide=false（冷启动）：仅首次引导节流
+        if (!guide) {
+            try {
+                var guided2 = uni.getStorageSync('push_perm_guided')
+                if (!guided2) {
+                    uni.setStorageSync('push_perm_guided', 1)
+                    _guideToSettings()
+                }
+            } catch(_) {}
+            return false
+        }
 
-        console.log('[Perm] 通知权限未开启，引导用户去设置')
-        _guideToSettings()
+        console.log('[Perm] 通知权限未开启（guide=true），引导用户去设置')
+        _guideToSettings('收到了新推送但通知权限未开启，请在设置中开启通知以查看消息')
         return false
     } catch(e) {
-        console.warn('[Perm] requestNotificationPerm fail', e)
+        console.warn('[Perm] requestNotificationPerm 顶层异常', e)
         return false
     }
 }
@@ -162,7 +218,8 @@ export function checkBatteryOpt() {
     try {
         if (typeof plus === 'undefined') return true
         const main = plus.android.runtimeMainActivity()
-        const pm = main.getSystemService('power')  // Context.POWER_SERVICE 实际值
+        const Context = plus.android.importClass('android.content.Context')
+        const pm = main.getSystemService(Context.POWER_SERVICE)
         return pm.isIgnoringBatteryOptimizations(main.getPackageName())
     } catch(e) { return true }
 }
@@ -176,10 +233,12 @@ export function openSystemSetting() {
         const intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
         const Uri = plus.android.importClass('android.net.Uri')
         intent.setData(Uri.parse('package:' + main.getPackageName()))
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         main.startActivity(intent)
-    } catch(e) { console.warn('[Perm] openSetting fail', e) }
+    } catch(e) { console.warn('[Perm] openSystemSetting fail', e) }
 }
 
+// 跳 APP 级通知设置页（比单渠道设置页更上层，有"显示通知"总开关）
 export function openNotificationSetting() {
     try {
         if (typeof plus === 'undefined') return
@@ -189,8 +248,6 @@ export function openNotificationSetting() {
         const Build = plus.android.importClass('android.os.Build')
         let intent
         if (Build.VERSION.SDK_INT >= 26) {
-            // APP 级通知设置页（小米 HyperOS/原生 Android 都有"显示通知"总开关），
-            // 比单渠道设置页更上层，用户能直接开总开关
             intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
             intent.putExtra(Settings.EXTRA_APP_PACKAGE, main.getPackageName())
         } else {
@@ -200,7 +257,15 @@ export function openNotificationSetting() {
         }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         main.startActivity(intent)
-    } catch(e) { openSystemSetting() }
+    } catch(e) {
+        console.warn('[Perm] openNotificationSetting 直接路径失败，回退系统设置页', e)
+        openSystemSetting()
+    }
+}
+
+// 兼容别名（老版本代码可能用这个名字）
+export function openNotificationSettings() {
+    openNotificationSetting()
 }
 
 export function openBatteryOpt() {
@@ -212,6 +277,7 @@ export function openBatteryOpt() {
         const Uri = plus.android.importClass('android.net.Uri')
         const intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
         intent.setData(Uri.parse('package:' + main.getPackageName()))
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         main.startActivity(intent)
     } catch(e) {
         try {
@@ -219,6 +285,7 @@ export function openBatteryOpt() {
             const Intent2 = plus.android.importClass('android.content.Intent')
             const Settings2 = plus.android.importClass('android.provider.Settings')
             const i = new Intent2(Settings2.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            i.addFlags(Intent2.FLAG_ACTIVITY_NEW_TASK)
             main2.startActivity(i)
         } catch(e2) { openSystemSetting() }
     }

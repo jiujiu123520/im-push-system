@@ -1,10 +1,45 @@
 import { addMessage, PUSH_HEARTBEAT, PUSH_AUTO_RECONNECT, PUSH_WIFI_ONLY } from './storage.js'
 import * as _cfg from '../config.js'
 import { getDeviceId } from './device-id.js'
-import { setAlarmHandler } from './keepalive.js'
+import { setAlarmHandler, setScreenPingCallback } from './keepalive.js'
 
-// AlarmManager 闹钟唤醒时回调（移植老版策略）：
-// 已连接 → 立即发 ping 保活；断开 → 触发重连
+// 通知显示：使用 require + try/catch 内联 fallback，避免 ESM 静态 import 在 APP 端静默失败
+// （项目 memory 明确指出：uni-app APP-PLUS ESM 静态 import 失败时不会报错，直接整段脚本挂）
+function _showPushNotification(title, content, priority) {
+    try {
+        const notifyMod = require('./notify.js')
+        if (notifyMod && typeof notifyMod.showNotification === 'function') {
+            notifyMod.showNotification(title, content, { priority: priority || 'default' })
+            return
+        }
+        if (notifyMod && typeof notifyMod.notify === 'function') {
+            notifyMod.notify(title, content, priority || 'default')
+            return
+        }
+    } catch (e) {
+        console.warn('[Ws] require notify.js 失败，尝试 uni.showNotification', e)
+    }
+    // 终极兜底：H5/通用 uni API
+    try {
+        if (uni && uni.showNotification) {
+            uni.showNotification({ title: title || '新消息', content: content || '' })
+            return
+        }
+    } catch (_) {}
+    try {
+        uni.showToast({
+            title: (title || '新消息') + (content ? '：' + (content.length > 20 ? content.slice(0, 20) + '…' : content) : ''),
+            icon: 'none',
+            duration: 2500
+        })
+    } catch (_) {}
+    try { if (uni.vibrateShort) uni.vibrateShort({ type: 'heavy' }) } catch (_) {}
+}
+
+// ============================================================
+// 保活回调 1：AlarmManager 15 秒闹钟唤醒时回调（移植老版策略）
+//   已连接 → 立即发 ping 保活；断开 → 触发重连
+// ============================================================
 setAlarmHandler(function() {
     if (state === 'connected') {
         try {
@@ -21,6 +56,50 @@ setAlarmHandler(function() {
         _doConnect()
     }
 })
+
+// ============================================================
+// 保活回调 2：SCREEN_ON 亮屏后验证 WS 连接（移植老版策略）
+// keepalive.js 中 SCREEN_ON 广播接收器会调用这 3 个回调：
+//   sendPing()    → 发送一个 ping 看服务端是否还活着
+//   isConnected() → 当前是否在 connected 状态
+//   reconnect()   → 清理 socket 并重新连接
+// 如果 5 秒内没收到 pong，也会触发 reconnect
+// ============================================================
+try {
+    setScreenPingCallback(
+        // sendPing 回调
+        function sendPingCb() {
+            if (state !== 'connected') return
+            try {
+                pendingPingAt = Date.now()
+                uni.sendSocketMessage({ data: JSON.stringify({ type: 'ping', ts: Date.now() }) })
+            } catch (e) {
+                console.warn('[Ws] screen ping send fail, will reconnect', e)
+                throw e  // 抛出会触发 keepalive 直接 reconnect
+            }
+        },
+        // isConnected 回调
+        function isConnectedCb() {
+            return state === 'connected'
+        },
+        // cleanupAndReconnect 回调
+        function reconnectCb() {
+            console.log('[Ws] 🔌 screen reconnect triggered')
+            pendingPongs = 0
+            if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+            reconnectAttempts = 0
+            shouldReconnect = true
+            autoReconnect = true
+            _closeSocket()
+            state = 'disconnected'
+            events.emit('state', state)
+            _doConnect()
+        }
+    )
+    console.log('[Ws] setScreenPingCallback 已注册（亮屏验证 WS 连接）')
+} catch (e) {
+    console.warn('[Ws] setScreenPingCallback 注册失败', e)
+}
 
 const _appVersion = (_cfg && _cfg.APP_CONFIG && _cfg.APP_CONFIG.version_name) || '1.0.0'
 
@@ -261,6 +340,12 @@ function _handleMessage(text) {
             timestamp: _normalizeTs(env.timestamp)
         }
         addMessage(msg)
+        // 关键修复：**收到推送立刻弹通知栏**，不依赖首页监听是否激活
+        // 旧版逻辑：home.vue on('message') → notify()，但 APP 后台时首页 off 了所有监听，
+        // 导致推送只存 storage 永远不显示在通知栏/锁屏！
+        try { _showPushNotification(msg.title, msg.content, msg.priority) } catch (e) {
+            console.error('[Ws] 显示推送通知失败', e)
+        }
         events.emit('message', msg)
         return
     }
@@ -276,6 +361,10 @@ function _handleMessage(text) {
                 timestamp: _normalizeTs(env.data && env.data.timestamp)
             }
             addMessage(m)
+            // 同样：通用格式推送也立刻弹通知栏
+            try { _showPushNotification(m.title, m.content, m.priority) } catch (e) {
+                console.error('[Ws] 显示通用格式推送通知失败', e)
+            }
             events.emit('message', m)
         }
     }
