@@ -156,7 +156,8 @@ const RECONNECT_BASE = 1000
 const RECONNECT_MAX = 60000
 const AUTH_TIMEOUT_MS = 10000
 const PROBE_TIMEOUT_MS = 2000
-const CONNECT_TIMEOUT_MS = 8000  // 🔴 TCP 连接级超时：弱网/代理下 connectSocket 可能无限卡，8秒没回调就主动放弃+重连
+const CONNECT_TIMEOUT_MS = 12000  // 🔴 TCP 连接级超时：弱网/代理下 connectSocket 可能无限卡。
+                                   //   8s→12s：WSS+TLS 握手慢网络可能超 8 秒被误杀（误杀→超时提示→重试循环）
 
 let state = 'disconnected'
 let socketTask = null
@@ -362,8 +363,8 @@ function _actuallyConnect() {
     connectTimer = setTimeout(function() {
         if (_connSeq !== thisConnSeq) return   // 序列号已推进，说明当前超时的是老连接，忽略
         connectTimer = null
-        console.warn('[Ws] ⏰ TCP 连接超时（8秒connectSocket无回调）→ 主动断开并重连（seq=' + thisConnSeq + '）')
-        events.emit('error', { type: 'connect_timeout', message: '连接超时（8秒无响应），正在自动重试' })
+        console.warn('[Ws] ⏰ TCP 连接超时（' + (CONNECT_TIMEOUT_MS / 1000) + '秒connectSocket无回调）→ 主动断开并重连（seq=' + thisConnSeq + '）')
+        events.emit('error', { type: 'connect_timeout', message: '连接超时，正在自动重试' })
         try { _closeSocket() } catch (_) {}
         socketTask = null
         _onSocketLost()
@@ -660,17 +661,18 @@ export function reconnect() {
         _closeSocket()
     }
     reconnectAttempts = 0
-    // 🔴 手动重连立即执行，不走退避延迟
-    //   之前 _scheduleReconnect() 至少等 1 秒（RECONNECT_BASE=1000）才开始连接 → 用户感觉"卡"
-    //   现在只留 300ms 缓冲：让上一个 socket 的 close 事件先派发完，避免新旧连接事件竞争
+    // 🔴 手动重连缓冲 300ms → 1500ms
+    //   日志实锤：300ms 后旧 socket 底层还没释放完（close 是异步的，uni Android 单连接限制），
+    //   新 connectSocket 排队等不到 onSocketOpen → 8 秒 TCP 超时 → 用户看到"连接超时"。
+    //   1.5 秒是旧 socket 释放 + close 事件派发的安全窗口，比"8秒超时再重试"快得多
     state = 'connecting'
     events.emit('state', state)
-    console.log('[Ws] 手动重连 → 300ms 后立即连接')
+    console.log('[Ws] 手动重连 → 1.5s 后连接（等待旧 socket 释放）')
     setTimeout(function() {
         if (shouldReconnect && autoReconnect) {
             _doConnect()
         }
-    }, 300)
+    }, 1500)
 }
 
 export function applySettings() {
@@ -692,7 +694,7 @@ export function probeChannel() {
             resolve({ ok: false, reason: 'disconnected', needReconnect: true })
             return
         }
-        // ② "正在连接中"：给连接+鉴权留足时间（TCP8s + 鉴权10s = 最多18s），
+        // ② "正在连接中"：给连接+鉴权留足时间（TCP12s + 鉴权10s = 最多22s），
         //    连好立刻跳正常探测流程；超时后再判（此时大概率是真卡主了）
         if (state === 'connecting' || state === 'reconnecting') {
             var waitStart = Date.now()

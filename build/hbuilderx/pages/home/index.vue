@@ -336,8 +336,23 @@ export default {
         _onLatency: function(v) { this.latency = v },
         _onError: function(err) {
             var msg = (err && err.message) || '连接错误'
+            var type = (err && err.type) || ''
             this.wsErrorMsg = msg
-            uni.showToast({ title: msg, icon: 'none', duration: 2000 })
+            // 🔴 降噪：自动重试类的临时错误（connect_timeout/auth_timeout/zombie_probe）
+            //   不再弹 Toast——重连循环里会反复触发，之前每次都弹"连接超时"轰炸用户。
+            //   状态栏本来就显示"重连中"，这类信息走 wsErrorMsg 即可；
+            //   只有需要用户行动的错误（网络不可用/鉴权失败/放弃重连等）才弹 Toast
+            if (type === 'connect_timeout' || type === 'auth_timeout' || type === 'zombie_probe') {
+                console.warn('[Home] 自动重试类错误（不弹Toast）：', type, msg)
+                return
+            }
+            // 同一条错误 5 秒内只弹一次（切页面回来/多入口重复触发时防轰炸）
+            var now = Date.now()
+            if (!this._lastErrToastTs || now - this._lastErrToastTs > 5000 || this._lastErrToastMsg !== msg) {
+                this._lastErrToastTs = now
+                this._lastErrToastMsg = msg
+                uni.showToast({ title: msg, icon: 'none', duration: 2000 })
+            }
         },
         _onMessage: function(msg) {
             // 关键修复：ws.js 收到 push 已经调了 showNotification()，这里不能再重复调 notify()
@@ -372,7 +387,7 @@ export default {
                             break
                         case 'wait_connect_timeout':
                             probeTitle = '⚠️ 连接卡顿'
-                            probeMsg = '连接服务器耗时过久（≥18s），已触发自动重连；若多次失败请检查服务器地址或网络'
+                            probeMsg = '连接服务器耗时过久（≥22s），已触发自动重连；若多次失败请检查服务器地址或网络'
                             break
                         case 'probe_timeout':
                             probeTitle = '⚠️ 通道探测失败'
