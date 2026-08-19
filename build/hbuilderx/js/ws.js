@@ -1,7 +1,7 @@
 import { addMessage, PUSH_HEARTBEAT, PUSH_AUTO_RECONNECT, PUSH_WIFI_ONLY } from './storage.js'
 import * as _cfg from '../config.js'
 import { getDeviceId } from './device-id.js'
-import { setAlarmHandler, setScreenPingCallback } from './keepalive.js'
+import { setAlarmHandler, setScreenPingCallback, markScreenPongOk } from './keepalive.js'
 // 🔴 关键修复：静态 import notify 模块（命名空间导入，模块文件存在即安全，顶层无副作用）
 //   之前用 require('./notify.js') 在 vue3/vite 编译的 APP 端不存在 require 函数（CommonJS 不可用）
 //   → 每次收推送都抛 "require is not defined" → 通知栏永远只走 Toast 兜底，弹不出系统通知！
@@ -103,6 +103,13 @@ try {
         },
         // cleanupAndReconnect 回调
         function reconnectCb() {
+            // 🔴 正在连接中不打断：亮屏时 keepalive 只看 isConnected()（connected 才算），
+            //   state=connecting 也会触发本回调 → 之前无条件 close+connect 会把正在握手的
+            //   连接杀掉，制造又一轮并发建连。已连接/已断开才允许清理重连。
+            if (state === 'connecting' || state === 'reconnecting') {
+                console.log('[Ws] screen reconnect 跳过：连接进行中（state=' + state + '）')
+                return
+            }
             console.log('[Ws] 🔌 screen reconnect triggered')
             pendingPongs = 0
             if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
@@ -173,6 +180,11 @@ let shouldReconnect = false
 let listenersRegistered = false
 let lostProcessing = false
 let _connSeq = 0   // 🔴 B2修复：每次_connect分配递增序列号，旧连接的回调全部忽略（事件竞争隔离）
+let authSentAt = 0 // 🔴 本连接发送鉴权的时间戳；0=本连接还没 onSocketOpen/没发过鉴权。
+                   //   uni 的全局 onSocketMessage 不区分连接，老连接的迟到消息会派发到新连接上：
+                   //   - 老 pong 带 code=0+data 被兜底鉴权误判成 auth ok
+                   //   - 老 auth_result(失败) 把没发过鉴权的新连接直接"鉴权超时"误杀
+                   //   门控：authSentAt===0 时收到的一切消息都是老连接残留，直接丢弃
 
 function registerListeners() {
     if (listenersRegistered) return
@@ -187,6 +199,7 @@ function registerListeners() {
             return
         }
         console.log('[Ws] onSocketOpen (seq=' + _connSeq + ') → 发送鉴权')
+        authSentAt = Date.now()   // 🔴 标记本连接已发鉴权（此后收到的消息才属于本连接）
         const auth = _buildAuth()
         try { uni.sendSocketMessage({ data: JSON.stringify(auth) }) } catch(e) {
             console.error('[Ws] 发送 auth 失败', e)
@@ -274,9 +287,22 @@ export function connect(url, key) {
         events.emit('error', { type: reason, message: !url ? '未配置服务器地址' : '未配置推送 Key' })
         return
     }
-    currentUrl = _normalizeWsUrl(url)
+    const normUrl = _normalizeWsUrl(url)
+    const cleanKey = _cleanAuthKey(key)
+    // 🔴 幂等保护（根治并发建连循环）：
+    //   App.vue onShow 和 home onShow 都只判断 isConnected()，
+    //   connecting/reconnecting 被当成"未连接" → 权限弹窗/切前台每次触发 onShow
+    //   都会再次 connect() → _closeSocket() 把正在握手的连接杀掉 →
+    //   被杀连接的 close 事件又排重连 → 无限循环
+    //   （日志实锤：900ms 内 3 条并发 connecting，auth ok 后 1ms 内被 onSocketClose 1000）
+    if ((state === 'connected' || state === 'connecting' || state === 'reconnecting')
+        && currentUrl === normUrl && currentKey === cleanKey) {
+        console.log('[Ws] connect 幂等跳过：同参数连接进行中（state=' + state + '）')
+        return
+    }
+    currentUrl = normUrl
     if (currentUrl !== url) console.log('[Ws] normalized ws url:', url, '→', currentUrl)
-    currentKey = _cleanAuthKey(key)
+    currentKey = cleanKey
     shouldReconnect = true
     reconnectAttempts = 0
     _loadSettings()
@@ -325,8 +351,9 @@ function _doConnect() {
 
 function _actuallyConnect() {
     state = 'connecting'
+    authSentAt = 0   // 🔴 新连接开始：重置"已发鉴权"标记（未发鉴权前收到的消息=老连接残留，丢弃）
     events.emit('state', state)
-    console.log('[Ws] connecting →', currentUrl)
+    console.log('[Ws] connecting →', currentUrl, '(seq=' + (_connSeq + 1) + ')')
 
     // 🔴 TCP 连接级超时：弱网/代理异常时 uni.connectSocket 可能完全不回调（无限卡 connecting）
     //   8 秒内没收到 onSocketOpen/onSocketError/onSocketClose 就主动放弃 + 重连
@@ -393,6 +420,14 @@ function _handleMessage(text) {
 
     const t = env.type || (env.message === 'pong' ? 'pong' : null)
 
+    // 🔴 丢弃老连接的迟到消息：本连接还没发过鉴权（authSentAt=0，onSocketOpen 未发生），
+    //   这条消息必然来自上一轮被关闭的连接（uni 全局 onSocketMessage 不区分连接代际）
+    //   日志实锤：seq=16 连接从未 onSocketOpen，却收到老连接的 auth_result(鉴权超时) 被误杀
+    if (authSentAt === 0) {
+        console.warn('[Ws] 丢弃迟到消息（本连接未发鉴权，老连接残留）type=' + t)
+        return
+    }
+
     if (t === 'auth_result') {
         // 收到任何 auth_result → 清除客户端鉴权超时定时器
         if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
@@ -435,8 +470,11 @@ function _handleMessage(text) {
     // 🔴 【根治卡正在连接】兜底鉴权：连接中收到任何 code=0 且带 data/heartbeat/server_time 的消息
     //   等同于 auth_result（不同后端版本 pack 时 type 可能缺失或被 message 字段覆盖）
     //   触发条件：state=connecting/reconnecting + code=0 + (有data或message含"成功/连接")
+    //   ⚠️ 排除 pong/ping：后端 pong 响应带 code=0+data，曾被误判成鉴权成功
+    //     （日志实锤：'auth ok (fallback: code=0, type=pong, msg=pong)'）
     if ((state === 'connecting' || state === 'reconnecting')
         && env.code === 0
+        && t !== 'pong' && t !== 'ping'
         && (env.data || /成功|连接|auth/i.test(env.message || ''))) {
         if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
         console.log('[Ws] ✅ auth ok (fallback: code=0, type=', t, 'msg=', env.message, ')')
@@ -456,6 +494,9 @@ function _handleMessage(text) {
 
     if (t === 'pong') {
         pendingPongs = 0
+        // 🔴 回写亮屏 ping 验证标记：亮屏后 keepalive 发 ping 等 pong，5 秒没等到就强制重连。
+        //   之前没人置 _screenPongOk → 每次亮屏必误判掉线重连（杀掉健康连接）
+        try { markScreenPongOk() } catch (_) {}
         const recvTs = Date.now()
         const remoteTs = typeof env.ts === 'number' ? env.ts : null
         if (remoteTs && remoteTs > 0 && recvTs >= remoteTs) {

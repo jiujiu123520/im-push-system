@@ -375,6 +375,14 @@ export function setScreenPingCallback(sendPingCb, isConnectedCb, cleanupAndRecon
     _screenPingCallback = { sendPing: sendPingCb, isConnected: isConnectedCb, reconnect: cleanupAndReconnectCb }
 }
 
+// 🔴 亮屏 ping 收到 pong 的回写标记（ws.js 的 pong 分支调用）
+//   之前全项目没有任何地方把 _screenPongOk 置 true：
+//   每次亮屏 sendPing → 5 秒后 _screenPongOk 仍是 false → 必触发 reconnect
+//   → 把好好的连接杀掉重连（熄屏/亮屏后重连风暴的元凶之一）
+export function markScreenPongOk() {
+    _screenPongOk = true
+}
+
 export function _registerScreenReceiver(main, Context, Build) {
     if (typeof plus === 'undefined' || !plus.android) return
     if (!main) {
