@@ -351,12 +351,35 @@ export default {
             var deviceId = getDeviceId()
             var self = this
             apiTestPush(base, this.keyValue, deviceId).then(function(r) {
+                var beforeCount = getMessages().length
                 uni.showToast({ title: (r && r.message) || '测试推送已发送，请留意通知栏', icon: 'success' })
+                // 🔴 通道诊断：4 秒内没收到 WS 回推 → 说明 WS 是假连接（后端 push 到了僵尸 fd），
+                //   本地立刻弹提示通知 + 明确指引，用户不用干等
+                setTimeout(function() {
+                    var afterCount = getMessages().length
+                    if (afterCount <= beforeCount) {
+                        try {
+                            addMessage({
+                                id: 'test-timeout-' + Date.now(),
+                                title: '⚠️ 通道测试超时',
+                                content: '服务器已收到请求，但 4 秒内未收到推送回包。WS 连接可能异常（假连接），请点击「重新连接」后再测。',
+                                priority: 'high',
+                                timestamp: Date.now(),
+                                read: false
+                            })
+                            try { notify('⚠️ 通道测试超时', '服务器已收到请求但未收到推送回包，WS 可能是假连接，请点「重新连接」', 'high') } catch (e) {}
+                            self.recentMessages = getMessages().slice(0, 3)
+                        } catch (e2) {
+                            console.warn('[Home] 通道超时提示失败', e2)
+                        }
+                    }
+                }, 4000)
             }).catch(function() {
                 uni.showToast({ title: '测试推送已发送（无响应），本地模拟一条', icon: 'none' })
                 // 本地模拟推送：先存消息列表 + 本地弹通知
+                // 🔴 修复：直接用顶部 import 的 addMessage（vue3/vite APP 端没有 require 函数，
+                //   之前 require('../../js/storage.js') 会抛 require is not defined → 模拟消息存不进列表）
                 try {
-                    var addMsg = require('../../js/storage.js').addMessage
                     var testMsg = {
                         id: 'local-test-' + Date.now(),
                         title: '📣 测试推送',
@@ -365,9 +388,9 @@ export default {
                         timestamp: Date.now(),
                         read: false
                     }
-                    if (addMsg) addMsg(testMsg)
+                    addMessage(testMsg)
                     self.recentMessages = getMessages().slice(0, 3)
-                    // 本地直接弹通知栏
+                    // 本地直接弹通知栏（notify 是 ESM 具名导入，可靠）
                     try { notify(testMsg.title, testMsg.content, testMsg.priority) } catch (e) {
                         console.error('[Home] 本地测试通知失败', e)
                     }

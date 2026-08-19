@@ -15,6 +15,9 @@
 // ============================================================
 
 import { getNotificationSmallIcon } from './keepalive.js'
+// 🔴 静态导入权限模块（vue3/vite APP 端无 require 函数，CommonJS 不可用）
+//   之前 require('./permissions.js') 会抛 "require is not defined" → 权限引导永远不执行
+import * as _permLib from './permissions.js'
 
 // 1. 创建消息推送通知渠道（老版本 createNotificationChannel，直接复用）
 export function createNotificationChannel() {
@@ -128,12 +131,16 @@ export function showNotification(title, content, opts) {
         if (!globalEnabled || !postPermOk) {
             console.warn('[Notify] 权限检查未通过：全局=' + globalEnabled + ' POST=' + postPermOk + '，先引导用户开启')
             try {
-                const reqPermMod = require('./permissions.js')
-                if (reqPermMod && typeof reqPermMod.requestNotificationPerm === 'function') {
+                // 静态导入优先（vue3/vite APP 端唯一可靠路径），require 仅作老编译环境兜底
+                var permMod = null
+                if (_permLib && typeof _permLib.requestNotificationPerm === 'function') {
+                    permMod = _permLib
+                } else if (typeof require === 'function') {
+                    try { permMod = require('./permissions.js') } catch (_) { permMod = null }
+                }
+                if (permMod && typeof permMod.requestNotificationPerm === 'function') {
                     // guide=true：收到推送场景，强制弹引导框（用户有动力开启）
-                    reqPermMod.requestNotificationPerm({ guide: true })
-                } else if (typeof requestNotificationPerm === 'function') {
-                    requestNotificationPerm({ guide: true })
+                    permMod.requestNotificationPerm({ guide: true })
                 }
             } catch (reqErr) {
                 console.warn('[Notify] 请求权限失败', reqErr)

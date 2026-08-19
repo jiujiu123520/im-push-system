@@ -2,24 +2,43 @@ import { addMessage, PUSH_HEARTBEAT, PUSH_AUTO_RECONNECT, PUSH_WIFI_ONLY } from 
 import * as _cfg from '../config.js'
 import { getDeviceId } from './device-id.js'
 import { setAlarmHandler, setScreenPingCallback } from './keepalive.js'
+// 🔴 关键修复：静态 import notify 模块（命名空间导入，模块文件存在即安全，顶层无副作用）
+//   之前用 require('./notify.js') 在 vue3/vite 编译的 APP 端不存在 require 函数（CommonJS 不可用）
+//   → 每次收推送都抛 "require is not defined" → 通知栏永远只走 Toast 兜底，弹不出系统通知！
+import * as _notifyLib from './notify.js'
 
-// 通知显示：使用 require + try/catch 内联 fallback，避免 ESM 静态 import 在 APP 端静默失败
-// （项目 memory 明确指出：uni-app APP-PLUS ESM 静态 import 失败时不会报错，直接整段脚本挂）
+// 通知显示：优先静态 import 的模块 → 再试 require（兼容老的 webpack 编译）→ 最后 Toast 兜底
 function _showPushNotification(title, content, priority) {
+    // 路径1：ESM 静态导入（vue3/vite APP 端唯一可靠路径）
     try {
-        const notifyMod = require('./notify.js')
-        if (notifyMod && typeof notifyMod.showNotification === 'function') {
-            notifyMod.showNotification(title, content, { priority: priority || 'default' })
+        if (_notifyLib && typeof _notifyLib.showNotification === 'function') {
+            _notifyLib.showNotification(title, content, { priority: priority || 'default' })
             return
         }
-        if (notifyMod && typeof notifyMod.notify === 'function') {
-            notifyMod.notify(title, content, priority || 'default')
+        if (_notifyLib && typeof _notifyLib.notify === 'function') {
+            _notifyLib.notify(title, content, priority || 'default')
             return
         }
     } catch (e) {
-        console.warn('[Ws] require notify.js 失败，尝试 uni.showNotification', e)
+        console.warn('[Ws] 静态导入 notify 显示失败，尝试 require', e)
     }
-    // 终极兜底：H5/通用 uni API
+    // 路径2：require（老版 webpack/vue2 编译环境才存在）
+    try {
+        if (typeof require === 'function') {
+            const notifyMod = require('./notify.js')
+            if (notifyMod && typeof notifyMod.showNotification === 'function') {
+                notifyMod.showNotification(title, content, { priority: priority || 'default' })
+                return
+            }
+            if (notifyMod && typeof notifyMod.notify === 'function') {
+                notifyMod.notify(title, content, priority || 'default')
+                return
+            }
+        }
+    } catch (e) {
+        console.warn('[Ws] require notify.js 失败', e)
+    }
+    // 路径3：终极兜底 H5/通用 uni API
     try {
         if (uni && uni.showNotification) {
             uni.showNotification({ title: title || '新消息', content: content || '' })
@@ -507,12 +526,25 @@ export function reconnect() {
     shouldReconnect = true
     autoReconnect = true
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+    if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
+    // 🔴 先置 disconnected 再关 socket：_onSocketLost 检查 state === 'disconnected' 会直接 return，
+    //   避免旧连接的 close 事件再排一个重连定时器，和下面的立即连接竞争（uni APP 端单连接限制）
     if (state === 'connected' || state === 'connecting' || state === 'reconnecting') {
-        _closeSocket()
         state = 'disconnected'
+        _closeSocket()
     }
     reconnectAttempts = 0
-    _scheduleReconnect()
+    // 🔴 关键修复：手动重连立即执行，不走退避延迟
+    //   之前 _scheduleReconnect() 至少等 1 秒（RECONNECT_BASE=1000）才开始连接 → 用户感觉"卡"
+    //   现在只留 300ms 缓冲：让上一个 socket 的 close 事件先派发完，避免新旧连接事件竞争
+    state = 'connecting'
+    events.emit('state', state)
+    console.log('[Ws] 手动重连 → 300ms 后立即连接')
+    setTimeout(function() {
+        if (shouldReconnect && autoReconnect) {
+            _doConnect()
+        }
+    }, 300)
 }
 
 export function applySettings() {
