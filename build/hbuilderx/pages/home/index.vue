@@ -356,20 +356,48 @@ export default {
             var beforeCount = getMessages().length
             probeChannel().then(function(probe) {
                 if (!probe.ok) {
-                    // 假连接/未连接：直接精准提示，不再浪费用户时间等4秒
-                    var probeMsg = probe.reason === 'probe_timeout'
-                        ? '⚠️ WS假连接已检测（2秒无响应），已自动触发重连，请稍等10秒后再测'
-                        : '⚠️ 当前未连接：' + (probe.reason || '') + '，请先连接或点「重新连接」'
+                    // 针对每种原因给出对应的、用户能读懂的中文提示 + 需要重连时自动触发
+                    var reason = probe.reason || 'unknown'
+                    var probeTitle = '⚠️ 通道未就绪'
+                    var probeMsg = '通道未就绪，请稍等几秒后再试'
+                    var autoTriggerReconnect = !!probe.needReconnect
+                    switch (reason) {
+                        case 'disconnected':
+                            probeTitle = '⚠️ 未连接'
+                            probeMsg = '当前未连接服务器，正在自动重连，约 10 秒后再测'
+                            break
+                        case 'connect_failed':
+                            probeTitle = '⚠️ 连接失败'
+                            probeMsg = '服务器连接失败，已触发自动重连，请 10 秒后再测'
+                            break
+                        case 'wait_connect_timeout':
+                            probeTitle = '⚠️ 连接卡顿'
+                            probeMsg = '连接服务器耗时过久（≥18s），已触发自动重连；若多次失败请检查服务器地址或网络'
+                            break
+                        case 'probe_timeout':
+                            probeTitle = '⚠️ 通道探测失败'
+                            probeMsg = 'WS假连接已检测（2秒无响应），已自动触发重连，请稍等10秒后再测'
+                            break
+                        default:
+                            if (typeof reason === 'string' && reason.indexOf('send_fail') === 0) {
+                                probeTitle = '⚠️ 探测失败'
+                                probeMsg = '发送探测失败：已自动触发重连，请稍等再测'
+                            }
+                    }
+                    // 如果 probeChannel 自己没触发重连（如 disconnected 场景只是没调用），在这里补触发
+                    if (autoTriggerReconnect) {
+                        try { reconnect() } catch (_) {}
+                    }
                     try {
                         addMessage({
                             id: 'probe-fail-' + Date.now(),
-                            title: probe.reason === 'probe_timeout' ? '⚠️ 通道探测失败' : '⚠️ 未连接',
+                            title: probeTitle,
                             content: probeMsg,
                             priority: 'high',
                             timestamp: Date.now(),
                             read: false
                         })
-                        try { notify(probe.reason === 'probe_timeout' ? '⚠️ 通道探测失败' : '⚠️ 未连接', probeMsg, 'high') } catch (e) {}
+                        try { notify(probeTitle, probeMsg, 'high') } catch (e) {}
                         self.recentMessages = getMessages().slice(0, 3)
                     } catch (_) {}
                     uni.showToast({ title: probeMsg.length > 18 ? probeMsg.slice(0, 16) + '…' : probeMsg, icon: 'none', duration: 2800 })
