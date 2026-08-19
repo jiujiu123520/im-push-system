@@ -23,7 +23,8 @@
             </view>
             <view class="row" style="margin-top:24rpx;">
                 <button class="btn-primary" style="flex:1;margin-right:16rpx;" @click="testPush" :disabled="!canTest">测试推送</button>
-                <button class="btn-ghost" style="flex:1;" @click="reconnect">重新连接</button>
+                <button class="btn-ghost" style="flex:1;margin-right:16rpx;" @click="reconnect">重新连接</button>
+                <button class="btn-ghost" style="flex:1;" @click="refreshData" :disabled="refreshing">{{ refreshing ? '刷新中…' : '刷新消息' }}</button>
             </view>
         </view>
 
@@ -49,7 +50,7 @@
 </template>
 
 <script>
-import { loadBootConfig, PUSH_KEY, PUSH_WS_URL, PUSH_SERVER_URL, getMessages } from '../../js/storage.js'
+import { loadBootConfig, PUSH_KEY, PUSH_WS_URL, PUSH_SERVER_URL, getMessages, addMessage } from '../../js/storage.js'
 import { connect, reconnect, isConnected, getState, getLatency, on, off } from '../../js/ws.js'
 import { notify } from '../../js/notify.js'
 import { testPush as apiTestPush } from '../../js/api.js'
@@ -100,7 +101,11 @@ export default {
             wsErrorMsg: '',
             keyValue: APP_CONFIG.default_key,
             latency: -1,
-            recentMessages: []
+            recentMessages: [],
+            // 🔴 新增：刷新功能状态
+            refreshing: false,
+            refreshTimer: null,
+            lastRefreshTs: 0  // onShow 节流 5 秒
         }
     },
     computed: {
@@ -124,6 +129,13 @@ export default {
             self.wsUrl = APP_CONFIG.ws_url
         }
         self.recentMessages = getMessages().slice(0, 3)
+
+        // 🔴 新增：60 秒自动刷新定时器（每次 onShow 重置，避免定时器漂移/堆积）
+        //   老版本逻辑：每分钟补拉一次 HTTP 历史消息，应对 WS 假死/Doze 期间丢失的推送
+        if (self.refreshTimer) { try { clearInterval(self.refreshTimer) } catch(_) {} }
+        self.refreshTimer = setInterval(function() {
+            try { self.refreshData() } catch(e) { console.warn('[Home] 定时刷新失败', e) }
+        }, 60000)
 
         if (!self.keyValue) {
             uni.navigateTo({ url: '/pages/key-input/index' })
@@ -149,6 +161,14 @@ export default {
             connect(self.wsUrl, self.keyValue)
         }
 
+        // 🔴 新增：onShow 节流调用 refreshData（5 秒内不重复）
+        //   应对：杀进程/切后台再回来，先 HTTP 拉历史消息看有没有 WS 掉线时漏掉的推送
+        var now = Date.now()
+        if (!self.lastRefreshTs || now - self.lastRefreshTs > 5000) {
+            self.lastRefreshTs = now
+            try { self.refreshData() } catch(e) { console.warn('[Home] onShow 刷新失败', e) }
+        }
+
         // 通知权限请求（老版时机：页面渲染完延迟 1 秒，此时 Activity 已 resumed，
         // ActivityCompat.requestPermissions 弹框才可靠；App.vue onShow 冷启动时太早会静默失败）
         setTimeout(function() {
@@ -160,6 +180,8 @@ export default {
         off('message', this._onMessage)
         off('error', this._onError)
         off('latency', this._onLatency)
+        // 🔴 新增：页面隐藏时清定时器（避免持续 HTTP 轮询耗电）
+        if (this.refreshTimer) { try { clearInterval(this.refreshTimer) } catch(_) {}; this.refreshTimer = null }
     },
     onUnload: function() {
         off('state', this._onState)
@@ -167,8 +189,124 @@ export default {
         off('error', this._onError)
         off('latency', this._onLatency)
         if (this._themeListener) { offThemeChange(this._themeListener); this._themeListener = null }
+        // 🔴 新增：卸载时清定时器
+        if (this.refreshTimer) { try { clearInterval(this.refreshTimer) } catch(_) {}; this.refreshTimer = null }
     },
     methods: {
+        // 🔴 新增：把 WS URL 反转为 HTTP 基础地址（用户 99% 填的是面板 HTTP/HTTPS 地址）
+        //   ws://host:port/ws/client   → http://host:port
+        //   wss://host:port/ws/client  → https://host:port
+        //   http://host 或 https://host → 原样
+        _httpBaseFromWs: function(wsUrl) {
+            if (!wsUrl) return ''
+            var s = String(wsUrl).replace(/^[\s`'"]+|[\s`'"]+$/g, '').trim()
+            s = s.replace(/\/+$/, '')
+            // 先去掉 /ws/client 结尾或 /ws 结尾
+            s = s.replace(/\/ws\/client$/i, '').replace(/\/ws$/i, '')
+            // 协议反转
+            if (/^wss:\/\//i.test(s)) {
+                return 'https://' + s.substring(6)
+            } else if (/^ws:\/\//i.test(s)) {
+                return 'http://' + s.substring(5)
+            }
+            // 已经是 http/https 原样返回
+            return s
+        },
+
+        // 🔴 新增：HTTP 拉取历史消息（补拉 WS 假死/Doze 期间丢失的推送）
+        //   接口：GET /api/device/messages?push_key=xxx&device_id=xxx&limit=50
+        refreshData: function() {
+            var self = this
+            if (self.refreshing) return Promise.resolve()
+            var pushKey = self.keyValue
+            var deviceId = getDeviceId()
+            if (!pushKey || !deviceId) return Promise.resolve()
+
+            // HTTP base：优先用 PUSH_SERVER_URL（用户在配置页填的 HTTP 面板地址），没有就用 WS 反推
+            var httpBase = ''
+            try {
+                var boot = loadBootConfig() || {}
+                httpBase = uni.getStorageSync(PUSH_SERVER_URL) || boot.server_url || ''
+            } catch(_) {}
+            if (!httpBase) httpBase = self._httpBaseFromWs(self.wsUrl)
+            if (!httpBase) return Promise.resolve()
+
+            self.refreshing = true
+            var url = httpBase + '/api/device/messages'
+                  + '?push_key=' + encodeURIComponent(pushKey)
+                  + '&device_id=' + encodeURIComponent(deviceId)
+                  + '&limit=50'
+            return new Promise(function(resolve) {
+                uni.request({
+                    url: url,
+                    method: 'GET',
+                    timeout: 15000,
+                    success: function(res) {
+                        try {
+                            var body = res.data || {}
+                            if (body.code === 0 && body.data && Array.isArray(body.data.list)) {
+                                var list = body.data.list || []
+                                if (list.length > 0) {
+                                    var newCnt = 0
+                                    for (var i = 0; i < list.length; i++) {
+                                        var raw = list[i]
+                                        if (!raw || (!raw.title && !raw.content)) continue
+                                        var ok = addMessage({
+                                            id: String(raw.id || raw.message_id || ('msg-hist-' + Date.now() + '-' + i)),
+                                            title: raw.title || '',
+                                            content: raw.content || '',
+                                            priority: raw.priority || 'default',
+                                            timestamp: (function() {
+                                                try {
+                                                    if (raw.created_at) {
+                                                        var t = new Date(String(raw.created_at).replace(/-/g, '/')).getTime()
+                                                        if (t && t > 0) return t
+                                                    }
+                                                } catch(_) {}
+                                                if (raw.timestamp) {
+                                                    var n = Number(raw.timestamp)
+                                                    return n > 1e12 ? n : n * 1000
+                                                }
+                                                return Date.now()
+                                            })(),
+                                            payload: raw.payload || null,
+                                            read: raw.is_read === 1 || !!raw.read
+                                        })
+                                        if (ok) newCnt++
+                                    }
+                                    // 刷新列表
+                                    self.recentMessages = getMessages().slice(0, 3)
+                                    uni.showToast({
+                                        title: '刷新完成，共' + list.length + '条（新增' + newCnt + '条）',
+                                        icon: 'none',
+                                        duration: 1800
+                                    })
+                                } else {
+                                    uni.showToast({ title: '暂无新消息', icon: 'none', duration: 1500 })
+                                }
+                            } else {
+                                var failMsg = body.message || body.msg || '刷新失败（code=' + body.code + '）'
+                                uni.showToast({ title: failMsg, icon: 'none', duration: 2500 })
+                            }
+                        } catch(e) {
+                            console.error('[Home] refreshData parse fail', e)
+                            uni.showToast({ title: '刷新失败：数据解析异常', icon: 'none', duration: 2000 })
+                        }
+                    },
+                    fail: function(err) {
+                        console.warn('[Home] refreshData fail', JSON.stringify(err))
+                        var hint = (err && err.errMsg) || '网络错误'
+                        if (/timeout/i.test(hint)) hint = '请求超时，请检查服务器'
+                        uni.showToast({ title: '刷新失败：' + hint, icon: 'none', duration: 2500 })
+                    },
+                    complete: function() {
+                        self.refreshing = false
+                        resolve()
+                    }
+                })
+            })
+        },
+
         _onState: function(s) {
             updateKeepAliveStatus(s === 'connected')
             if (s === 'error') {

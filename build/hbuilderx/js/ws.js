@@ -125,10 +125,13 @@ const events = {
 const MAX_MISSED_PONG = 3
 const RECONNECT_BASE = 1000
 const RECONNECT_MAX = 60000
+const AUTH_TIMEOUT_MS = 10000  // 🔴 新增：客户端 auth 主动超时（10秒），不用等服务器30秒
+
 let state = 'disconnected'
 let socketTask = null
 let heartbeatTimer = null
 let reconnectTimer = null
+let authTimeoutTimer = null  // 🔴 新增：鉴权超时定时器
 let reconnectAttempts = 0
 let pendingPongs = 0
 let latency = -1
@@ -147,36 +150,67 @@ function registerListeners() {
     listenersRegistered = true
 
     uni.onSocketOpen(() => {
-        console.log('[Ws] onSocketOpen')
+        console.log('[Ws] onSocketOpen → 发送鉴权')
         const auth = _buildAuth()
-        try { uni.sendSocketMessage({ data: JSON.stringify(auth) }) } catch(e) {}
+        try { uni.sendSocketMessage({ data: JSON.stringify(auth) }) } catch(e) {
+            console.error('[Ws] 发送 auth 失败', e)
+            _onSocketLost()
+            return
+        }
+        // 🔴 关键修复4：客户端主动鉴权超时（10秒）
+        //   原服务器 pendingAuthTable 定时器是 30 秒，客户端等不了这么久 → 用户看到"一直卡连接中"
+        //   现在客户端 10 秒没收到 auth_result 就主动关闭 + 重连
+        if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
+        authTimeoutTimer = setTimeout(() => {
+            console.warn('[Ws] ⏰ 鉴权超时（10秒未收到 auth_result）→ 主动断开并重连')
+            authTimeoutTimer = null
+            events.emit('error', { type: 'auth_timeout', message: '鉴权超时：服务器10秒未响应，正在重试' })
+            try { _closeSocket() } catch (_) {}
+            _onSocketLost()
+        }, AUTH_TIMEOUT_MS)
     })
 
     uni.onSocketMessage((res) => { _handleMessage(res.data) })
 
     uni.onSocketError((err) => {
         console.error('[Ws] onSocketError', JSON.stringify(err))
+        if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
         _onSocketLost()
     })
 
     uni.onSocketClose((res) => {
         console.log('[Ws] onSocketClose', JSON.stringify(res || {}))
+        if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
         _onSocketLost()
     })
 }
 
 function _normalizeWsUrl(url) {
     if (!url) return url
-    // 关键修复：先剥离首尾反引号/引号/空白（用户从文档复制地址时 markdown 装饰字符会混入）
+    // 关键修复1：先剥离首尾反引号/引号/空白（用户从文档复制地址时 markdown 装饰字符会混入）
     var cleaned = String(url).replace(/^[\s`'"]+|[\s`'"]+$/g, '').trim()
     cleaned = cleaned.replace(/\/+$/, '')
-    if (/\/(ws|ws\/client)$/i.test(cleaned)) return cleaned
-    // 去掉尾部 path 后，如果没有端口也没有 path，补上 /ws/client
-    if (!/:\d+$/.test(cleaned.replace(/^wss?:\/\//, ''))) {
-        // 默认端口场景（wss → 443, ws → 80）：检查是否带 path
-        var afterProto = cleaned.replace(/^wss?:\/\//, '')
-        if (afterProto.indexOf('/') === -1) return cleaned + '/ws/client'
+
+    // 🔴 关键修复2：HTTPS 支持！协议自动转换（99% 用户填的是面板 HTTP/HTTPS 地址，不会写 ws/wss）
+    //   http://host   → ws://host
+    //   https://host  → wss://host  (SSL/TLS 加密)
+    //   ws://host     → 不变
+    //   wss://host    → 不变
+    if (/^https:\/\//i.test(cleaned)) {
+        cleaned = 'wss://' + cleaned.substring(8)
+        console.log('[Ws] 协议自动转换：HTTPS → WSS（加密 WebSocket）')
+    } else if (/^http:\/\//i.test(cleaned)) {
+        cleaned = 'ws://' + cleaned.substring(7)
+        console.log('[Ws] 协议自动转换：HTTP → WS（明文 WebSocket）')
     }
+
+    // 如果已经明确带 /ws 或 /ws/client 结尾，直接返回
+    if (/\/(ws|ws\/client)$/i.test(cleaned)) return cleaned
+
+    // 没有带 path 的情况下（只有 host[:port]），默认补上 /ws/client
+    var afterProto = cleaned.replace(/^wss?:\/\//, '')
+    if (afterProto.indexOf('/') === -1) return cleaned + '/ws/client'
+
     return cleaned
 }
 
@@ -293,6 +327,8 @@ function _handleMessage(text) {
     const t = env.type || (env.message === 'pong' ? 'pong' : null)
 
     if (t === 'auth_result') {
+        // 收到任何 auth_result → 清除客户端鉴权超时定时器
+        if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
         if (env.success || env.code === 0) {
             console.log('[Ws] ✅ auth ok')
             reconnectAttempts = 0
@@ -302,11 +338,30 @@ function _handleMessage(text) {
         } else {
             const failMsg = env.message || env.msg || '鉴权失败'
             console.warn('[Ws] ❌ auth failed:', failMsg)
-            shouldReconnect = false
+
+            // 🔴 关键修复3：只有永久失败（Key 无效/拉黑/设备拉黑/IP 拉黑/指纹拉黑）才关重连
+            //   临时错误（数据库异常/服务器内部错/数量上限）仍然允许重连（用户删设备后自动恢复）
+            //   避免用户必须杀进程重启才能再次尝试连接
+            const isPermanentFail =
+                /推送 Key 无效|Key 无效|已禁用|已被拉黑|设备数量已达上限|缺少 key 或 device_id|凭证无效/i.test(failMsg)
+
+            if (isPermanentFail) {
+                shouldReconnect = false
+                console.warn('[Ws] 永久失败，不再自动重连：', failMsg)
+            } else {
+                console.warn('[Ws] 临时失败，保留重连开关（30秒后重试）')
+            }
+
             _closeSocket()
             state = 'error'
             events.emit('state', state)
-            events.emit('error', { type: 'auth_fail', message: failMsg })
+            events.emit('error', { type: 'auth_fail', message: failMsg, permanent: isPermanentFail })
+
+            // 临时失败 → 延迟 30 秒后尝试重连（指数退避也在重连流程内）
+            if (!isPermanentFail) {
+                reconnectAttempts = 0
+                _scheduleReconnect()
+            }
         }
         return
     }
