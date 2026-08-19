@@ -141,23 +141,32 @@ const events = {
     }
 }
 
-const MAX_MISSED_PONG = 3
+// 🔴 假连接检测加速：心跳 30s → 15s，丢失容忍 3次 → 2次
+//   原来 30s×3=90s 才发现假连接，自测 4 秒超时已经判失败，用户永远等不到自动重连
+//   现在 15s×2=30s，比 Nginx 默认 60s idle timeout 更敏感，用户感知大幅提升
+const MAX_MISSED_PONG = 2
 const RECONNECT_BASE = 1000
 const RECONNECT_MAX = 60000
-const AUTH_TIMEOUT_MS = 10000  // 🔴 新增：客户端 auth 主动超时（10秒），不用等服务器30秒
+const AUTH_TIMEOUT_MS = 10000
+const PROBE_TIMEOUT_MS = 2000
+const CONNECT_TIMEOUT_MS = 8000  // 🔴 TCP 连接级超时：弱网/代理下 connectSocket 可能无限卡，8秒没回调就主动放弃+重连
 
 let state = 'disconnected'
 let socketTask = null
 let heartbeatTimer = null
 let reconnectTimer = null
-let authTimeoutTimer = null  // 🔴 新增：鉴权超时定时器
+let authTimeoutTimer = null
 let reconnectAttempts = 0
 let pendingPongs = 0
 let latency = -1
 let pendingPingAt = 0
+// 🔴 同步通道探测：resolve 收到 pong 后立即兑现，超时则 reject（判定为假连接 + 自动重连）
+let probeResolver = null
+let probeTimer = null
+let connectTimer = null  // 🔴 TCP 连接级超时定时器（connectSocket 回调前启动，任何回调首件事清掉）
 let currentUrl = ''
 let currentKey = ''
-let heartbeatInterval = 30
+let heartbeatInterval = 15
 let autoReconnect = true
 let wifiOnly = false
 let shouldReconnect = false
@@ -169,6 +178,8 @@ function registerListeners() {
     listenersRegistered = true
 
     uni.onSocketOpen(() => {
+        // 🔴 TCP 连接级超时：收到任何回调都先清定时器
+        if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
         console.log('[Ws] onSocketOpen → 发送鉴权')
         const auth = _buildAuth()
         try { uni.sendSocketMessage({ data: JSON.stringify(auth) }) } catch(e) {
@@ -176,9 +187,7 @@ function registerListeners() {
             _onSocketLost()
             return
         }
-        // 🔴 关键修复4：客户端主动鉴权超时（10秒）
-        //   原服务器 pendingAuthTable 定时器是 30 秒，客户端等不了这么久 → 用户看到"一直卡连接中"
-        //   现在客户端 10 秒没收到 auth_result 就主动关闭 + 重连
+        // 🔴 客户端主动鉴权超时（10秒）——不用等服务器 30 秒定时器
         if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
         authTimeoutTimer = setTimeout(() => {
             console.warn('[Ws] ⏰ 鉴权超时（10秒未收到 auth_result）→ 主动断开并重连')
@@ -192,12 +201,16 @@ function registerListeners() {
     uni.onSocketMessage((res) => { _handleMessage(res.data) })
 
     uni.onSocketError((err) => {
+        // 🔴 TCP 连接级超时：收到任何回调都先清定时器
+        if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
         console.error('[Ws] onSocketError', JSON.stringify(err))
         if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
         _onSocketLost()
     })
 
     uni.onSocketClose((res) => {
+        // 🔴 TCP 连接级超时：收到任何回调都先清定时器
+        if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
         console.log('[Ws] onSocketClose', JSON.stringify(res || {}))
         if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
         _onSocketLost()
@@ -301,6 +314,18 @@ function _actuallyConnect() {
     events.emit('state', state)
     console.log('[Ws] connecting →', currentUrl)
 
+    // 🔴 TCP 连接级超时：弱网/代理异常时 uni.connectSocket 可能完全不回调（无限卡 connecting）
+    //   8 秒内没收到 onSocketOpen/onSocketError/onSocketClose 就主动放弃 + 重连
+    if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
+    connectTimer = setTimeout(function() {
+        connectTimer = null
+        console.warn('[Ws] ⏰ TCP 连接超时（8秒connectSocket无回调）→ 主动断开并重连')
+        events.emit('error', { type: 'connect_timeout', message: '连接超时（8秒无响应），正在自动重试' })
+        try { _closeSocket() } catch (_) {}
+        socketTask = null
+        _onSocketLost()
+    }, CONNECT_TIMEOUT_MS)
+
     try {
         socketTask = uni.connectSocket({
             url: currentUrl,
@@ -349,40 +374,61 @@ function _handleMessage(text) {
         // 收到任何 auth_result → 清除客户端鉴权超时定时器
         if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
         if (env.success || env.code === 0) {
-            console.log('[Ws] ✅ auth ok')
+            console.log('[Ws] ✅ auth ok (type=auth_result)')
             reconnectAttempts = 0
             state = 'connected'
             events.emit('state', state)
             _startHeartbeat()
+            // 🔴 鉴权成功还会从 data 里同步心跳间隔（后端返回的 heartbeat_interval）
+            try {
+                if (env.data && typeof env.data.heartbeat_interval === 'number' && env.data.heartbeat_interval > 0) {
+                    var hb = parseInt(env.data.heartbeat_interval)
+                    if (hb > 0 && hb <= 3600) { heartbeatInterval = hb; _startHeartbeat() }
+                }
+            } catch (_) {}
         } else {
             const failMsg = env.message || env.msg || '鉴权失败'
             console.warn('[Ws] ❌ auth failed:', failMsg)
-
-            // 🔴 关键修复3：只有永久失败（Key 无效/拉黑/设备拉黑/IP 拉黑/指纹拉黑）才关重连
-            //   临时错误（数据库异常/服务器内部错/数量上限）仍然允许重连（用户删设备后自动恢复）
-            //   避免用户必须杀进程重启才能再次尝试连接
             const isPermanentFail =
                 /推送 Key 无效|Key 无效|已禁用|已被拉黑|设备数量已达上限|缺少 key 或 device_id|凭证无效/i.test(failMsg)
-
             if (isPermanentFail) {
                 shouldReconnect = false
                 console.warn('[Ws] 永久失败，不再自动重连：', failMsg)
             } else {
                 console.warn('[Ws] 临时失败，保留重连开关（30秒后重试）')
             }
-
             _closeSocket()
             state = 'error'
             events.emit('state', state)
             events.emit('error', { type: 'auth_fail', message: failMsg, permanent: isPermanentFail })
-
-            // 临时失败 → 延迟 30 秒后尝试重连（指数退避也在重连流程内）
             if (!isPermanentFail) {
                 reconnectAttempts = 0
                 _scheduleReconnect()
             }
         }
         return
+    }
+
+    // 🔴 【根治卡正在连接】兜底鉴权：连接中收到任何 code=0 且带 data/heartbeat/server_time 的消息
+    //   等同于 auth_result（不同后端版本 pack 时 type 可能缺失或被 message 字段覆盖）
+    //   触发条件：state=connecting/reconnecting + code=0 + (有data或message含"成功/连接")
+    if ((state === 'connecting' || state === 'reconnecting')
+        && env.code === 0
+        && (env.data || /成功|连接|auth/i.test(env.message || ''))) {
+        if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
+        console.log('[Ws] ✅ auth ok (fallback: code=0, type=', t, 'msg=', env.message, ')')
+        reconnectAttempts = 0
+        state = 'connected'
+        events.emit('state', state)
+        try {
+            if (env.data && typeof env.data.heartbeat_interval === 'number' && env.data.heartbeat_interval > 0) {
+                var hb2 = parseInt(env.data.heartbeat_interval)
+                if (hb2 > 0 && hb2 <= 3600) { heartbeatInterval = hb2 }
+            }
+        } catch (_) {}
+        _startHeartbeat()
+        // 注意：如果 type 不是 auth_result 但带了 push 内容，仍需交给后续 push 分支处理
+        // 所以这里不 return，让消息继续匹配
     }
 
     if (t === 'pong') {
@@ -396,6 +442,13 @@ function _handleMessage(text) {
             latency = recvTs - pendingPingAt
             pendingPingAt = 0
             events.emit('latency', latency)
+        }
+        // 🔴 同步通道探测：收到任何 pong 都兑现探针（区分正常心跳 ping 和主动 probe ping）
+        if (probeResolver) {
+            const r = probeResolver
+            probeResolver = null
+            if (probeTimer) { clearTimeout(probeTimer); probeTimer = null }
+            try { r({ ok: true, latency: latency }) } catch (_) {}
         }
         return
     }
@@ -516,6 +569,8 @@ export function disconnect() {
     shouldReconnect = false
     autoReconnect = false
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+    if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
+    if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
     _closeSocket()
     latency = -1
     state = 'disconnected'
@@ -527,6 +582,7 @@ export function reconnect() {
     autoReconnect = true
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
     if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
+    if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
     // 🔴 先置 disconnected 再关 socket：_onSocketLost 检查 state === 'disconnected' 会直接 return，
     //   避免旧连接的 close 事件再排一个重连定时器，和下面的立即连接竞争（uni APP 端单连接限制）
     if (state === 'connected' || state === 'connecting' || state === 'reconnecting') {
@@ -534,7 +590,7 @@ export function reconnect() {
         _closeSocket()
     }
     reconnectAttempts = 0
-    // 🔴 关键修复：手动重连立即执行，不走退避延迟
+    // 🔴 手动重连立即执行，不走退避延迟
     //   之前 _scheduleReconnect() 至少等 1 秒（RECONNECT_BASE=1000）才开始连接 → 用户感觉"卡"
     //   现在只留 300ms 缓冲：让上一个 socket 的 close 事件先派发完，避免新旧连接事件竞争
     state = 'connecting'
@@ -554,6 +610,49 @@ export function applySettings() {
         const auth = _buildAuth()
         try { uni.sendSocketMessage({ data: JSON.stringify(auth) }) } catch(e) {}
     }
+}
+
+// 🔴 同步通道探测：点"测试推送"前先 ping，2 秒没收到 pong = 假连接
+//   返回 Promise<{ok:boolean, latency?:number, reason?:string}>
+//   假连接时会主动触发一次 reconnect()（带 autoReconnect 标记）
+export function probeChannel() {
+    return new Promise(function(resolve) {
+        if (state !== 'connected') {
+            resolve({ ok: false, reason: '未连接（state=' + state + '）' })
+            return
+        }
+        // 取消上一个探测（理论上不会并发，保险）
+        if (probeTimer) { clearTimeout(probeTimer); probeTimer = null }
+        if (probeResolver) { try { probeResolver({ ok: false, reason: 'cancelled' }) } catch (_) {}; probeResolver = null }
+
+        var done = false
+        probeResolver = function(result) {
+            if (done) return
+            done = true
+            resolve(result)
+        }
+        probeTimer = setTimeout(function() {
+            if (done) return
+            done = true
+            probeResolver = null
+            probeTimer = null
+            console.warn('[Ws] ⚠️ 通道探测超时（2秒无pong）→ 判定假连接，触发重连')
+            events.emit('error', { type: 'zombie_probe', message: 'WS假连接检测：通道探测2秒无响应，正在自动重连' })
+            // 假连接 → 立刻触发一次重连（用户不用再手点「重新连接」）
+            try { reconnect() } catch (_) {}
+            resolve({ ok: false, reason: 'probe_timeout' })
+        }, PROBE_TIMEOUT_MS)
+
+        try {
+            pendingPingAt = Date.now()
+            uni.sendSocketMessage({ data: JSON.stringify({ type: 'ping', ts: pendingPingAt, probe: true }) })
+        } catch (e) {
+            console.error('[Ws] probeChannel send ping fail', e)
+            if (probeTimer) { clearTimeout(probeTimer); probeTimer = null }
+            probeResolver = null
+            resolve({ ok: false, reason: 'send_fail:' + (e && e.message ? e.message : String(e)) })
+        }
+    })
 }
 
 export function getHeartbeatInterval() { return heartbeatInterval }

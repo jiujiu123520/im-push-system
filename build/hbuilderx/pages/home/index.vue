@@ -51,7 +51,7 @@
 
 <script>
 import { loadBootConfig, PUSH_KEY, PUSH_WS_URL, PUSH_SERVER_URL, getMessages, addMessage } from '../../js/storage.js'
-import { connect, reconnect, isConnected, getState, getLatency, on, off } from '../../js/ws.js'
+import { connect, reconnect, isConnected, getState, getLatency, on, off, probeChannel } from '../../js/ws.js'
 import { notify } from '../../js/notify.js'
 import { testPush as apiTestPush } from '../../js/api.js'
 import { getTheme, applyTheme, onThemeChange, offThemeChange } from '../../js/theme.js'
@@ -350,35 +350,102 @@ export default {
             if (!this.keyValue) { uni.showToast({ title: '请先配置 Key', icon: 'none' }); return }
             var deviceId = getDeviceId()
             var self = this
-            apiTestPush(base, this.keyValue, deviceId).then(function(r) {
-                var beforeCount = getMessages().length
-                uni.showToast({ title: (r && r.message) || '测试推送已发送，请留意通知栏', icon: 'success' })
-                // 🔴 通道诊断：4 秒内没收到 WS 回推 → 说明 WS 是假连接（后端 push 到了僵尸 fd），
-                //   本地立刻弹提示通知 + 明确指引，用户不用干等
-                setTimeout(function() {
-                    var afterCount = getMessages().length
-                    if (afterCount <= beforeCount) {
+
+            // 🔴 第一步：先做同步通道探测（2秒），假连接直接弹具体提示+自动重连
+            //   之前是直接 HTTP 发 → 等 4 秒 WS 回推，假连接时前后端各说各话，用户永远不知道为什么
+            var beforeCount = getMessages().length
+            probeChannel().then(function(probe) {
+                if (!probe.ok) {
+                    // 假连接/未连接：直接精准提示，不再浪费用户时间等4秒
+                    var probeMsg = probe.reason === 'probe_timeout'
+                        ? '⚠️ WS假连接已检测（2秒无响应），已自动触发重连，请稍等10秒后再测'
+                        : '⚠️ 当前未连接：' + (probe.reason || '') + '，请先连接或点「重新连接」'
+                    try {
+                        addMessage({
+                            id: 'probe-fail-' + Date.now(),
+                            title: probe.reason === 'probe_timeout' ? '⚠️ 通道探测失败' : '⚠️ 未连接',
+                            content: probeMsg,
+                            priority: 'high',
+                            timestamp: Date.now(),
+                            read: false
+                        })
+                        try { notify(probe.reason === 'probe_timeout' ? '⚠️ 通道探测失败' : '⚠️ 未连接', probeMsg, 'high') } catch (e) {}
+                        self.recentMessages = getMessages().slice(0, 3)
+                    } catch (_) {}
+                    uni.showToast({ title: probeMsg.length > 18 ? probeMsg.slice(0, 16) + '…' : probeMsg, icon: 'none', duration: 2800 })
+                    return
+                }
+                // 通道探测 OK → 再发 HTTP 自测推送
+                return apiTestPush(base, self.keyValue, deviceId).then(function(r) {
+                    // 🔴 第二步：立刻读 HTTP 返回的 online / success 字段，不再傻等 4 秒
+                    //   selfTest 返回：{ online:bool, success:bool, message, elapsed_ms }
+                    //   - online=false  → Redis 没有 fd（服务端视角离线），直接提示 + 建议重连
+                    //   - online=true, success=false → 推送 dispatch 失败（fd 写失败等）
+                    var isOnline = !!(r && r.online)
+                    var isSuccess = !!(r && r.success)
+                    var elapsed = (r && r.elapsed_ms) || 0
+
+                    if (!isOnline) {
+                        var offlineMsg = '⚠️ 服务端视角：设备离线（Redis无fd记录）。WS可能是假连接，已自动触发重连，请10秒后再测'
+                        uni.showToast({ title: '服务端视角：设备离线', icon: 'none', duration: 2500 })
                         try {
                             addMessage({
-                                id: 'test-timeout-' + Date.now(),
-                                title: '⚠️ 通道测试超时',
-                                content: '服务器已收到请求，但 4 秒内未收到推送回包。WS 连接可能异常（假连接），请点击「重新连接」后再测。',
+                                id: 'self-offline-' + Date.now(),
+                                title: '⚠️ 服务端视角：设备离线',
+                                content: offlineMsg + '（接口耗时：' + elapsed + 'ms）',
                                 priority: 'high',
                                 timestamp: Date.now(),
                                 read: false
                             })
-                            try { notify('⚠️ 通道测试超时', '服务器已收到请求但未收到推送回包，WS 可能是假连接，请点「重新连接」', 'high') } catch (e) {}
+                            try { notify('⚠️ 服务端视角：设备离线', offlineMsg, 'high') } catch (e) {}
                             self.recentMessages = getMessages().slice(0, 3)
-                        } catch (e2) {
-                            console.warn('[Home] 通道超时提示失败', e2)
-                        }
+                        } catch (_) {}
+                        // 服务端视角离线 = 100% 假连接，立即重连
+                        try { reconnect() } catch (_) {}
+                        return
                     }
-                }, 4000)
+
+                    if (isOnline && !isSuccess) {
+                        var pushFailMsg = '⚠️ 服务端在线但推送失败（fd写入失败），已触发自动重连，请10秒后再测'
+                        uni.showToast({ title: '推送失败，正在重连', icon: 'none', duration: 2500 })
+                        try {
+                            addMessage({
+                                id: 'self-pushfail-' + Date.now(),
+                                title: '⚠️ 在线但推送失败',
+                                content: pushFailMsg + '（接口耗时：' + elapsed + 'ms）',
+                                priority: 'high',
+                                timestamp: Date.now(),
+                                read: false
+                            })
+                            try { notify('⚠️ 推送失败', pushFailMsg, 'high') } catch (e) {}
+                            self.recentMessages = getMessages().slice(0, 3)
+                        } catch (_) {}
+                        try { reconnect() } catch (_) {}
+                        return
+                    }
+
+                    // 🔴 online=true + success=true → 服务端成功推送，正常 Toast + 4秒兜底（极端慢网场景）
+                    uni.showToast({ title: (r && r.message) || '测试推送已发送，请留意通知栏', icon: 'success' })
+                    setTimeout(function() {
+                        var afterCount = getMessages().length
+                        if (afterCount <= beforeCount) {
+                            try {
+                                addMessage({
+                                    id: 'test-timeout-' + Date.now(),
+                                    title: '⚠️ 通道测试超时',
+                                    content: '服务器已收到请求且返回成功，但 4 秒内未收到推送回包。可能是网络极慢或代理缓存，建议稍后再测。',
+                                    priority: 'high',
+                                    timestamp: Date.now(),
+                                    read: false
+                                })
+                                try { notify('⚠️ 通道测试超时', '服务器返回成功但4秒内未收到回包，网络可能极慢或代理缓存', 'high') } catch (e) {}
+                                self.recentMessages = getMessages().slice(0, 3)
+                            } catch (e2) {}
+                        }
+                    }, 4000)
+                })
             }).catch(function() {
                 uni.showToast({ title: '测试推送已发送（无响应），本地模拟一条', icon: 'none' })
-                // 本地模拟推送：先存消息列表 + 本地弹通知
-                // 🔴 修复：直接用顶部 import 的 addMessage（vue3/vite APP 端没有 require 函数，
-                //   之前 require('../../js/storage.js') 会抛 require is not defined → 模拟消息存不进列表）
                 try {
                     var testMsg = {
                         id: 'local-test-' + Date.now(),
@@ -390,13 +457,8 @@ export default {
                     }
                     addMessage(testMsg)
                     self.recentMessages = getMessages().slice(0, 3)
-                    // 本地直接弹通知栏（notify 是 ESM 具名导入，可靠）
-                    try { notify(testMsg.title, testMsg.content, testMsg.priority) } catch (e) {
-                        console.error('[Home] 本地测试通知失败', e)
-                    }
-                } catch (e2) {
-                    console.error('[Home] 本地模拟推送异常', e2)
-                }
+                    try { notify(testMsg.title, testMsg.content, testMsg.priority) } catch (e) {}
+                } catch (e2) {}
             })
         },
         reconnect: function() {
