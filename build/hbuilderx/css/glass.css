@@ -20,9 +20,9 @@ page[data-theme="light"],
     --card-border-hl: rgba(0, 0, 0, 0.1);
 
     --text-primary: rgba(15, 23, 42, 0.95);
-    --text-secondary: rgba(15, 23, 42, 0.7);
-    --text-muted: rgba(15, 23, 42, 0.45);
-    --text-read: rgba(15, 23, 42, 0.55);
+    --text-secondary: rgba(15, 23, 42, 0.78);
+    --text-muted: rgba(15, 23, 42, 0.55);
+    --text-read: rgba(15, 23, 42, 0.66);
     --text-accent: #6366f1;
 
     --btn-primary-bg-1: #6366f1;
@@ -65,9 +65,9 @@ page[data-theme="dark"],
     --card-border-hl: rgba(255, 255, 255, 0.2);
 
     --text-primary: rgba(255, 255, 255, 0.95);
-    --text-secondary: rgba(255, 255, 255, 0.7);
-    --text-muted: rgba(255, 255, 255, 0.45);
-    --text-read: rgba(255, 255, 255, 0.6);
+    --text-secondary: rgba(255, 255, 255, 0.82);
+    --text-muted: rgba(255, 255, 255, 0.6);
+    --text-read: rgba(255, 255, 255, 0.72);
     --text-accent: #8b5cf6;
 
     --btn-primary-bg-1: #6366f1;
@@ -110,9 +110,9 @@ page[data-theme="flat"],
     --card-border-hl: rgba(255, 255, 255, 0.15);
 
     --text-primary: rgba(255, 255, 255, 0.95);
-    --text-secondary: rgba(255, 255, 255, 0.7);
-    --text-muted: rgba(255, 255, 255, 0.45);
-    --text-read: rgba(255, 255, 255, 0.6);
+    --text-secondary: rgba(255, 255, 255, 0.82);
+    --text-muted: rgba(255, 255, 255, 0.6);
+    --text-read: rgba(255, 255, 255, 0.72);
     --text-accent: #ff6b6b;
 
     --btn-primary-bg-1: #ff6b6b;

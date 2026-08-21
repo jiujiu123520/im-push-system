@@ -41,7 +41,7 @@
             <view style="font-size:28rpx;font-weight:600;margin:32rpx 0 20rpx;">🔗 WebSocket 地址</view>
             <input class="input-url" placeholder="wss://push.example.com/ws/client（留空自动生成）" placeholder-class="ph-style"
                    v-model="formWs" />
-            <view style="font-size:22rpx;opacity:0.5;margin-top:12rpx;">留空将根据 HTTP 地址自动生成（https→wss + /ws/client）</view>
+            <view style="font-size:22rpx;opacity:0.75;margin-top:12rpx;">留空将根据 HTTP 地址自动生成（https→wss + /ws/client）</view>
 
             <button class="btn-primary" style="width:100%;margin-top:48rpx;" @click="confirm">保存并连接</button>
         </view>
