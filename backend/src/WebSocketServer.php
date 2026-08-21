@@ -498,11 +498,11 @@ class WebSocketServer
             return;
         }
 
-        // 重连设备：清除离线待通知队列中的记录（不再触发延迟通知）
+        // 重连设备：清除离线待通知队列；若之前发过掉线通知则补发"已恢复"邮件
         try {
-            $this->offlineNotifier->clearPendingOffline($deviceId);
+            $this->offlineNotifier->handleReconnect($deviceId);
         } catch (\Throwable $e) {
-            $this->logToFile("[WS] clearPendingOffline 异常 device_id={$deviceId} error={$e->getMessage()}");
+            $this->logToFile("[WS] handleReconnect 异常 device_id={$deviceId} error={$e->getMessage()}");
         }
 
         // 采集设备信息存 devices 表

@@ -77,6 +77,13 @@
             默认 300 秒 = 5 分钟
           </div>
         </el-form-item>
+        <el-form-item label="掉线阈值" prop="notify_offline_minutes" v-if="form.notify_enabled === 1">
+          <el-input-number v-model="form.notify_offline_minutes" :min="0" :max="1440" :step="5" />
+          <span style="color:var(--text-secondary);font-size:12px;margin-left:8px">分钟</span>
+          <div style="color:var(--text-secondary);font-size:12px;margin-top:4px">
+            持续离线达到该时长才发提醒；0 = 系统默认 30 分钟，最小 5 分钟（如 5 = 掉线 5 分钟即提醒）
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -107,7 +114,8 @@ const form = reactive({
   max_devices: 10,
   notify_enabled: 0 as 0 | 1,
   notify_email: '',
-  notify_interval: 300
+  notify_interval: 300,
+  notify_offline_minutes: 0
 })
 const rules: FormRules = {
   name: [{ required: true, message: '请输入 Key 名称', trigger: 'blur' },
@@ -139,6 +147,23 @@ const rules: FormRules = {
       },
       trigger: 'blur'
     }
+  ],
+  notify_offline_minutes: [
+    {
+      validator: (_rule, value, cb) => {
+        if (form.notify_enabled !== 1) return cb()
+        const v = Number(value)
+        // 0=默认；有效值 5~1440；1~4 视为过小，提示但不强制（后端会回退 0）
+        if (!Number.isFinite(v) || v < 0 || v > 1440) {
+          return cb(new Error('掉线阈值需在 0 ~ 1440 分钟之间（0 = 默认 30 分钟）'))
+        }
+        if (v > 0 && v < 5) {
+          return cb(new Error('自定义阈值最小 5 分钟；如需默认请填 0'))
+        }
+        cb()
+      },
+      trigger: 'blur'
+    }
   ]
 }
 
@@ -158,6 +183,7 @@ function openCreate() {
   form.notify_enabled = 0
   form.notify_email = ''
   form.notify_interval = 300
+  form.notify_offline_minutes = 0
   dialogVisible.value = true
 }
 function openEdit(row: PushKey) {
@@ -167,6 +193,7 @@ function openEdit(row: PushKey) {
   form.notify_enabled = (row.notify_enabled as 0 | 1) ?? 0
   form.notify_email = row.notify_email ?? ''
   form.notify_interval = row.notify_interval ?? 300
+  form.notify_offline_minutes = row.notify_offline_minutes ?? 0
   dialogVisible.value = true
 }
 async function save() {
@@ -179,7 +206,8 @@ async function save() {
         max_devices: form.max_devices,
         notify_enabled: form.notify_enabled,
         notify_email: form.notify_email,
-        notify_interval: form.notify_interval
+        notify_interval: form.notify_interval,
+        notify_offline_minutes: form.notify_offline_minutes
       }
       if (editId.value) {
         await updateKeyApi(editId.value, payload)

@@ -177,6 +177,7 @@ export interface PushKey {
   notify_enabled?: number  // 0 or 1，掉线邮件通知开关
   notify_email?: string   // 掉线通知邮箱
   notify_interval?: number // 通知冷却间隔秒数
+  notify_offline_minutes?: number // 掉线提醒阈值（分钟）：0=系统默认30，范围5~1440
   created_at: string
   updated_at: string
 }

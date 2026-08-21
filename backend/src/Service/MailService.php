@@ -210,6 +210,126 @@ HTML;
     }
 
     /**
+     * 发送设备恢复上线通知邮件
+     *
+     * 场景：设备掉线时已发过掉线通知，重连后补发本邮件告知已恢复。
+     *
+     * @param array  $deviceInfo  设备信息（device_id/device_name/ip/...）
+     * @param string $keyName     所属 Key 名称
+     * @param string $email       收件人（多个逗号分隔）
+     * @param int    $offlineAt   掉线时间戳（秒）
+     * @param int    $sentAt      掉线通知发送时间戳（秒）
+     * @param int    $recoveredAt 恢复时间戳（秒）
+     * @return bool
+     */
+    public static function sendRecoveryNotification(array $deviceInfo, string $keyName, string $email, int $offlineAt, int $sentAt, int $recoveredAt): bool
+    {
+        $emails = array_filter(array_map('trim', explode(',', $email)));
+        if (empty($emails)) {
+            return false;
+        }
+
+        $deviceId   = $deviceInfo['device_id'] ?? '';
+        $deviceName = $deviceInfo['device_name'] ?? $deviceId;
+        $ip         = $deviceInfo['ip'] ?? '未知';
+        $model      = $deviceInfo['device_model'] ?? '未知';
+
+        $offlineAtStr    = $offlineAt > 0 ? date('Y-m-d H:i:s', $offlineAt) : '未知';
+        $sentAtStr       = $sentAt > 0 ? date('Y-m-d H:i:s', $sentAt) : '未知';
+        $recoveredAtStr  = $recoveredAt > 0 ? date('Y-m-d H:i:s', $recoveredAt) : date('Y-m-d H:i:s');
+        $offlineDuration = ($offlineAt > 0 && $recoveredAt > $offlineAt) ? ($recoveredAt - $offlineAt) : 0;
+        $offlineDurationStr = self::formatDuration($offlineDuration);
+
+        $subject = "[设备恢复通知] {$deviceName} 已重新上线";
+
+        $body = <<<HTML
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>设备恢复通知</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background: #f5f7fa; }
+        .container { max-width: 600px; margin: 20px auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); overflow: hidden; }
+        .header { background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 24px; text-align: center; }
+        .header h1 { color: #fff; margin: 0; font-size: 20px; font-weight: 600; }
+        .header .icon { font-size: 36px; margin-bottom: 8px; }
+        .content { padding: 24px; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .info-item { background: #f8fafc; padding: 12px; border-radius: 8px; }
+        .info-label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+        .info-value { font-size: 14px; color: #1e293b; font-weight: 500; word-break: break-all; }
+        .info-item.span-2 { grid-column: span 2; }
+        .footer { padding: 16px 24px; background: #f8fafc; border-top: 1px solid #e2e8f0; }
+        .footer p { margin: 0; font-size: 12px; color: #94a3b8; text-align: center; }
+        .success { color: #10b981; font-weight: 600; }
+        .primary { color: #3b82f6; font-weight: 600; }
+        .duration { background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 20px; }
+        .duration .label { font-size: 13px; color: #065f46; margin-bottom: 4px; }
+        .duration .value { font-size: 22px; color: #059669; font-weight: 700; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="icon">✅</div>
+            <h1>设备恢复通知</h1>
+        </div>
+        <div class="content">
+            <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">
+                您的设备已重新连接推送服务，恢复正常接收推送。
+            </p>
+            <div class="duration">
+                <div class="label">本次离线时长</div>
+                <div class="value">{$offlineDurationStr}</div>
+            </div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="info-label">设备名称</div>
+                    <div class="info-value">{$deviceName}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">设备 ID</div>
+                    <div class="info-value">{$deviceId}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">所属 Key</div>
+                    <div class="info-value">{$keyName}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">设备型号</div>
+                    <div class="info-value">{$model}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">掉线时间</div>
+                    <div class="info-value">{$offlineAtStr}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">恢复时间</div>
+                    <div class="info-value success">{$recoveredAtStr}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">IP 地址（真实）</div>
+                    <div class="info-value primary">{$ip}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">掉线通知发送时间</div>
+                    <div class="info-value">{$sentAtStr}</div>
+                </div>
+            </div>
+        </div>
+        <div class="footer">
+            <p>此邮件由推送服务系统自动发送，请勿回复。</p>
+        </div>
+    </div>
+</body>
+</html>
+HTML;
+
+        return self::send($emails, $subject, $body);
+    }
+
+    /**
      * 把秒数格式化为人类可读的"X天 X小时 X分 X秒"
      *
      * @param int $seconds

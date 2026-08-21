@@ -30,7 +30,7 @@ class KeyController extends BaseUserController
         $total = (int)(Database::fetch("SELECT COUNT(*) cnt FROM push_keys {$where}", $bind)['cnt'] ?? 0);
         $list = Database::fetchAll(
             "SELECT id, key_value, name, status, max_devices, created_at, updated_at,
-                    notify_enabled, notify_email, notify_interval
+                    notify_enabled, notify_email, notify_interval, notify_offline_minutes
              FROM push_keys {$where}
              ORDER BY id DESC LIMIT {$perPage} OFFSET {$offset}",
             $bind
@@ -78,6 +78,11 @@ class KeyController extends BaseUserController
         $notifyEmail    = trim((string)($body['notify_email'] ?? ''));
         $notifyInterval = (int)($body['notify_interval'] ?? 300);
         $notifyInterval = max(30, min(86400, $notifyInterval));
+        $notifyOfflineMinutes = (int)($body['notify_offline_minutes'] ?? 0);
+        // 0=系统默认30分钟；有效范围 5~1440，超范围回退 0
+        if ($notifyOfflineMinutes !== 0 && ($notifyOfflineMinutes < 5 || $notifyOfflineMinutes > 1440)) {
+            $notifyOfflineMinutes = 0;
+        }
 
         // 生成 key_value：确保唯一
         for ($i = 0; $i < 5; $i++) {
@@ -88,11 +93,11 @@ class KeyController extends BaseUserController
 
         $id = Database::insert(
             'INSERT INTO push_keys (key_value, name, user_id, status, max_devices,
-                                    notify_enabled, notify_email, notify_interval,
+                                    notify_enabled, notify_email, notify_interval, notify_offline_minutes,
                                     created_at, updated_at)
-             VALUES (?, ?, ?, 1, ?, ?, ?, ?, NOW(), NOW())',
+             VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, NOW(), NOW())',
             [$keyValue, $name, $userId, $maxDevices,
-             $notifyEnabled, $notifyEmail !== '' ? $notifyEmail : '', $notifyInterval]
+             $notifyEnabled, $notifyEmail !== '' ? $notifyEmail : '', $notifyInterval, $notifyOfflineMinutes]
         );
         return [
             'id'              => (int)$id,
@@ -102,6 +107,7 @@ class KeyController extends BaseUserController
             'notify_enabled'  => $notifyEnabled,
             'notify_email'    => $notifyEmail,
             'notify_interval' => $notifyInterval,
+            'notify_offline_minutes' => $notifyOfflineMinutes,
             'status'          => 1,
         ];
     }
@@ -132,6 +138,12 @@ class KeyController extends BaseUserController
         $notifyEmail    = array_key_exists('notify_email', $body) ? trim((string)$body['notify_email']) : null;
         $notifyInterval = isset($body['notify_interval']) ? (int)$body['notify_interval'] : null;
         if ($notifyInterval !== null) $notifyInterval = max(30, min(86400, $notifyInterval));
+        $notifyOfflineMinutes = isset($body['notify_offline_minutes']) ? (int)$body['notify_offline_minutes'] : null;
+        // 0=系统默认30分钟；有效范围 5~1440，超范围回退 0
+        if ($notifyOfflineMinutes !== null && $notifyOfflineMinutes !== 0
+            && ($notifyOfflineMinutes < 5 || $notifyOfflineMinutes > 1440)) {
+            $notifyOfflineMinutes = 0;
+        }
 
         $sets = ['name = ?', 'max_devices = ?', 'updated_at = NOW()'];
         $bind = [$name, $maxDevices];
@@ -147,6 +159,10 @@ class KeyController extends BaseUserController
             $sets[] = 'notify_interval = ?';
             $bind[] = $notifyInterval;
         }
+        if ($notifyOfflineMinutes !== null) {
+            $sets[] = 'notify_offline_minutes = ?';
+            $bind[] = $notifyOfflineMinutes;
+        }
         $bind[] = $id;
 
         Database::execute(
@@ -156,7 +172,7 @@ class KeyController extends BaseUserController
 
         $final = Database::fetch(
             'SELECT id, key_value, name, status, max_devices,
-                    notify_enabled, notify_email, notify_interval
+                    notify_enabled, notify_email, notify_interval, notify_offline_minutes
              FROM push_keys WHERE id = ? LIMIT 1',
             [$id]
         );
