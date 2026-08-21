@@ -1,6 +1,6 @@
 package com.push.app.ui.screen
 
-import android.widget.Toast
+import com.push.app.util.ToastUtils
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -152,7 +152,7 @@ fun MessageListScreen() {
                             onDelete = {
                                 scope.launch {
                                     repo.deleteMessage(msg.id)
-                                    Toast.makeText(context, "已删除", Toast.LENGTH_SHORT).show()
+                                    ToastUtils.show(context, "已删除")
                                 }
                             },
                         )

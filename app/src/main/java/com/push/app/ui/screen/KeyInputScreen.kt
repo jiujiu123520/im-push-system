@@ -1,6 +1,6 @@
-﻿package com.push.app.ui.screen
+package com.push.app.ui.screen
 
-import android.widget.Toast
+import com.push.app.util.ToastUtils
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -155,7 +155,7 @@ fun KeyInputScreen(
                                     repo.prefs.saveHttpServerUrl(serverUrl)
                                     repo.prefs.saveWsUrl(wsUrl)
                                     repo.connect()
-                                    Toast.makeText(context, "已保存并连接", Toast.LENGTH_SHORT).show()
+                                    ToastUtils.show(context, "已保存并连接")
                                     onSaved()
                                 } catch (e: Exception) {
                                     error = e.message?.ifBlank { "保存失败" } ?: "保存失败"
@@ -215,6 +215,9 @@ private fun CurrentValueRow(label: String, value: String) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(top = 2.dp),
+            // Key / 服务器地址都很长，强制单行 + 省略号，避免换行/溢出把卡片撑破
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(4.dp))
     }

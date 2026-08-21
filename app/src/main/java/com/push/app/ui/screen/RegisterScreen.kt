@@ -1,9 +1,9 @@
-﻿package com.push.app.ui.screen
+package com.push.app.ui.screen
 
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.widget.Toast
+import com.push.app.util.ToastUtils
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -291,6 +291,9 @@ fun RegisterScreen(
                 text = err,
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
+                // 错误信息可能是服务端返回的长句，允许多行但做省略，避免显示一半被卡片裁掉
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
             )
         }
 
@@ -393,7 +396,7 @@ fun RegisterScreen(
             securityCode = code,
             onCopy = {
                 copyToClipboard(context, code)
-                Toast.makeText(context, "已复制安全码", Toast.LENGTH_SHORT).show()
+                ToastUtils.show(context, "已复制安全码")
             },
             onSaved = {
                 val result = pendingResult

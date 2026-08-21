@@ -51,6 +51,7 @@ import com.push.app.ui.theme.StatusOnline
 import com.push.app.ui.theme.StatusWarning
 import com.push.app.ui.theme.isLightTheme
 import com.push.app.ui.theme.tileGlassBg
+import com.push.app.util.ToastUtils
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -144,28 +145,26 @@ fun HomeScreen(
                                 val serverUrl = repo.prefs.httpServerUrlFlow.first()
                                 val deviceId = repo.getDeviceIdPublic()
                                 val result = testPushApi.sendTestPush(key, serverUrl, deviceId)
-                                Toast.makeText(
+                                ToastUtils.show(
                                     context,
                                     if (result.success) "测试推送已发送" else "发送失败",
-                                    Toast.LENGTH_SHORT,
-                                ).show()
+                                )
                             } catch (e: Exception) {
-                                Toast.makeText(
+                                ToastUtils.show(
                                     context,
                                     e.message ?: "发送失败",
-                                    Toast.LENGTH_SHORT,
-                                ).show()
+                                )
                             }
                         }
                     },
                     onReconnect = {
                         repo.reconnect()
-                        Toast.makeText(context, "正在重连...", Toast.LENGTH_SHORT).show()
+                        ToastUtils.show(context, "正在重连...")
                     },
                     onClear = {
                         scope.launch {
                             repo.clearMessages()
-                            Toast.makeText(context, "已清空消息", Toast.LENGTH_SHORT).show()
+                            ToastUtils.show(context, "已清空消息")
                         }
                     },
                 )
@@ -334,23 +333,28 @@ private fun QuickActionButton(
         modifier = modifier,
         onClick = onClick,
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .padding(horizontal = 10.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(20.dp),
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.size(8.dp))
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurface,
+                // 关键：一行显示、不折行、省略号兜底（正常一行刚好装下 4 字，SemiBold 也不会超）
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

@@ -3,7 +3,7 @@ package com.push.app.ui.screen
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.widget.Toast
+import com.push.app.util.ToastUtils
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -95,7 +95,7 @@ fun ProfileScreen(
     val quickActions = listOf(
         QuickActionItem(Icons.Filled.ContentCopy, "复制 ID") {
             copyToClipboard(context, userId)
-            Toast.makeText(context, "设备 ID 已复制", Toast.LENGTH_SHORT).show()
+            ToastUtils.show(context, "设备 ID 已复制")
         },
         QuickActionItem(Icons.Filled.Refresh, "测试推送") {
             scope.launch {
@@ -104,24 +104,23 @@ fun ProfileScreen(
                     val httpUrl = repo.prefs.httpServerUrlFlow.first()
                     val deviceId = repo.getDeviceIdPublic()
                     val result = testPushApi.sendTestPush(key, httpUrl, deviceId)
-                    Toast.makeText(
+                    ToastUtils.show(
                         context,
                         if (result.success) "测试推送已发送" else "发送失败",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    )
                 } catch (e: Exception) {
-                    Toast.makeText(context, e.message ?: "发送失败", Toast.LENGTH_SHORT).show()
+                    ToastUtils.show(context, e.message ?: "发送失败")
                 }
             }
         },
         QuickActionItem(Icons.Filled.CheckCircle, "重新连接") {
             repo.reconnect()
-            Toast.makeText(context, "正在重连...", Toast.LENGTH_SHORT).show()
+            ToastUtils.show(context, "正在重连...")
         },
         QuickActionItem(Icons.Filled.DeleteSweep, "清空消息") {
             scope.launch {
                 repo.clearMessages()
-                Toast.makeText(context, "已清空消息", Toast.LENGTH_SHORT).show()
+                ToastUtils.show(context, "已清空消息")
             }
         },
     )
@@ -140,7 +139,7 @@ fun ProfileScreen(
                 connectionState = connectionState,
                 onCopyId = {
                     copyToClipboard(context, userId)
-                    Toast.makeText(context, "设备 ID 已复制", Toast.LENGTH_SHORT).show()
+                    ToastUtils.show(context, "设备 ID 已复制")
                 },
                 onNavigateToLogin = onNavigateToLogin,
             )
@@ -249,7 +248,7 @@ fun ProfileScreen(
                         }
                     }
                     editField = null
-                    Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
+                    ToastUtils.show(context, "已保存")
                 }
             },
         )
@@ -435,11 +434,16 @@ private fun ConfigRow(
                 text = label,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = value,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
+                // Key / URL 可能特别长，强制一行 + 省略号，防止把卡片撑破或换行截成一半显示
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
         IconButton(onClick = onClick) {

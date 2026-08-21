@@ -1,6 +1,6 @@
-﻿package com.push.app.ui.screen
+package com.push.app.ui.screen
 
-import android.widget.Toast
+import com.push.app.util.ToastUtils
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -159,6 +159,9 @@ fun LoginScreen(
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.fillMaxWidth(),
+                            // 错误信息可能是服务端返回的长句，允许多行但做省略，至少不会被切一半
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
 
@@ -201,7 +204,7 @@ fun LoginScreen(
                                     } else {
                                         repo.prefs.saveUserToken(result.token)
                                         result.user?.let { repo.prefs.saveUserInfo(it) }
-                                        Toast.makeText(context, "登录成功", Toast.LENGTH_SHORT).show()
+                                        ToastUtils.show(context, "登录成功")
                                         onLoginSuccess()
                                     }
                                 } catch (e: Exception) {

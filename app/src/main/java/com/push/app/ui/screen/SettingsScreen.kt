@@ -1,6 +1,6 @@
 package com.push.app.ui.screen
 
-import android.widget.Toast
+import com.push.app.util.ToastUtils
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clip
 import androidx.compose.foundation.layout.Arrangement
@@ -330,7 +330,7 @@ fun SettingsScreen(
                             onClick = {
                                 scope.launch {
                                     repo.clearMessages()
-                                    Toast.makeText(context, "缓存已清除", Toast.LENGTH_SHORT).show()
+                                    ToastUtils.show(context, "缓存已清除")
                                 }
                             },
                             shape = RoundedCornerShape(10.dp),
@@ -578,11 +578,15 @@ private fun PermissionRow(
                 text = label,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = statusText,
                 style = MaterialTheme.typography.labelSmall,
                 color = if (statusOk) StatusOnline else StatusOffline,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
         }
         androidx.compose.material3.IconButton(onClick = onClick) {
