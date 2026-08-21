@@ -649,6 +649,10 @@ class PushKeyController
         $notifyEmail = (string)($body['notify_email'] ?? $body['notifyEmail'] ?? '');
         $notifyEnabled = (int)($body['notify_enabled'] ?? $body['notifyEnabled'] ?? 0);
         $notifyInterval = (int)($body['notify_interval'] ?? $body['notifyInterval'] ?? 300);
+        $notifyOfflineMinutes = (int)($body['notify_offline_minutes'] ?? $body['notifyOfflineMinutes'] ?? 0);
+        if ($notifyOfflineMinutes !== 0 && ($notifyOfflineMinutes < 5 || $notifyOfflineMinutes > 1440)) {
+            $notifyOfflineMinutes = 0;
+        }
 
         // 归属用户：管理员创建的 Key 默认为全局 Key（user_id=0）；
         // 若 body 中显式指定 user_id（管理员为指定用户创建），则使用该值。
@@ -674,8 +678,8 @@ class PushKeyController
         // 尝试更新通知字段（如果表中有这些列）
         try {
             Database::execute(
-                'UPDATE push_keys SET notify_email = ?, notify_enabled = ?, notify_interval = ? WHERE id = ?',
-                [$notifyEmail, $notifyEnabled, $notifyInterval, $id]
+                'UPDATE push_keys SET notify_email = ?, notify_enabled = ?, notify_interval = ?, notify_offline_minutes = ? WHERE id = ?',
+                [$notifyEmail, $notifyEnabled, $notifyInterval, $notifyOfflineMinutes, $id]
             );
         } catch (\Throwable $e) {
             // 表中可能没有通知字段，忽略错误
@@ -765,6 +769,13 @@ class PushKeyController
             $notifyData['notify_interval'] = (int)$body['notify_interval'];
         } elseif (isset($body['notifyInterval'])) {
             $notifyData['notify_interval'] = (int)$body['notifyInterval'];
+        }
+        if (isset($body['notify_offline_minutes'])) {
+            $m = (int)$body['notify_offline_minutes'];
+            $notifyData['notify_offline_minutes'] = ($m !== 0 && ($m < 5 || $m > 1440)) ? 0 : $m;
+        } elseif (isset($body['notifyOfflineMinutes'])) {
+            $m = (int)$body['notifyOfflineMinutes'];
+            $notifyData['notify_offline_minutes'] = ($m !== 0 && ($m < 5 || $m > 1440)) ? 0 : $m;
         }
 
         if (!empty($notifyData)) {
@@ -880,7 +891,7 @@ class PushKeyController
     }
 
     /**
-     * 为列表追加通知字段（notify_email, notify_enabled, notify_interval）
+     * 为列表追加通知字段（notify_email, notify_enabled, notify_interval, notify_offline_minutes）
      * 如果表中不存在这些列，则填充默认值
      */
     private function appendNotifyFields(array $rows): array
@@ -898,7 +909,7 @@ class PushKeyController
 
         try {
             $notifyRows = Database::fetchAll(
-                "SELECT id, notify_email, notify_enabled, notify_interval
+                "SELECT id, notify_email, notify_enabled, notify_interval, notify_offline_minutes
                  FROM push_keys WHERE id IN ({$placeholders})",
                 $ids
             );
@@ -910,25 +921,28 @@ class PushKeyController
                 }
                 foreach ($rows as &$row) {
                     $nr = $notifyMap[$row['id']] ?? null;
-                    $row['notify_email']     = $nr['notify_email'] ?? '';
-                    $row['notify_enabled']   = $nr['notify_enabled'] ?? 0;
-                    $row['notify_interval']  = $nr['notify_interval'] ?? 300;
+                    $row['notify_email']           = $nr['notify_email'] ?? '';
+                    $row['notify_enabled']         = $nr['notify_enabled'] ?? 0;
+                    $row['notify_interval']        = $nr['notify_interval'] ?? 300;
+                    $row['notify_offline_minutes'] = $nr['notify_offline_minutes'] ?? 0;
                 }
                 unset($row);
             } else {
                 foreach ($rows as &$row) {
-                    $row['notify_email']     = '';
-                    $row['notify_enabled']   = 0;
-                    $row['notify_interval']  = 300;
+                    $row['notify_email']           = '';
+                    $row['notify_enabled']         = 0;
+                    $row['notify_interval']        = 300;
+                    $row['notify_offline_minutes'] = 0;
                 }
                 unset($row);
             }
         } catch (\Throwable $e) {
             // 表中可能没有通知字段，填充默认值
             foreach ($rows as &$row) {
-                $row['notify_email']     = '';
-                $row['notify_enabled']   = 0;
-                $row['notify_interval']  = 300;
+                $row['notify_email']           = '';
+                $row['notify_enabled']         = 0;
+                $row['notify_interval']        = 300;
+                $row['notify_offline_minutes'] = 0;
             }
             unset($row);
         }

@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="page-container module-page">
     <!-- 页头 -->
     <div class="page-header">
@@ -351,6 +351,13 @@
               <span style="color: var(--el-text-color-secondary); margin-left: 6px;">（{{ formatDuration(row.notify_interval) }}）</span>
             </span>
             <span v-else style="color: var(--el-text-color-secondary);">默认 5 分钟</span>
+          </template>
+          <!-- Key：掉线阈值 -->
+          <template v-else-if="col.slot === 'notifyOfflineMinutes'" #default="{ row }">
+            <span v-if="row.notify_offline_minutes && row.notify_offline_minutes > 0">
+              <span style="font-weight: 500;">{{ row.notify_offline_minutes }}</span> 分钟
+            </span>
+            <span v-else style="color: var(--el-text-color-secondary);">默认 30 分钟</span>
           </template>
           <!-- Key：归属用户（user_id > 0 显示用户名，否则为管理员全局 Key） -->
           <template v-else-if="col.slot === 'userBind'" #default="{ row }">
@@ -1181,6 +1188,7 @@ const moduleConfigs: Record<string, {
       { prop: 'notify_enabled', label: '掉线通知', width: 100, slot: 'notifyEnabled' },
       { prop: 'notify_email', label: '通知邮箱', width: 220, slot: 'notifyEmail' },
       { prop: 'notify_interval', label: '通知间隔', width: 120, slot: 'notifyInterval' },
+      { prop: 'notify_offline_minutes', label: '掉线阈值', width: 110, slot: 'notifyOfflineMinutes' },
       { prop: 'status', label: '状态', width: 90, slot: 'status' },
       { prop: 'created_at', label: '创建时间', width: 170 }
     ],
@@ -1190,7 +1198,8 @@ const moduleConfigs: Record<string, {
       { prop: 'status', label: '状态', type: 'switch' },
       { prop: 'notify_enabled', label: '启用掉线通知', type: 'switch', tip: '开启后，设备掉线会向指定邮箱发送告警邮件' },
       { prop: 'notify_email', label: '通知邮箱', type: 'input', placeholder: '多个邮箱用英文逗号分隔，如：a@qq.com,b@163.com', tip: '支持 QQ 邮箱、163 邮箱、Gmail 等，建议至少填 2 个以免漏收' },
-      { prop: 'notify_interval', label: '通知间隔(秒)', type: 'number', tip: '同一设备的重复掉线通知最小间隔，默认 300 秒（5分钟），可避免邮件轰炸' }
+      { prop: 'notify_interval', label: '通知间隔(秒)', type: 'number', tip: '同一设备的重复掉线通知最小间隔，默认 300 秒（5分钟），可避免邮件轰炸' },
+      { prop: 'notify_offline_minutes', label: '掉线阈值(分钟)', type: 'number', tip: '持续离线达到该时长才发提醒；0 = 系统默认 30 分钟，最小 5 分钟（如 5 = 掉线 5 分钟即提醒），有效范围 0 ~ 1440' }
     ],
     mockRow: () => ({
       id: 0,
@@ -1200,6 +1209,7 @@ const moduleConfigs: Record<string, {
       notify_enabled: Math.random() > 0.5 ? 1 : 0,
       notify_email: Math.random() > 0.5 ? 'admin@example.com' : 'dev@qq.com,ops@163.com',
       notify_interval: [60, 180, 300, 600][Math.floor(Math.random() * 4)],
+      notify_offline_minutes: [0, 5, 15, 30, 60][Math.floor(Math.random() * 5)],
       status: Math.random() > 0.15 ? 1 : 0,
       created_at: '2026-07-' + String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')
     })
@@ -1869,7 +1879,7 @@ function openDialog(row?: Record<string, any>) {
       if (f.type === 'switch') {
         dialogForm[f.prop] = 1
       } else if (f.type === 'number') {
-        dialogForm[f.prop] = f.prop === 'max_devices' ? 10 : f.prop === 'notify_interval' ? 300 : 0
+        dialogForm[f.prop] = f.prop === 'max_devices' ? 10 : f.prop === 'notify_interval' ? 300 : f.prop === 'notify_offline_minutes' ? 0 : 0
       } else if (f.prop === 'username') {
         dialogForm[f.prop] = `user_${Math.floor(Math.random() * 9000 + 1000)}`
       } else if (f.prop === 'nickname') {
