@@ -854,10 +854,6 @@ async function fetchConfigStatus() {
     const data = res.data || res
     Object.assign(configStatus, data)
     configStatusLoaded.value = true
-    // 未配置时自动展开
-    if (!data.available && configCollapse.value.length === 0) {
-      configCollapse.value = ['config']
-    }
   } catch (e) {
     console.warn('获取 GitHub Actions 配置状态失败', e)
   }
