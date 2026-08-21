@@ -540,13 +540,14 @@
         ref="dialogFormRef"
         :model="dialogForm"
         :rules="dialogRules"
-        label-width="100px"
+        label-width="140px"
       >
         <el-form-item
           v-for="field in formFields"
           :key="field.prop"
           :label="field.label"
           :prop="field.prop"
+          v-show="!field.showIf || evalShowIf(field.showIf)"
         >
           <el-input
             v-if="field.type === 'input'"
@@ -563,7 +564,9 @@
           <el-input-number
             v-else-if="field.type === 'number'"
             v-model="dialogForm[field.prop]"
-            :min="0"
+            :min="field.min ?? 0"
+            :max="field.max ?? 999999999"
+            :step="field.step ?? 1"
             controls-position="right"
             style="width: 100%"
           />
@@ -1127,6 +1130,12 @@ interface FieldConfig {
   required?: boolean
   placeholder?: string
   tip?: string
+  /** 条件显示：JS 表达式字符串，可引用 dialogForm 任意字段，如 "notify_enabled===1" */
+  showIf?: string
+  /** number 类型的取值范围 */
+  min?: number
+  max?: number
+  step?: number
 }
 
 interface ColumnConfig {
@@ -1197,9 +1206,9 @@ const moduleConfigs: Record<string, {
       { prop: 'max_devices', label: '最大设备数', type: 'number', tip: '0 表示不限制；大于 0 表示该 Key 下最多允许连接多少台设备，超过会拒绝新连接' },
       { prop: 'status', label: '状态', type: 'switch' },
       { prop: 'notify_enabled', label: '启用掉线通知', type: 'switch', tip: '开启后，设备掉线会向指定邮箱发送告警邮件' },
-      { prop: 'notify_email', label: '通知邮箱', type: 'input', placeholder: '多个邮箱用英文逗号分隔，如：a@qq.com,b@163.com', tip: '支持 QQ 邮箱、163 邮箱、Gmail 等，建议至少填 2 个以免漏收' },
-      { prop: 'notify_interval', label: '通知间隔(秒)', type: 'number', tip: '同一设备的重复掉线通知最小间隔，默认 300 秒（5分钟），可避免邮件轰炸' },
-      { prop: 'notify_offline_minutes', label: '掉线阈值(分钟)', type: 'number', tip: '持续离线达到该时长才发提醒；0 = 系统默认 30 分钟，最小 5 分钟（如 5 = 掉线 5 分钟即提醒），有效范围 0 ~ 1440' }
+      { prop: 'notify_email', label: '通知邮箱', type: 'input', placeholder: '多个邮箱用英文逗号分隔，如：a@qq.com,b@163.com', tip: '支持 QQ 邮箱、163 邮箱、Gmail 等，建议至少填 2 个以免漏收', showIf: 'notify_enabled===1' },
+      { prop: 'notify_interval', label: '通知间隔(秒)', type: 'number', min: 30, max: 86400, step: 30, tip: '同一设备的重复掉线通知最小间隔，默认 300 秒（5分钟），可避免邮件轰炸', showIf: 'notify_enabled===1' },
+      { prop: 'notify_offline_minutes', label: '掉线阈值(分钟)', type: 'number', min: 0, max: 1440, step: 5, tip: '持续离线达到该时长才发提醒；0 = 系统默认 30 分钟，最小 5 分钟（如 5 = 掉线 5 分钟即提醒），有效范围 0 ~ 1440', showIf: 'notify_enabled===1' }
     ],
     mockRow: () => ({
       id: 0,
@@ -2052,6 +2061,20 @@ function formatPhone(phone: string): string {
     return phone.substring(0, 3) + '****' + phone.substring(7)
   }
   return phone
+}
+
+/**
+ * 解析字段级条件显示表达式（FieldConfig.showIf）。
+ * 支持通过 dialogForm 的属性做判断，例：
+ *   notify_enabled===1
+ *   status===1 || notify_enabled===1
+ */
+function evalShowIf(expr: string): boolean {
+  try {
+    return new Function('f', `with(f){return !!(${expr})}`)(dialogForm)
+  } catch {
+    return true
+  }
 }
 
 // 秒数转换为人类可读时长（300秒 -> 5分钟）

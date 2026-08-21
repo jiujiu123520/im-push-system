@@ -73,6 +73,47 @@ jobs:
             echo "✅ composer done"
             echo ""
 
+            # 3b. 数据库迁移（schema_migrations 记录 + 按顺序跑 backend/database/migrations/*.sql）
+            echo "=== 3b. Database migrations ==="
+            cd "$PROJECT/backend"
+            php -r '
+require __DIR__."/vendor/autoload.php";
+App\Service\Config::loadEnv(__DIR__."/.env");
+$cfg = App\Service\Config::get("database");
+$dsn = "mysql:host={$cfg["host"]};port={$cfg["port"]};dbname={$cfg["database"]};charset=utf8mb4";
+$pdo = new PDO($dsn, $cfg["username"], $cfg["password"], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$pdo->exec("CREATE TABLE IF NOT EXISTS schema_migrations (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, filename VARCHAR(255) NOT NULL UNIQUE, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+$dir = __DIR__."/database/migrations";
+if (!is_dir($dir)) { echo "skip (no migrations dir)\n"; exit(0); }
+$files = glob($dir."/*.sql");
+sort($files);
+$applied = 0; $skipped = 0;
+foreach ($files as $f) {
+    $name = basename($f);
+    $st = $pdo->prepare("SELECT COUNT(*) FROM schema_migrations WHERE filename=?");
+    $st->execute([$name]);
+    if ($st->fetchColumn() > 0) { $skipped++; continue; }
+    $sql = file_get_contents($f);
+    // 兼容多语句：按 ; 分拆或直接 pdo->exec（MySQL exec 只跑首条），用 mysqli 多查询兜底
+    try {
+        $pdo->exec($sql);
+    } catch (Throwable $e) {
+        // 含多语句时 PDO::exec 失败，改用 mysqli
+        $mysqli = new mysqli($cfg["host"], $cfg["username"], $cfg["password"], $cfg["database"], (int)$cfg["port"]);
+        $mysqli->set_charset("utf8mb4");
+        $ok = $mysqli->multi_query($sql);
+        if ($ok) { while ($mysqli->more_results() && $mysqli->next_result()) { $mysqli->store_result(); } }
+        if ($mysqli->error) { fwrite(STDERR, "mysqli migrate fail: ".$mysqli->error."\n"); exit(1); }
+        $mysqli->close();
+    }
+    $pdo->prepare("INSERT INTO schema_migrations (filename) VALUES (?)")->execute([$name]);
+    $applied++;
+    echo "  applied: $name\n";
+}
+echo "✅ migrations: applied=$applied, skipped=$skipped\n";
+' 2>&1 | tail -15
+            echo ""
+
             # 4. Admin build
             if [ "$SKIP_BUILD" != "true" ]; then
               echo "=== 4. Admin build ==="

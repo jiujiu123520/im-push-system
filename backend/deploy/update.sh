@@ -994,6 +994,8 @@ EOF
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='user_notices'),1,0);"
         record_if_applied "021_users_nickname_avatar.sql" \
             "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='users' AND COLUMN_NAME='nickname'),1,0);"
+        record_if_applied "022_notify_offline_minutes.sql" \
+            "SELECT IF(EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='push_keys' AND COLUMN_NAME='notify_offline_minutes'),1,0);"
 
         APPLIED_COUNT=0
         SKIPPED_COUNT=0
