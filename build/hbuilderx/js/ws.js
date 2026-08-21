@@ -73,12 +73,13 @@ setAlarmHandler(function() {
             _onSocketLost()
         }
     } else if (shouldReconnect && currentUrl && currentKey) {
-        // 🔴 状态守卫：connecting/reconnecting 说明 TCP 握手或鉴权正在进行——
-        //   alarm（15秒周期，相位随机）此刻强制 _doConnect 会打断鉴权中的连接：
-        //   老连接 seq 作废、auth_result 被丢弃、泄漏的 authTimeoutTimer 再杀死新连接 → 死循环。
-        //   连接要么成功（下次 alarm 发心跳）要么自己失败排重连，alarm 不需要抢跑。
-        if (state === 'connecting' || state === 'reconnecting') {
-            console.log('[Ws] ⏰ alarm 跳过：连接进行中（state=' + state + '）')
+        // 🔴 定时器守卫（不能用 state 判断！）：connectTimer/authTimeoutTimer/manualReconnectTimer
+        //   活跃 = 真有连接在进行（TCP握手/鉴权中/手动重连已排程），此时 alarm 强制 _doConnect
+        //   会打断鉴权中的连接（老连接 seq 作废、泄漏的 authTimeoutTimer 杀死新连接）。
+        //   ⚠️ 而 state='reconnecting' 可能是"退避等待"或"卡死"态——alarm 此刻必须能抢跑救人
+        //   （上一版用 state 判断导致状态机卡死后 alarm 永远跳过 → 设备永久离线无法自救）。
+        if (connectTimer || authTimeoutTimer || manualReconnectTimer) {
+            console.log('[Ws] ⏰ alarm 跳过：连接进行中（定时器活跃）')
             return
         }
         console.log('[Ws] ⏰ alarm trigger reconnect')
@@ -117,11 +118,10 @@ try {
         },
         // cleanupAndReconnect 回调
         function reconnectCb() {
-            // 🔴 正在连接中不打断：亮屏时 keepalive 只看 isConnected()（connected 才算），
-            //   state=connecting 也会触发本回调 → 之前无条件 close+connect 会把正在握手的
-            //   连接杀掉，制造又一轮并发建连。已连接/已断开才允许清理重连。
-            if (state === 'connecting' || state === 'reconnecting') {
-                console.log('[Ws] screen reconnect 跳过：连接进行中（state=' + state + '）')
+            // 🔴 定时器守卫（同 alarm 修复）：state='reconnecting' 可能是卡死态，亮屏必须能救回来
+            //   只有真有定时器在跑（TCP握手/鉴权中/手动重连排程）才跳过，其余情况一律强制重连
+            if (connectTimer || authTimeoutTimer || manualReconnectTimer) {
+                console.log('[Ws] screen reconnect 跳过：连接进行中（定时器活跃）')
                 return
             }
             console.log('[Ws] 🔌 screen reconnect triggered')
@@ -753,10 +753,12 @@ function _scheduleReconnect() {
     console.log('[Ws] 🔄 reconnect attempt=' + reconnectAttempts + ' delay=' + delay + 'ms')
     if (reconnectTimer) clearTimeout(reconnectTimer)
     reconnectTimer = setTimeout(() => {
-        // 🔴 双保险：排程到期时其他路径（手动重连/alarm）可能已经连上或正在连——
-        //   connected → 无需再连；connecting/reconnecting → _actuallyConnect 守卫也会拦，这里提前挡掉少打日志
         if (!shouldReconnect || !autoReconnect) return
-        if (state === 'connected' || state === 'connecting' || state === 'reconnecting') return
+        // 🔴🔴 只允许这两类跳过（上一版检查 state==='connecting'/'reconnecting' 是致命死锁：
+        //   本函数排程前就把 state 置成 'reconnecting'，回调必然命中 → 永远 return → 永不重连
+        //   → 设备永久离线。服务器日志实锤：00:21:27 后再无任何连接、APP进程活着但永不重连）
+        if (state === 'connected') return                                    // 其他路径已连上
+        if (connectTimer || authTimeoutTimer || manualReconnectTimer) return // 其他路径连接进行中
         _doConnect()
     }, delay)
 }
