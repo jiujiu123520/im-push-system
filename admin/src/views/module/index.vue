@@ -1135,7 +1135,7 @@ interface ColumnConfig {
   width?: number
   slot?: 'status' | 'tag' | 'online' | 'platform'
         | 'targetType' | 'targetValue' | 'count' | 'email' | 'phone' | 'qq'
-        | 'notifyEnabled' | 'notifyEmail' | 'notifyInterval'
+        | 'notifyEnabled' | 'notifyEmail' | 'notifyInterval' | 'notifyOfflineMinutes'
         | 'failReason' | 'elapsedMs' | 'deviceText'
         | 'idleSeconds' | 'userBind'
 }
