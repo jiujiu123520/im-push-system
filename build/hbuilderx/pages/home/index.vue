@@ -421,12 +421,13 @@ export default {
                 // 通道探测 OK → 再发 HTTP 自测推送
                 return apiTestPush(base, self.keyValue, deviceId).then(function(r) {
                     // 🔴 第二步：立刻读 HTTP 返回的 online / success 字段，不再傻等 4 秒
-                    //   selfTest 返回：{ online:bool, success:bool, message, elapsed_ms }
-                    //   - online=false  → Redis 没有 fd（服务端视角离线），直接提示 + 建议重连
-                    //   - online=true, success=false → 推送 dispatch 失败（fd 写失败等）
-                    var isOnline = !!(r && r.online)
-                    var isSuccess = !!(r && r.success)
-                    var elapsed = (r && r.elapsed_ms) || 0
+                    //   服务端返回标准格式 { code:0, message:'ok', data:{ online:bool, success:bool, message, elapsed_ms } }
+                    //   → 数据在 r.data 里，不是 r 顶层
+                    var payload = (r && r.data) ? r.data : (r || {})
+                    var isOnline = !!payload.online
+                    var isSuccess = !!payload.success
+                    var elapsed = payload.elapsed_ms || 0
+                    var respMsg = payload.message || (r && r.message) || ''
 
                     if (!isOnline) {
                         var offlineMsg = '⚠️ 服务端视角：设备离线（Redis无fd记录）。WS可能是假连接，已自动触发重连，请10秒后再测'
@@ -468,7 +469,7 @@ export default {
                     }
 
                     // 🔴 online=true + success=true → 服务端成功推送，正常 Toast + 4秒兜底（极端慢网场景）
-                    uni.showToast({ title: (r && r.message) || '测试推送已发送，请留意通知栏', icon: 'success' })
+                    uni.showToast({ title: respMsg || '测试推送已发送，请留意通知栏', icon: 'success' })
                     setTimeout(function() {
                         var afterCount = getMessages().length
                         if (afterCount <= beforeCount) {
