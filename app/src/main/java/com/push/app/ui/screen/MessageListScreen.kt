@@ -45,6 +45,8 @@ import com.push.app.data.PushMessage
 import com.push.app.data.PushRepository
 import com.push.app.ui.theme.GlassBackground
 import com.push.app.ui.theme.GlassCard
+import com.push.app.ui.theme.isLightTheme
+import com.push.app.ui.theme.tileGlassBg
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -256,7 +258,10 @@ private fun EmptyMessagesView() {
                 modifier = Modifier
                     .size(80.dp)
                     .background(
-                        color = Color.White.copy(alpha = 0.08f),
+                        color = tileGlassBg(
+                            alphaDark = 0.08f,
+                            isLight = with(MaterialTheme.colorScheme) { isLightTheme() },
+                        ),
                         shape = RoundedCornerShape(40.dp),
                     ),
                 contentAlignment = Alignment.Center,

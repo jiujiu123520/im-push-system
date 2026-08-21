@@ -1,4 +1,4 @@
-﻿package com.push.app.ui.screen
+package com.push.app.ui.screen
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -59,6 +59,8 @@ import com.push.app.ui.theme.GlassCard
 import com.push.app.ui.theme.StatusOffline
 import com.push.app.ui.theme.StatusOnline
 import com.push.app.ui.theme.StatusWarning
+import com.push.app.ui.theme.isLightTheme
+import com.push.app.ui.theme.tileGlassBg
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -366,7 +368,12 @@ private fun UserHeaderCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color.White.copy(alpha = 0.05f))
+                    .background(
+                        tileGlassBg(
+                            alphaDark = 0.05f,
+                            isLight = with(MaterialTheme.colorScheme) { isLightTheme() },
+                        )
+                    )
                     .padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -406,7 +413,12 @@ private fun ConfigRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(Color.White.copy(alpha = 0.04f))
+            .background(
+                tileGlassBg(
+                    alphaDark = 0.04f,
+                    isLight = with(MaterialTheme.colorScheme) { isLightTheme() },
+                )
+            )
             .padding(horizontal = 12.dp, vertical = 12.dp)
             .then(Modifier),
         verticalAlignment = Alignment.CenterVertically,

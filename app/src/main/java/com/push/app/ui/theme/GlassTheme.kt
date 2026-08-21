@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -18,47 +19,70 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.push.app.data.PreferencesManager
 import com.push.app.ui.components.GlassCard as _GlassCard
 import com.push.app.ui.components.GlassTopBar as _GlassTopBar
 
+// 对比度保底：三种主题下所有次级信息（onSurfaceVariant）都要在对应背景上 ≥ 4.5:1
 private val DarkColorScheme = darkColorScheme(
     primary = Primary,
-    secondary = Secondary,
-    tertiary = Accent,
-    background = BrandDeep,
-    surface = Color(0xFF151528),
-    surfaceVariant = Color(0xFF1e1e35),
     onPrimary = Color.White,
-    onSecondary = Color.Black,
-    onBackground = Color.White,
-    onSurface = Color.White,
+    secondary = Secondary,
+    onSecondary = Color(0xFF05212b),
+    tertiary = Accent,
+    onTertiary = Color.White,
+    background = Color(0xFF0b0b1a),
+    onBackground = Color(0xFFf3f3fb),
+    surface = Color(0xFF14142a),
+    onSurface = Color(0xFFf3f3fb),
+    surfaceVariant = Color(0xFF232344),
+    // 关键：次级文字/图标不再是暗灰叠深底
+    onSurfaceVariant = Color(0xFFd6d6ea),
+    outline = Color(0xFF8a8ab0),
+    outlineVariant = Color(0xFF4e4e77),
+    scrim = Color(0xCC000000),
 )
 
 private val LightColorScheme = lightColorScheme(
     primary = Primary,
-    secondary = Secondary,
-    tertiary = Accent,
-    background = Color(0xFFf8f8fc),
-    surface = Color.White,
     onPrimary = Color.White,
-    onSecondary = Color.Black,
-    onBackground = Color.Black,
-    onSurface = Color.Black,
+    secondary = Secondary,
+    onSecondary = Color(0xFF05212b),
+    tertiary = Accent,
+    onTertiary = Color.White,
+    background = Color(0xFFf5f5fb),
+    onBackground = Color(0xFF111118),
+    surface = Color.White,
+    onSurface = Color(0xFF111118),
+    surfaceVariant = Color(0xFFeceaf7),
+    // 关键：次级文字在浅色卡片上保持清晰，不使用浅灰
+    onSurfaceVariant = Color(0xFF3a3a4a),
+    outline = Color(0xFF8b8b9c),
+    outlineVariant = Color(0xFFc4c4d4),
+    scrim = Color(0x33000000),
 )
 
 private val FlatGradientColorScheme = darkColorScheme(
     primary = Primary,
-    secondary = Secondary,
-    tertiary = Accent,
-    background = Color(0xFF1a1040),
-    surface = Color(0xFF221555),
-    surfaceVariant = Color(0xFF2d1d70),
     onPrimary = Color.White,
-    onSecondary = Color.White,
-    onBackground = Color.White,
-    onSurface = Color.White,
+    secondary = Secondary,
+    onSecondary = Color(0xFF05212b),
+    tertiary = Accent,
+    onTertiary = Color.White,
+    background = Color(0xFF160c3a),
+    onBackground = Color(0xFFf5f2ff),
+    surface = Color(0xFF211452),
+    onSurface = Color(0xFFf5f2ff),
+    surfaceVariant = Color(0xFF321f70),
+    // 扁平渐变：次级文字提升到接近白色的紫，避免叠在紫黑渐变上看不见
+    onSurfaceVariant = Color(0xFFd9d2ff),
+    outline = Color(0xFFb0a8ea),
+    outlineVariant = Color(0xFF6e63b6),
+    scrim = Color(0xCC000000),
 )
 
 enum class ThemeMode { DARK, LIGHT, FLAT }
@@ -68,6 +92,49 @@ fun parseTheme(raw: String?): ThemeMode = when (raw?.lowercase()) {
     "flat", "gradient", "flat_gradient" -> ThemeMode.FLAT
     else -> ThemeMode.DARK
 }
+
+// 在主题里统一加粗次级字号，避免"头发丝"小字；只加字重不加尺寸，保证布局不变
+private val PushReadableTypography: Typography
+    @Composable get() = with(MaterialTheme.typography) {
+        copy(
+            bodyLarge = bodyLarge.copy(
+                fontWeight = FontWeight.Medium,
+            ),
+            bodyMedium = bodyMedium.copy(
+                fontWeight = FontWeight.Medium,
+                lineHeight = 22.sp,
+            ),
+            bodySmall = TextStyle(
+                fontWeight = FontWeight.Medium,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+                letterSpacing = 0.sp,
+            ),
+            titleMedium = titleMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+            ),
+            titleSmall = TextStyle(
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp,
+                lineHeight = 20.sp,
+            ),
+            labelLarge = TextStyle(
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp,
+                lineHeight = 20.sp,
+                letterSpacing = 0.sp,
+            ),
+            labelMedium = labelMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+            ),
+            labelSmall = TextStyle(
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                letterSpacing = 0.sp,
+            ),
+        )
+    }
 
 @Composable
 fun PushTheme(
@@ -90,6 +157,7 @@ fun PushTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
+        typography = PushReadableTypography,
         content = content,
     )
 }
@@ -100,25 +168,21 @@ fun GlassBackground(
     content: @Composable () -> Unit = {},
 ) {
     val bgColor = MaterialTheme.colorScheme.background
-    val isLight = MaterialTheme.colorScheme.onBackground == Color.Black
+    val isLight = with(MaterialTheme.colorScheme) { isLightTheme() }
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(bgColor, bgColor),
-                ),
-            )
+            .background(color = bgColor)
             .drawBehind {
                 if (isLight) return@drawBehind
 
                 val orbColors = listOf(
-                    Primary.copy(alpha = 0.25f),
-                    Secondary.copy(alpha = 0.20f),
-                    Accent.copy(alpha = 0.18f),
-                    BrandBlue.copy(alpha = 0.20f),
-                    BrandPurple.copy(alpha = 0.20f),
+                    Primary.copy(alpha = 0.22f),
+                    Secondary.copy(alpha = 0.18f),
+                    Accent.copy(alpha = 0.14f),
+                    BrandBlue.copy(alpha = 0.16f),
+                    BrandPurple.copy(alpha = 0.16f),
                 )
                 val positions = listOf(
                     Offset(size.width * 0.15f, size.height * 0.2f),
@@ -138,7 +202,7 @@ fun GlassBackground(
                 orbColors.forEachIndexed { index, color ->
                     drawCircle(
                         brush = Brush.radialGradient(
-                            colors = listOf(color, androidx.compose.ui.graphics.Color.Transparent),
+                            colors = listOf(color, Color.Transparent),
                             center = positions[index],
                             radius = radii[index],
                         ),

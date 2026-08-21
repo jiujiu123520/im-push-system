@@ -25,6 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.push.app.ui.theme.glassLayer
+import com.push.app.ui.theme.isLightTheme
 
 @Composable
 fun GlassCard(
@@ -45,12 +47,20 @@ fun GlassCard(
         }
     )
 
+    // 关键：按主题切换玻璃底色/描边，避免浅色主题下"白透明白描边"几乎看不见；
+    // 深色主题下再加强一点容器不透明度和描边强度，提升分层感。
+    val (containerColor, borderColor) = glassLayer(
+        isLight = MaterialTheme.colorScheme.isLightTheme(),
+        darkAlpha = 0.14f,
+        darkBorderAlpha = 0.22f,
+    )
+
     Card(
         modifier = cardModifier,
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+        border = BorderStroke(1.dp, borderColor),
         colors = CardDefaults.cardColors(
-            containerColor = Color.White.copy(alpha = 0.08f),
+            containerColor = containerColor,
             contentColor = MaterialTheme.colorScheme.onSurface,
         ),
         elevation = elevation,

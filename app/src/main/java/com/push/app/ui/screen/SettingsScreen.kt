@@ -60,6 +60,8 @@ import com.push.app.data.PushRepository
 import com.push.app.ui.theme.GlassBackground
 import com.push.app.ui.theme.GlassCard
 import com.push.app.ui.theme.GlassTopBar
+import com.push.app.ui.theme.isLightTheme
+import com.push.app.ui.theme.tileGlassBg
 import com.push.app.util.PermissionHelper
 import kotlinx.coroutines.launch
 
@@ -555,7 +557,12 @@ private fun PermissionRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(Color.White.copy(alpha = 0.04f))
+            .background(
+                tileGlassBg(
+                    alphaDark = 0.04f,
+                    isLight = with(MaterialTheme.colorScheme) { isLightTheme() },
+                )
+            )
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
