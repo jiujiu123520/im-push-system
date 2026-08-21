@@ -62,13 +62,25 @@ function _showPushNotification(title, content, priority) {
 setAlarmHandler(function() {
     if (state === 'connected') {
         try {
-            uni.sendSocketMessage({ data: JSON.stringify({ type: 'ping', ts: Date.now() }) })
-            console.log('[Ws] ⏰ alarm heartbeat sent')
+            if (_wsSend({ type: 'ping', ts: Date.now() })) {
+                console.log('[Ws] ⏰ alarm heartbeat sent')
+            } else {
+                console.warn('[Ws] alarm heartbeat send fail → 重连')
+                _onSocketLost()
+            }
         } catch(e) {
             console.warn('[Ws] alarm heartbeat send fail', e)
             _onSocketLost()
         }
     } else if (shouldReconnect && currentUrl && currentKey) {
+        // 🔴 状态守卫：connecting/reconnecting 说明 TCP 握手或鉴权正在进行——
+        //   alarm（15秒周期，相位随机）此刻强制 _doConnect 会打断鉴权中的连接：
+        //   老连接 seq 作废、auth_result 被丢弃、泄漏的 authTimeoutTimer 再杀死新连接 → 死循环。
+        //   连接要么成功（下次 alarm 发心跳）要么自己失败排重连，alarm 不需要抢跑。
+        if (state === 'connecting' || state === 'reconnecting') {
+            console.log('[Ws] ⏰ alarm 跳过：连接进行中（state=' + state + '）')
+            return
+        }
         console.log('[Ws] ⏰ alarm trigger reconnect')
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
         reconnectAttempts = 0
@@ -91,7 +103,9 @@ try {
             if (state !== 'connected') return
             try {
                 pendingPingAt = Date.now()
-                uni.sendSocketMessage({ data: JSON.stringify({ type: 'ping', ts: Date.now() }) })
+                if (!_wsSend({ type: 'ping', ts: Date.now() })) {
+                    throw new Error('send fail')
+                }
             } catch (e) {
                 console.warn('[Ws] screen ping send fail, will reconnect', e)
                 throw e  // 抛出会触发 keepalive 直接 reconnect
@@ -152,7 +166,10 @@ const events = {
 //   原来 30s×3=90s 才发现假连接，自测 4 秒超时已经判失败，用户永远等不到自动重连
 //   现在 15s×2=30s，比 Nginx 默认 60s idle timeout 更敏感，用户感知大幅提升
 const MAX_MISSED_PONG = 2
-const RECONNECT_BASE = 1000
+// 🔴 1000→1500：close() 是异步操作，Android 底层释放 socket 需要时间。
+//   1s 后立即 connectSocket 可能撞上"老 socket 未释放完"→ uni 单连接排队 → 又超时（死循环）。
+//   手动重连的 1.5s 缓冲已验证有效，自动重连对齐。
+const RECONNECT_BASE = 1500
 const RECONNECT_MAX = 60000
 const AUTH_TIMEOUT_MS = 10000
 const PROBE_TIMEOUT_MS = 2000
@@ -181,49 +198,79 @@ let shouldReconnect = false
 let listenersRegistered = false
 let lostProcessing = false
 let _connSeq = 0   // 🔴 B2修复：每次_connect分配递增序列号，旧连接的回调全部忽略（事件竞争隔离）
+let manualReconnectTimer = null  // 🔴 手动重连的排程定时器句柄（reconnect 连点防叠加）
+let usingTaskListeners = false   // 🔴 SocketTask 实例监听是否已生效（生效后禁用全局监听，防双份事件）
 let authSentAt = 0 // 🔴 本连接发送鉴权的时间戳；0=本连接还没 onSocketOpen/没发过鉴权。
                    //   uni 的全局 onSocketMessage 不区分连接，老连接的迟到消息会派发到新连接上：
                    //   - 老 pong 带 code=0+data 被兜底鉴权误判成 auth ok
                    //   - 老 auth_result(失败) 把没发过鉴权的新连接直接"鉴权超时"误杀
                    //   门控：authSentAt===0 时收到的一切消息都是老连接残留，直接丢弃
 
+// 🔴 统一发送出口：SocketTask.send 优先（发到"当前这一代"连接上），全局 send 兜底
+//   【为什么必须 task.send】uni 的全局 uni.sendSocketMessage 在 App 端是单槽资源，
+//   重连换代后它可能把数据发到老的/已死的 socket 上 → 服务端从未收到 auth →
+//   服务端 30s（部分版本更短）auth timeout 后 close(4001 "auth timeout") →
+//   客户端 onSocketClose → 重连 → 再发错 socket → 死循环。
+//   日志实锤：seq=17/18/19 从未 onSocketOpen 却收到"❌ auth failed: 鉴权超时"+close 4001
+function _wsSend(payload) {
+    const data = typeof payload === 'string' ? payload : JSON.stringify(payload)
+    try {
+        if (socketTask && typeof socketTask.send === 'function') {
+            socketTask.send({ data: data })
+            return true
+        }
+    } catch (e) {
+        console.warn('[Ws] task.send 失败，回退全局 send', e)
+    }
+    try {
+        uni.sendSocketMessage({ data: data })
+        return true
+    } catch (e2) {
+        console.error('[Ws] 发送失败（task+全局均失败）', e2)
+        return false
+    }
+}
+
+// onSocketOpen 公共逻辑（task 实例监听和全局兜底监听共用）
+function _onSocketOpen(thisConnSeq) {
+    if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
+    if (state !== 'connecting' && state !== 'reconnecting') {
+        console.warn('[Ws] onSocketOpen 丢弃：state=' + state + '（老连接迟到回调）')
+        return
+    }
+    console.log('[Ws] onSocketOpen (seq=' + thisConnSeq + ') → 发送鉴权')
+    authSentAt = Date.now()
+    const auth = _buildAuth()
+    if (!_wsSend(auth)) {
+        console.error('[Ws] 发送 auth 失败')
+        _onSocketLost()
+        return
+    }
+    if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
+    authTimeoutTimer = setTimeout(() => {
+        console.warn('[Ws] ⏰ 鉴权超时（10秒未收到 auth_result）→ 主动断开并重连')
+        authTimeoutTimer = null
+        events.emit('error', { type: 'auth_timeout', message: '鉴权超时：服务器10秒未响应，正在重试' })
+        try { _closeSocket() } catch (_) {}
+        _onSocketLost()
+    }, AUTH_TIMEOUT_MS)
+}
+
+// 🔴 全局监听【降级为兜底】：仅当 SocketTask 不支持实例监听（极老运行时）才注册。
+//   全局 uni.onSocket* 不区分连接代际，是历史 bug 的温床（串台消息/串台close）。
 function registerListeners() {
     if (listenersRegistered) return
+    if (usingTaskListeners) return   // task 实例监听已生效，绝不能再注册全局（会双份事件）
     listenersRegistered = true
+    console.warn('[Ws] 使用全局 socket 监听兜底（当前运行时不支持 SocketTask 实例监听）')
 
-    uni.onSocketOpen(() => {
-        if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
-        // 🔴 B2修复：全局回调也用_connSeq隔离；如果 state 是 disconnected 说明连接已被 reconnect() 等函数重置，
-        //   这个 onSocketOpen 是**上一轮老连接**的迟到回调，丢弃不处理（否则会给一个已经断开的连接发 auth，然后卡死）
-        if (state !== 'connecting' && state !== 'reconnecting') {
-            console.warn('[Ws] onSocketOpen 丢弃：state=' + state + '（老连接迟到回调）')
-            return
-        }
-        console.log('[Ws] onSocketOpen (seq=' + _connSeq + ') → 发送鉴权')
-        authSentAt = Date.now()   // 🔴 标记本连接已发鉴权（此后收到的消息才属于本连接）
-        const auth = _buildAuth()
-        try { uni.sendSocketMessage({ data: JSON.stringify(auth) }) } catch(e) {
-            console.error('[Ws] 发送 auth 失败', e)
-            _onSocketLost()
-            return
-        }
-        if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
-        authTimeoutTimer = setTimeout(() => {
-            console.warn('[Ws] ⏰ 鉴权超时（10秒未收到 auth_result）→ 主动断开并重连')
-            authTimeoutTimer = null
-            events.emit('error', { type: 'auth_timeout', message: '鉴权超时：服务器10秒未响应，正在重试' })
-            try { _closeSocket() } catch (_) {}
-            _onSocketLost()
-        }, AUTH_TIMEOUT_MS)
-    })
-
+    uni.onSocketOpen(() => { _onSocketOpen(_connSeq) })
     uni.onSocketMessage((res) => { _handleMessage(res.data) })
 
     uni.onSocketError((err) => {
         if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
-        // 🔴 B2修复：state已被重置到disconnected时老连接的error，忽略（不会再触发_onSocketLost导致重连竞争）
         if (state === 'disconnected' || state === 'error') {
-            console.warn('[Ws] onSocketError 丢弃：state=' + state + '（老连接迟到回调）err=', JSON.stringify(err))
+            console.warn('[Ws] onSocketError 丢弃：state=' + state + '（老连接迟到回调）')
             return
         }
         console.error('[Ws] onSocketError', JSON.stringify(err))
@@ -234,9 +281,7 @@ function registerListeners() {
     uni.onSocketClose((res) => {
         if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
         if (state === 'disconnected' || state === 'error') {
-            // 🔴 reconnect()/disconnect() 已经先把 state 置成 disconnected，这个 close 事件是预期的，不触发 _onSocketLost
-            //   之前的 bug：reconnect() 先 state=disconnected + closeSocket → close 事件 → _onSocketLost →
-            //     _scheduleReconnect 又排一个 delay，和 reconnect() 自己 300ms 后立即的 _doConnect 竞争！
+            // reconnect()/disconnect() 已先把 state 置 disconnected，这个 close 是预期的
             return
         }
         console.log('[Ws] onSocketClose', JSON.stringify(res || {}))
@@ -308,7 +353,12 @@ export function connect(url, key) {
     reconnectAttempts = 0
     _loadSettings()
 
-    registerListeners()
+    // 🔴 不再预注册全局监听：_actuallyConnect 里优先绑定 SocketTask 实例监听，
+    //   仅当运行时不支持 task.onX 时才由 registerListeners() 兜底注册全局
+    // 🔴 清老代际定时器：_closeSocket 只清 connectTimer/心跳，不清 authTimeoutTimer——
+    //   老连接的鉴权定时器若不清，10秒后到期会 _closeSocket() 杀死刚建的新连接
+    if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
     _closeSocket()
     _doConnect()
 }
@@ -316,12 +366,15 @@ export function connect(url, key) {
 function _loadSettings() {
     try {
         const hb = parseInt(uni.getStorageSync(PUSH_HEARTBEAT))
-        heartbeatInterval = (hb > 0 && hb <= 3600) ? hb : 30
+        // 🔴 默认 15（与顶层 heartbeatInterval=15 和"假连接检测加速"设计一致）：
+        //   之前 fallback 是 30 → 30s×2次容忍=60s 才发现假连接，恰好贴着 Nginx 60s idle 超时边缘，
+        //   检测永远慢半拍。15s×2=30s 检测窗口，比 Nginx 掐连接更早发现假连接。
+        heartbeatInterval = (hb > 0 && hb <= 3600) ? hb : 15
         const ar = uni.getStorageSync(PUSH_AUTO_RECONNECT)
         autoReconnect = ar === '' || ar === null || ar === undefined ? true : (ar !== false && ar !== 0)
         wifiOnly = uni.getStorageSync(PUSH_WIFI_ONLY) === true
     } catch(e) {
-        heartbeatInterval = 30
+        heartbeatInterval = 15
         autoReconnect = true
         wifiOnly = false
     }
@@ -351,17 +404,31 @@ function _doConnect() {
 }
 
 function _actuallyConnect() {
+    // 🔴🔴 并发守卫V2：必须覆盖"整个连接生命周期"（TCP阶段 + 鉴权阶段），不能只看 connectTimer！
+    //   之前的致命漏洞：onSocketOpen 时 connectTimer 被清除，但 state 仍是 connecting（鉴权中）——
+    //   此时 alarm 回调（15秒周期，相位随机）/ 残留 reconnectTimer 触发 _doConnect：
+    //     1. 守卫只查 connectTimer → 已被清 → 守卫失效 → 又 ++_connSeq 建新连接
+    //     2. 老连接的 auth_result 到达 → seq 不匹配被丢弃 → 老连接白鉴权
+    //     3. 更毒的：老连接排的 authTimeoutTimer（10秒）从不清除 → 到期执行 _closeSocket()
+    //        把正在鉴权的新连接杀掉 → 新连接 close 又排重连 → 无限"连接超时"循环
+    //   authTimeoutTimer 活跃 = onSocketOpen 已发生且未收到 auth_result = 鉴权进行中，精确可靠。
+    if (connectTimer || authTimeoutTimer) {
+        console.warn('[Ws] _actuallyConnect 跳过：连接生命周期进行中（TCP=' + (connectTimer ? '是' : '否') +
+            ' 鉴权=' + (authTimeoutTimer ? '是' : '否') + '，seq=' + _connSeq + '）')
+        return
+    }
+    // 🔴 连接换代收尾：清掉老代际泄漏的鉴权超时定时器（防止它到期杀死本代新连接）
+    if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
     state = 'connecting'
     authSentAt = 0   // 🔴 新连接开始：重置"已发鉴权"标记（未发鉴权前收到的消息=老连接残留，丢弃）
     events.emit('state', state)
-    console.log('[Ws] connecting →', currentUrl, '(seq=' + (_connSeq + 1) + ')')
+
+    var thisConnSeq = ++_connSeq   // 🔴 B2修复：每次连接分配递增序列号，避免"老连接的回调污染新连接"
+    console.log('[Ws] connecting →', currentUrl, '(seq=' + thisConnSeq + ')')
 
     // 🔴 TCP 连接级超时：弱网/代理异常时 uni.connectSocket 可能完全不回调（无限卡 connecting）
-    //   8 秒内没收到 onSocketOpen/onSocketError/onSocketClose 就主动放弃 + 重连
-    if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
-    var thisConnSeq = ++_connSeq   // 🔴 B2修复：每次连接分配递增序列号，避免"老连接的回调污染新连接"
     connectTimer = setTimeout(function() {
-        if (_connSeq !== thisConnSeq) return   // 序列号已推进，说明当前超时的是老连接，忽略
+        if (_connSeq !== thisConnSeq) return
         connectTimer = null
         console.warn('[Ws] ⏰ TCP 连接超时（' + (CONNECT_TIMEOUT_MS / 1000) + '秒connectSocket无回调）→ 主动断开并重连（seq=' + thisConnSeq + '）')
         events.emit('error', { type: 'connect_timeout', message: '连接超时，正在自动重试' })
@@ -370,15 +437,16 @@ function _actuallyConnect() {
         _onSocketLost()
     }, CONNECT_TIMEOUT_MS)
 
+    var task = null
     try {
-        socketTask = uni.connectSocket({
+        task = uni.connectSocket({
             url: currentUrl,
             success: () => {
                 if (_connSeq !== thisConnSeq) return
                 console.log('[Ws] connectSocket success callback (seq=' + thisConnSeq + ')')
             },
             fail: (err) => {
-                if (_connSeq !== thisConnSeq) return   // 🔴 B2修复：连接被新连接取代后不再处理
+                if (_connSeq !== thisConnSeq) return
                 console.error('[Ws] connectSocket fail', JSON.stringify(err))
                 if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
                 socketTask = null
@@ -391,11 +459,58 @@ function _actuallyConnect() {
         if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
         socketTask = null
         _onSocketLost()
+        return
+    }
+    socketTask = task
+
+    // 🔴🔴 核心重构：SocketTask 实例化监听（根治全局 API 串台）
+    //   之前用全局 uni.onSocket* + uni.sendSocketMessage：多代连接共存时事件/发送全部串台——
+    //   老 socket 的 pong 被新连接误读、新连接的 auth 发到老 socket 上（服务端从没收到 →
+    //   close 4001 "auth timeout"）、老 socket 被踢的 close(1000) 把新连接判死。
+    //   task.onX 是每代连接私有的，天然按 seq 隔离，上述三类串台全部消失。
+    var bound = false
+    try {
+        if (task && typeof task.onOpen === 'function' && typeof task.onMessage === 'function') {
+            task.onOpen(function() {
+                if (_connSeq !== thisConnSeq) return   // 本代已被新一代取代，丢弃
+                _onSocketOpen(thisConnSeq)
+            })
+            task.onMessage(function(res) {
+                if (_connSeq !== thisConnSeq) return
+                _handleMessage(res.data)
+            })
+            task.onError(function(err) {
+                if (_connSeq !== thisConnSeq) return
+                if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
+                if (state === 'disconnected' || state === 'error') return
+                console.error('[Ws] onSocketError (seq=' + thisConnSeq + ')', JSON.stringify(err || {}))
+                if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
+                _onSocketLost()
+            })
+            task.onClose(function(res) {
+                if (_connSeq !== thisConnSeq) return
+                if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
+                if (state === 'disconnected' || state === 'error') return
+                console.log('[Ws] onSocketClose (seq=' + thisConnSeq + ')', JSON.stringify(res || {}))
+                if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
+                _onSocketLost()
+            })
+            bound = true
+            usingTaskListeners = true
+            console.log('[Ws] ✅ SocketTask 实例监听已绑定 (seq=' + thisConnSeq + ')')
+        }
+    } catch (e) {
+        console.warn('[Ws] SocketTask 监听绑定异常，回退全局监听', e)
+    }
+    if (!bound) {
+        registerListeners()   // 极老运行时兜底：全局监听
     }
 }
 
 function _closeSocket() {
     _stopHeartbeat()
+    // 🔴 关 socket 时同步清掉 TCP 超时定时器（避免 close 后定时器仍触发误判超时）
+    if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
     if (socketTask) {
         try { socketTask.close({}) } catch(e) {}
         socketTask = null
@@ -519,7 +634,7 @@ function _handleMessage(text) {
     }
 
     if (t === 'ping') {
-        try { uni.sendSocketMessage({ data: JSON.stringify({ type: 'pong' }) }) } catch(e) {}
+        try { _wsSend({ type: 'pong' }) } catch(e) {}
         return
     }
 
@@ -574,7 +689,9 @@ function _startHeartbeat() {
         if (state !== 'connected') return
         try {
             pendingPingAt = Date.now()
-            uni.sendSocketMessage({ data: JSON.stringify({ type: 'ping', ts: Date.now() }) })
+            if (!_wsSend({ type: 'ping', ts: Date.now() })) {
+                throw new Error('send fail')
+            }
             pendingPongs++
             if (pendingPongs >= MAX_MISSED_PONG) {
                 console.warn('[Ws] ❤️ heartbeat timeout (missed ' + pendingPongs + ' pongs) → 判定假连接，重连')
@@ -598,6 +715,10 @@ function _onSocketLost() {
     if (lostProcessing) return
     lostProcessing = true
     _stopHeartbeat()
+    // 🔴 断连汇聚点统一清理：所有路径（close/error/心跳超时/TCP超时/alarm失败）都经过这里，
+    //   任何活跃的 connectTimer/authTimeoutTimer 泄漏到下一轮连接都会杀死新连接（血泪教训）
+    if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
+    if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
     socketTask = null
     if (state === 'disconnected' || state === 'error') {
         lostProcessing = false
@@ -632,7 +753,11 @@ function _scheduleReconnect() {
     console.log('[Ws] 🔄 reconnect attempt=' + reconnectAttempts + ' delay=' + delay + 'ms')
     if (reconnectTimer) clearTimeout(reconnectTimer)
     reconnectTimer = setTimeout(() => {
-        if (shouldReconnect && autoReconnect) _doConnect()
+        // 🔴 双保险：排程到期时其他路径（手动重连/alarm）可能已经连上或正在连——
+        //   connected → 无需再连；connecting/reconnecting → _actuallyConnect 守卫也会拦，这里提前挡掉少打日志
+        if (!shouldReconnect || !autoReconnect) return
+        if (state === 'connected' || state === 'connecting' || state === 'reconnecting') return
+        _doConnect()
     }, delay)
 }
 
@@ -642,6 +767,7 @@ export function disconnect() {
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
     if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
     if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
+    if (manualReconnectTimer) { clearTimeout(manualReconnectTimer); manualReconnectTimer = null }
     _closeSocket()
     latency = -1
     state = 'disconnected'
@@ -654,6 +780,10 @@ export function reconnect() {
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
     if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
     if (connectTimer) { clearTimeout(connectTimer); connectTimer = null }
+    // 🔴 防叠加：清掉上一次手动重连的排程定时器。
+    //   日志实锤：用户连点 3 次"重新连接"→ 之前每次都裸 setTimeout 排一个 _doConnect
+    //   → 1.5s 后连续 3 次 connectSocket → uni Android 单连接排队 → TCP 超时
+    if (manualReconnectTimer) { clearTimeout(manualReconnectTimer); manualReconnectTimer = null }
     // 🔴 先置 disconnected 再关 socket：_onSocketLost 检查 state === 'disconnected' 会直接 return，
     //   避免旧连接的 close 事件再排一个重连定时器，和下面的立即连接竞争（uni APP 端单连接限制）
     if (state === 'connected' || state === 'connecting' || state === 'reconnecting') {
@@ -661,14 +791,13 @@ export function reconnect() {
         _closeSocket()
     }
     reconnectAttempts = 0
-    // 🔴 手动重连缓冲 300ms → 1500ms
-    //   日志实锤：300ms 后旧 socket 底层还没释放完（close 是异步的，uni Android 单连接限制），
-    //   新 connectSocket 排队等不到 onSocketOpen → 8 秒 TCP 超时 → 用户看到"连接超时"。
-    //   1.5 秒是旧 socket 释放 + close 事件派发的安全窗口，比"8秒超时再重试"快得多
+    // 🔴 手动重连缓冲 1.5s：旧 socket 释放是异步的（close 回调还没派发完），
+    //   立即 connectSocket 会排队等不到 onSocketOpen → TCP 超时
     state = 'connecting'
     events.emit('state', state)
     console.log('[Ws] 手动重连 → 1.5s 后连接（等待旧 socket 释放）')
-    setTimeout(function() {
+    manualReconnectTimer = setTimeout(function() {
+        manualReconnectTimer = null
         if (shouldReconnect && autoReconnect) {
             _doConnect()
         }
@@ -680,7 +809,7 @@ export function applySettings() {
     if (state === 'connected' || state === 'connecting') {
         _startHeartbeat()
         const auth = _buildAuth()
-        try { uni.sendSocketMessage({ data: JSON.stringify(auth) }) } catch(e) {}
+        try { _wsSend(auth) } catch(e) {}
     }
 }
 
@@ -760,7 +889,9 @@ function doProbe(resolve) {
 
     try {
         pendingPingAt = Date.now()
-        uni.sendSocketMessage({ data: JSON.stringify({ type: 'ping', ts: pendingPingAt, probe: true }) })
+        if (!_wsSend({ type: 'ping', ts: pendingPingAt, probe: true })) {
+            throw new Error('send fail')
+        }
     } catch (e) {
         console.error('[Ws] probeChannel send ping fail', e)
         if (probeTimer) { clearTimeout(probeTimer); probeTimer = null }
