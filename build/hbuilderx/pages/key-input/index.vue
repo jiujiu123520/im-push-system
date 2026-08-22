@@ -300,8 +300,8 @@ export default {
 /* 深色主题覆盖（theme-dark class）：硬编码具体颜色 */
 .theme-dark .input-key,
 .theme-dark .input-url {
-    background: rgba(255, 255, 255, 0.08) !important;
-    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
     color: #ffffff !important;
     -webkit-text-fill-color: #ffffff !important;
 }
@@ -309,18 +309,18 @@ export default {
 /* flat 主题覆盖 */
 .theme-flat .input-key,
 .theme-flat .input-url {
-    background: rgba(255, 255, 255, 0.08) !important;
-    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
     color: #ffffff !important;
     -webkit-text-fill-color: #ffffff !important;
 }
 
 /* 占位符：同样具体色值，class 方式适配主题 */
 .ph-style {
-    color: rgba(15, 23, 42, 0.35) !important;
+    color: rgba(15, 23, 42, 0.45) !important;
 }
 .theme-dark .ph-style,
 .theme-flat .ph-style {
-    color: rgba(255, 255, 255, 0.35) !important;
+    color: rgba(255, 255, 255, 0.5) !important;
 }
 </style>

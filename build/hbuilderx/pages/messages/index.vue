@@ -11,7 +11,7 @@
             <view class="glass-input" style="padding:16rpx 24rpx;font-size:26rpx;">
                 🔍 <input placeholder="搜索消息内容" v-model="keyword" :style="searchInputStyle"
                        cursor-spacing="20" adjust-position="true" confirm-type="search"
-                       placeholder-style="color:rgba(150,150,160,0.6);" />
+                       placeholder-style="color:rgba(170,170,195,0.75);" />
             </view>
             <view class="row" style="gap:12rpx;margin-top:20rpx;">
                 <text :class="['status-chip', curFilter === 'all' ? 'status-ok' : '']" @click="curFilter='all'">全部 {{ messages.length }}</text>

@@ -14,15 +14,15 @@ page[data-theme="light"],
     --ball-1: rgba(99, 102, 241, 0.18);
     --ball-2: rgba(236, 72, 153, 0.12);
 
-    --card-bg: rgba(255, 255, 255, 0.72);
-    --card-border: rgba(0, 0, 0, 0.06);
-    --card-bg-hl: rgba(255, 255, 255, 0.9);
-    --card-border-hl: rgba(0, 0, 0, 0.1);
+    --card-bg: rgba(255, 255, 255, 0.82);
+    --card-border: rgba(0, 0, 0, 0.08);
+    --card-bg-hl: rgba(255, 255, 255, 0.95);
+    --card-border-hl: rgba(0, 0, 0, 0.12);
 
-    --text-primary: rgba(15, 23, 42, 0.95);
-    --text-secondary: rgba(15, 23, 42, 0.78);
-    --text-muted: rgba(15, 23, 42, 0.55);
-    --text-read: rgba(15, 23, 42, 0.66);
+    --text-primary: rgba(15, 23, 42, 0.98);
+    --text-secondary: rgba(15, 23, 42, 0.86);
+    --text-muted: rgba(15, 23, 42, 0.68);
+    --text-read: rgba(15, 23, 42, 0.78);
     --text-accent: #6366f1;
 
     --btn-primary-bg-1: #6366f1;
@@ -36,107 +36,107 @@ page[data-theme="light"],
     --input-bg-focus: rgba(0, 0, 0, 0.08);
     --input-border: rgba(0, 0, 0, 0.1);
     --input-border-focus: rgba(99, 102, 241, 0.5);
-    --input-text: rgba(15, 23, 42, 0.95);
-    --input-placeholder: rgba(15, 23, 42, 0.35);
+    --input-text: rgba(15, 23, 42, 0.98);
+    --input-placeholder: rgba(15, 23, 42, 0.45);
 
-    --divider: rgba(0, 0, 0, 0.06);
+    --divider: rgba(0, 0, 0, 0.08);
     --icon-btn-bg: rgba(0, 0, 0, 0.04);
     --icon-btn-border: rgba(0, 0, 0, 0.1);
-    --section-title: rgba(15, 23, 42, 0.5);
+    --section-title: rgba(15, 23, 42, 0.62);
 
     --tabbar-bg: rgba(255, 255, 255, 0.95);
-    --tabbar-color: rgba(15, 23, 42, 0.5);
+    --tabbar-color: rgba(15, 23, 42, 0.62);
     --tabbar-selected: rgba(99, 102, 241, 1);
 }
 
 /* -------- 深色玻璃（A 风格） -------- */
 page[data-theme="dark"],
 .theme-dark {
-    --bg-gradient-1: #0a0a1a;
-    --bg-gradient-2: #1a1535;
-    --bg-gradient-3: #2a1f55;
+    --bg-gradient-1: #101024;
+    --bg-gradient-2: #221b44;
+    --bg-gradient-3: #342860;
 
-    --ball-1: rgba(99, 102, 241, 0.25);
-    --ball-2: rgba(236, 72, 153, 0.18);
+    --ball-1: rgba(99, 102, 241, 0.28);
+    --ball-2: rgba(236, 72, 153, 0.2);
 
-    --card-bg: rgba(255, 255, 255, 0.06);
-    --card-border: rgba(255, 255, 255, 0.12);
-    --card-bg-hl: rgba(255, 255, 255, 0.12);
-    --card-border-hl: rgba(255, 255, 255, 0.2);
+    --card-bg: rgba(255, 255, 255, 0.1);
+    --card-border: rgba(255, 255, 255, 0.16);
+    --card-bg-hl: rgba(255, 255, 255, 0.17);
+    --card-border-hl: rgba(255, 255, 255, 0.26);
 
-    --text-primary: rgba(255, 255, 255, 0.95);
-    --text-secondary: rgba(255, 255, 255, 0.82);
-    --text-muted: rgba(255, 255, 255, 0.6);
-    --text-read: rgba(255, 255, 255, 0.72);
-    --text-accent: #8b5cf6;
+    --text-primary: rgba(255, 255, 255, 0.98);
+    --text-secondary: rgba(255, 255, 255, 0.92);
+    --text-muted: rgba(255, 255, 255, 0.75);
+    --text-read: rgba(255, 255, 255, 0.85);
+    --text-accent: #a78bfa;
 
     --btn-primary-bg-1: #6366f1;
     --btn-primary-bg-2: #8b5cf6;
     --btn-primary-text: #ffffff;
-    --btn-ghost-bg: rgba(255, 255, 255, 0.08);
+    --btn-ghost-bg: rgba(255, 255, 255, 0.12);
     --btn-ghost-text: #ffffff;
-    --btn-ghost-border: rgba(255, 255, 255, 0.15);
+    --btn-ghost-border: rgba(255, 255, 255, 0.22);
 
-    --input-bg: rgba(255, 255, 255, 0.08);
-    --input-bg-focus: rgba(255, 255, 255, 0.12);
-    --input-border: rgba(255, 255, 255, 0.15);
-    --input-border-focus: rgba(139, 92, 246, 0.6);
+    --input-bg: rgba(255, 255, 255, 0.1);
+    --input-bg-focus: rgba(255, 255, 255, 0.16);
+    --input-border: rgba(255, 255, 255, 0.2);
+    --input-border-focus: rgba(167, 139, 250, 0.65);
     --input-text: #ffffff;
-    --input-placeholder: rgba(255, 255, 255, 0.35);
+    --input-placeholder: rgba(255, 255, 255, 0.5);
 
-    --divider: rgba(255, 255, 255, 0.08);
-    --icon-btn-bg: rgba(255, 255, 255, 0.08);
-    --icon-btn-border: rgba(255, 255, 255, 0.15);
-    --section-title: rgba(255, 255, 255, 0.5);
+    --divider: rgba(255, 255, 255, 0.12);
+    --icon-btn-bg: rgba(255, 255, 255, 0.12);
+    --icon-btn-border: rgba(255, 255, 255, 0.2);
+    --section-title: rgba(255, 255, 255, 0.66);
 
-    --tabbar-bg: rgba(20, 15, 40, 0.95);
-    --tabbar-color: rgba(255, 255, 255, 0.5);
+    --tabbar-bg: rgba(26, 22, 52, 0.97);
+    --tabbar-color: rgba(255, 255, 255, 0.68);
     --tabbar-selected: #ffffff;
 }
 
 /* -------- 渐变卡片扁平（C 风格） -------- */
 page[data-theme="flat"],
 .theme-flat {
-    --bg-gradient-1: #0f0c29;
-    --bg-gradient-2: #302b63;
-    --bg-gradient-3: #24243e;
+    --bg-gradient-1: #151238;
+    --bg-gradient-2: #3d3780;
+    --bg-gradient-3: #302f52;
 
     --ball-1: transparent;
     --ball-2: transparent;
 
-    --card-bg: rgba(255, 255, 255, 0.06);
-    --card-border: rgba(255, 255, 255, 0.08);
-    --card-bg-hl: rgba(255, 255, 255, 0.12);
-    --card-border-hl: rgba(255, 255, 255, 0.15);
+    --card-bg: rgba(255, 255, 255, 0.1);
+    --card-border: rgba(255, 255, 255, 0.14);
+    --card-bg-hl: rgba(255, 255, 255, 0.16);
+    --card-border-hl: rgba(255, 255, 255, 0.2);
 
-    --text-primary: rgba(255, 255, 255, 0.95);
-    --text-secondary: rgba(255, 255, 255, 0.82);
-    --text-muted: rgba(255, 255, 255, 0.6);
-    --text-read: rgba(255, 255, 255, 0.72);
-    --text-accent: #ff6b6b;
+    --text-primary: rgba(255, 255, 255, 0.98);
+    --text-secondary: rgba(255, 255, 255, 0.92);
+    --text-muted: rgba(255, 255, 255, 0.75);
+    --text-read: rgba(255, 255, 255, 0.85);
+    --text-accent: #ff8787;
 
     --btn-primary-bg-1: #ff6b6b;
     --btn-primary-bg-2: #feca57;
     --btn-primary-text: #ffffff;
-    --btn-ghost-bg: rgba(255, 255, 255, 0.1);
+    --btn-ghost-bg: rgba(255, 255, 255, 0.13);
     --btn-ghost-text: #ffffff;
-    --btn-ghost-border: rgba(255, 255, 255, 0.15);
+    --btn-ghost-border: rgba(255, 255, 255, 0.2);
 
-    --input-bg: rgba(255, 255, 255, 0.08);
-    --input-bg-focus: rgba(255, 255, 255, 0.14);
-    --input-border: rgba(255, 255, 255, 0.12);
-    --input-border-focus: rgba(255, 107, 107, 0.6);
+    --input-bg: rgba(255, 255, 255, 0.1);
+    --input-bg-focus: rgba(255, 255, 255, 0.18);
+    --input-border: rgba(255, 255, 255, 0.18);
+    --input-border-focus: rgba(255, 135, 135, 0.65);
     --input-text: #ffffff;
-    --input-placeholder: rgba(255, 255, 255, 0.35);
+    --input-placeholder: rgba(255, 255, 255, 0.5);
 
-    --divider: rgba(255, 255, 255, 0.08);
-    --icon-btn-bg: rgba(255, 255, 255, 0.08);
-    --icon-btn-border: rgba(255, 255, 255, 0.12);
-    --section-title: rgba(255, 255, 255, 0.5);
+    --divider: rgba(255, 255, 255, 0.12);
+    --icon-btn-bg: rgba(255, 255, 255, 0.1);
+    --icon-btn-border: rgba(255, 255, 255, 0.18);
+    --section-title: rgba(255, 255, 255, 0.66);
 
-    --tabbar-bg: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
-    --tabbar-color: rgba(255, 255, 255, 0.5);
-    --tabbar-selected: #ff6b6b;
+    --tabbar-bg: linear-gradient(180deg, #232344 0%, #1d2240 100%);
+    --tabbar-color: rgba(255, 255, 255, 0.68);
+    --tabbar-selected: #ff8787;
 }
 
 /* flat 风格：去掉模糊光斑 */
@@ -274,35 +274,35 @@ page {
 /* 深色主题覆盖：硬编码具体色值，不用 var(--xxx) */
 page[data-theme="dark"] .glass-input,
 .theme-dark .glass-input {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     color: #ffffff !important;
     -webkit-text-fill-color: #ffffff;
 }
 page[data-theme="dark"] .glass-input:focus,
 .theme-dark .glass-input:focus {
-    border-color: rgba(139, 92, 246, 0.6);
-    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(167, 139, 250, 0.65);
+    background: rgba(255, 255, 255, 0.16);
 }
 
 /* flat 主题覆盖：硬编码具体色值 */
 page[data-theme="flat"] .glass-input,
 .theme-flat .glass-input {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.18);
     color: #ffffff !important;
     -webkit-text-fill-color: #ffffff;
 }
 page[data-theme="flat"] .glass-input:focus,
 .theme-flat .glass-input:focus {
-    border-color: rgba(255, 107, 107, 0.6);
-    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 135, 135, 0.65);
+    background: rgba(255, 255, 255, 0.18);
 }
 
 /* 占位符：同样用具体色值，避免 var(...) */
 input::placeholder,
 textarea::placeholder {
-    color: rgba(15, 23, 42, 0.35) !important;
+    color: rgba(15, 23, 42, 0.45) !important;
 }
 page[data-theme="dark"] input::placeholder,
 .theme-dark input::placeholder,
@@ -312,7 +312,30 @@ page[data-theme="dark"] textarea::placeholder,
 .theme-dark textarea::placeholder,
 page[data-theme="flat"] textarea::placeholder,
 .theme-flat textarea::placeholder {
-    color: rgba(255, 255, 255, 0.35) !important;
+    color: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* 深色系主题下状态徽章提亮（原生中调色在深底发暗） */
+page[data-theme="dark"] .status-ok,
+.theme-dark .status-ok,
+page[data-theme="flat"] .status-ok,
+.theme-flat .status-ok {
+    background: rgba(52, 211, 153, 0.22);
+    color: #34d399;
+}
+page[data-theme="dark"] .status-warn,
+.theme-dark .status-warn,
+page[data-theme="flat"] .status-warn,
+.theme-flat .status-warn {
+    background: rgba(251, 191, 36, 0.22);
+    color: #fbbf24;
+}
+page[data-theme="dark"] .status-bad,
+.theme-dark .status-bad,
+page[data-theme="flat"] .status-bad,
+.theme-flat .status-bad {
+    background: rgba(248, 113, 113, 0.22);
+    color: #f87171;
 }
 
 .status-chip {
