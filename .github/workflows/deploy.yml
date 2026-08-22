@@ -54,6 +54,8 @@ jobs:
             # 2. Pull code
             echo "=== 2. Git pull ==="
             cd "$PROJECT"
+            # user 前端构建会重新生成自动类型文件，还原避免脏工作区卡住 pull
+            git checkout -- user/src/types/components.d.ts 2>/dev/null || true
             git fetch origin main --prune
             BEFORE=$(git rev-parse HEAD)
             git pull --ff-only origin main
