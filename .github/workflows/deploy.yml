@@ -66,7 +66,8 @@ jobs:
             fi
             echo ""
 
-            # 3. Composer install
+            # 3. Composer install（composer.json 已配置 audit.block-insecure=false，
+            #    否则仓库无 lock 在线解析时会被新发布的安全公告 block）
             echo "=== 3. Composer install ==="
             cd "$PROJECT/backend"
             composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader 2>&1 | tail -5
