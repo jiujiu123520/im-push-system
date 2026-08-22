@@ -74,9 +74,10 @@ jobs:
             echo ""
 
             # 3b. 数据库迁移（幂等：schema_migrations 记录 + 按顺序执行 migrations/*.sql）
+            # sudo：.env 属主 www-data 且 600，ubuntu 用户无法读取
             echo "=== 3b. Database migrations ==="
             cd "$PROJECT/backend"
-            php bin/migrate_sql.php 2>&1 | tail -15
+            sudo php bin/migrate_sql.php 2>&1 | tail -15
             echo ""
 
             # 4. Admin build
