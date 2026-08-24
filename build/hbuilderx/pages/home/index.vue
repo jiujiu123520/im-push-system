@@ -21,10 +21,12 @@
                 <view class="text-muted" style="font-size:24rpx;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ wsUrl || '未配置服务器地址' }}</view>
                 <view class="text-muted" style="font-size:24rpx;">延迟 <text v-if="latency >= 0" style="color:var(--text-accent);font-weight:600;">{{ latency }}ms</text><text v-else>—</text></view>
             </view>
-            <view class="row" style="margin-top:24rpx;">
-                <button class="btn-primary" style="flex:1;margin-right:16rpx;" @click="testPush" :disabled="!canTest">测试推送</button>
-                <button class="btn-ghost" style="flex:1;margin-right:16rpx;" @click="reconnect">重新连接</button>
-                <button class="btn-ghost" style="flex:1;" @click="refreshData" :disabled="refreshing">{{ refreshing ? '刷新中…' : '刷新消息' }}</button>
+            <view style="margin-top:28rpx;">
+                <button class="btn-primary" style="width:100%;" @click="testPush" :disabled="!canTest">🔔 测试推送</button>
+                <view class="row" style="margin-top:16rpx;gap:16rpx;">
+                    <button class="btn-ghost" style="flex:1;" @click="reconnect">🔄 重新连接</button>
+                    <button class="btn-ghost" style="flex:1;" @click="refreshData" :disabled="refreshing">{{ refreshing ? '⏳ 刷新中…' : '🔄 刷新消息' }}</button>
+                </view>
             </view>
         </view>
 
