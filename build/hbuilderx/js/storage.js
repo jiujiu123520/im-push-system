@@ -73,7 +73,7 @@ export function addMessage(msg) {
         }
     }
     list.unshift(msg)
-    if (list.length > 200) list = list.slice(0, 200)
+    if (list.length > 300) list = list.slice(0, 300)
     return setMessages(list)
 }
 
