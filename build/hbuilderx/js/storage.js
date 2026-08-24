@@ -35,7 +35,29 @@ export const PUSH_RINGTONE = 'push_ringtone'
 const STORAGE_KEY = 'push_messages'
 
 export function setMessages(list) {
-    try { uni.setStorageSync(STORAGE_KEY, JSON.stringify(list)) } catch(e) {}
+    try {
+        uni.setStorageSync(STORAGE_KEY, JSON.stringify(list))
+        return true
+    } catch(e) {
+        // 写入失败：通常是 storage 容量超限（uni.setStorageSync 单 key 上限约 1MB）
+        // 兜底：逐步减少消息数量后重试，确保最新消息能写入
+        var half = list.slice(0, Math.max(20, Math.floor(list.length / 2)))
+        try {
+            uni.setStorageSync(STORAGE_KEY, JSON.stringify(half))
+            console.warn('[storage] setMessages 容量超限，已减半至 ' + half.length + ' 条')
+            return true
+        } catch(e2) {
+            var minimal = list.slice(0, 20)
+            try {
+                uni.setStorageSync(STORAGE_KEY, JSON.stringify(minimal))
+                console.error('[storage] setMessages 严重超限，仅保留 20 条')
+                return true
+            } catch(e3) {
+                console.error('[storage] setMessages 完全失败', e3)
+                return false
+            }
+        }
+    }
 }
 
 export function getMessages() {
@@ -43,10 +65,16 @@ export function getMessages() {
 }
 
 export function addMessage(msg) {
-    const list = getMessages()
+    var list = getMessages()
+    // 去重：按 id 检查是否已存在（避免 HTTP 刷新拉取的重复消息占满 storage）
+    if (msg && msg.id) {
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].id === msg.id) return false
+        }
+    }
     list.unshift(msg)
     if (list.length > 200) list = list.slice(0, 200)
-    setMessages(list)
+    return setMessages(list)
 }
 
 export function clearMessages() {
