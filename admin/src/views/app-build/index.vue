@@ -2072,15 +2072,16 @@ onBeforeUnmount(() => {
 
   .build-type-item {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 12px;
-    padding: 12px 14px;
+    padding: 14px 16px 14px 14px;
     border-radius: $radius-md;
     border: 1.5px solid var(--border-base);
     background: var(--bg-page);
     cursor: pointer;
     transition: all 0.25s ease;
     position: relative;
+    min-height: 62px;
 
     &:hover {
       border-color: $color-primary-light-5;
@@ -2114,29 +2115,40 @@ onBeforeUnmount(() => {
       font-size: 18px;
       transition: all 0.25s ease;
       flex-shrink: 0;
+      margin-top: 0;
     }
 
     .type-info {
       flex: 1;
       min-width: 0;
+      padding-top: 1px;
+      padding-right: 24px;
     }
     .type-name {
       font-size: 14px;
       font-weight: 700;
       color: var(--text-primary);
+      line-height: 1.5;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .type-desc {
       font-size: 11px;
       color: var(--text-secondary);
-      margin-top: 2px;
+      line-height: 1.5;
+      margin-top: 3px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .type-check {
       position: absolute;
-      top: 8px;
-      right: 8px;
+      top: 12px;
+      right: 12px;
       color: $color-primary;
-      font-size: 16px;
+      font-size: 18px;
       opacity: 0;
       transform: scale(0.6);
       transition: all 0.25s ease;

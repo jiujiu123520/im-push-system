@@ -1314,11 +1314,16 @@ onMounted(() => {
 .check-name {
   font-weight: 600;
   font-size: 14px;
+  line-height: 1.5;
   margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .check-desc {
   font-size: 13px;
+  line-height: 1.5;
   color: var(--el-text-color-primary);
 }
 
