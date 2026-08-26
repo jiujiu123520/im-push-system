@@ -371,8 +371,23 @@ export default {
             // 🔴 第一步：先做同步通道探测（2秒），假连接直接弹具体提示+自动重连
             //   之前是直接 HTTP 发 → 等 4 秒 WS 回推，假连接时前后端各说各话，用户永远不知道为什么
             var beforeCount = getMessages().length
+            var pushReceived = false
+            var expectedTs = Date.now()
+            var offListener = null
+            // 订阅 WS message 事件：4秒内只要收到任何时间戳 >= expectedTs 的消息，就视为已收到回包
+            //   （不再依赖 count 比较——count 到300上限后新消息 unshift+slice 数量不变，会误判为超时）
+            try {
+                var messageHandler = function(m) {
+                    var mts = m && m.timestamp ? (m.timestamp < 1e12 ? m.timestamp * 1000 : m.timestamp) : 0
+                    if (mts >= expectedTs - 1000) { pushReceived = true }
+                }
+                on('message', messageHandler)
+                offListener = function() { try { off('message', messageHandler) } catch (_) {} }
+            } catch (_) { offListener = function() {} }
+
             probeChannel().then(function(probe) {
                 if (!probe.ok) {
+                    offListener()
                     // 针对每种原因给出对应的、用户能读懂的中文提示 + 需要重连时自动触发
                     var reason = probe.reason || 'unknown'
                     var probeTitle = '⚠️ 通道未就绪'
@@ -432,6 +447,7 @@ export default {
                     var respMsg = payload.message || (r && r.message) || ''
 
                     if (!isOnline) {
+                        offListener()
                         var offlineMsg = '⚠️ 服务端视角：设备离线（Redis无fd记录）。WS可能是假连接，已自动触发重连，请10秒后再测'
                         uni.showToast({ title: '服务端视角：设备离线', icon: 'none', duration: 2500 })
                         try {
@@ -452,6 +468,7 @@ export default {
                     }
 
                     if (isOnline && !isSuccess) {
+                        offListener()
                         var pushFailMsg = '⚠️ 服务端在线但推送失败（fd写入失败），已触发自动重连，请10秒后再测'
                         uni.showToast({ title: '推送失败，正在重连', icon: 'none', duration: 2500 })
                         try {
@@ -470,11 +487,30 @@ export default {
                         return
                     }
 
-                    // 🔴 online=true + success=true → 服务端成功推送，正常 Toast + 4秒兜底（极端慢网场景）
+                    // 🔴 online=true + success=true → 服务端成功推送
                     uni.showToast({ title: respMsg || '测试推送已发送，请留意通知栏', icon: 'success' })
                     setTimeout(function() {
-                        var afterCount = getMessages().length
-                        if (afterCount <= beforeCount) {
+                        offListener()
+                        // 双重校验：
+                        //   1) pushReceived=true → WS事件监听已确认收到回包
+                        //   2) 没监听到事件的兜底：消息数量增长，或者数量>=300时检查列表最前有没有4秒内的新消息（达到上限后数量不变但仍可能已写入）
+                        var countOk = false
+                        try {
+                            var afterCount = getMessages().length
+                            var list = getMessages()
+                            if (afterCount > beforeCount) {
+                                countOk = true
+                            } else if (beforeCount >= 300 && list.length > 0) {
+                                // 上限场景：检查最新几条里有无 4 秒内的新消息（id/时间戳判断）
+                                var winEnd = Date.now() + 1000
+                                var winStart = expectedTs - 1000
+                                for (var i = 0; i < Math.min(10, list.length); i++) {
+                                    var t = list[i] && list[i].timestamp ? (list[i].timestamp < 1e12 ? list[i].timestamp * 1000 : list[i].timestamp) : 0
+                                    if (t >= winStart && t <= winEnd) { countOk = true; break }
+                                }
+                            }
+                        } catch (_) {}
+                        if (!pushReceived && !countOk) {
                             try {
                                 addMessage({
                                     id: 'test-timeout-' + Date.now(),
@@ -491,6 +527,7 @@ export default {
                     }, 4000)
                 })
             }).catch(function() {
+                offListener()
                 uni.showToast({ title: '测试推送已发送（无响应），本地模拟一条', icon: 'none' })
                 try {
                     var testMsg = {
