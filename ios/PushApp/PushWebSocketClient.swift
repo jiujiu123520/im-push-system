@@ -99,8 +99,8 @@ class PushWebSocketClient: NSObject {
             wsUrl = "ws://" + wsUrl
         }
 
-        guard let url = URL(string: "\(wsUrl)/ws") else {
-            print("[WebSocket] 无效的 URL: \(wsUrl)/ws")
+        guard let url = URL(string: "\(wsUrl)/ws/client") else {
+            print("[WebSocket] 无效的 URL: \(wsUrl)/ws/client")
             dispatchStateChange(.disconnected)
             return
         }

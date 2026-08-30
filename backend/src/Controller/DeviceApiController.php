@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Service\Database;
+use App\Service\DeviceService;
 use App\Service\MessageService;
 use App\Service\Response;
 
@@ -90,9 +91,43 @@ class DeviceApiController
         }
 
         if ($affected === 0) {
-            // 设备尚未通过 WebSocket 鉴权注册过，提示先连接
-            Response::fail($response, '设备未注册，请先用 WebSocket 连接鉴权后再上报 token', Response::CODE_NOT_FOUND, 404);
-            return false;
+            // 设备尚未在 devices 表存在（iOS 端 APNS token 上报早于 WebSocket 鉴权）
+            // → 自动插入一条设备骨架记录（platform=ios），再写入 apns_token
+            try {
+                $deviceSvc = new DeviceService();
+                $deviceSvc->registerDevice([
+                    'device_id'    => $deviceId,
+                    'push_key_id'  => (int)$keyRow['id'],
+                    'user_id'      => 0,
+                    'device_name'  => 'iOS Device',
+                    'device_model' => '',
+                    'os_version'   => '',
+                    'platform'     => 'ios',
+                    'app_version'  => '',
+                    'ip'           => (string)($_SERVER['REMOTE_ADDR'] ?? ''),
+                    'ua'           => (string)($_SERVER['HTTP_USER_AGENT'] ?? ''),
+                    'fingerprint'  => '',
+                ]);
+                // 重新执行 UPDATE 写入 apns_token
+                $affected2 = Database::execute(
+                    'UPDATE devices
+                        SET apns_token = ?,
+                            apns_active = 1,
+                            apns_bundle_id = ?,
+                            apns_updated_at = NOW(),
+                            updated_at = NOW()
+                      WHERE device_id = ? AND push_key_id = ?',
+                    [$apnsToken, $bundleId, $deviceId, $keyRow['id']]
+                );
+                if ($affected2 === 0) {
+                    Response::fail($response, '自动创建设备记录后 APNS token 仍写入失败', Response::CODE_INTERNAL, 500);
+                    return false;
+                }
+            } catch (\Throwable $e2) {
+                error_log('[DeviceApi] register-token 自动创建设备记录失败: ' . $e2->getMessage());
+                Response::fail($response, '设备未注册且自动创建失败: ' . $e2->getMessage(), Response::CODE_NOT_FOUND, 404);
+                return false;
+            }
         }
 
         return Response::success([], 'APNS token 注册成功');

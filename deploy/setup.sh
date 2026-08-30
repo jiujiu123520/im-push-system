@@ -405,7 +405,7 @@ _install_runtime() {
                 php${php_ver}-zip php${php_ver}-bcmath php${php_ver}-intl php${php_ver}-opcache \
                 php-pear php${php_ver}-dev php-swoole \
                 mysql-server redis-server nginx composer nodejs npm \
-                pkg-config libcurl4-openssl-dev libssl-dev \
+                pkg-config libcurl4-openssl-dev libssl-dev libnghttp2-dev \
                 2>&1 | tail -15" || true
             ;;
         rhel)
@@ -414,7 +414,7 @@ _install_runtime() {
                 php${php_ver/./}-php-gd php${php_ver/./}-php-mbstring php${php_ver/./}-php-xml \
                 php${php_ver/./}-php-pecl-zip php${php_ver/./}-php-bcmath php${php_ver/./}-php-intl \
                 php${php_ver/./}-php-opcache php${php_ver/./}-php-devel php${php_ver/./}-php-pecl-swoole \
-                mariadb-server redis nginx nodejs npm \
+                mariadb-server redis nginx nodejs npm libnghttp2-devel \
                 2>&1 | tail -15" || true
             _sudo systemctl enable --now mariadb redis nginx >/dev/null 2>&1 || true
             ;;
@@ -425,7 +425,7 @@ _install_runtime() {
                 php${php_ver/./}-bcmath php${php_ver/./}-intl php${php_ver/./}-opcache php${php_ver/./}-pecl-swoole \
                 php${php_ver/./}-dev php${php_ver/./}-phar composer \
                 mysql mysql-client redis nginx nodejs npm \
-                build-base openssl-dev curl-dev php${php_ver/./}-sockets \
+                build-base openssl-dev curl-dev nghttp2-dev php${php_ver/./}-sockets \
                 2>&1 | tail -15" || true
             _sudo rc-update add mariadb default >/dev/null 2>&1; _sudo rc-service mariadb start >/dev/null 2>&1 || true
             _sudo rc-update add redis default   >/dev/null 2>&1; _sudo rc-service redis start   >/dev/null 2>&1 || true
@@ -434,7 +434,7 @@ _install_runtime() {
         arch)
             _sudo bash -c "pacman -Sy --noconfirm >/dev/null 2>&1; pacman -S --noconfirm \
                 php php-swoole php-fpm mariadb redis nginx composer nodejs npm \
-                php-gd php-mbstring php-intl zip unzip curl base-devel \
+                php-gd php-mbstring php-intl zip unzip curl base-devel libnghttp2 \
                 2>&1 | tail -15" || true
             ;;
         *)
@@ -471,6 +471,40 @@ _install_runtime() {
     _sudo npm config set registry https://registry.npmmirror.com >/dev/null 2>&1 || true
     # composer 国内源
     composer config -g repos.packagist composer https://mirrors.aliyun.com/composer/ >/dev/null 2>&1 || true
+
+    # ===== APNS 必需：检查 PHP curl 是否支持 HTTP/2（依赖 libnghttp2）=====
+    local http2_ok
+    http2_ok="$(php -r 'echo (defined("CURL_VERSION_HTTP2") && (curl_version()["features"] & CURL_VERSION_HTTP2)) ? 1 : 0;' 2>/dev/null || echo 0)"
+    if [ "$http2_ok" = "1" ]; then
+        ok "PHP curl 已支持 HTTP/2（APNS 推送必需）"
+    else
+        warn "PHP curl 当前不支持 HTTP/2（APNS 推送必需），正在尝试重装 php-curl + libnghttp2..."
+        case "$DISTRO_FAMILY" in
+            debian)
+                _sudo bash -c "apt-get update >/dev/null 2>&1 && apt-get install -y --reinstall libnghttp2-dev php${php_ver}-curl libcurl4 2>&1 | tail -5" || true
+                ;;
+            rhel)
+                _sudo bash -c "$PKG_INSTALL libnghttp2-devel 2>&1 | tail -5" || true
+                ;;
+            alpine)
+                _sudo bash -c "apk add --no-cache --upgrade nghttp2-dev curl php${php_ver/./}-curl 2>&1 | tail -5" || true
+                ;;
+            arch)
+                _sudo bash -c "pacman -S --noconfirm libnghttp2 curl php-curl 2>&1 | tail -5" || true
+                ;;
+        esac
+        # 再次自检
+        http2_ok="$(php -r 'echo (defined("CURL_VERSION_HTTP2") && (curl_version()["features"] & CURL_VERSION_HTTP2)) ? 1 : 0;' 2>/dev/null || echo 0)"
+        if [ "$http2_ok" = "1" ]; then
+            ok "PHP curl 重装后已支持 HTTP/2"
+        else
+            error "PHP curl 仍缺少 HTTP/2 支持。iOS APNS 推送要求 PHP 的 curl 扩展编译时启用 libnghttp2。
+  请手动执行：
+    1) 确认已装 libnghttp2(-dev) 系统包
+    2) 重装 php-curl 或重新编译 PHP 带 --with-curl 并确保链接到 libnghttp2
+    3) 运行 php -r 'var_dump(curl_version()[\"features\"] \\& CURL_VERSION_HTTP2);' 验证输出 int(1)"
+        fi
+    fi
 
     # 确认核心依赖
     local need_report=()

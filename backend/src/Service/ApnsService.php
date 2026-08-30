@@ -227,7 +227,7 @@ class ApnsService
         $ch = curl_init();
         $headers = [
             'Content-Type: application/json',
-            'Authorization: bearer ' . $jwt,
+            'Authorization: Bearer ' . $jwt,
             'apns-topic: ' . $bundleId,
             'apns-push-type: alert',     // alert=普通通知 background=静默推送
             'apns-priority: 10',         // 10=立即投递 5=省电模式
@@ -261,7 +261,14 @@ class ApnsService
         curl_close($ch);
 
         if ($response === false || $error !== '') {
-            return ['success' => false, 'message' => 'APNS 请求失败: ' . $error, 'apns_id' => ''];
+            return [
+                'success'       => false,
+                'message'       => 'APNS 请求失败: ' . $error,
+                'apns_id'       => '',
+                'http_code'     => 0,
+                'response_body' => '',
+                'reason'        => '',
+            ];
         }
 
         // 提取 apns-id（用于排查问题）
@@ -276,7 +283,14 @@ class ApnsService
         if ($httpCode === 200) {
             // 成功：重置连续失败计数 + 记录限流时间戳 + 更新统计
             self::recordSuccess($deviceToken);
-            return ['success' => true, 'message' => 'APNS 推送成功', 'apns_id' => $apnsId];
+            return [
+                'success'       => true,
+                'message'       => 'APNS 推送成功',
+                'apns_id'       => $apnsId,
+                'http_code'     => 200,
+                'response_body' => '',
+                'reason'        => '',
+            ];
         }
 
         // 解析错误响应 body（header 之后的内容）
@@ -304,9 +318,12 @@ class ApnsService
         }
 
         return [
-            'success' => false,
-            'message' => "APNS 返回 {$httpCode}: {$reason}（{$errMsg}）",
-            'apns_id' => $apnsId,
+            'success'       => false,
+            'message'       => "APNS 返回 {$httpCode}: {$reason}（{$errMsg}）",
+            'apns_id'       => $apnsId,
+            'http_code'     => $httpCode,
+            'response_body' => $errorBody,
+            'reason'        => $reason,
         ];
     }
 
