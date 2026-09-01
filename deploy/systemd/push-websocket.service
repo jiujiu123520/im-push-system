@@ -15,9 +15,9 @@ Type=simple
 WorkingDirectory=/www/push-system/backend
 # PHP 可执行文件路径，--ws 参数启动 WebSocket 推送服务
 ExecStart=/usr/bin/php /www/push-system/backend/public/index.php --ws
-# 优雅停止：发送 SIGTERM 后等待 10 秒
+# 优雅停止：发送 SIGTERM 后等待 30 秒（Swoole 关闭连接需刷新消息+清理 Redis，10秒不够）
 KillSignal=SIGTERM
-TimeoutStopSec=10
+TimeoutStopSec=30
 # 自动重启：崩溃后 3 秒重启
 Restart=always
 RestartSec=3

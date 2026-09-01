@@ -13,9 +13,9 @@ Type=simple
 WorkingDirectory=/www/push-system/backend
 # PHP 可执行文件路径（按实际安装路径调整）
 ExecStart=/usr/bin/php /www/push-system/backend/public/index.php
-# 优雅停止：发送 SIGTERM 后等待 10 秒
+# 优雅停止：发送 SIGTERM 后等待 30 秒（Swoole 关闭时需等待进行中的请求完成）
 KillSignal=SIGTERM
-TimeoutStopSec=10
+TimeoutStopSec=30
 # 自动重启：崩溃后 3 秒重启
 Restart=always
 RestartSec=3
