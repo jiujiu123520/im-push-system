@@ -52,13 +52,13 @@ jobs:
             echo ""
 
             # 2. Pull code
-            echo "=== 2. Git pull ==="
+            # 强制同步（fetch + reset --hard）：服务器工作区可能有运维期手动修改/构建残留，
+            # git pull --ff-only 会因本地改动挡住部署（2026-08-31 部署中断事故根因）
+            echo "=== 2. Git sync (force reset) ==="
             cd "$PROJECT"
-            # user 前端构建会重新生成自动类型文件，还原避免脏工作区卡住 pull
-            git checkout -- user/src/types/components.d.ts 2>/dev/null || true
             git fetch origin main --prune
             BEFORE=$(git rev-parse HEAD)
-            git pull --ff-only origin main
+            git reset --hard origin/main
             AFTER=$(git rev-parse HEAD)
             if [ "$BEFORE" = "$AFTER" ]; then
               echo "ℹ️ Already up to date ($BEFORE)"
