@@ -6,13 +6,13 @@
  *   1) 环境自检：PHP curl HTTP/2、APNS 配置完整性、JWT 签发
  *   2) 真机测试：传 --token 向真实 iOS 设备发送一条测试推送
  *
- * 使用方法（在项目根目录 backend/ 下执行）：
- *   php bin/apns_test.php                          # 仅做环境 + 配置自检（不发送推送）
- *   php bin/apns_test.php --self-check             # 同上
- *   php bin/apns_test.php --token=<64字节HEX设备TOKEN>                 # 用默认 title/body 发送
- *   php bin/apns_test.php --token=xxx --title="测试" --body="这是iOS推送"  # 自定义内容
- *   php bin/apns_test.php --token=xxx --bundle-id=com.your.app        # 覆盖配置里的 bundle-id
- *   php bin/apns_test.php --token=xxx --env=production|development    # 强制切换环境（不保存）
+ * 使用方法（在项目根目录 backend/ 下执行；.env 仅 www-data 可读，需 sudo）：
+ *   sudo php bin/apns_test.php                          # 仅做环境 + 配置自检（不发送推送）
+ *   sudo php bin/apns_test.php --self-check             # 同上
+ *   sudo php bin/apns_test.php --token=<64字节HEX设备TOKEN>                 # 用默认 title/body 发送
+ *   sudo php bin/apns_test.php --token=xxx --title="测试" --body="这是iOS推送"  # 自定义内容
+ *   sudo php bin/apns_test.php --token=xxx --bundle-id=com.your.app        # 覆盖配置里的 bundle-id
+ *   sudo php bin/apns_test.php --token=xxx --env=production|development    # 强制切换环境（不保存）
  *
  * 退出码：
  *   0  全部检查通过 / 推送发送成功
@@ -35,6 +35,11 @@ try {
     \App\Service\Config::loadEnv();
 } catch (Throwable $e) {
     fwrite(STDERR, "[FATAL] 加载 .env 失败: " . $e->getMessage() . "\n");
+    // .env 属主 www-data 且权限 600，普通用户读不到（部署脚本的安全约束）
+    $envFile = BASE_PATH . '/.env';
+    if (!is_readable($envFile) && function_exists('posix_getuid') && posix_getuid() !== 0) {
+        fwrite(STDERR, "[HINT]  .env 仅 www-data 可读（600），请用 sudo 运行：sudo php bin/apns_test.php ...\n");
+    }
     exit(1);
 }
 
