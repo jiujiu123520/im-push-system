@@ -13,7 +13,7 @@
 # 功能菜单:
 #   [1] 系统检测与优化   - 识别发行版/CPU/内存/磁盘/网络，配置国内镜像/sysctl/swap/句柄/时区/NTP
 #   [2] 一键安装部署     - PHP+Swoole/MySQL/Redis/Nginx/Node/Composer → 拉代码→.env→建库→迁移→构建前端→服务配置→启动
-#   [3] 更新系统代码     - git pull→composer→迁移→(可选)构建前端→重启服务
+#   [3] 更新系统代码     - 强制同步代码(reset --hard)→composer→迁移→(可选)构建前端→重启服务
 #   [4] 服务管理         - 启动/停止/重启/状态/查看日志（push-http、push-websocket、nginx、mysql、redis）
 #   [5] 卸载             - 仅卸环境/仅删源码/完全卸载（二次确认）
 #   [6] 重装             - 完全卸载后重新安装（二次确认）
@@ -756,7 +756,7 @@ do_update() {
     cd "$PROJECT_DIR" || return 1
 
     # 交互参数
-    local skip_build="" skip_migrate="" gh_proxy="" force=""
+    local skip_build="" skip_migrate="" gh_proxy=""
     echo ""
     _safe_read "是否使用 GitHub 代理（gh.jasonzeng.dev）加速国内拉取？[Y/n] " gh_proxy
     case "$gh_proxy" in n|N|no|NO) gh_proxy="";; *) gh_proxy="1";; esac
@@ -764,24 +764,39 @@ do_update() {
     case "$skip_build" in y|Y|yes|YES) skip_build="1";; *) skip_build="";; esac
     _safe_read "是否跳过数据库迁移（确认没有新 migration 文件时选 y）？[y/N] " skip_migrate
     case "$skip_migrate" in y|Y|yes|YES) skip_migrate="1";; *) skip_migrate="";; esac
-    _safe_read "是否强制重置到远端（丢弃本地未 push 的改动）？[y/N] " force
-    case "$force" in y|Y|yes|YES) force="1";; *) force="";; esac
 
-    step "1/5 修权限 + 拉取最新代码"
+    step "1/5 修权限 + 强制拉取最新代码"
     _sudo chown -R "$(id -un):$(id -gn)" "$PROJECT_DIR" 2>/dev/null || true
-    # user 前端构建可能会改 components.d.ts（自动类型文件），提前还原避免脏工作区
-    git -C "$PROJECT_DIR" checkout -- user/src/types/components.d.ts 2>/dev/null || true
     git -C "$PROJECT_DIR" config --global --add safe.directory "$PROJECT_DIR" >/dev/null 2>&1 || true
     if [ -n "$gh_proxy" ]; then
         git -C "$PROJECT_DIR" remote set-url origin "${GH_PROXY}${GITHUB_REPO}" 2>/dev/null || true
     fi
-    git -C "$PROJECT_DIR" fetch --force origin main --prune 2>&1 | tail -3
-    local before after
+    # 强制同步策略（与 backend/deploy/update.sh 一致，替代 git pull --ff-only）：
+    #   checkout 还原所有已跟踪文件的本地改动 + clean 清理未跟踪文件（保留 lock 文件）
+    #   + reset --hard 对齐远端。服务器上的手动改动/构建残留不会再挡住更新。
+    git -C "$PROJECT_DIR" checkout -- . 2>/dev/null || true
+    git -C "$PROJECT_DIR" clean -fd \
+        -e 'composer.lock' -e 'package-lock.json' \
+        -e 'backend/composer.lock' -e 'admin/package-lock.json' \
+        -e 'user/package-lock.json' 2>/dev/null || true
+
+    # fetch 失败必须中断（检查退出码；输出经管道会吞退出码，故用命令替换捕获）
+    local fetch_out fetch_rc before after reset_out reset_rc
+    fetch_out="$(git -C "$PROJECT_DIR" fetch --force origin main --prune 2>&1)"
+    fetch_rc=$?
+    [ -n "$fetch_out" ] && echo "$fetch_out" | tail -3
+    if [ "$fetch_rc" -ne 0 ]; then
+        error "git fetch 失败（退出码 $fetch_rc），更新已中止。请检查网络或 GitHub 代理设置后重试"
+        return 1
+    fi
+
     before="$(git -C "$PROJECT_DIR" rev-parse HEAD)"
-    if [ -n "$force" ]; then
-        git -C "$PROJECT_DIR" reset --hard origin/main 2>&1 | tail -3
-    else
-        git -C "$PROJECT_DIR" pull --ff-only origin main 2>&1 | tail -5
+    reset_out="$(git -C "$PROJECT_DIR" reset --hard origin/main 2>&1)"
+    reset_rc=$?
+    [ -n "$reset_out" ] && echo "$reset_out" | tail -3
+    if [ "$reset_rc" -ne 0 ]; then
+        error "git reset --hard 失败（退出码 $reset_rc），更新已中止"
+        return 1
     fi
     after="$(git -C "$PROJECT_DIR" rev-parse HEAD)"
     if [ "$before" = "$after" ]; then
