@@ -136,7 +136,7 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button
               link
@@ -145,6 +145,14 @@
               @click="copyKey(row.key_value)"
             >
               复制
+            </el-button>
+            <el-button
+              link
+              type="success"
+              :icon="TimerIcon"
+              @click="openExtendDialog(row)"
+            >
+              续期
             </el-button>
             <el-button
               link
@@ -251,6 +259,68 @@
             创建
           </el-button>
         </template>
+      </template>
+    </el-dialog>
+
+    <!-- 续期 API Key 对话框 -->
+    <el-dialog
+      v-model="extendDialogVisible"
+      title="续期 API Key"
+      width="520px"
+      destroy-on-close
+      class="create-dialog"
+    >
+      <el-form label-position="top" class="create-form extend-form">
+        <el-form-item label="Key 名称">
+          <div class="name-cell">
+            <div class="name-icon">
+              <el-icon><KeyIcon /></el-icon>
+            </div>
+            <span class="name-text">{{ currentKey?.name }}</span>
+          </div>
+        </el-form-item>
+        <el-form-item label="当前过期时间">
+          <span
+            class="extend-current"
+            :class="{ expired: isExpired(currentKey?.expire_at) }"
+          >
+            {{ currentKey?.expire_at ? formatTime(currentKey.expire_at) : '永久有效' }}
+            <el-tag v-if="isExpired(currentKey?.expire_at)" type="danger" size="small">
+              已过期
+            </el-tag>
+          </span>
+        </el-form-item>
+        <el-form-item label="快捷续期">
+          <div class="quick-extend">
+            <el-button round @click="quickExtend(30)">+30 天</el-button>
+            <el-button round @click="quickExtend(90)">+90 天</el-button>
+            <el-button round @click="quickExtend(365)">+1 年</el-button>
+            <el-button round type="danger" plain @click="extendForm.expiresAt = ''">
+              设为永久
+            </el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="新过期时间">
+          <el-date-picker
+            v-model="extendForm.expiresAt"
+            type="datetime"
+            placeholder="选择新过期时间，留空则永久有效"
+            format="YYYY-MM-DD HH:mm"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            :disabled-date="disabledDate"
+            style="width: 100%"
+          />
+          <div class="extend-tip">
+            <el-icon><InfoFilledIcon /></el-icon>
+            <span>未过期的 Key 按当前到期时间顺延；已过期或永久的 Key 从现在起算</span>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="extendDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="extending" @click="handleExtend">
+          确认续期
+        </el-button>
       </template>
     </el-dialog>
 
@@ -525,11 +595,13 @@ import {
   CircleCheckFilled as CircleCheckFilledIcon,
   WarningFilled as WarningFilledIcon,
   ArrowDown as ArrowDownIcon,
-  InfoFilled as InfoFilledIcon
+  InfoFilled as InfoFilledIcon,
+  Timer as TimerIcon
 } from '@element-plus/icons-vue'
 import {
   getApiKeyListApi,
   createApiKeyApi,
+  updateApiKeyApi,
   deleteApiKeyApi,
   toggleApiKeyStatusApi
 } from '@/api/apiKey'
@@ -738,6 +810,62 @@ async function handleSubmit() {
     ElMessage.error(err instanceof Error ? err.message : '创建失败')
   } finally {
     submitting.value = false
+  }
+}
+
+// ---- 续期对话框 ----
+const extendDialogVisible = ref(false)
+const extending = ref(false)
+const currentKey = ref<ApiKeyRecord | null>(null)
+
+const extendForm = reactive({
+  expiresAt: ''
+})
+
+function formatDate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:00`
+}
+
+// 续期基准时间：未过期按当前到期时间顺延，已过期/永久从现在起算
+function extendBaseTime(): Date {
+  const cur = currentKey.value?.expire_at
+  if (cur && !isExpired(cur)) {
+    return new Date(cur)
+  }
+  return new Date()
+}
+
+function openExtendDialog(row: ApiKeyRecord) {
+  currentKey.value = row
+  const base = extendBaseTime()
+  base.setDate(base.getDate() + 30)
+  extendForm.expiresAt = formatDate(base)
+  extendDialogVisible.value = true
+}
+
+function quickExtend(days: number) {
+  const base = extendBaseTime()
+  base.setDate(base.getDate() + days)
+  extendForm.expiresAt = formatDate(base)
+}
+
+async function handleExtend() {
+  if (!currentKey.value) return
+  extending.value = true
+  try {
+    // expire_at 传空字符串时后端置为 null（永久有效）
+    await updateApiKeyApi(currentKey.value.id, {
+      name: currentKey.value.name,
+      expire_at: extendForm.expiresAt || ''
+    })
+    ElMessage.success(extendForm.expiresAt ? '续期成功' : '已设为永久有效')
+    extendDialogVisible.value = false
+    fetchData()
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '续期失败')
+  } finally {
+    extending.value = false
   }
 }
 
@@ -1281,6 +1409,44 @@ onMounted(() => {
   :deep(.el-form-item__label) {
     font-weight: 600;
     color: var(--text-regular);
+  }
+}
+
+// ===== 续期对话框 =====
+.extend-form {
+  .extend-current {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-regular);
+    font-family: $font-family-mono;
+
+    &.expired {
+      color: $color-danger;
+      font-weight: 600;
+    }
+  }
+
+  .quick-extend {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .extend-tip {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+
+    .el-icon {
+      color: $color-primary;
+      flex-shrink: 0;
+    }
   }
 }
 
