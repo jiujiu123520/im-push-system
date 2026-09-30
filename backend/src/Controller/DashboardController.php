@@ -141,6 +141,10 @@ class DashboardController
      * 系统版本需回查 devices（原生 App）或 web_push_subscriptions（PWA），
      * 同一 device_id 同时存在时以 devices 为准。
      *
+     * 另外合并 Web Push（PWA）设备：iOS Safari 主屏幕这类 PWA 不维持 WebSocket
+     * 长连接，Redis 里没有 fd，只看连接表会永远看不到它们。判定依据为订阅仍有效
+     * （web_push_subscriptions.status = 1），channel 标记为 webpush 以示区分。
+     *
      * 返回：
      *   {
      *     "list": [
@@ -153,6 +157,7 @@ class DashboardController
      *         "device_model": "2311DRK48C",
      *         "os_version": "Android 16",
      *         "app_version": "1.0.0",
+     *         "channel": "ws",              // ws=WebSocket 实时在线；webpush=Web Push 订阅有效
      *         "connections": 1,
      *         "connect_at": 1790764258,
      *         "last_active": 1790764258,
@@ -219,63 +224,67 @@ class DashboardController
             unset($item);
         }
 
-        if (empty($grouped)) {
-            return ['list' => [], 'total' => 0];
-        }
-
+        // 注意：这里不能因为 WebSocket 连接为空就提前返回 ——
+        // Web Push（PWA）设备不走 WebSocket，下面还要把它们合并进来。
         $deviceIds = array_keys($grouped);
 
         // 2) 补齐设备元信息（devices 优先，PWA 设备回退到 web_push_subscriptions）
         $metaMap = [];
-        try {
-            $placeholders = implode(',', array_fill(0, count($deviceIds), '?'));
-            $metaRows = Database::fetchAll(
-                "SELECT t.device_id AS device_id, t.platform AS platform,
-                        t.device_name AS device_name, t.device_model AS device_model,
-                        t.os_version AS os_version, t.app_version AS app_version
-                 FROM (
-                     SELECT d.device_id,
-                            COALESCE(d.platform, '') AS platform,
-                            COALESCE(d.device_name, '') AS device_name,
-                            COALESCE(d.device_model, '') AS device_model,
-                            COALESCE(d.os_version, '') AS os_version,
-                            COALESCE(d.app_version, '') AS app_version
-                     FROM devices d
-                     WHERE d.device_id IN ($placeholders)
-                     UNION ALL
-                     SELECT w.device_id,
-                            COALESCE(w.platform, '') AS platform,
-                            COALESCE(w.device_name, '') AS device_name,
-                            COALESCE(w.device_model, '') AS device_model,
-                            COALESCE(w.os_version, '') AS os_version,
-                            COALESCE(w.app_version, '') AS app_version
-                     FROM web_push_subscriptions w
-                     WHERE w.device_id IN ($placeholders)
-                       AND NOT EXISTS (SELECT 1 FROM devices d2 WHERE d2.device_id = w.device_id)
-                 ) t",
-                array_merge($deviceIds, $deviceIds)
-            );
-            foreach ($metaRows as $row) {
-                $did = (string)$row['device_id'];
-                if (!isset($metaMap[$did])) {
-                    $metaMap[$did] = $row;
+        if (!empty($deviceIds)) {
+            try {
+                $placeholders = implode(',', array_fill(0, count($deviceIds), '?'));
+                $metaRows = Database::fetchAll(
+                    "SELECT t.device_id AS device_id, t.platform AS platform,
+                            t.device_name AS device_name, t.device_model AS device_model,
+                            t.os_version AS os_version, t.app_version AS app_version
+                     FROM (
+                         SELECT d.device_id,
+                                COALESCE(d.platform, '') AS platform,
+                                COALESCE(d.device_name, '') AS device_name,
+                                COALESCE(d.device_model, '') AS device_model,
+                                COALESCE(d.os_version, '') AS os_version,
+                                COALESCE(d.app_version, '') AS app_version
+                         FROM devices d
+                         WHERE d.device_id IN ($placeholders)
+                         UNION ALL
+                         SELECT w.device_id,
+                                COALESCE(w.platform, '') AS platform,
+                                COALESCE(w.device_name, '') AS device_name,
+                                COALESCE(w.device_model, '') AS device_model,
+                                COALESCE(w.os_version, '') AS os_version,
+                                COALESCE(w.app_version, '') AS app_version
+                         FROM web_push_subscriptions w
+                         WHERE w.device_id IN ($placeholders)
+                           AND NOT EXISTS (SELECT 1 FROM devices d2 WHERE d2.device_id = w.device_id)
+                     ) t",
+                    array_merge($deviceIds, $deviceIds)
+                );
+                foreach ($metaRows as $row) {
+                    $did = (string)$row['device_id'];
+                    if (!isset($metaMap[$did])) {
+                        $metaMap[$did] = $row;
+                    }
                 }
+            } catch (\Throwable $e) {
+                $metaMap = [];
             }
-        } catch (\Throwable $e) {
-            $metaMap = [];
         }
 
-        // 3) Key 名称映射（Key 数量少，直接全量取）
+        // 3) Key 映射（Key 数量少，直接全量取）：按 key_value（小写）与 id 两种索引
         $keyNames = [];
+        $keyById  = [];
         try {
-            foreach (Database::fetchAll('SELECT key_value, name FROM push_keys') as $row) {
-                $keyNames[strtolower((string)$row['key_value'])] = (string)$row['name'];
+            foreach (Database::fetchAll('SELECT id, key_value, name FROM push_keys') as $row) {
+                $kv = (string)$row['key_value'];
+                $keyNames[strtolower($kv)] = (string)$row['name'];
+                $keyById[(int)$row['id']] = ['key_value' => $kv, 'name' => (string)$row['name']];
             }
         } catch (\Throwable $e) {
             $keyNames = [];
+            $keyById  = [];
         }
 
-        // 4) 组装输出
+        // 4) 组装输出（WebSocket 在线设备）
         $list = [];
         foreach ($grouped as $deviceId => $item) {
             $meta = $metaMap[$deviceId] ?? [];
@@ -290,6 +299,7 @@ class DashboardController
                 'device_model' => (string)($meta['device_model'] ?? ''),
                 'os_version'   => (string)($meta['os_version'] ?? ''),
                 'app_version'  => (string)($meta['app_version'] ?? ''),
+                'channel'      => 'ws',
                 'connections'  => (int)$item['connections'],
                 'connect_at'   => (int)$item['connect_at'],
                 'last_active'  => (int)$item['last_active'],
@@ -298,8 +308,59 @@ class DashboardController
             ];
         }
 
-        // 最近活跃的排前面
-        usort($list, fn($a, $b) => $b['last_active'] <=> $a['last_active']);
+        // 5) 合并 Web Push（PWA）设备
+        //    iOS Safari 主屏幕等 PWA 设备不维持 WebSocket 长连接，Redis 里没有 fd，
+        //    因此只统计 WebSocket 会导致「在线设备」里永远看不到它们。
+        //    这类设备"在线"的判定依据是订阅仍有效（status = 1）——PWA 每次打开都会
+        //    调用心跳接口 /api/web-push/subscribe 刷新 last_active_at。
+        try {
+            $webPushRows = Database::fetchAll(
+                "SELECT device_id, push_key_id, platform, device_name, device_model,
+                        os_version, app_version, ip,
+                        UNIX_TIMESTAMP(last_active_at) AS last_active_ts
+                 FROM web_push_subscriptions
+                 WHERE status = 1"
+            );
+        } catch (\Throwable $e) {
+            $webPushRows = [];
+        }
+
+        $now = time();
+        foreach ($webPushRows as $row) {
+            $deviceId = trim((string)$row['device_id']);
+            // 已建立 WebSocket 连接的设备不重复列出（同一设备以实时连接为准）
+            if ($deviceId === '' || isset($grouped[$deviceId])) {
+                continue;
+            }
+
+            $keyInfo    = $keyById[(int)($row['push_key_id'] ?? 0)] ?? [];
+            $lastActive = (int)($row['last_active_ts'] ?? 0);
+
+            $list[] = [
+                'device_id'    => $deviceId,
+                'key_value'    => (string)($keyInfo['key_value'] ?? ''),
+                'key_name'     => (string)($keyInfo['name'] ?? ''),
+                'platform'     => self::platformDisplayName((string)($row['platform'] ?? '')),
+                'device_name'  => (string)($row['device_name'] ?? ''),
+                'device_model' => (string)($row['device_model'] ?? ''),
+                'os_version'   => (string)($row['os_version'] ?? ''),
+                'app_version'  => (string)($row['app_version'] ?? ''),
+                'channel'      => 'webpush',
+                'connections'  => 0,
+                'connect_at'   => 0,
+                'last_active'  => $lastActive,
+                'idle_seconds' => $lastActive > 0 ? max(0, $now - $lastActive) : -1,
+                'ip'           => (string)($row['ip'] ?? ''),
+            ];
+        }
+
+        // WebSocket 实时连接排前面，其后按最后活跃倒序
+        usort($list, function ($a, $b) {
+            if ($a['channel'] !== $b['channel']) {
+                return $a['channel'] === 'ws' ? -1 : 1;
+            }
+            return $b['last_active'] <=> $a['last_active'];
+        });
 
         return ['list' => $list, 'total' => count($list)];
     }

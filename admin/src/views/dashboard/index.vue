@@ -113,7 +113,8 @@
         <div>
           <h3 class="chart-title">在线设备</h3>
           <p class="chart-sub">
-            当前实时在线设备（同一设备多条连接已合并，共 {{ onlineDevices.length }} 台）
+            当前在线设备（WebSocket 实时连接 + Web Push 有效订阅，同一设备已去重，共
+            {{ onlineDevices.length }} 台）
           </p>
         </div>
         <el-tag type="success" effect="light" round size="small">实时</el-tag>
@@ -135,6 +136,18 @@
             </span>
           </template>
         </el-table-column>
+        <el-table-column label="通道" width="120">
+          <template #default="{ row }">
+            <el-tag
+              :type="row.channel === 'ws' ? 'success' : 'primary'"
+              effect="light"
+              round
+              size="small"
+            >
+              {{ row.channel === 'ws' ? 'WebSocket' : 'Web Push' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="型号 / 系统" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ [row.device_model, row.os_version].filter(Boolean).join(' / ') || '-' }}</span>
@@ -147,7 +160,10 @@
         </el-table-column>
         <el-table-column label="连接数" width="90" align="center">
           <template #default="{ row }">
-            <el-tag type="info" effect="plain" round size="small">{{ row.connections }}</el-tag>
+            <el-tag v-if="row.channel === 'ws'" type="info" effect="plain" round size="small">
+              {{ row.connections }}
+            </el-tag>
+            <span v-else class="muted">—</span>
           </template>
         </el-table-column>
         <el-table-column label="IP" width="140" show-overflow-tooltip>

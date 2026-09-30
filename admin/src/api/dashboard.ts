@@ -27,6 +27,7 @@ export interface OnlineDeviceItem {
   device_model: string
   os_version: string
   app_version: string
+  channel: 'ws' | 'webpush'
   connections: number
   connect_at: number
   last_active: number
