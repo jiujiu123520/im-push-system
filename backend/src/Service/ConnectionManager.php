@@ -508,6 +508,202 @@ class ConnectionManager
     }
 
     /**
+     * 获取僵尸订阅列表
+     *
+     * 僵尸订阅定义：Redis 里还留着订阅关系（key:subscribe 集合 或 device:key 哈希），
+     * 但 devices 表里已经没有该设备记录了 —— 通常是设备被删除后订阅关系没清干净。
+     *
+     * 以下情况不算僵尸，会被排除：
+     *   - devices 表里登记过的设备
+     *   - web_push_subscriptions 表里有记录的 PWA 设备（PWA 本就不写 devices 表）
+     *   - 当前还有在线 fd 的设备
+     *
+     * 注意：同一个 Key 在 Redis 里可能存在大小写不同的两份集合
+     * （registerDevice 为兼容客户端大小写差异会写两份），所以按 Key 取并集。
+     *
+     * @return array 僵尸订阅列表
+     */
+    public function getZombieSubscriptions(): array
+    {
+        $keyRows = Database::fetchAll('SELECT id, key_value, name FROM push_keys');
+        if (!is_array($keyRows)) {
+            return [];
+        }
+
+        // device_id => ['device_id','key_value','push_key_id','key_name','sources']
+        $candidates = [];
+        $add = function (string $deviceId, string $keyValue, int $pushKeyId, string $keyName, string $source) use (&$candidates): void {
+            if ($deviceId === '') {
+                return;
+            }
+            if (!isset($candidates[$deviceId])) {
+                $candidates[$deviceId] = [
+                    'device_id'   => $deviceId,
+                    'key_value'   => $keyValue,
+                    'push_key_id' => $pushKeyId,
+                    'key_name'    => $keyName,
+                    'sources'     => [],
+                ];
+            }
+            if (!in_array($source, $candidates[$deviceId]['sources'], true)) {
+                $candidates[$deviceId]['sources'][] = $source;
+            }
+        };
+
+        // 来源一：key:subscribe:{keyValue} 集合（含大小写变体）
+        foreach ($keyRows as $row) {
+            $keyValue = (string)($row['key_value'] ?? '');
+            if ($keyValue === '') {
+                continue;
+            }
+            $pushKeyId = (int)($row['id'] ?? 0);
+            $keyName   = (string)($row['name'] ?? '');
+            foreach (array_unique([$keyValue, strtolower($keyValue)]) as $kv) {
+                $members = $this->redis->sMembers("key:subscribe:{$kv}");
+                if (!is_array($members)) {
+                    continue;
+                }
+                foreach ($members as $member) {
+                    $add((string)$member, $keyValue, $pushKeyId, $keyName, 'key:subscribe');
+                }
+            }
+        }
+
+        // 来源二：device:key 哈希（设备自报归属，可能早于集合写入）
+        $deviceKeyMap = $this->redis->hGetAll('device:key');
+        if (is_array($deviceKeyMap) && !empty($deviceKeyMap)) {
+            $keyIndex = [];
+            foreach ($keyRows as $row) {
+                $kv = (string)($row['key_value'] ?? '');
+                if ($kv === '') {
+                    continue;
+                }
+                $keyIndex[strtolower($kv)] = [
+                    'key_value'   => $kv,
+                    'push_key_id' => (int)($row['id'] ?? 0),
+                    'key_name'    => (string)($row['name'] ?? ''),
+                ];
+            }
+            foreach ($deviceKeyMap as $deviceId => $kv) {
+                $deviceId = (string)$deviceId;
+                $hit = $keyIndex[strtolower((string)$kv)] ?? null;
+                if ($hit === null) {
+                    continue;
+                }
+                $add($deviceId, $hit['key_value'], $hit['push_key_id'], $hit['key_name'], 'device:key');
+            }
+        }
+
+        if (empty($candidates)) {
+            return [];
+        }
+
+        // 排除 devices 表里登记过的设备
+        $registered = [];
+        foreach ((array)Database::fetchAll('SELECT device_id FROM devices') as $row) {
+            $registered[(string)($row['device_id'] ?? '')] = true;
+        }
+
+        // 排除 PWA 设备（web_push_subscriptions 有记录即视为合法设备）
+        try {
+            foreach ((array)Database::fetchAll('SELECT device_id FROM web_push_subscriptions') as $row) {
+                $registered[(string)($row['device_id'] ?? '')] = true;
+            }
+        } catch (\Throwable $e) {
+            // web_push_subscriptions 表不存在时忽略，不影响僵尸订阅判定
+        }
+
+        $list = [];
+        foreach ($candidates as $deviceId => $item) {
+            if (isset($registered[$deviceId])) {
+                continue;
+            }
+            if ((int)$this->redis->sCard("ws:device:{$deviceId}") > 0) {
+                continue;
+            }
+
+            $history = $this->redis->hGetAll("device:history:{$deviceId}");
+            $history = is_array($history) ? $history : [];
+            $lastActive = 0;
+            foreach (['connected_at', 'last_connect_at', 'last_reconnect_at', 'last_offline_at'] as $field) {
+                $t = (int)($history[$field] ?? 0);
+                if ($t > $lastActive) {
+                    $lastActive = $t;
+                }
+            }
+
+            $item['last_active'] = $lastActive;
+            $item['ip'] = (string)($history['last_connect_ip'] ?? ($history['current_ip'] ?? ''));
+            $list[] = $item;
+        }
+
+        // 最久没有活跃记录的排前面（越可能是真正的僵尸）
+        usort($list, fn($a, $b) => $a['last_active'] <=> $b['last_active']);
+        return $list;
+    }
+
+    /**
+     * 移除一个僵尸订阅（清理 Redis 订阅关系）
+     *
+     * 僵尸订阅在 devices 表里本就没有记录，所以只需清理 Redis：
+     *   - key:subscribe:{keyValue}（遍历所有 Key 的大小写变体，确保清干净）
+     *   - device:key 哈希
+     *   - 若设备恰好还挂着在线 fd，一并清理在线标记
+     *
+     * 保留 device:history:{deviceId}（仅作历史诊断，60 天自动过期）。
+     *
+     * @param string $deviceId 设备唯一标识
+     * @return array{disconnected:int,redis_subscribe_rm:int,redis_device_key_rm:int}
+     */
+    public function removeZombieSubscription(string $deviceId): array
+    {
+        if ($deviceId === '') {
+            return ['disconnected' => 0, 'redis_subscribe_rm' => 0, 'redis_device_key_rm' => 0];
+        }
+
+        // 收集所有可能的集合名（Key 原样 + 小写），订阅关系的 Key 名可能是任意大小写形式
+        $variants = [];
+        foreach ((array)Database::fetchAll('SELECT key_value FROM push_keys') as $row) {
+            $kv = (string)($row['key_value'] ?? '');
+            if ($kv === '') {
+                continue;
+            }
+            $variants[$kv] = true;
+            $variants[strtolower($kv)] = true;
+        }
+        $deviceKeyValue = (string)$this->redis->hGet('device:key', $deviceId);
+        if ($deviceKeyValue !== '') {
+            $variants[$deviceKeyValue] = true;
+        }
+
+        $removedSubscribe = 0;
+        foreach (array_keys($variants) as $kv) {
+            $removedSubscribe += (int)$this->redis->sRem("key:subscribe:{$kv}", $deviceId);
+        }
+
+        $removedDeviceKey = (int)$this->redis->hDel('device:key', $deviceId);
+
+        // 兜底：设备恰好在线时一并摘掉在线标记
+        $disconnected = 0;
+        $fds = $this->redis->sMembers("ws:device:{$deviceId}");
+        if (is_array($fds)) {
+            foreach ($fds as $fdStr) {
+                $this->redis->sRem("ws:device:{$deviceId}", (string)$fdStr);
+                $this->redis->hDel('ws:fd:device', (string)$fdStr);
+                $this->redis->sRem('ws:online', (string)$fdStr);
+                $this->redis->del("ws:conn:{$fdStr}");
+                $disconnected++;
+            }
+        }
+
+        return [
+            'disconnected'        => $disconnected,
+            'redis_subscribe_rm'  => $removedSubscribe,
+            'redis_device_key_rm' => $removedDeviceKey,
+        ];
+    }
+
+    /**
      * 强制移除连接（后台手动清理僵尸连接用）
      *
      * 清理 Redis 中的在线标记和连接详情，以及 Swoole Table（如果可用）。

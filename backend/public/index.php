@@ -270,12 +270,14 @@ $router->put('/admin/keys/{id}/subscribers/{device_id}/repair', [\App\Controller
         $router->delete('/admin/devices/{id}',          [\App\Controller\DeviceController::class, 'destroy']);
 
         // ============================================================
-        // 僵尸连接管理（管理员鉴权）
+        // 僵尸连接 / 僵尸订阅管理（管理员鉴权）
         // ============================================================
         $router->get('/admin/connections',                       [\App\Controller\ZombieConnectionController::class, 'all']);
         $router->get('/admin/zombie-connections',                [\App\Controller\ZombieConnectionController::class, 'index']);
         $router->post('/admin/zombie-connections/cleanup',       [\App\Controller\ZombieConnectionController::class, 'cleanup']);
         $router->delete('/admin/zombie-connections/{fd}',        [\App\Controller\ZombieConnectionController::class, 'delete']);
+        $router->get('/admin/zombie-subscriptions',              [\App\Controller\ZombieConnectionController::class, 'subscriptions']);
+        $router->delete('/admin/zombie-subscriptions/{device_id}', [\App\Controller\ZombieConnectionController::class, 'deleteSubscription']);
 
         // ============================================================
         // 黑名单管理（管理员鉴权）

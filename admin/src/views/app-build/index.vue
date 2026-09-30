@@ -335,7 +335,8 @@ import {
   MagicStick as MagicStickIcon,
   Box as BoxIcon,
   Picture as PictureIcon,
-  Brush as BrushIcon
+  Brush as BrushIcon,
+  Delete as DeleteIcon
 } from '@element-plus/icons-vue'
 import {
   getRandomConfigApi,

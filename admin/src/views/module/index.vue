@@ -50,6 +50,14 @@
       </div>
     </div>
 
+    <!-- 僵尸模块：连接 / 订阅 两个页签 -->
+    <div class="zombie-tabs" v-if="currentModule === 'zombie-connections'">
+      <el-radio-group v-model="zombieTab">
+        <el-radio-button value="connections">僵尸连接</el-radio-button>
+        <el-radio-button value="subscriptions">僵尸订阅</el-radio-button>
+      </el-radio-group>
+    </div>
+
     <!-- 搜索栏 -->
     <div class="search-bar" v-if="currentModule !== 'zombie-connections'">
       <el-input
@@ -293,6 +301,20 @@
               {{ row.idle_seconds < 60 ? row.idle_seconds + ' 秒' : row.idle_seconds < 3600 ? Math.floor(row.idle_seconds / 60) + ' 分' + (row.idle_seconds % 60) + ' 秒' : Math.floor(row.idle_seconds / 3600) + ' 时' + Math.floor((row.idle_seconds % 3600) / 60) + ' 分' }}
             </el-tag>
             <el-tag v-else type="info" effect="light" size="small">未知</el-tag>
+          </template>
+          <!-- 僵尸订阅：来源标签 -->
+          <template v-else-if="col.slot === 'sourceList'" #default="{ row }">
+            <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+              <el-tag
+                v-for="s in (row.sources || [])"
+                :key="s"
+                type="info"
+                effect="plain"
+                round
+                size="small"
+              >{{ s }}</el-tag>
+              <span v-if="!row.sources || !row.sources.length" style="color: var(--el-text-color-secondary); font-size: 12px;">未知</span>
+            </div>
           </template>
           <!-- 用户：邮箱 -->
           <template v-else-if="col.slot === 'email'" #default="{ row }">
@@ -1119,7 +1141,7 @@ import {
   Avatar as AvatarIcon
 } from '@element-plus/icons-vue'
 import { exportPushLogsApi, getPushLogListApi, sendPushApi, retryPushApi, getPushLogDetailApi, deletePushLogApi } from '@/api/push'
-import { getZombieConnectionsApi, deleteZombieConnectionApi, cleanupZombieConnectionsApi } from '@/api/connection'
+import { getZombieConnectionsApi, deleteZombieConnectionApi, getZombieSubscriptionsApi, deleteZombieSubscriptionApi, cleanupZombieConnectionsApi } from '@/api/connection'
 import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi, getKeySubscribersApi, removeKeySubscriberApi, repairKeySubscriberApi } from '@/api/key'
 import { getDeviceListApi, deleteDeviceApi, toggleDeviceStatusApi, kickDeviceApi, deleteWebPushDeviceApi, toggleWebPushDeviceStatusApi } from '@/api/device'
 import {
@@ -1161,7 +1183,7 @@ interface ColumnConfig {
         | 'targetType' | 'targetValue' | 'count' | 'email' | 'phone' | 'qq'
         | 'notifyEnabled' | 'notifyEmail' | 'notifyInterval' | 'notifyOfflineMinutes'
         | 'failReason' | 'elapsedMs' | 'deviceText' | 'deviceSource'
-        | 'idleSeconds' | 'userBind'
+        | 'idleSeconds' | 'userBind' | 'sourceList'
 }
 
 // 各模块配置
@@ -1480,7 +1502,25 @@ const query = reactive({
 const currentModule = computed(() => (route.meta.module as string) || 'users')
 const config = computed(() => moduleConfigs[currentModule.value] || moduleConfigs.users)
 const moduleTitle = computed(() => config.value.title)
-const columns = computed(() => config.value.columns)
+
+// 僵尸模块内的页签：connections = 僵尸连接（fd 维度），subscriptions = 僵尸订阅（device_id 维度）
+const zombieTab = ref<'connections' | 'subscriptions'>('connections')
+
+// 僵尸订阅列定义（没有 fd/连接时间/空闲时长，改为展示所属 Key、来源和最后活跃）
+const zombieSubscriptionColumns = [
+  { prop: 'device_id', label: '设备ID', width: 260, slot: 'deviceText' },
+  { prop: 'key_value', label: '推送Key', width: 180, slot: 'deviceText' },
+  { prop: 'key_name', label: 'Key名称', width: 140, slot: 'deviceText' },
+  { prop: 'sources', label: '订阅来源', width: 180, slot: 'sourceList' },
+  { prop: 'ip', label: 'IP地址', width: 140, slot: 'deviceText' },
+  { prop: 'last_active', label: '最后活跃', width: 170, slot: 'deviceText' }
+]
+
+const columns = computed(() =>
+  currentModule.value === 'zombie-connections' && zombieTab.value === 'subscriptions'
+    ? zombieSubscriptionColumns
+    : config.value.columns
+)
 const formFields = computed(() => config.value.fields)
 
 // 弹窗
@@ -1846,14 +1886,24 @@ async function fetchData() {
       })
       total.value = res.data?.total || 0
     } else if (mod === 'zombie-connections') {
-      const res = await getZombieConnectionsApi()
-      const rawList = res.data?.list || []
-      tableData.value = rawList.map((row: any) => ({
-        ...row,
-        connect_at: row.connect_at > 0 ? new Date(row.connect_at * 1000).toLocaleString('zh-CN') : '未知',
-        last_active: row.last_active > 0 ? new Date(row.last_active * 1000).toLocaleString('zh-CN') : '未知',
-      }))
-      total.value = res.data?.total || 0
+      if (zombieTab.value === 'subscriptions') {
+        const res = await getZombieSubscriptionsApi()
+        const rawList = res.data?.list || []
+        tableData.value = rawList.map((row: any) => ({
+          ...row,
+          last_active: row.last_active > 0 ? new Date(row.last_active * 1000).toLocaleString('zh-CN') : '',
+        }))
+        total.value = res.data?.total || 0
+      } else {
+        const res = await getZombieConnectionsApi()
+        const rawList = res.data?.list || []
+        tableData.value = rawList.map((row: any) => ({
+          ...row,
+          connect_at: row.connect_at > 0 ? new Date(row.connect_at * 1000).toLocaleString('zh-CN') : '未知',
+          last_active: row.last_active > 0 ? new Date(row.last_active * 1000).toLocaleString('zh-CN') : '未知',
+        }))
+        total.value = res.data?.total || 0
+      }
     } else {
       await new Promise((r) => setTimeout(r, 300))
       let list = [...allData]
@@ -2189,7 +2239,11 @@ async function handleDelete(row: Record<string, any>) {
     } else if (mod === 'push-logs') {
       await deletePushLogApi(row.id)
     } else if (mod === 'zombie-connections') {
-      await deleteZombieConnectionApi(row.fd)
+      if (zombieTab.value === 'subscriptions') {
+        await deleteZombieSubscriptionApi(row.device_id)
+      } else {
+        await deleteZombieConnectionApi(row.fd)
+      }
     } else {
       allData = allData.filter((item) => item.id !== row.id)
     }
@@ -2452,7 +2506,9 @@ async function handleClearAll() {
       ElMessage.success('已清空当前页的推送记录')
     } else if (mod === 'zombie-connections') {
       const res = await cleanupZombieConnectionsApi()
-      ElMessage.success(`已清理 ${res.data?.removed || 0} 个僵尸连接`)
+      ElMessage.success(
+        `已清理 ${res.data?.removed || 0} 个僵尸连接、${res.data?.subscriptions_removed || 0} 个僵尸订阅`
+      )
     } else {
       // 用户等模拟数据模块：直接清空本地数据
       allData = []
@@ -2479,6 +2535,12 @@ watch(
   },
   { immediate: true }
 )
+
+// 僵尸模块页签切换时重新拉取对应维度的数据
+watch(zombieTab, () => {
+  query.page = 1
+  fetchData()
+})
 
 // ========== 导出功能 ==========
 
@@ -2528,6 +2590,11 @@ async function handleExport(format: string) {
 .header-actions {
   display: flex;
   align-items: center;
+}
+
+// 僵尸模块：连接 / 订阅页签
+.zombie-tabs {
+  margin-bottom: 4px;
 }
 
 // 订阅设备明细
