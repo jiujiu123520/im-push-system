@@ -112,6 +112,12 @@ class PushDispatcher
                 return $apnsResult;
             }
 
+            // 尝试 Web Push 通道（PWA/iOS Safari 主屏幕订阅）
+            $webPushResult = $this->tryWebPush($deviceId, $message);
+            if ($webPushResult !== null) {
+                return $webPushResult;
+            }
+
             // 非 iOS 设备或 APNS 未配置，存离线消息
             $this->storeOfflineMessage($deviceId, $message);
             $this->logPush("[pushToDevice·{$ctx}] 设备离线，已存离线 device_id={$deviceId} msg_id={$msgId}");
@@ -229,8 +235,12 @@ class PushDispatcher
                 // 尝试 APNS 通道（iOS 设备），失败则存离线
                 $apnsResult = $this->tryApnsPush($deviceId, $message);
                 if ($apnsResult === null) {
-                    // 非 iOS 设备或 APNS 未配置，存离线
-                    $this->storeOfflineMessage($deviceId, $message);
+                    // 尝试 Web Push 通道（PWA 订阅）
+                    $webPushResult = $this->tryWebPush($deviceId, $message);
+                    if ($webPushResult === null) {
+                        // 非 iOS 设备或 APNS 未配置，存离线
+                        $this->storeOfflineMessage($deviceId, $message);
+                    }
                 }
             }
             $this->logPush("[pushByKey] 所有设备离线，已处理 key={$keyValue} devices=" . count($deviceIds) . " msg_id={$message['message_id']}");
@@ -407,6 +417,94 @@ class PushDispatcher
             ],
             'fail_detail' => [['target' => $deviceId, 'reason' => $result['message']]],
             'fail_reason' => 'APNS 推送失败：' . $result['message'],
+        ];
+    }
+
+    /**
+     * 尝试通过 Web Push 推送给 PWA 设备（iOS Safari 主屏幕 / Edge 等）
+     *
+     * 逻辑：
+     *   1. 查询设备是否有有效的 Web Push 订阅（status=1）
+     *   2. 有则调用 WebPushService::send 发送加密推送
+     *   3. 返回推送结果数组；无订阅返回 null（调用方应存离线）
+     *
+     * @param string $deviceId
+     * @param array  $message
+     * @return array|null
+     */
+    private function tryWebPush(string $deviceId, array $message): ?array
+    {
+        try {
+            $sub = Database::fetch(
+                'SELECT endpoint, p256dh, auth FROM web_push_subscriptions
+                 WHERE device_id = ? AND status = 1
+                 ORDER BY id DESC LIMIT 1',
+                [$deviceId]
+            );
+        } catch (\Throwable $e) {
+            $this->logPush("[tryWebPush] 查询订阅失败 device_id={$deviceId} error=" . $e->getMessage());
+            return null;
+        }
+
+        if ($sub === false) {
+            return null;
+        }
+
+        $title   = (string)($message['title'] ?? '');
+        $content = (string)($message['content'] ?? '');
+        $msgId   = $message['message_id'] ?? '';
+        $payload = [];
+        if ($msgId !== '') {
+            $payload['message_id'] = $msgId;
+        }
+        if (isset($message['payload']) && is_array($message['payload'])) {
+            $payload['data'] = $message['payload'];
+        }
+
+        $this->logPush("[tryWebPush] 通过 Web Push 推送 device_id={$deviceId} msg_id={$msgId}");
+
+        $result = WebPushService::send($sub, $title, $content, $payload);
+
+        if ($result['success']) {
+            $this->logPush("[tryWebPush] Web Push 推送成功 device_id={$deviceId} msg_id={$msgId}");
+            return [
+                'success_count'  => 1,
+                'fail_count'     => 0,
+                'stored_offline' => false,
+                'detail'         => [
+                    [
+                        'device_id' => $deviceId,
+                        'status'    => 'webpush_success',
+                        'message'   => 'Web Push 推送成功',
+                    ],
+                ],
+                'fail_detail' => [],
+                'fail_reason' => '',
+            ];
+        }
+
+        // 订阅已失效（网关返回 404/410），标记失效避免反复发送
+        if (!empty($result['expired'])) {
+            WebPushService::markSubscriptionInvalid((string)$sub['endpoint']);
+        }
+
+        $this->logPush("[tryWebPush] Web Push 推送失败 device_id={$deviceId} msg_id={$msgId} reason=" . $result['message']);
+        // 失败存离线兜底（设备重新打开 PWA 时可拉取）
+        $this->storeOfflineMessage($deviceId, $message);
+
+        return [
+            'success_count'  => 0,
+            'fail_count'     => 1,
+            'stored_offline' => true,
+            'detail'         => [
+                [
+                    'device_id' => $deviceId,
+                    'status'    => 'webpush_failed',
+                    'message'   => 'Web Push 推送失败：' . $result['message'] . '（已存离线兜底）',
+                ],
+            ],
+            'fail_detail' => [['target' => $deviceId, 'reason' => $result['message']]],
+            'fail_reason' => 'Web Push 推送失败：' . $result['message'],
         ];
     }
 

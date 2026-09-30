@@ -1,0 +1,19 @@
+{
+  "name": "推送接收",
+  "short_name": "推送",
+  "description": "PWA Web Push 推送接收",
+  "start_url": "/webpush/",
+  "scope": "/webpush/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f2f3f7",
+  "theme_color": "#4a90d9",
+  "icons": [
+    {
+      "src": "/webpush/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

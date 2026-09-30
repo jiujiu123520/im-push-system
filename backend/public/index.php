@@ -342,6 +342,14 @@ $router->put('/admin/keys/{id}/subscribers/{device_id}/repair', [\App\Controller
         // APP 端上报 iOS APNS device token（无需鉴权，通过 push_key + device_id）
         $router->post('/api/device/register-token', [\App\Controller\DeviceApiController::class, 'registerToken']);
 
+        // ============================================================
+        // PWA + Web Push（iOS Safari 主屏幕订阅，无需鉴权，通过 push_key + device_id）
+        // ============================================================
+        $router->get('/api/web-push/public-key',   [\App\Controller\WebPushController::class, 'publicKey']);
+        $router->post('/api/web-push/subscribe',   [\App\Controller\WebPushController::class, 'subscribe']);
+        $router->post('/api/web-push/unsubscribe', [\App\Controller\WebPushController::class, 'unsubscribe']);
+        $router->post('/api/web-push/send-test',   [\App\Controller\WebPushController::class, 'sendTest']);
+
         // APP 端检查更新（完全公开，无需鉴权）
         $router->get('/api/check-update', [\App\Controller\DeviceApiController::class, 'checkUpdate']);
 

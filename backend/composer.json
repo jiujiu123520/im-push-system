@@ -14,7 +14,8 @@
         "predis/predis": "^2.0",
         "vlucas/phpdotenv": "^5.4",
         "intervention/image": "^2.7",
-        "phpmailer/phpmailer": "^6.8"
+        "phpmailer/phpmailer": "^6.8",
+        "minishlink/web-push": "^9.0"
     },
     "require-dev": {
         "swoole/ide-helper": "dev-master"
