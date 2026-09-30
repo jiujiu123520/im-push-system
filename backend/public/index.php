@@ -101,34 +101,12 @@ if ($runWs) {
         // ------------------------------------------------------------
         // APP 打包相关路由（需管理员鉴权）
         // ------------------------------------------------------------
-        $router->post('/admin/app-build', [\App\Controller\AppBuildController::class, 'submit']);
-        $router->get('/admin/app-build/list', [\App\Controller\AppBuildController::class, 'list']);
-        $router->get('/admin/app-build/config-status', [\App\Controller\AppBuildController::class, 'configStatus']);
-        $router->post('/admin/app-build/manual-trigger', [\App\Controller\AppBuildController::class, 'manualTrigger']);
-        $router->get('/admin/app-build/runs', [\App\Controller\AppBuildController::class, 'runs']);
         $router->get('/admin/app-build/random-config', [\App\Controller\AppBuildController::class, 'randomConfig']);
         $router->get('/admin/app-build/generate-icon', [\App\Controller\AppBuildController::class, 'generateIcon']);
         $router->get('/admin/app-build/hbuilderx/templates', [\App\Controller\AppBuildController::class, 'hbuilderxTemplates']);
         $router->post('/admin/app-build/hbuilderx/generate', [\App\Controller\AppBuildController::class, 'generateHBuilderX']);
         $router->get('/admin/app-build/compose/templates', [\App\Controller\AppBuildController::class, 'composeTemplates']);
         $router->post('/admin/app-build/compose/generate', [\App\Controller\AppBuildController::class, 'generateComposeSource']);
-        $router->get('/admin/app-build/status/{build_id}', [\App\Controller\AppBuildController::class, 'status']);
-        $router->get('/admin/app-build/download/{build_id}', [\App\Controller\AppBuildController::class, 'download']);
-        // 重要: log/{build_id}/download 必须在 log/{build_id} 之前注册,否则会被 {build_id} 捕获
-        $router->get('/admin/app-build/log/{build_id}/download', [\App\Controller\AppBuildController::class, 'downloadLog']);
-        $router->get('/admin/app-build/log/{build_id}', [\App\Controller\AppBuildController::class, 'log']);
-        $router->delete('/admin/app-build/{build_id}', [\App\Controller\AppBuildController::class, 'delete']);
-
-        // GitHub Actions 配置管理（需管理员鉴权）
-        $router->get('/admin/app-build/config', [\App\Controller\AppBuildController::class, 'getConfig']);
-        $router->post('/admin/app-build/config', [\App\Controller\AppBuildController::class, 'saveConfig']);
-        $router->post('/admin/app-build/config/validate', [\App\Controller\AppBuildController::class, 'validateConfig']);
-        $router->get('/admin/app-build/config/check', [\App\Controller\AppBuildController::class, 'checkConfig']);
-        $router->post('/admin/app-build/config/auto-setup', [\App\Controller\AppBuildController::class, 'autoSetup']);
-        $router->post('/admin/app-build/config/test-proxy', [\App\Controller\AppBuildController::class, 'testProxy']);
-        $router->post('/admin/app-build/config/compare-proxy', [\App\Controller\AppBuildController::class, 'compareProxy']);
-        $router->post('/admin/app-build/config/get-user', [\App\Controller\AppBuildController::class, 'getUser']);
-        $router->post('/admin/app-build/config/list-repos', [\App\Controller\AppBuildController::class, 'listRepos']);
 
         // ------------------------------------------------------------
         // APK 分发管理（管理员鉴权）

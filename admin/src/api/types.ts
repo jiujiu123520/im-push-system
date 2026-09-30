@@ -279,43 +279,6 @@ export interface AdminForm {
   status?: number
 }
 
-// ---- APP 打包 ----
-export interface AppBuildRecord {
-  build_id: string
-  app_name: string
-  default_key: string
-  server_url: string
-  ws_url: string
-  icon_path: string
-  package_name?: string
-  version_name?: string
-  version?: string
-  platform?: string
-  build_type?: string
-  build_method?: string
-  status: 'pending' | 'processing' | 'success' | 'failed'
-  apk_path?: string
-  result_message?: string
-  created_at: string
-  updated_at?: string
-  started_at?: string
-  finished_at?: string
-  admin_id?: string
-}
-
-export interface AppBuildForm {
-  app_name: string
-  default_key?: string
-  server_url?: string
-  ws_url?: string
-  icon_path?: string
-  package_name?: string
-  version?: string
-  platform?: 'android' | 'ios'
-  build_type?: 'release' | 'debug'
-  build_method?: 'github' | 'hbuilderx'
-}
-
 // ---- 开放 API ----
 export interface ApiKeyRecord {
   id: number

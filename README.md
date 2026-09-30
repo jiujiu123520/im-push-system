@@ -45,7 +45,7 @@
 
 * **Android 深度保活** - 前台服务 + WakeLock + AlarmManager 心跳 + WifiLock + 电池白名单五层保活，通知渠道高优先级/锁屏展示
 
-* **APK 云端构建** - GitHub Actions 打包，无需服务器安装 JDK/SDK；支持自托管/小飞机网盘分发
+* **APP 工程包生成** - 后台一键生成 HBuilderX 项目包/玻璃拟态源码包，导入 HBuilderX 云打包出 APK，无需服务器安装 JDK/SDK；支持自托管/小飞机网盘分发
 
 * **域名 + SSL 证书管理** - 内置 acme.sh 签发与自动续期、强制 HTTPS
 
@@ -116,16 +116,20 @@ sudo bash deploy/setup.sh --uninstall=all --yes
 
 ## APP 打包
 
-### Android（HBuilderX 云打包）
+两条路径都只产出「工程包」，APK 最终由 HBuilderX 云打包生成。
+
+### 方式一：后台生成工程包（推荐）
+
+1. 打开管理后台「APP 生成」页面，填写应用名称/包名/推送 Key/服务器地址/图标等参数
+2. 选择打包方式并点击「生成工程包」，浏览器会下载一个 ZIP
+   - **HBuilderX**：uni-app 项目包（可选 `build/hbuilderx` 新模板 / `build/hbuilderx-old` 旧模板）
+   - **玻璃拟态全新 UI**：深色主题 + 6 页面完整版 uni-app 源码
+3. 用 HBuilderX 打开解压后的目录，点击「发行」→「原生 App-云打包」
+
+### 方式二：直接用仓库内置模板
 
 1. 用 HBuilderX 打开 `build/hbuilderx/` 目录
 2. 配置 `manifest.json` 后点击「发行」→「原生 App-云打包」
-
-### GitHub Actions 云端构建
-
-1. 服务器 `.env` 配置 `GITHUB_TOKEN`、`GITHUB_REPO`、`SERVER_SSH_*`
-2. GitHub 仓库 Secrets 配置 keystore（`APK_KEYSTORE_BASE64` 等）和 SSH 私钥
-3. 管理后台「APP 生成」页面提交构建任务
 
 ***
 

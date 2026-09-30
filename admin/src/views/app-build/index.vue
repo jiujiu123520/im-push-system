@@ -1,6 +1,6 @@
 <template>
   <div class="page-container app-build-page">
-    <!-- 顶部标题区 + 步骤指示器 -->
+    <!-- 顶部标题区 -->
     <div class="page-hero">
       <div class="hero-bg">
         <div class="hero-blob blob-a"></div>
@@ -12,190 +12,12 @@
           <h2 class="hero-title">
             <span class="title-gradient">APP 在线构建</span>
           </h2>
-          <p class="hero-sub">配置应用参数，一键生成 Android 安装包</p>
-        </div>
-        <!-- 步骤指示器 -->
-        <div class="step-indicator">
-          <div
-            v-for="(step, idx) in steps"
-            :key="step.key"
-            class="step-item"
-            :class="{
-              active: currentStep === idx,
-              done: currentStep > idx
-            }"
-          >
-            <div class="step-dot">
-              <el-icon v-if="currentStep > idx"><CheckIcon /></el-icon>
-              <span v-else>{{ idx + 1 }}</span>
-            </div>
-            <div class="step-label">{{ step.label }}</div>
-            <div v-if="idx < steps.length - 1" class="step-line"></div>
-          </div>
+          <p class="hero-sub">配置应用参数，生成工程包后导入 HBuilderX 云打包出 APK</p>
         </div>
       </div>
     </div>
 
-    <!-- GitHub Actions 配置提示面板 -->
-    <el-collapse v-model="configCollapse" class="config-panel">
-      <el-collapse-item name="config" :title="configPanelTitle">
-        <div class="config-content">
-          <!-- 配置状态总览 -->
-          <el-alert
-            :title="configStatus.available ? '✅ GitHub Actions 构建已就绪' : '⚠️ GitHub Actions 构建未配置,无法提交构建任务'"
-            :type="configStatus.available ? 'success' : 'warning'"
-            :closable="false"
-            show-icon
-            class="config-alert"
-          />
-
-          <!-- 服务器端 .env 配置状态 -->
-          <div class="config-section">
-            <h4 class="section-title">
-              <el-icon><MonitorIcon /></el-icon>
-              服务器端 .env 配置
-              <el-tag v-if="configStatus.available" type="success" size="small" round>已配置</el-tag>
-              <el-tag v-else type="danger" size="small" round>未配置</el-tag>
-            </h4>
-            <p class="section-desc">
-              配置文件路径: <code class="code-text">/www/push-system/backend/.env</code>
-            </p>
-            <el-table :data="configStatus.required_env" size="small" border class="env-table">
-              <el-table-column prop="name" label="环境变量" width="220">
-                <template #default="{ row }">
-                  <code class="code-text">{{ row.name }}</code>
-                </template>
-              </el-table-column>
-              <el-table-column prop="description" label="说明" />
-            </el-table>
-            <div class="config-block">
-              <p class="block-title">配置示例(追加到 .env 末尾):</p>
-              <pre class="code-block">GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-GITHUB_OWNER=jiujiu123520
-GITHUB_REPO=im-push-system
-GITHUB_WORKFLOW_FILE=build-apk.yml
-GITHUB_API_PROXY=https://gh.jasonzeng.dev/
-GITHUB_API_TIMEOUT=30</pre>
-            </div>
-            <p class="section-tip">
-              <el-icon><InfoFilledIcon /></el-icon>
-              创建 Token: <el-link type="primary" :href="configStatus.token_create_url" target="_blank">{{ configStatus.token_create_url }}</el-link>
-              <span class="tip-sep">|</span>
-              <span class="tip-text">权限要求: <code class="code-text">repo</code> + <code class="code-text">workflow</code></span>
-            </p>
-          </div>
-
-          <!-- GitHub 仓库 Secrets 配置 -->
-          <div class="config-section">
-            <h4 class="section-title">
-              <el-icon><KeyIconComp /></el-icon>
-              GitHub 仓库 Secrets
-              <el-link
-                v-if="configStatus.secrets_url"
-                type="primary"
-                :href="configStatus.secrets_url"
-                target="_blank"
-                class="config-link"
-              >
-                前往配置 →
-              </el-link>
-            </h4>
-            <p class="section-desc">
-              在 GitHub 仓库 <el-link v-if="configStatus.repo_url" type="primary" :href="configStatus.repo_url" target="_blank">{{ configStatus.owner }}/{{ configStatus.repo }}</el-link> <span v-else>owner/repo</span> 的 Settings → Secrets and variables → Actions 中添加以下 Secrets:
-            </p>
-            <el-table :data="configStatus.required_secrets" size="small" border class="env-table">
-              <el-table-column prop="name" label="Secret 名称" width="220">
-                <template #default="{ row }">
-                  <code class="code-text">{{ row.name }}</code>
-                </template>
-              </el-table-column>
-              <el-table-column prop="description" label="说明" />
-            </el-table>
-          </div>
-
-          <!-- Keystore base64 获取命令 -->
-          <div class="config-section">
-            <h4 class="section-title">
-              <el-icon><BoxIcon /></el-icon>
-              Keystore base64 获取命令
-            </h4>
-            <p class="section-desc">
-              在服务器执行以下命令获取 <code class="code-text">APK_KEYSTORE_BASE64</code> 的值(用于配置 GitHub Secret):
-            </p>
-            <div class="config-block">
-              <pre class="code-block">base64 -w 0 /www/push-system/build/keystore/release.keystore</pre>
-              <el-button size="small" :icon="DocumentCopyIcon" @click="copyCommand('base64 -w 0 /www/push-system/build/keystore/release.keystore')" class="copy-btn">复制命令</el-button>
-            </div>
-            <p class="section-tip">
-              <el-icon><InfoFilledIcon /></el-icon>
-              如未生成 keystore,可执行 <code class="code-text">bash build/generate_keystore.sh</code> 生成(在服务器项目根目录下)
-            </p>
-          </div>
-
-          <!-- SSH 密钥配置 -->
-          <div class="config-section">
-            <h4 class="section-title">
-              <el-icon><ConnectionIcon /></el-icon>
-              SSH 密钥配置(供 GitHub Actions SCP 上传)
-            </h4>
-            <p class="section-desc">在服务器生成专用密钥对(如已有可跳过):</p>
-            <div class="config-block">
-              <pre class="code-block">ssh-keygen -t ed25519 -C "github-actions-build" -f ~/.ssh/github_actions_key -N ""
-cat ~/.ssh/github_actions_key.pub >> ~/.ssh/authorized_keys
-chmod 600 ~/.ssh/authorized_keys
-cat ~/.ssh/github_actions_key</pre>
-              <el-button size="small" :icon="DocumentCopyIcon" @click="copySshKeygenCommand" class="copy-btn">复制命令</el-button>
-            </div>
-            <p class="section-tip">
-              <el-icon><InfoFilledIcon /></el-icon>
-              将 <code class="code-text">cat ~/.ssh/github_actions_key</code> 的完整输出(含 <code class="code-text">-----BEGIN/END OPENSSH PRIVATE KEY-----</code>)填入 GitHub Secret <code class="code-text">SERVER_SSH_KEY</code>
-            </p>
-          </div>
-
-          <!-- 构建流程说明 -->
-          <div class="config-section">
-            <h4 class="section-title">
-              <el-icon><CpuIcon /></el-icon>
-              构建流程说明
-            </h4>
-            <el-timeline class="flow-timeline">
-              <el-timeline-item type="primary" timestamp="1" placement="top">
-                <p>前端提交构建任务 → 后端 <code class="code-text">/admin/app-build</code></p>
-              </el-timeline-item>
-              <el-timeline-item type="primary" timestamp="2" placement="top">
-                <p>后端调用 GitHub API 触发 <code class="code-text">workflow_dispatch</code>(通过 gh.jasonzeng.dev 代理)</p>
-              </el-timeline-item>
-              <el-timeline-item type="primary" timestamp="3" placement="top">
-                <p>GitHub Actions Runner 启动 → checkout 代码 → setup JDK 17 + Android SDK + Gradle</p>
-              </el-timeline-item>
-              <el-timeline-item type="primary" timestamp="4" placement="top">
-                <p>解码 keystore Secret → 执行 <code class="code-text">build_apk.sh</code> 构建 APK</p>
-              </el-timeline-item>
-              <el-timeline-item type="success" timestamp="5" placement="top">
-                <p>SCP 上传 APK 到服务器 <code class="code-text">/www/push-system/build/output/{build_id}/</code></p>
-              </el-timeline-item>
-              <el-timeline-item type="success" timestamp="6" placement="top">
-                <p>SSH 调用 <code class="code-text">update_build_status.php</code> 更新 Redis 状态</p>
-              </el-timeline-item>
-              <el-timeline-item type="success" timestamp="7" placement="top">
-                <p>前端轮询 list 接口获取最新状态 → 可下载 APK</p>
-              </el-timeline-item>
-            </el-timeline>
-            <p class="section-tip">
-              <el-icon><InfoFilledIcon /></el-icon>
-              GitHub Actions 运行状态: <el-link v-if="configStatus.actions_url" type="primary" :href="configStatus.actions_url" target="_blank">{{ configStatus.actions_url }}</el-link>
-            </p>
-          </div>
-
-          <!-- 刷新按钮 -->
-          <div class="config-footer">
-            <el-button :icon="RefreshIcon" @click="fetchConfigStatus">重新检测配置</el-button>
-          </div>
-        </div>
-      </el-collapse-item>
-    </el-collapse>
-
-    <!-- 主体：左侧表单 + 右侧构建历史 -->
+    <!-- 主体：配置表单 -->
     <div class="build-grid">
       <!-- 左侧：配置表单 -->
       <div class="form-card">
@@ -401,10 +223,6 @@ cat ~/.ssh/github_actions_key</pre>
             </el-form-item>
             <el-form-item label="打包方式" prop="buildMethod">
               <el-radio-group v-model="form.buildMethod" class="platform-radio">
-                <el-radio-button value="github">
-                  <el-icon><CpuIcon /></el-icon>
-                  GitHub Actions
-                </el-radio-button>
                 <el-radio-button value="hbuilderx">
                   <el-icon><MagicStickIcon /></el-icon>
                   HBuilderX
@@ -465,27 +283,6 @@ cat ~/.ssh/github_actions_key</pre>
             </el-alert>
           </div>
 
-          <!-- 打包类型 -->
-          <el-form-item label="打包类型" prop="buildType">
-            <div class="build-type-group">
-              <div
-                v-for="opt in buildTypes"
-                :key="opt.value"
-                class="build-type-item"
-                :class="{ active: form.buildType === opt.value }"
-                @click="form.buildType = opt.value"
-              >
-                <div class="type-icon" :class="opt.value">
-                  <el-icon><component :is="opt.icon" /></el-icon>
-                </div>
-                <div class="type-info">
-                  <div class="type-name">{{ opt.label }}</div>
-                  <div class="type-desc">{{ opt.desc }}</div>
-                </div>
-                <el-icon class="type-check"><CircleCheckFilledIcon /></el-icon>
-              </div>
-            </div>
-          </el-form-item>
         </el-form>
 
         <!-- 一键随机按钮 -->
@@ -512,196 +309,18 @@ cat ~/.ssh/github_actions_key</pre>
             :icon="PromotionIcon"
             @click="handleGenerate"
           >
-            {{ submitting ? '正在提交构建...' : '生成安装包' }}
+            {{ submitting ? '正在生成...' : '生成工程包' }}
           </el-button>
         </div>
       </div>
 
-      <!-- 右侧：构建历史 -->
-      <div class="history-card">
-        <div class="card-header-row">
-          <div class="header-icon history-icon">
-            <el-icon><ClockIcon /></el-icon>
-          </div>
-          <div>
-            <h3 class="card-title">构建历史</h3>
-            <p class="card-sub">最近 {{ historyList.length }} 条构建记录</p>
-          </div>
-          <el-button
-            class="refresh-btn"
-            text
-            :icon="RefreshIcon"
-            :loading="historyLoading"
-            @click="fetchHistory"
-          >
-            刷新
-          </el-button>
-        </div>
-
-        <div v-loading="historyLoading" class="history-list">
-          <div v-if="!historyList.length && !historyLoading" class="empty-state">
-            <el-icon class="empty-icon"><FilesIcon /></el-icon>
-            <p>暂无构建记录</p>
-            <span>完成左侧配置后点击「生成安装包」</span>
-          </div>
-
-          <div
-            v-for="item in historyList"
-            :key="item.build_id"
-            class="history-item"
-            :class="`status-${item.status}`"
-          >
-            <div class="item-main">
-              <div class="item-top">
-                <span class="item-name">{{ item.app_name }}</span>
-                <el-tag
-                  :type="statusTagType(item.status)"
-                  effect="light"
-                  round
-                  size="small"
-                  class="status-tag"
-                >
-                  <el-icon
-                    v-if="item.status === 'processing'"
-                    class="loading-icon"
-                  >
-                    <LoadingIcon />
-                  </el-icon>
-                  {{ statusLabel(item.status) }}
-                </el-tag>
-              </div>
-              <div class="item-meta">
-                <span class="meta-item">
-                  <el-icon><CellphoneIcon /></el-icon>
-                  Android
-                </span>
-                <span class="meta-item">
-                  <el-icon><ClockIcon /></el-icon>
-                  {{ formatTime(item.created_at) }}
-                </span>
-              </div>
-            </div>
-            <div class="item-actions">
-              <el-button
-                v-if="item.status === 'success'"
-                type="primary"
-                size="small"
-                :icon="DownloadIcon"
-                round
-                @click="handleDownload(item)"
-              >
-                下载
-              </el-button>
-              <el-button
-                size="small"
-                :icon="DocumentIcon"
-                round
-                @click="openLog(item)"
-              >
-                日志
-              </el-button>
-              <el-button
-                v-if="item.status === 'failed'"
-                size="small"
-                :icon="RefreshRightIcon"
-                round
-                @click="handleRetry(item)"
-              >
-                重试
-              </el-button>
-              <el-button
-                size="small"
-                :icon="DeleteIcon"
-                round
-                type="danger"
-                @click="handleDelete(item)"
-              >
-                删除
-              </el-button>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
-
-    <!-- 构建日志抽屉 -->
-    <el-drawer
-      v-model="logDrawerVisible"
-      title="构建日志"
-      direction="rtl"
-      size="560px"
-      class="log-drawer"
-    >
-      <template #header>
-        <div class="drawer-header">
-          <div class="drawer-title">
-            <el-icon class="title-icon"><DocumentIcon /></el-icon>
-            <span>构建日志</span>
-          </div>
-          <div class="drawer-actions">
-            <el-tag
-              v-if="currentLogRecord"
-              :type="statusTagType(currentLogRecord.status)"
-              effect="light"
-              round
-              size="small"
-            >
-              {{ statusLabel(currentLogRecord.status) }}
-            </el-tag>
-            <el-button
-              v-if="currentLogRecord"
-              type="primary"
-              size="small"
-              :icon="DownloadIcon"
-              @click="handleDownloadLog"
-            >
-              下载日志
-            </el-button>
-          </div>
-        </div>
-      </template>
-
-      <div v-if="currentLogRecord" class="log-meta">
-        <div class="meta-row">
-          <span class="meta-label">应用名称</span>
-          <span class="meta-value">{{ currentLogRecord.app_name }}</span>
-        </div>
-        <div class="meta-row">
-          <span class="meta-label">构建ID</span>
-          <span class="meta-value mono">{{ currentLogRecord.build_id }}</span>
-        </div>
-        <div class="meta-row">
-          <span class="meta-label">包名</span>
-          <span class="meta-value mono">{{ currentLogRecord.package_name || '-' }}</span>
-        </div>
-        <div class="meta-row">
-          <span class="meta-label">开始时间</span>
-          <span class="meta-value">{{ formatTime(currentLogRecord.created_at) }}</span>
-        </div>
-      </div>
-
-      <div class="log-terminal">
-        <div class="terminal-header">
-          <span class="dot red"></span>
-          <span class="dot yellow"></span>
-          <span class="dot green"></span>
-          <span class="terminal-title">build.log</span>
-        </div>
-        <div class="terminal-body">
-          <pre v-if="logContent">{{ logContent }}</pre>
-          <div v-else class="terminal-empty">
-            <el-icon class="loading-icon"><LoadingIcon /></el-icon>
-            <span>正在加载日志...</span>
-          </div>
-        </div>
-      </div>
-    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules, type UploadFile } from 'element-plus'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { ElMessage, type FormInstance, type FormRules, type UploadFile } from 'element-plus'
 import {
   Cellphone as CellphoneIcon,
   Key as KeyIconComp,
@@ -709,48 +328,25 @@ import {
   Connection as ConnectionIcon,
   Plus as PlusIcon,
   Refresh as RefreshIcon,
-  Delete as DeleteIcon,
   EditPen as EditPenIcon,
   PriceTag as PriceTagIcon,
   Promotion as PromotionIcon,
-  Clock as ClockIcon,
-  Files as FilesIcon,
-  Document as DocumentIcon,
-  Download as DownloadIcon,
-  RefreshRight as RefreshRightIcon,
-  Check as CheckIcon,
-  Loading as LoadingIcon,
-  CircleCheckFilled as CircleCheckFilledIcon,
   QuestionFilled as QuestionFilledIcon,
-  Cpu as CpuIcon,
-  Coin as CoinIcon,
-  Monitor as MonitorIcon,
   MagicStick as MagicStickIcon,
   Box as BoxIcon,
   Picture as PictureIcon,
-  Brush as BrushIcon,
-  InfoFilled as InfoFilledIcon,
-  DocumentCopy as DocumentCopyIcon
+  Brush as BrushIcon
 } from '@element-plus/icons-vue'
 import {
-  getAppBuildListApi,
-  createAppBuildApi,
-  getBuildLogApi,
-  deleteAppBuildApi,
   getRandomConfigApi,
   generateIconApi,
-  downloadApkApi,
-  downloadBuildLogApi,
-  getAppBuildConfigStatusApi,
   generateHBuilderXProjectApi,
   getHBuilderXTemplatesApi,
-  generateComposeSourceApi,
-  getComposeTemplatesApi
+  generateComposeSourceApi
 } from '@/api/appBuild'
 import type { HBuilderXTemplate } from '@/api/appBuild'
 import { getKeyListApi } from '@/api/key'
 import { getSettingsApi } from '@/api/settings'
-import type { AppBuildRecord } from '@/api/types'
 
 // ---- 表单数据 ----
 interface BuildForm {
@@ -761,9 +357,7 @@ interface BuildForm {
   websocketAddress: string
   appIcon: string
   version: string
-  platform: 'android'
-  buildType: 'release' | 'debug'
-  buildMethod: 'github' | 'hbuilderx' | 'compose'
+  buildMethod: 'hbuilderx' | 'compose'
   hbuilderxTemplate: string
 }
 
@@ -779,69 +373,6 @@ const iconGradient = reactive({ start: '#667eea', end: '#764ba2' })
 // HBuilderX 模板列表
 const hbuilderxTemplates = ref<HBuilderXTemplate[]>([])
 
-// ---- GitHub Actions 配置状态 ----
-const configCollapse = ref<string[]>([])  // 默认折叠
-const configStatusLoaded = ref(false)
-const configStatus = reactive<{
-  available: boolean
-  token_configured: boolean
-  owner: string
-  repo: string
-  workflow_file: string
-  api_proxy: string
-  repo_url: string
-  actions_url: string
-  secrets_url: string
-  token_create_url: string
-  required_secrets: Array<{ name: string; description: string; required: boolean }>
-  required_env: Array<{ name: string; description: string }>
-}>({
-  available: false,
-  token_configured: false,
-  owner: '',
-  repo: '',
-  workflow_file: 'build-apk.yml',
-  api_proxy: '',
-  repo_url: '',
-  actions_url: '',
-  secrets_url: '',
-  token_create_url: 'https://github.com/settings/tokens',
-  required_secrets: [],
-  required_env: []
-})
-
-const configPanelTitle = computed(() => {
-  if (!configStatusLoaded.value) return 'GitHub Actions 构建配置说明(点击展开)'
-  return configStatus.available
-    ? '✅ GitHub Actions 构建已就绪(点击折叠)'
-    : '⚠️ GitHub Actions 构建未配置(点击展开查看配置说明)'
-})
-
-async function fetchConfigStatus() {
-  try {
-    const res = await getAppBuildConfigStatusApi()
-    const data = res.data || res
-    Object.assign(configStatus, data)
-    configStatusLoaded.value = true
-  } catch (e) {
-    console.warn('获取 GitHub Actions 配置状态失败', e)
-  }
-}
-
-async function copyCommand(cmd: string) {
-  try {
-    await navigator.clipboard.writeText(cmd)
-    ElMessage.success('命令已复制到剪贴板')
-  } catch {
-    ElMessage.warning('复制失败,请手动选择复制')
-  }
-}
-
-// SSH 密钥生成命令(单独函数避免模板中引号嵌套)
-async function copySshKeygenCommand() {
-  await copyCommand('ssh-keygen -t ed25519 -C "github-actions-build" -f ~/.ssh/github_actions_key -N ""')
-}
-
 const iconGradientStyle = computed(() => ({
   background: `linear-gradient(135deg, ${iconGradient.start}, ${iconGradient.end})`
 }))
@@ -854,9 +385,7 @@ const form = reactive<BuildForm>({
   websocketAddress: '',
   appIcon: '',
   version: '1.0.0',
-  platform: 'android',
-  buildType: 'release',
-  buildMethod: 'github',
+  buildMethod: 'hbuilderx',
   hbuilderxTemplate: 'new'
 })
 
@@ -882,23 +411,6 @@ const rules: FormRules = {
   version: [{ required: true, message: '请输入版本号', trigger: 'blur' }]
 }
 
-// 步骤指示器
-const steps = [
-  { key: 'config', label: '配置' },
-  { key: 'build', label: '构建' },
-  { key: 'download', label: '下载' }
-]
-const currentStep = computed(() => {
-  // 有成功的构建记录则进入下载步骤
-  const hasSuccess = historyList.value.some((i) => i.status === 'success')
-  const hasBuilding = historyList.value.some(
-    (i) => i.status === 'processing' || i.status === 'pending'
-  )
-  if (hasSuccess) return 2
-  if (hasBuilding || submitting.value) return 1
-  return 0
-})
-
 // Key 选项
 const keyOptions = ref<{ label: string; value: string }[]>([])
 
@@ -918,12 +430,6 @@ async function fetchKeyOptions() {
     keyOptions.value = []
   }
 }
-
-// 打包类型选项
-const buildTypes = [
-  { value: 'release', label: 'Release', desc: '正式版 · 优化性能', icon: CpuIcon },
-  { value: 'debug', label: 'Debug', desc: '调试版 · 含日志输出', icon: CoinIcon }
-] as const
 
 // 图标上传处理
 async function handleIconChange(file: UploadFile) {
@@ -1087,50 +593,7 @@ watch(iconMode, (newMode) => {
   }
 })
 
-// ---- 构建历史 ----
-const historyList = ref<AppBuildRecord[]>([])
-const historyLoading = ref(false)
-
-async function fetchHistory() {
-  historyLoading.value = true
-  try {
-    const res = await getAppBuildListApi({ page: 1, pageSize: 20 })
-    historyList.value = (res.data as any).list || []
-  } catch {
-    // 接口异常时保持空列表
-    historyList.value = []
-  } finally {
-    historyLoading.value = false
-  }
-}
-
-// 状态映射
-function statusTagType(status: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' {
-  const map: Record<string, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
-    pending: 'info',
-    processing: 'primary',
-    success: 'success',
-    failed: 'danger'
-  }
-  return map[status] || 'info'
-}
-
-function statusLabel(status: string) {
-  const map: Record<string, string> = {
-    pending: '等待中',
-    processing: '构建中',
-    success: '成功',
-    failed: '失败'
-  }
-  return map[status] || status
-}
-
-function formatTime(t: string): string {
-  if (!t) return '-'
-  return t.replace('T', ' ').slice(0, 19)
-}
-
-// ---- 提交构建 ----
+// ---- 提交生成 ----
 async function handleGenerate() {
   if (!formRef.value) return
   try {
@@ -1191,177 +654,17 @@ async function handleGenerate() {
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
       ElMessage.success('玻璃拟态源码包已生成，正在下载。用 HBuilderX 导入即可云打包出 APK。')
-    } else {
-      // GitHub Actions 打包方式
-      await createAppBuildApi({
-        app_name: form.name,
-        default_key: form.defaultKey,
-        server_url: form.serverAddress,
-        ws_url: form.websocketAddress,
-        package_name: form.packageName,
-        icon_path: form.appIcon,
-        version: form.version,
-        platform: form.platform,
-        build_type: form.buildType
-      })
-      ElMessage.success('构建任务已提交，正在打包...')
-      await fetchHistory()
-      startPolling()
     }
   } catch (err: any) {
-    ElMessage.error(err?.message || '提交构建失败')
+    ElMessage.error(err?.message || '生成失败')
   } finally {
     submitting.value = false
   }
 }
 
-// 下载
-async function handleDownload(item: AppBuildRecord) {
-  if (!item.build_id) {
-    ElMessage.warning('下载地址不存在')
-    return
-  }
-  try {
-    const res: any = await downloadApkApi(item.build_id)
-    const blob = new Blob([res.data], { type: 'application/vnd.android.package-archive' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `${item.app_name || 'app'}.apk`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-    ElMessage.success('开始下载')
-  } catch {
-    ElMessage.error('下载失败')
-  }
-}
-
-// 下载构建日志
-async function handleDownloadLog() {
-  if (!currentLogRecord.value?.build_id) {
-    ElMessage.warning('构建ID不存在')
-    return
-  }
-  try {
-    const res: any = await downloadBuildLogApi(currentLogRecord.value.build_id)
-    const blob = new Blob([res.data], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `build-${currentLogRecord.value.build_id}.log`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-    ElMessage.success('日志下载开始')
-  } catch {
-    ElMessage.error('日志下载失败')
-  }
-}
-
-// 重试
-async function handleRetry(item: AppBuildRecord) {
-  try {
-    await ElMessageBox.confirm(`确定重新构建「${item.app_name}」吗？`, '提示', {
-      confirmButtonText: '重新构建',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-    submitting.value = true
-    try {
-      await createAppBuildApi({
-        app_name: item.app_name,
-        default_key: item.default_key,
-        server_url: item.server_url,
-        ws_url: item.ws_url,
-        package_name: item.package_name,
-        icon_path: item.icon_path,
-        version: form.version,
-        platform: form.platform,
-        build_type: form.buildType
-      })
-      ElMessage.success('已重新提交构建')
-      await fetchHistory()
-      startPolling()
-    } catch (err: any) {
-      ElMessage.error(err?.message || '重新提交构建失败')
-    } finally {
-      submitting.value = false
-    }
-  } catch {
-    // 取消
-  }
-}
-
-// 删除
-async function handleDelete(item: AppBuildRecord) {
-  try {
-    await ElMessageBox.confirm(`确定删除构建记录「${item.app_name}」吗？`, '提示', {
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-    await deleteAppBuildApi(item.build_id)
-    ElMessage.success('删除成功')
-    await fetchHistory()
-  } catch {
-    // 取消
-  }
-}
-
-// ---- 轮询构建状态 ----
-let pollTimer: ReturnType<typeof setInterval> | null = null
-
-function startPolling() {
-  if (pollTimer) return
-  pollTimer = setInterval(async () => {
-    const hasActive = historyList.value.some(
-      (i) => i.status === 'processing' || i.status === 'pending'
-    )
-    if (!hasActive) {
-      stopPolling()
-      return
-    }
-    await fetchHistory()
-  }, 3000)
-}
-
-function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
-
-// ---- 日志抽屉 ----
-const logDrawerVisible = ref(false)
-const currentLogRecord = ref<AppBuildRecord | null>(null)
-const logContent = ref('')
-
-async function openLog(item: AppBuildRecord) {
-  currentLogRecord.value = item
-  logContent.value = ''
-  logDrawerVisible.value = true
-  try {
-    const res = await getBuildLogApi(item.build_id)
-    const data: any = res.data
-    logContent.value = data?.log || data || '暂无日志内容'
-  } catch {
-    logContent.value = '日志加载失败'
-  }
-}
-
 onMounted(async () => {
   // 并行加载基础数据
-  await Promise.all([
-    fetchKeyOptions(),
-    fetchConfigStatus()
-  ])
-
-  fetchHistory()
-  fetchHBuilderXTemplates()
+  await Promise.all([fetchKeyOptions(), fetchHBuilderXTemplates()])
 
   // 自动填充所有参数
   await autoFillAllParams()
@@ -1417,182 +720,11 @@ async function autoFillAllParams() {
   }
 }
 
-onBeforeUnmount(() => {
-  stopPolling()
-})
 </script>
 
 <style lang="scss" scoped>
 .app-build-page {
   animation: fade-up 0.5s ease;
-}
-
-// ===== GitHub Actions 配置提示面板 =====
-.config-panel {
-  margin-bottom: 20px;
-  border: 1px solid var(--border-light);
-  border-radius: $radius-lg;
-  background: var(--bg-card);
-  overflow: hidden;
-  box-shadow: $shadow-sm;
-
-  :deep(.el-collapse-item__header) {
-    padding: 0 20px;
-    height: 56px;
-    font-size: 15px;
-    font-weight: 600;
-    background: var(--bg-card);
-    border-bottom: 1px solid var(--border-light);
-  }
-
-  :deep(.el-collapse-item__wrap) {
-    background: var(--bg-card);
-  }
-
-  :deep(.el-collapse-item__content) {
-    padding: 0;
-  }
-}
-
-.config-content {
-  padding: 20px;
-}
-
-.config-alert {
-  margin-bottom: 20px;
-}
-
-.config-section {
-  margin-bottom: 24px;
-  padding: 16px 20px;
-  background: var(--el-fill-color-lighter, #fafafa);
-  border-radius: $radius-md;
-  border-left: 3px solid var(--el-color-primary, #409eff);
-
-  &:last-of-type {
-    margin-bottom: 0;
-  }
-}
-
-.section-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-  margin: 0 0 10px 0;
-
-  .el-icon {
-    color: var(--el-color-primary, #409eff);
-    font-size: 16px;
-  }
-
-  .config-link {
-    margin-left: auto;
-    font-size: 12px;
-    font-weight: 400;
-  }
-}
-
-.section-desc {
-  font-size: 13px;
-  color: var(--el-text-color-regular);
-  margin: 0 0 10px 0;
-  line-height: 1.6;
-
-  .el-link {
-    vertical-align: baseline;
-    font-size: 13px;
-  }
-}
-
-.section-tip {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin: 10px 0 0 0;
-  line-height: 1.6;
-
-  .el-icon {
-    color: var(--el-color-warning, #e6a23c);
-    flex-shrink: 0;
-  }
-
-  .tip-sep {
-    color: var(--el-text-color-placeholder);
-    margin: 0 4px;
-  }
-
-  .tip-text {
-    color: var(--el-text-color-regular);
-  }
-}
-
-.code-text {
-  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
-  font-size: 12px;
-  padding: 2px 6px;
-  background: var(--el-fill-color-dark, #f0f0f0);
-  border-radius: 3px;
-  color: var(--el-color-danger, #f56c6c);
-}
-
-.config-block {
-  margin-top: 12px;
-  position: relative;
-}
-
-.block-title {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin: 0 0 6px 0;
-}
-
-.code-block {
-  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  padding: 12px 14px;
-  background: #1e1e1e;
-  color: #d4d4d4;
-  border-radius: $radius-sm;
-  overflow-x: auto;
-  white-space: pre;
-  margin: 0;
-}
-
-.copy-btn {
-  margin-top: 8px;
-}
-
-.env-table {
-  margin-top: 8px;
-
-  :deep(.el-table__cell) {
-    padding: 6px 0;
-  }
-}
-
-.flow-timeline {
-  margin-top: 12px;
-  padding-left: 8px;
-
-  p {
-    margin: 0;
-    font-size: 13px;
-    color: var(--el-text-color-regular);
-    line-height: 1.6;
-  }
-}
-
-.config-footer {
-  margin-top: 20px;
-  display: flex;
-  justify-content: center;
 }
 
 // ===== 顶部 Hero 区 =====
@@ -1674,84 +806,15 @@ onBeforeUnmount(() => {
   }
 }
 
-// 步骤指示器
-.step-indicator {
-  display: flex;
-  align-items: center;
-  gap: 0;
-
-  .step-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-
-    .step-dot {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.18);
-      border: 2px solid rgba(255, 255, 255, 0.35);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #fff;
-      font-size: 13px;
-      font-weight: 700;
-      transition: all 0.3s ease;
-      backdrop-filter: blur(4px);
-    }
-
-    .step-label {
-      color: rgba(255, 255, 255, 0.85);
-      font-size: 13px;
-      font-weight: 600;
-    }
-
-    .step-line {
-      width: 32px;
-      height: 2px;
-      background: rgba(255, 255, 255, 0.25);
-      margin: 0 6px;
-      border-radius: 1px;
-    }
-
-    &.active .step-dot {
-      background: #fff;
-      color: $color-primary;
-      border-color: #fff;
-      box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.18);
-      transform: scale(1.08);
-    }
-    &.done .step-dot {
-      background: rgba(255, 255, 255, 0.9);
-      color: $color-primary;
-      border-color: #fff;
-    }
-    &.done .step-line {
-      background: rgba(255, 255, 255, 0.7);
-    }
-  }
-}
-
 // ===== 主体网格 =====
 .build-grid {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
+  grid-template-columns: 1fr;
   gap: 20px;
 }
 
 // 卡片通用样式
 .form-card,
-.history-card {
-  background: var(--bg-card);
-  border-radius: $radius-xl;
-  padding: 24px;
-  border: 1px solid var(--border-light);
-  box-shadow: $shadow-md;
-  position: relative;
-  overflow: hidden;
-}
-
 .card-header-row {
   display: flex;
   align-items: center;
@@ -2011,99 +1074,6 @@ onBeforeUnmount(() => {
 }
 
 // 打包类型卡片
-.build-type-group {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  width: 100%;
-
-  .build-type-item {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 14px 16px 14px 14px;
-    border-radius: $radius-md;
-    border: 1.5px solid var(--border-base);
-    background: var(--bg-page);
-    cursor: pointer;
-    transition: all 0.25s ease;
-    position: relative;
-    min-height: 62px;
-
-    &:hover {
-      border-color: $color-primary-light-5;
-      transform: translateY(-2px);
-    }
-
-    &.active {
-      border-color: $color-primary;
-      background: $color-primary-light-9;
-      box-shadow: 0 4px 14px rgba(109, 92, 255, 0.18);
-
-      .type-check {
-        opacity: 1;
-        transform: scale(1);
-      }
-      .type-icon {
-        background: $gradient-primary;
-        color: #fff;
-      }
-    }
-
-    .type-icon {
-      width: 38px;
-      height: 38px;
-      border-radius: $radius-sm;
-      background: var(--bg-card);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--text-regular);
-      font-size: 18px;
-      transition: all 0.25s ease;
-      flex-shrink: 0;
-      margin-top: 0;
-    }
-
-    .type-info {
-      flex: 1;
-      min-width: 0;
-      padding-top: 1px;
-      padding-right: 24px;
-    }
-    .type-name {
-      font-size: 14px;
-      font-weight: 700;
-      color: var(--text-primary);
-      line-height: 1.5;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .type-desc {
-      font-size: 11px;
-      color: var(--text-secondary);
-      line-height: 1.5;
-      margin-top: 3px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .type-check {
-      position: absolute;
-      top: 12px;
-      right: 12px;
-      color: $color-primary;
-      font-size: 18px;
-      opacity: 0;
-      transform: scale(0.6);
-      transition: all 0.25s ease;
-    }
-  }
-}
-
-// 生成按钮
 .submit-bar {
   margin-top: 8px;
   padding-top: 20px;
@@ -2127,259 +1097,6 @@ onBeforeUnmount(() => {
     }
     &:active {
       transform: translateY(0);
-    }
-  }
-}
-
-// ===== 构建历史 =====
-.history-list {
-  min-height: 240px;
-  max-height: 560px;
-  overflow-y: auto;
-  @include scrollbar;
-
-  .empty-state {
-    height: 240px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    color: var(--text-secondary);
-
-    .empty-icon {
-      font-size: 48px;
-      color: var(--border-dark);
-      margin-bottom: 4px;
-    }
-    p {
-      margin: 0;
-      font-size: 14px;
-      color: var(--text-regular);
-    }
-    span {
-      font-size: 12px;
-    }
-  }
-}
-
-.history-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: $radius-md;
-  border: 1px solid var(--border-light);
-  background: var(--bg-card);
-  margin-bottom: 10px;
-  transition: all 0.25s ease;
-  position: relative;
-  overflow: hidden;
-  animation: slide-in 0.35s ease;
-
-  &::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    background: var(--border-base);
-  }
-
-  &.status-pending::before { background: $color-info; }
-  &.status-building::before { background: $color-primary; }
-  &.status-success::before { background: $color-success; }
-  &.status-failed::before { background: $color-danger; }
-
-  &:hover {
-    border-color: $color-primary-light-5;
-    box-shadow: $shadow-sm;
-    transform: translateX(2px);
-  }
-
-  .item-main {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .item-top {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 6px;
-
-    .item-name {
-      font-weight: 600;
-      color: var(--text-primary);
-      font-size: 14px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      max-width: 180px;
-    }
-
-    .status-tag {
-      flex-shrink: 0;
-    }
-  }
-
-  .item-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    font-size: 12px;
-    color: var(--text-secondary);
-
-    .meta-item {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      .el-icon {
-        font-size: 12px;
-      }
-    }
-  }
-
-  .item-actions {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-shrink: 0;
-  }
-}
-
-.loading-icon {
-  animation: rotating 1.2s linear infinite;
-  margin-right: 2px;
-}
-
-// ===== 日志抽屉 =====
-.log-drawer {
-  :deep(.el-drawer__header) {
-    margin-bottom: 0;
-    padding: 18px 24px;
-    border-bottom: 1px solid var(--border-light);
-  }
-  :deep(.el-drawer__body) {
-    padding: 0;
-  }
-}
-
-.drawer-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-
-  .drawer-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .drawer-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--text-primary);
-
-    .title-icon {
-      color: $color-primary;
-      font-size: 18px;
-    }
-  }
-}
-
-.log-meta {
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--border-light);
-  background: var(--bg-page);
-
-  .meta-row {
-    display: flex;
-    padding: 4px 0;
-    font-size: 13px;
-
-    .meta-label {
-      width: 110px;
-      color: var(--text-secondary);
-      flex-shrink: 0;
-    }
-    .meta-value {
-      color: var(--text-primary);
-      &.mono {
-        font-family: $font-family-mono;
-        font-size: 12px;
-      }
-    }
-  }
-}
-
-.log-terminal {
-  margin: 16px 24px 24px;
-  border-radius: $radius-md;
-  overflow: hidden;
-  background: #0e1020;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: $shadow-md;
-
-  .terminal-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 10px 14px;
-    background: rgba(255, 255, 255, 0.04);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-
-    .dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      &.red { background: #ff5a6e; }
-      &.yellow { background: #ffb547; }
-      &.green { background: #18c29c; }
-    }
-    .terminal-title {
-      margin-left: 8px;
-      color: rgba(255, 255, 255, 0.55);
-      font-size: 12px;
-      font-family: $font-family-mono;
-    }
-  }
-
-  .terminal-body {
-    padding: 16px;
-    min-height: 320px;
-    max-height: 540px;
-    overflow-y: auto;
-    @include scrollbar(6px, rgba(109, 92, 255, 0.4));
-
-    pre {
-      margin: 0;
-      font-family: $font-family-mono;
-      font-size: 13px;
-      line-height: 1.7;
-      color: #b4e8d4;
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-
-    .terminal-empty {
-      height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      color: rgba(255, 255, 255, 0.4);
-      font-size: 13px;
-
-      .loading-icon {
-        color: $color-primary-light-5;
-      }
     }
   }
 }
@@ -2416,9 +1133,6 @@ onBeforeUnmount(() => {
 @media (max-width: 1100px) {
   .build-grid {
     grid-template-columns: 1fr;
-  }
-  .step-indicator .step-line {
-    width: 20px;
   }
 }
 
