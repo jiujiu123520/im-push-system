@@ -206,74 +206,129 @@ class PushDispatcher
 
         $this->logPush("[pushByKey·{$ctx}] 入口 key={$keyValue} msg_id={$msgId} title=" . ($message['title'] ?? ''));
 
-        $fds = $this->connectionManager->getDevicesByKey($keyValue);
-        $this->logPush("[pushByKey·{$ctx}] 查询在线设备 key={$keyValue} msg_id={$msgId} fds=" . json_encode($fds));
+        // 1. 收集 WebSocket/原生设备（Redis key:subscribe）
+        $wsDeviceIds = Redis::getInstance()->sMembers("key:subscribe:{$keyValue}");
+        if (!is_array($wsDeviceIds)) {
+            $wsDeviceIds = [];
+        }
 
-        if (empty($fds)) {
-            // 无在线设备，查询所有订阅该 Key 的设备 ID 并存离线
-            $deviceIds = Redis::getInstance()->sMembers("key:subscribe:{$keyValue}");
-            if (empty($deviceIds)) {
-                $this->logPush("[pushByKey] 无订阅设备 key={$keyValue} msg_id={$message['message_id']}");
-                $reason = '无订阅设备：该 Key 未绑定任何设备，APP端未注册或已解绑';
-                return [
-                    'success_count' => 0,
-                    'fail_count'    => 0,
-                    'stored_offline' => false,
-                    'detail'        => [
-                        [
-                            'key'     => $keyValue,
-                            'status'  => 'no_subscribers',
-                            'message' => $reason,
-                        ],
-                    ],
-                    'fail_detail'   => [['target' => 'key:' . $keyValue, 'reason' => $reason]],
-                    'fail_reason'   => $reason,
-                ];
-            }
-            foreach ($deviceIds as $deviceId) {
-                $this->storeMessage($deviceId, $message);
-                // 尝试 APNS 通道（iOS 设备），失败则存离线
-                $apnsResult = $this->tryApnsPush($deviceId, $message);
-                if ($apnsResult === null) {
-                    // 尝试 Web Push 通道（PWA 订阅）
-                    $webPushResult = $this->tryWebPush($deviceId, $message);
-                    if ($webPushResult === null) {
-                        // 非 iOS 设备或 APNS 未配置，存离线
-                        $this->storeOfflineMessage($deviceId, $message);
-                    }
+        // 2. 收集 PWA 设备（web_push_subscriptions 表，按 push_key_id）
+        $pwaDeviceIds = [];
+        try {
+            $keyRow = Database::fetch('SELECT id FROM push_keys WHERE key_value = ? LIMIT 1', [$keyValue]);
+            if ($keyRow !== false) {
+                $wpRows = Database::fetchAll(
+                    'SELECT device_id FROM web_push_subscriptions WHERE push_key_id = ? AND status = 1',
+                    [(int)$keyRow['id']]
+                );
+                foreach ($wpRows as $row) {
+                    $pwaDeviceIds[] = (string)$row['device_id'];
                 }
             }
-            $this->logPush("[pushByKey] 所有设备离线，已处理 key={$keyValue} devices=" . count($deviceIds) . " msg_id={$message['message_id']}");
-            $reason = '所有设备离线（共' . count($deviceIds) . '台），iOS设备已走APNS，其他设备已存离线';
+        } catch (\Throwable $e) {
+            $this->logPush("[pushByKey] 查询 PWA 订阅失败 key={$keyValue} err=" . $e->getMessage());
+        }
+
+        // 3. 合并去重所有设备
+        $allDeviceIds = array_values(array_unique(array_merge($wsDeviceIds, $pwaDeviceIds)));
+
+        if (empty($allDeviceIds)) {
+            $this->logPush("[pushByKey] 无订阅设备 key={$keyValue} msg_id={$msgId}");
+            $reason = '无订阅设备：该 Key 未绑定任何设备，APP端未注册或已解绑';
             return [
                 'success_count'  => 0,
-                'fail_count'     => count($deviceIds),
-                'stored_offline' => true,  // 标记：消息已存离线，非真正失败
-                'detail'        => [
-                    [
-                        'key'     => $keyValue,
-                        'status'  => 'all_offline',
-                        'message' => $reason,
-                        'count'   => count($deviceIds),
-                    ],
-                ],
-                'fail_detail'   => [['target' => 'key:' . $keyValue, 'reason' => $reason]],
-                'fail_reason'   => $reason,
+                'fail_count'     => 0,
+                'stored_offline' => false,
+                'detail'         => [['key' => $keyValue, 'status' => 'no_subscribers', 'message' => $reason]],
+                'fail_detail'    => [['target' => 'key:' . $keyValue, 'reason' => $reason]],
+                'fail_reason'    => $reason,
             ];
         }
 
-        // 修复：收集所有 deviceId 用于 push 失败时存离线消息，并持久化消息
-        $deviceIds = Redis::getInstance()->sMembers("key:subscribe:{$keyValue}");
-        $deviceIdStr = empty($deviceIds) ? null : implode(',', $deviceIds);
+        // 4. 区分在线 WebSocket 设备与离线设备（PWA 设备永远无 fd，归入离线）
+        $onlineDeviceIds = [];
+        foreach ($wsDeviceIds as $deviceId) {
+            $deviceFds = $this->connectionManager->getFdsByDevice($deviceId);
+            if (!empty($deviceFds)) {
+                $onlineDeviceIds[] = $deviceId;
+            }
+        }
+        $offlineDeviceIds = array_values(array_diff($allDeviceIds, $onlineDeviceIds));
+        $fds = $this->connectionManager->getDevicesByKey($keyValue);
 
-        // 持久化消息到 messages 表（按 key 推送时也需要记录）
-        foreach ($deviceIds as $did) {
-            $this->storeMessage($did, $message);
+        $this->logPush("[pushByKey·{$ctx}] 查询在线设备 key={$keyValue} msg_id={$msgId} online=" . count($onlineDeviceIds) . " offline=" . count($offlineDeviceIds) . " pwa=" . count($pwaDeviceIds));
+
+        // 结果聚合
+        $success = 0;
+        $fail = 0;
+        $detail = [];
+        $failDetail = [];
+        $failReasons = [];
+        $storedOffline = false;
+
+        // 5. 在线 WebSocket 设备：storeMessage + pushToFds
+        if (!empty($fds)) {
+            foreach ($onlineDeviceIds as $did) {
+                $this->storeMessage($did, $message);
+            }
+            $fdResult = $this->pushToFds($fds, $message, implode(',', $onlineDeviceIds), $keyValue);
+            $success += (int)($fdResult['success_count'] ?? 0);
+            $fail += (int)($fdResult['fail_count'] ?? 0);
+            $detail = array_merge($detail, $fdResult['detail'] ?? []);
+            $failDetail = array_merge($failDetail, $fdResult['fail_detail'] ?? []);
+            if (!empty($fdResult['stored_offline'])) {
+                $storedOffline = true;
+            }
+            if (!empty($fdResult['fail_reason'])) {
+                $failReasons[$fdResult['fail_reason']] = ($failReasons[$fdResult['fail_reason']] ?? 0) + 1;
+            }
         }
 
-        $this->logPush("[pushByKey] 在线设备 fds=" . json_encode($fds) . " key={$keyValue} msg_id={$message['message_id']}");
+        // 6. 离线设备（含 PWA）：storeMessage + APNS → Web Push → 离线兜底
+        foreach ($offlineDeviceIds as $deviceId) {
+            $this->storeMessage($deviceId, $message);
+            $apnsResult = $this->tryApnsPush($deviceId, $message);
+            if ($apnsResult === null) {
+                $webPushResult = $this->tryWebPush($deviceId, $message);
+                if ($webPushResult === null) {
+                    $this->storeOfflineMessage($deviceId, $message);
+                    $storedOffline = true;
+                } else {
+                    $success += (int)($webPushResult['success_count'] ?? 0);
+                    $fail += (int)($webPushResult['fail_count'] ?? 0);
+                    $detail = array_merge($detail, $webPushResult['detail'] ?? []);
+                    $failDetail = array_merge($failDetail, $webPushResult['fail_detail'] ?? []);
+                    if (!empty($webPushResult['stored_offline'])) {
+                        $storedOffline = true;
+                    }
+                    if (!empty($webPushResult['fail_reason'])) {
+                        $failReasons[$webPushResult['fail_reason']] = ($failReasons[$webPushResult['fail_reason']] ?? 0) + 1;
+                    }
+                }
+            } else {
+                $success += (int)($apnsResult['success_count'] ?? 0);
+                $fail += (int)($apnsResult['fail_count'] ?? 0);
+                $detail = array_merge($detail, $apnsResult['detail'] ?? []);
+                $failDetail = array_merge($failDetail, $apnsResult['fail_detail'] ?? []);
+                if (!empty($apnsResult['stored_offline'])) {
+                    $storedOffline = true;
+                }
+                if (!empty($apnsResult['fail_reason'])) {
+                    $failReasons[$apnsResult['fail_reason']] = ($failReasons[$apnsResult['fail_reason']] ?? 0) + 1;
+                }
+            }
+        }
 
-        return $this->pushToFds($fds, $message, $deviceIdStr, $keyValue);
+        $this->logPush("[pushByKey] 推送完成 key={$keyValue} msg_id={$msgId} success={$success} fail={$fail}");
+
+        return [
+            'success_count'  => $success,
+            'fail_count'     => $fail,
+            'stored_offline' => $storedOffline,
+            'detail'         => $detail,
+            'fail_detail'    => $failDetail,
+            'fail_reason'    => $this->buildFailReasonSummary($failReasons),
+        ];
     }
 
     /**
