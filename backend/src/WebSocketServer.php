@@ -88,6 +88,14 @@ class WebSocketServer
     private Table $pendingAuthTable;
 
     /**
+     * @var int[] Worker 0 注册的周期性定时器 ID（优雅退出时统一清除）
+     *
+     * 定时器会让事件循环始终处于活跃状态，导致 worker 无法提前退出、
+     * 必须等满 max_wait_time，因此退出前必须显式清除。
+     */
+    private array $workerTimerIds = [];
+
+    /**
      * 构造方法
      */
     public function __construct()
@@ -125,7 +133,7 @@ class WebSocketServer
      *   - task_worker_num: 异步任务 worker,处理耗时推送/通知
      *   - max_conn: 单 worker 最大连接数,防止 fd 耗尽
      *   - max_request: 每个 worker 处理 N 次请求后重启(WebSocket 推荐设为 0 不重启,避免长连接断开)
-     *   - max_wait_time: reload 时等待连接关闭的最大时间
+     *   - max_wait_time: 停止/reload 时 worker 等待连接关闭的最大时间（必须小于 systemd TimeoutStopSec）
      *   - send_yield: 当发送队列满时让出协程,避免阻塞 worker
      *   - socket_buffer_size: 单连接发送缓冲区大小(字节)，Swoole 5.x 替代 send_buffer_size
      *   注：reloadable 在 Swoole 5.x 已移除，worker 默认即可被 reload
@@ -150,7 +158,12 @@ class WebSocketServer
             // 并发与稳定性
             'max_conn'               => 10000,     // 单 worker 最大并发连接数
             'max_request'            => 0,         // WebSocket 长连接不重启 worker,避免连接断开
-            'max_wait_time'          => 60,       // reload 时等待连接关闭的最大秒数
+            // 停止/reload 时 worker 等待协程/连接结束的上限（秒），也是 worker 退出的实际耗时
+            // ⚠️ 必须小于 systemd 的 TimeoutStopSec（30s），否则会被 systemd SIGKILL：
+            //    WebSocket 长连接不会自己断开，主 worker 一定会等满该值；
+            //    原值 60 > 30，实测每次停止都卡满 30.28 秒后被强杀（Failed with result 'timeout'）。
+            //    5 秒足够让队列消费/心跳等短任务收尾，同时把重启窗口从 30 秒压到 5 秒左右。
+            'max_wait_time'          => 5,
             'send_yield'             => true,      // 发送队列满时让出协程,避免阻塞
             'socket_buffer_size'     => 1048576,  // 1MB 单连接发送缓冲区（Swoole 5.x 替代 send_buffer_size）
             // 鉴权超时定时器依赖,允许毫秒级 Timer
@@ -184,6 +197,7 @@ class WebSocketServer
         $this->server->on('Task', [$this, 'onTask']);
         $this->server->on('Finish', [$this, 'onFinish']);
         $this->server->on('Shutdown', [$this, 'onShutdown']);
+        $this->server->on('WorkerStop', [$this, 'onWorkerStop']);
     }
 
     /**
@@ -244,7 +258,7 @@ class WebSocketServer
 
         // 在 Worker 0 中启动队列消费定时器（跨进程推送/断开连接）
         if ($workerId === 0) {
-            Timer::tick(100, function () {
+            $this->workerTimerIds[] = Timer::tick(100, function () {
                 try {
                     $this->pushDispatcher->processQueue(100);
                     $this->pushDispatcher->processDisconnectQueue(100);
@@ -254,7 +268,7 @@ class WebSocketServer
             });
 
             // 每 30 秒巡检一次僵尸连接（Redis 记录在线但实际已断开的连接）
-            Timer::tick(30000, function () {
+            $this->workerTimerIds[] = Timer::tick(30000, function () {
                 try {
                     $this->cleanupDeadConnections();
                 } catch (\Throwable $e) {
@@ -263,7 +277,7 @@ class WebSocketServer
             });
 
             // 每 5 分钟巡检离线 pending 队列，对持续离线 >= 30 分钟的设备发邮件提醒
-            Timer::tick(DeviceOfflineNotifier::SCAN_INTERVAL_SECONDS * 1000, function () {
+            $this->workerTimerIds[] = Timer::tick(DeviceOfflineNotifier::SCAN_INTERVAL_SECONDS * 1000, function () {
                 try {
                     $count = $this->offlineNotifier->processPendingQueue();
                     if ($count > 0) {
@@ -874,7 +888,49 @@ class WebSocketServer
     }
 
     /**
+     * Worker 停止事件（优雅退出）
+     *
+     * systemd 发送 SIGTERM 后触发。实测（Swoole 6.2.1 + enable_coroutine）：
+     *   - 任务 worker 立即回调本方法；
+     *   - 主 worker（持有长连接的那个）会先等待 max_wait_time，之后才回调本方法，
+     *     也就是说此时 Swoole 已进入拆连接阶段，再也无法向客户端补发关闭帧了。
+     *
+     * 所以「让客户端收到 1001 关闭帧」在 Swoole 的事件模型里做不到（已实测：
+     * 客户端最终只收到裸 EOF）。真正决定退出质量的是 configure() 里的 max_wait_time。
+     *
+     * 本方法只做两件确定有意义的事：
+     *   1. 释放 Worker 0 注册的周期性定时器与全部心跳定时器，保证退出过程干净，
+     *      不会出现「连接已关、定时器还在跑」的错乱；
+     *   2. 打印退出日志 —— 这是判断服务是被优雅停止还是被 SIGKILL 强杀的唯一依据
+     *      （在此之前完全没有退出日志，线上排查只能靠猜）。
+     *
+     * @param Server $server
+     * @param int    $workerId
+     * @return void
+     */
+    public function onWorkerStop(Server $server, int $workerId): void
+    {
+        $startedAt = microtime(true);
+
+        foreach ($this->workerTimerIds as $timerId) {
+            Timer::clear($timerId);
+        }
+        $this->workerTimerIds = [];
+        $this->heartbeatManager->stopAll();
+
+        $msg = sprintf(
+            '[WS] Worker#%d 收到停止信号，已释放定时器与心跳，耗时 %dms',
+            $workerId,
+            (int)((microtime(true) - $startedAt) * 1000)
+        );
+        echo $msg . "\n";
+        $this->logToFile($msg);
+    }
+
+    /**
      * 服务关闭事件
+     *
+     * 注意：本事件在 master 进程退出时触发，此时 worker 已全部结束。
      *
      * @param Server $server
      * @return void

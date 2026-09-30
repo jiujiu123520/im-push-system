@@ -15,7 +15,10 @@ Type=simple
 WorkingDirectory=/www/push-system/backend
 # PHP 可执行文件路径，--ws 参数启动 WebSocket 推送服务
 ExecStart=/usr/bin/php /www/push-system/backend/public/index.php --ws
-# 优雅停止：发送 SIGTERM 后等待 30 秒（Swoole 关闭连接需刷新消息+清理 Redis，10秒不够）
+# 优雅停止：SIGTERM 后 WorkerStop 释放定时器与心跳，Swoole 完成连接清理后退出，
+# 实测耗时 ≈ max_wait_time（5 秒）；30 秒只是兜底上限。
+# ⚠️ 必须大于 Swoole 的 max_wait_time（WebSocketServer::configure 中为 5s），
+#    否则 Swoole 还没退出就会被 SIGKILL。
 KillSignal=SIGTERM
 TimeoutStopSec=30
 # 自动重启：崩溃后 3 秒重启
