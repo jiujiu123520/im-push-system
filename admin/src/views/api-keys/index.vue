@@ -565,10 +565,6 @@
               <el-icon class="tip-icon"><InfoFilledIcon /></el-icon>
               <span>设备离线时消息自动存为离线，设备重连后可拉取</span>
             </div>
-            <div class="tip-item">
-              <el-icon class="tip-icon"><InfoFilledIcon /></el-icon>
-              <span>iOS 设备后台离线时通过 APNS 推送，需在系统设置中配置 APNS</span>
-            </div>
           </div>
         </div>
       </el-collapse-transition>

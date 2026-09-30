@@ -20,7 +20,7 @@ export function getAppInfoApi() {
 
 // APP 下载二维码
 export function getAppDownloadQrApi() {
-  return get<{ apk_url: string; ipa_url: string; version: string }>('/user-api/app/download-qr')
+  return get<{ apk_url: string; version: string }>('/user-api/app/download-qr')
 }
 
 // 获取可用 HBuilderX 模板列表

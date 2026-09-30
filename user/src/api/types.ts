@@ -198,9 +198,7 @@ export interface ApiKey {
 export interface AppInfo {
   download?: {
     apk_download_url?: string
-    ipa_download_url?: string
     apk_version?: string
-    ipa_version?: string
     update_log?: string
     force_update?: number
     user_hbx_enabled?: number

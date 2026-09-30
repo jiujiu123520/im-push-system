@@ -921,19 +921,6 @@
             </div>
           </el-form-item>
 
-          <div class="sub-section-title">
-            <span class="title-bar"></span>
-            iOS IPA 版本信息
-          </div>
-          <div class="form-row">
-            <el-form-item label="IPA 版本号" prop="ipa_version">
-              <el-input v-model="userAppForm.ipa_version" placeholder="如 1.0.0" maxlength="16" />
-            </el-form-item>
-            <el-form-item label="IPA 下载地址" prop="ipa_url">
-              <el-input v-model="userAppForm.ipa_url" placeholder="https://.../manifest.plist 或 itms-services://" clearable />
-            </el-form-item>
-          </div>
-
           <div class="form-actions">
             <el-button
               type="primary"
@@ -1113,206 +1100,7 @@
         </el-form>
       </div>
 
-      <!-- d2) iOS APNS 推送配置 -->
-      <div class="setting-card apns-config-card">
-        <div class="card-head">
-          <div class="head-icon icon-apns">
-            <el-icon><IphoneIcon /></el-icon>
-          </div>
-          <div class="head-text">
-            <h3 class="card-title">iOS APNS 推送配置</h3>
-            <p class="card-sub">Apple Push Notification Service - iOS 后台推送通道</p>
-          </div>
-          <el-switch v-model="apnsForm.enabled" />
-        </div>
-
-        <el-form
-          ref="apnsFormRef"
-          :model="apnsForm"
-          label-width="120px"
-          label-position="right"
-        >
-          <el-form-item label="启用 APNS">
-            <el-switch v-model="apnsForm.enabled" />
-            <span class="form-hint">启用后，iOS 设备后台/被杀时通过 APNS 接收推送</span>
-          </el-form-item>
-
-          <el-form-item label="运行环境">
-            <el-radio-group v-model="apnsForm.environment">
-              <el-radio value="production">生产环境</el-radio>
-              <el-radio value="development">开发环境</el-radio>
-            </el-radio-group>
-            <div class="form-hint">
-              App Store 上架用生产环境；Xcode 调试用开发环境（需用开发证书）
-            </div>
-          </el-form-item>
-
-          <el-form-item label="Team ID">
-            <el-input
-              v-model="apnsForm.team_id"
-              placeholder="Apple Developer Team ID（10位字母数字）"
-              maxlength="10"
-            />
-            <div class="form-hint">在 Apple Developer 后台 → Membership 页查看</div>
-          </el-form-item>
-
-          <el-form-item label="Key ID">
-            <el-input
-              v-model="apnsForm.key_id"
-              placeholder="APNS Auth Key ID（10位）"
-              maxlength="10"
-            />
-            <div class="form-hint">在 Certificates, Identifiers &amp; Profiles → Keys 页查看</div>
-          </el-form-item>
-
-          <el-form-item label="Bundle ID">
-            <el-input
-              v-model="apnsForm.bundle_id"
-              placeholder="如 com.example.pushapp"
-            />
-            <div class="form-hint">iOS APP 的 Bundle Identifier，需与 Xcode 中一致</div>
-          </el-form-item>
-
-          <el-form-item label=".p8 私钥">
-            <el-input
-              v-model="apnsForm.auth_key"
-              type="textarea"
-              :rows="6"
-              placeholder="将 .p8 文件内容粘贴到这里（含 -----BEGIN PRIVATE KEY----- 和 -----END PRIVATE KEY-----）"
-              :show-password="apnsForm.auth_key !== '******'"
-            />
-            <div class="form-hint">
-              在 Apple Developer → Keys 页创建 Auth Key 后下载 .p8 文件，用文本编辑器打开粘贴
-            </div>
-            <div v-if="apnsForm.auth_key === '******'" class="auth-key-hint">
-              <el-icon><CircleCheckIcon /></el-icon>
-              已配置私钥（保存时不修改则保持原值）
-            </div>
-          </el-form-item>
-
-          <el-form-item>
-            <el-button
-              type="primary"
-              :loading="saving.apns"
-              @click="saveApnsConfig"
-            >
-              保存配置
-            </el-button>
-          </el-form-item>
-        </el-form>
-
-        <!-- 健康度统计 -->
-        <el-divider content-position="left">
-          <span style="font-size: 13px;">
-            <el-icon><DataAnalysisIcon /></el-icon>
-            健康度统计
-          </span>
-        </el-divider>
-        <div v-loading="apnsHealthLoading" class="apns-health-stats">
-          <template v-if="apnsHealth">
-            <!-- 熔断状态告警 -->
-            <el-alert
-              v-if="apnsHealth.circuit_broken"
-              title="APNS 通道已熔断"
-              type="error"
-              :closable="false"
-              show-icon
-              style="margin-bottom: 12px;"
-            >
-              <template #default>
-                <div style="font-size: 12px; line-height: 1.6;">
-                  连续失败已达熔断阈值，APNS 推送已暂停。<br>
-                  熔断时间：{{ apnsHealth.last_circuit_break || '-' }}
-                  <el-button
-                    text
-                    type="primary"
-                    size="small"
-                    :loading="resettingCircuit"
-                    style="margin-left: 8px;"
-                    @click="resetApnsCircuit"
-                  >
-                    手动重置熔断
-                  </el-button>
-                </div>
-              </template>
-            </el-alert>
-
-            <div class="health-stats-grid">
-              <div class="stat-item stat-success">
-                <div class="stat-label">总成功率</div>
-                <div class="stat-value">{{ apnsHealth.success_rate }}%</div>
-                <div class="stat-sub">
-                  成功 {{ apnsHealth.success_total }} / 失败 {{ apnsHealth.fail_total }}
-                </div>
-              </div>
-              <div class="stat-item stat-today">
-                <div class="stat-label">今日推送</div>
-                <div class="stat-value">
-                  <span class="text-green">{{ apnsHealth.success_today }}</span>
-                  <span style="color: var(--el-text-color-secondary);margin:0 4px;">/</span>
-                  <span class="text-red">{{ apnsHealth.fail_today }}</span>
-                </div>
-                <div class="stat-sub">成功 / 失败</div>
-              </div>
-              <div class="stat-item stat-failcount" v-if="apnsHealth.fail_count > 0">
-                <div class="stat-label">连续失败</div>
-                <div class="stat-value text-red">{{ apnsHealth.fail_count }}</div>
-                <div class="stat-sub">达到 5 次触发熔断</div>
-              </div>
-              <div class="stat-item stat-last-success">
-                <div class="stat-label">最后成功</div>
-                <div class="stat-value-small">{{ apnsHealth.last_success_at || '从未成功' }}</div>
-              </div>
-              <div class="stat-item stat-last-fail" v-if="apnsHealth.last_fail_at">
-                <div class="stat-label">最后失败</div>
-                <div class="stat-value-small">{{ apnsHealth.last_fail_at }}</div>
-              </div>
-            </div>
-
-            <div class="health-actions">
-              <el-button text type="primary" :icon="RefreshIcon" :loading="apnsHealthLoading" @click="fetchApnsHealth">
-                刷新统计
-              </el-button>
-            </div>
-          </template>
-          <el-empty v-else description="暂无统计数据" :image-size="60" />
-        </div>
-
-        <!-- 测试推送 -->
-        <el-divider content-position="left">测试推送</el-divider>
-        <el-form label-width="120px" label-position="right">
-          <el-form-item label="设备 Token">
-            <el-input
-              v-model="apnsForm.testToken"
-              placeholder="iOS APP 上报的 APNS device token（十六进制字符串）"
-            />
-            <div class="form-hint">在设备列表页查看 iOS 设备的 APNS Token</div>
-          </el-form-item>
-          <el-form-item label="推送标题">
-            <el-input v-model="apnsForm.testTitle" placeholder="测试推送（留空使用默认）" />
-          </el-form-item>
-          <el-form-item label="推送内容">
-            <el-input
-              v-model="apnsForm.testBody"
-              type="textarea"
-              :rows="2"
-              placeholder="这是一条来自推送系统的测试消息（留空使用默认）"
-            />
-          </el-form-item>
-          <el-form-item>
-            <el-button
-              type="success"
-              :loading="testing.apns"
-              :disabled="!apnsForm.enabled || !apnsForm.testToken"
-              @click="testApnsPush"
-            >
-              发送测试推送
-            </el-button>
-          </el-form-item>
-        </el-form>
-      </div>
-
-      <!-- e) 系统信息（只读） -->
+      <!-- d2) 系统信息（只读） -->
       <div class="setting-card system-info-card" v-loading="systemInfoLoading">
         <div class="card-head">
           <div class="head-icon icon-info">
@@ -1522,8 +1310,6 @@ import {
   Download as DownloadIcon,
   CircleCheck as CircleCheckIcon,
   CircleClose as CircleCloseIcon,
-  Iphone as IphoneIcon,
-  DataAnalysis as DataAnalysisIcon,
   Link as LinkIcon,
   Cellphone as CellphoneIcon,
   MagicStick as MagicStickIcon
@@ -1539,18 +1325,12 @@ import {
   checkVersionApi,
   systemUpdateApi,
   getUpdateProgressApi,
-  getApnsConfigApi,
-  saveApnsConfigApi,
-  testApnsPushApi,
-  getApnsHealthApi,
-  resetApnsCircuitApi,
   getPathsConfigApi,
   savePathsConfigApi,
   getSecurityExtConfigApi,
   saveSecurityExtConfigApi,
   getUserAppConfigApi,
   saveUserAppConfigApi,
-  type ApnsHealthStats,
   type SettingsPaths,
   type SettingsSecurityExt,
   type SettingsUserApp
@@ -1842,23 +1622,6 @@ const mailForm = reactive({
   testEmail: ''
 })
 
-// ---- iOS APNS 推送配置 ----
-const apnsFormRef = ref<FormInstance>()
-const apnsForm = reactive({
-  enabled: false,
-  team_id: '',
-  key_id: '',
-  auth_key: '',
-  bundle_id: '',
-  environment: 'production' as 'production' | 'development',
-  testToken: '',
-  testTitle: '',
-  testBody: ''
-})
-const apnsHealth = ref<ApnsHealthStats | null>(null)
-const apnsHealthLoading = ref(false)
-const resettingCircuit = ref(false)
-
 // 密码切换显示
 const showSecret = reactive({
   smsApiKey: false,
@@ -2083,7 +1846,6 @@ const saving = reactive({
   captcha: false,
   mail: false,
   security: false,
-  apns: false,
   paths: false,
   securityExt: false,
   userApp: false
@@ -2091,8 +1853,7 @@ const saving = reactive({
 const testing = reactive({
   mail: false,
   mailNotify: false,
-  concurrent: false,
-  apns: false
+  concurrent: false
 })
 
 // ---- 并发压测推送 ----
@@ -2352,104 +2113,6 @@ async function fetchMailConfig() {
   }
 }
 
-// 加载 APNS 配置
-async function fetchApnsConfig() {
-  try {
-    const res = await getApnsConfigApi()
-    const config = res.data
-    apnsForm.enabled = config.enabled
-    apnsForm.team_id = config.team_id || ''
-    apnsForm.key_id = config.key_id || ''
-    apnsForm.auth_key = config.auth_key || ''
-    apnsForm.bundle_id = config.bundle_id || ''
-    apnsForm.environment = config.environment || 'production'
-    // 若 APNS 已启用，自动加载健康度统计
-    if (apnsForm.enabled) {
-      fetchApnsHealth()
-    }
-  } catch {
-    // 使用默认值
-  }
-}
-
-// 保存 APNS 配置
-async function saveApnsConfig() {
-  saving.apns = true
-  try {
-    await saveApnsConfigApi({
-      enabled: apnsForm.enabled,
-      team_id: apnsForm.team_id,
-      key_id: apnsForm.key_id,
-      auth_key: apnsForm.auth_key,
-      bundle_id: apnsForm.bundle_id,
-      environment: apnsForm.environment
-    })
-    ElMessage.success('APNS 配置保存成功')
-    // 保存后将 auth_key 重置为脱敏值
-    if (apnsForm.auth_key && apnsForm.auth_key !== '******') {
-      apnsForm.auth_key = '******'
-    }
-    // 启用状态变化时刷新/清空健康度统计
-    if (apnsForm.enabled) {
-      fetchApnsHealth()
-    } else {
-      apnsHealth.value = null
-    }
-  } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '保存失败')
-  } finally {
-    saving.apns = false
-  }
-}
-
-// 测试 APNS 推送
-async function testApnsPush() {
-  if (!apnsForm.testToken) {
-    ElMessage.warning('请输入测试设备的 APNS Token')
-    return
-  }
-  testing.apns = true
-  try {
-    const res = await testApnsPushApi({
-      device_token: apnsForm.testToken,
-      title: apnsForm.testTitle || undefined,
-      body: apnsForm.testBody || undefined
-    })
-    ElMessage.success(res.data?.message || '测试推送发送成功')
-  } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '测试推送失败')
-  } finally {
-    testing.apns = false
-  }
-}
-
-// 获取 APNS 健康度统计
-async function fetchApnsHealth() {
-  apnsHealthLoading.value = true
-  try {
-    const res = await getApnsHealthApi()
-    apnsHealth.value = res.data
-  } catch {
-    ElMessage.error('获取健康度统计失败')
-  } finally {
-    apnsHealthLoading.value = false
-  }
-}
-
-// 重置 APNS 熔断状态
-async function resetApnsCircuit() {
-  resettingCircuit.value = true
-  try {
-    const res = await resetApnsCircuitApi()
-    ElMessage.success(res.data?.message || '熔断状态已重置')
-    await fetchApnsHealth()
-  } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '重置熔断失败')
-  } finally {
-    resettingCircuit.value = false
-  }
-}
-
 // 加载安全扩展配置
 async function fetchSecurityExtConfig() {
   try {
@@ -2696,7 +2359,6 @@ async function testMail() {
 onMounted(async () => {
   await fetchSettings()
   fetchMailConfig()
-  fetchApnsConfig()
   fetchSystemInfo()
   // 专用接口兜底加载：如果统一接口没返回 settings_paths/settings_security/settings_user_app，则通过专用接口加载
   fetchPathsConfig()
@@ -3108,10 +2770,6 @@ onUnmounted(() => {
     &.icon-mail {
       background: $gradient-warm;
       box-shadow: 0 6px 18px rgba(255, 181, 71, 0.32);
-    }
-    &.icon-apns {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      box-shadow: 0 6px 18px rgba(118, 75, 162, 0.32);
     }
   }
 
@@ -3645,26 +3303,4 @@ onUnmounted(() => {
   }
 }
 
-// ===== APNS 配置卡片 =====
-.apns-config-card {
-  .form-hint {
-    font-size: 12px;
-    color: var(--el-text-color-secondary);
-    line-height: 1.5;
-    margin-top: 4px;
-  }
-
-  .auth-key-hint {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-top: 8px;
-    padding: 6px 12px;
-    background: rgba(24, 194, 156, 0.1);
-    border: 1px solid rgba(24, 194, 156, 0.3);
-    border-radius: 6px;
-    font-size: 12px;
-    color: #18c29c;
-  }
-}
 </style>

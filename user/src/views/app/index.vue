@@ -9,7 +9,7 @@
               <div class="title">APP 下载</div>
             </div>
           </template>
-          <div v-if="info.download?.apk_download_url || info.download?.ipa_download_url" class="apps">
+          <div v-if="info.download?.apk_download_url" class="apps">
             <div v-if="info.download?.apk_download_url" class="app-card android">
               <div class="badge">Android</div>
               <div class="row">
@@ -26,19 +26,6 @@
                 <el-button type="success" @click="downloadApk">
                   <el-icon><Download /></el-icon> 下载 APK
                 </el-button>
-              </div>
-            </div>
-            <div v-if="info.download?.ipa_download_url" class="app-card ios">
-              <div class="badge ios">iOS</div>
-              <div class="row">
-                <div class="big-icon ios"><el-icon :size="34" color="#fff"><Iphone /></el-icon></div>
-                <div class="info">
-                  <div class="name">
-                    iOS App
-                    <el-tag v-if="info.download?.ipa_version" size="small" type="primary" effect="plain" style="margin-left:6px">v{{ info.download?.ipa_version }}</el-tag>
-                  </div>
-                  <div class="sub">需企业签名或自行编译</div>
-                </div>
               </div>
             </div>
           </div>
@@ -143,7 +130,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Cellphone, Iphone, Download, MagicStick, QuestionFilled } from '@element-plus/icons-vue'
+import { Cellphone, Download, MagicStick, QuestionFilled } from '@element-plus/icons-vue'
 import { getAppInfoApi, getAppDownloadQrApi, getHBuilderXTemplatesApi, generateHBuilderXApi } from '@/api/app'
 import type { HBuilderXTemplate } from '@/api/app'
 import { getToken } from '@/utils/auth'
@@ -262,13 +249,11 @@ onMounted(loadInfo)
   position: relative; padding: $space-5; border-radius: $radius-lg;
   background: linear-gradient(135deg, #f0fdf4, #ecfeff);
   border: 1px solid #bbf7d0;
-  &.ios { background: linear-gradient(135deg,#eff6ff,#eef2ff); border-color:#bfdbfe; }
 }
 .badge {
   position: absolute; top: 12px; right: 12px;
   font-size: $font-size-xs; padding: 2px 8px; border-radius: 999px;
   background: #22c55e; color: #fff;
-  &.ios { background: #0ea5e9; }
 }
 .row { display: flex; align-items: center; gap: $space-4; }
 .big-icon {
@@ -276,7 +261,6 @@ onMounted(loadInfo)
   background: linear-gradient(135deg,#22c55e,#16a34a);
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 8px 20px rgba(34,197,94,0.28);
-  &.ios { background: linear-gradient(135deg,#0ea5e9,#6366f1); box-shadow: 0 8px 20px rgba(14,165,233,0.28); }
 }
 .info { flex: 1; min-width: 0;
   .name { font-weight: 600; font-size: $font-size-lg; color: var(--text-primary); }

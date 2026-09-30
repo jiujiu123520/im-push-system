@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="login-page">
     <!-- 动态背景 -->
     <div class="bg-layer">
@@ -54,7 +54,7 @@
           <div class="feature-icon"><el-icon><MonitorIcon /></el-icon></div>
           <div>
             <div class="feature-name">全平台覆盖</div>
-            <div class="feature-sub">Android · iOS · Web · HarmonyOS</div>
+            <div class="feature-sub">Android · Web (PWA) · HarmonyOS</div>
           </div>
         </div>
       </div>
