@@ -516,50 +516,30 @@ class PushDispatcher
             $payload['data'] = $message['payload'];
         }
 
-        $this->logPush("[tryWebPush] 通过 Web Push 推送 device_id={$deviceId} msg_id={$msgId}");
+        $this->logPush("[tryWebPush] 通过 Web Push 推送（3秒聚合） device_id={$deviceId} msg_id={$msgId}");
 
-        $result = WebPushService::send($sub, $title, $content, $payload);
+        // 聚合：3 秒窗口内多条消息合并为 1 条推送
+        //   单条消息 → 3 秒后发送具体内容
+        //   多条消息 → 3 秒后发送「收到 N 条消息」，不显示具体内容
+        $aggResult = WebPushAggregator::add($deviceId, $title, $content, $payload);
 
-        if ($result['success']) {
-            $this->logPush("[tryWebPush] Web Push 推送成功 device_id={$deviceId} msg_id={$msgId}");
-            return [
-                'success_count'  => 1,
-                'fail_count'     => 0,
-                'stored_offline' => false,
-                'detail'         => [
-                    [
-                        'device_id' => $deviceId,
-                        'status'    => 'webpush_success',
-                        'message'   => 'Web Push 推送成功',
-                    ],
-                ],
-                'fail_detail' => [],
-                'fail_reason' => '',
-            ];
-        }
+        $this->logPush("[tryWebPush] 已聚合 device_id={$deviceId} msg_id={$msgId} count={$aggResult['count']}");
 
-        // 订阅已失效（网关返回 404/410），标记失效避免反复发送
-        if (!empty($result['expired'])) {
-            WebPushService::markSubscriptionInvalid((string)$sub['endpoint']);
-        }
-
-        $this->logPush("[tryWebPush] Web Push 推送失败 device_id={$deviceId} msg_id={$msgId} reason=" . $result['message']);
-        // 失败存离线兜底（设备重新打开 PWA 时可拉取）
-        $this->storeOfflineMessage($deviceId, $message);
-
+        // 聚合成功：消息已暂存，3 秒后由 Timer 触发 flush 发送（非失败）
         return [
             'success_count'  => 0,
-            'fail_count'     => 1,
+            'fail_count'     => 0,
             'stored_offline' => true,
             'detail'         => [
                 [
                     'device_id' => $deviceId,
-                    'status'    => 'webpush_failed',
-                    'message'   => 'Web Push 推送失败：' . $result['message'] . '（已存离线兜底）',
+                    'status'    => 'webpush_aggregated',
+                    'message'   => '已聚合（窗口内第 ' . $aggResult['count'] . ' 条），3 秒后汇总发送',
+                    'count'     => $aggResult['count'],
                 ],
             ],
-            'fail_detail' => [['target' => $deviceId, 'reason' => $result['message']]],
-            'fail_reason' => 'Web Push 推送失败：' . $result['message'],
+            'fail_detail' => [],
+            'fail_reason' => '',
         ];
     }
 
