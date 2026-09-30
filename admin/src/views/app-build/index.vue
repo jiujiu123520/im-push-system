@@ -12,7 +12,7 @@
           <h2 class="hero-title">
             <span class="title-gradient">APP 在线构建</span>
           </h2>
-          <p class="hero-sub">配置应用参数，一键生成 Android / iOS 安装包</p>
+          <p class="hero-sub">配置应用参数，一键生成 Android 安装包</p>
         </div>
         <!-- 步骤指示器 -->
         <div class="step-indicator">
@@ -399,18 +399,6 @@ cat ~/.ssh/github_actions_key</pre>
                 clearable
               />
             </el-form-item>
-            <el-form-item label="平台" prop="platform">
-              <el-radio-group v-model="form.platform" class="platform-radio">
-                <el-radio-button value="android">
-                  <el-icon><CellphoneIcon /></el-icon>
-                  Android
-                </el-radio-button>
-                <el-radio-button value="ios">
-                  <el-icon><MonitorIcon /></el-icon>
-                  iOS
-                </el-radio-button>
-              </el-radio-group>
-            </el-form-item>
             <el-form-item label="打包方式" prop="buildMethod">
               <el-radio-group v-model="form.buildMethod" class="platform-radio">
                 <el-radio-button value="github">
@@ -420,10 +408,6 @@ cat ~/.ssh/github_actions_key</pre>
                 <el-radio-button value="hbuilderx">
                   <el-icon><MagicStickIcon /></el-icon>
                   HBuilderX
-                </el-radio-button>
-                <el-radio-button value="ios_source">
-                  <el-icon><AppleIcon /></el-icon>
-                  iOS 源码
                 </el-radio-button>
                 <el-radio-button value="compose">
                   <el-icon><MagicStickIcon /></el-icon>
@@ -466,19 +450,6 @@ cat ~/.ssh/github_actions_key</pre>
                 </div>
               </div>
             </el-form-item>
-            <el-alert
-              v-if="form.buildMethod === 'ios_source'"
-              type="warning"
-              :closable="false"
-              show-icon
-              style="margin-top: 8px;"
-            >
-              <template #title>
-                <span style="font-size: 12px;">
-                  iOS IPA 必须在 macOS + Xcode 环境编译。点击下方"开始构建"会生成已注入配置的 iOS 源码 ZIP 包，下载后在 Mac 上用 Xcode 打开编译即可。
-                </span>
-              </template>
-            </el-alert>
             <el-alert
               v-if="form.buildMethod === 'compose'"
               type="success"
@@ -755,7 +726,6 @@ import {
   Coin as CoinIcon,
   Monitor as MonitorIcon,
   MagicStick as MagicStickIcon,
-  Apple as AppleIcon,
   Box as BoxIcon,
   Picture as PictureIcon,
   Brush as BrushIcon,
@@ -773,7 +743,6 @@ import {
   downloadBuildLogApi,
   getAppBuildConfigStatusApi,
   generateHBuilderXProjectApi,
-  generateIosSourceApi,
   getHBuilderXTemplatesApi,
   generateComposeSourceApi,
   getComposeTemplatesApi
@@ -792,9 +761,9 @@ interface BuildForm {
   websocketAddress: string
   appIcon: string
   version: string
-  platform: 'android' | 'ios'
+  platform: 'android'
   buildType: 'release' | 'debug'
-  buildMethod: 'github' | 'hbuilderx' | 'ios_source' | 'compose'
+  buildMethod: 'github' | 'hbuilderx' | 'compose'
   hbuilderxTemplate: string
 }
 
@@ -1195,28 +1164,6 @@ async function handleGenerate() {
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
       ElMessage.success('HBuilderX 项目包已生成，正在下载...')
-    } else if (form.buildMethod === 'ios_source') {
-      // iOS 源码打包方式：生成已注入配置的 Xcode 项目 ZIP
-      const res: any = await generateIosSourceApi({
-        app_name: form.name,
-        default_key: form.defaultKey,
-        server_url: form.serverAddress,
-        ws_url: form.websocketAddress,
-        package_name: form.packageName,
-        icon_base64: form.appIcon,
-        version: form.version,
-        apns_environment: 'development'
-      })
-      const blob = new Blob([res.data], { type: 'application/zip' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `${form.name || 'PushApp'}-ios-source.zip`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
-      ElMessage.success('iOS 源码包已生成，正在下载。请在 Mac 上用 Xcode 打开编译。')
     } else if (form.buildMethod === 'compose') {
       // uni-app 玻璃拟态：生成 HBuilderX 可导入的 ZIP
       if (!form.serverAddress || !form.websocketAddress) {

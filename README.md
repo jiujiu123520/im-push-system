@@ -1,18 +1,18 @@
 # IM Push System - 即时消息推送系统
 
-> 基于 PHP + Swoole 的实时消息推送平台，支持 WebSocket 长连接、iOS 双通道推送（APNs + PWA/Web Push）、Android 深度保活、敏感字段 AES 加密。
+> 基于 PHP + Swoole 的实时消息推送平台，支持 WebSocket 长连接、PWA/Web Push 推送（iOS/Edge/Chrome）、Android 深度保活、敏感字段 AES 加密。
 
 ## 系统架构
 
 ```
-┌─────────────┐  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐
-│  Android APP │  │  iOS APP    │  │  iOS/Edge    │  │   HTTP API   │
-│  (uni-app/   │  │  (原生Swift) │  │  PWA(主屏幕) │  │  (Swoole)    │
-│   Compose)   │  └──────┬──────┘  └──────┬───────┘  └──────┬──────┘
-└──────┬───────┘         │  APNs          │  Web Push       │
-       │  WebSocket      │  (离线推送)     │  (Apple/WNS/FCM)│
-       │  (前台/在线)     │                │                 │
-       └────────┬─────────┴────────────────┴─────────────────┘
+┌──────────────┐  ┌──────────────┐  ┌─────────────┐
+│  Android APP │  │  iOS / Edge  │  │   HTTP API  │
+│  (uni-app/   │  │  PWA(主屏幕)  │  │  (Swoole)   │
+│   Compose)   │  └──────┬───────┘  └──────┬──────┘
+└──────┬───────┘         │  Web Push       │
+       │  WebSocket      │  (Apple/WNS/FCM)│
+       │  (前台/在线)     │                 │
+       └────────┬────────┴─────────────────┘
                 │                    ┌───────────────────────┐
                 │                    │  Swoole HTTP/WS 双服务  │
                 │                    └───────────┬───────────┘
@@ -29,9 +29,7 @@
 
 * **实时推送** - WebSocket 长连接毫秒级送达，消息无字数限制
 
-* **iOS 双通道推送**
-  * **APNs** - 原生 iOS App 设备离线/被清理时自动切换 Apple 推送通道（Token-Based .p8，含熔断保护）
-  * **PWA + Web Push** - 无需安装原生 App，iOS 用户通过 Safari「添加到主屏幕」即可接收推送（VAPID + minishlink/web-push）
+* **PWA + Web Push 推送** - 无需安装原生 App，iOS/Edge/Chrome 用户通过浏览器「添加到主屏幕」即可接收推送（VAPID + minishlink/web-push）
 
 * **Web Push 聚合推送** - 同一设备 3 秒窗口内的多条消息合并为 1 条推送，多条时显示「收到 N 条消息」
 
@@ -69,7 +67,6 @@
 | 管理后台/用户端    | Vue3 + Element Plus + Vite + TypeScript         |
 | PWA 前端      | 原生 HTML/JS + Service Worker（iOS Safari 主屏幕）    |
 | Android APP | HBuilderX uni-app (Vue 3) / Compose 原生源码模板         |
-| iOS APP     | SwiftUI 原生源码模板                                  |
 
 ## 统一管理脚本
 
@@ -134,21 +131,13 @@ sudo bash deploy/setup.sh --uninstall=all --yes
 
 ## 推送通道配置
 
-### iOS APNs（原生 App）
-
-在管理后台「系统设置」中配置（存储于 `admin_settings` 表）：
-
-1. Apple Developer 生成 APNs AuthKey（`.p8`），上传至 `backend/config/apns/`
-2. 填写 Team ID、Key ID、Bundle ID，并启用 APNs
-3. 用 `backend/bin/apns_test.php` 自检（需 `sudo` 读取 `.env`，自动校验 HTTP/2 支持）
-
 ### Web Push（iOS/Edge/Chrome PWA）
 
 **开箱即用，无需手动配置**：
 
 1. 用户用 iOS Safari 打开部署后的 Web Push 页面（`/webpush/`），点击「添加到主屏幕」
 2. 输入推送 Key 并「启用推送」，完成订阅
-3. 后台按 Key 推送时，PWA 设备与原生 App 设备一并送达
+3. 后台按 Key 推送时，PWA 设备与 Android 原生 App 设备一并送达
 
 > VAPID 密钥对首次使用时自动生成，私钥经 AES 加密存储于 `admin_settings` 表。
 > iOS Safari 需 iOS 16.4+ 且「添加到主屏幕」后才能订阅；国内 Chrome 走 FCM 可能被墙，建议 iOS/Edge。
@@ -176,7 +165,6 @@ im-push-system/
 │   ├── hbuilderx/      # Android APP 源码（uni-app）
 │   └── queue/          # APK 云端构建队列（BuildQueue）
 ├── app/                # Android 原生源码模板（Compose）
-├── ios/                # iOS 原生源码模板（SwiftUI）
 ├── deploy/             # 唯一入口：setup.sh + 配置模板（nginx/systemd/sudoers/ssl/apk）
 ├── scripts/            # 辅助脚本（pre-push hook 等）
 └── .github/workflows/  # CI / 自动部署 / APK 云端构建
@@ -212,7 +200,6 @@ php bin/migrate_encrypt.php --apply         # 实际写入数据库
 | 管理后台 500         | `journalctl -u push-http -f` 查报错，检查 MySQL/Redis 连接、.env 权限 www-data:600                          |
 | 管理后台 404         | 前端未构建：setup.sh 菜单 \[3 更新] 或 `cd admin && npm ci && npm run build`                                |
 | SMTP 发送失败        | 检查授权码（非登录密码）；明文密码请跑 `migrate_encrypt.php --apply` 后 `systemctl restart push-http push-websocket` |
-| iOS 原生收不到推送     | 后台「系统设置」核对 APNS 四项配置与 `.p8` 路径，跑 `sudo php bin/apns_test.php` 自检                              |
 | iOS PWA 收不到推送    | 确认 iOS 16.4+ 且已「添加到主屏幕」；`/webpush/sw.js` 需带 `Service-Worker-Allowed` 响应头；检查后台订阅设备明细该设备是否为「Web Push 订阅」 |
 | Web Push 不弹通知     | 后端网关返回 200/201 仅代表投递成功，通知不弹多为系统「勿扰/专注」静默；Android 检查通知渠道是否被禁用                          |
 | 端口 9501/9502 占用  | `lsof -i :9501` 查进程，`systemctl restart` 自动清理；Swoole package\_max\_length 已设 250MB                |

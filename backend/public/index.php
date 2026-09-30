@@ -110,7 +110,6 @@ if ($runWs) {
         $router->get('/admin/app-build/generate-icon', [\App\Controller\AppBuildController::class, 'generateIcon']);
         $router->get('/admin/app-build/hbuilderx/templates', [\App\Controller\AppBuildController::class, 'hbuilderxTemplates']);
         $router->post('/admin/app-build/hbuilderx/generate', [\App\Controller\AppBuildController::class, 'generateHBuilderX']);
-        $router->post('/admin/app-build/ios/generate', [\App\Controller\AppBuildController::class, 'generateIosSource']);
         $router->get('/admin/app-build/compose/templates', [\App\Controller\AppBuildController::class, 'composeTemplates']);
         $router->post('/admin/app-build/compose/generate', [\App\Controller\AppBuildController::class, 'generateComposeSource']);
         $router->get('/admin/app-build/status/{build_id}', [\App\Controller\AppBuildController::class, 'status']);
