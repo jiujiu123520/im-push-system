@@ -836,8 +836,8 @@ function extendBaseTime(): Date {
   return new Date()
 }
 
-function openExtendDialog(row: ApiKeyRecord) {
-  currentKey.value = row
+function openExtendDialog(row: any) {
+  currentKey.value = row as ApiKeyRecord
   const base = extendBaseTime()
   base.setDate(base.getDate() + 30)
   extendForm.expiresAt = formatDate(base)
