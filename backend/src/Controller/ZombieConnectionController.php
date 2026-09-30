@@ -17,6 +17,10 @@ use App\Service\Response;
  *   DELETE /admin/zombie-connections/{fd}       删除单个僵尸连接
  *   DELETE /admin/zombie-subscriptions/{device_id} 删除单个僵尸订阅
  *   POST   /admin/zombie-connections/cleanup    一键清理（僵尸连接 + 僵尸订阅）
+ *
+ * 注意：处理器必须返回「裸数据数组」，由 HttpServer 统一包一层
+ * {code,message,data} 信封；改用 Response::success() 返回会被包两层，
+ * 前端 res.data.list 取不到值（历史遗留 Bug，导致列表恒为空）。
  */
 class ZombieConnectionController
 {
@@ -34,11 +38,11 @@ class ZombieConnectionController
         $cm = new ConnectionManager();
         $zombies = $cm->getZombieConnections($threshold);
 
-        return Response::success([
+        return [
             'list'      => $zombies,
             'total'     => count($zombies),
             'threshold' => $threshold,
-        ]);
+        ];
     }
 
     /**
@@ -57,10 +61,10 @@ class ZombieConnectionController
         $cm = new ConnectionManager();
         $list = $cm->getZombieSubscriptions();
 
-        return Response::success([
+        return [
             'list'  => $list,
             'total' => count($list),
-        ]);
+        ];
     }
 
     /**
@@ -82,10 +86,10 @@ class ZombieConnectionController
         $cm = new ConnectionManager();
         $result = $cm->removeZombieSubscription($deviceId);
 
-        return Response::success(
-            $result,
-            "已移除僵尸订阅 {$deviceId}（订阅集合 -{$result['redis_subscribe_rm']}，device:key -{$result['redis_device_key_rm']}）"
-        );
+        return array_merge($result, [
+            'removed' => true,
+            'message' => "已移除僵尸订阅 {$deviceId}（订阅集合 -{$result['redis_subscribe_rm']}，device:key -{$result['redis_device_key_rm']}）",
+        ]);
     }
 
     /**
@@ -101,10 +105,10 @@ class ZombieConnectionController
         $cm = new ConnectionManager();
         $connections = $cm->getAllConnections();
 
-        return Response::success([
+        return [
             'list'  => $connections,
             'total' => count($connections),
-        ]);
+        ];
     }
 
     /**
@@ -130,7 +134,10 @@ class ZombieConnectionController
             return false;
         }
 
-        return Response::success(null, '已移除僵尸连接 fd=' . $fd);
+        return [
+            'removed' => true,
+            'message' => '已移除僵尸连接 fd=' . $fd,
+        ];
     }
 
     /**
@@ -162,12 +169,13 @@ class ZombieConnectionController
             $subRemoved++;
         }
 
-        return Response::success([
+        return [
             'removed'               => $removedCount,
             'checked'               => count($zombies),
             'threshold'             => $threshold,
             'subscriptions_removed' => $subRemoved,
             'subscriptions_checked' => count($subscriptions),
-        ], "已清理 {$removedCount} 个僵尸连接、{$subRemoved} 个僵尸订阅");
+            'message'               => "已清理 {$removedCount} 个僵尸连接、{$subRemoved} 个僵尸订阅",
+        ];
     }
 }
