@@ -61,6 +61,11 @@ app/src/main/assets/build_config.json
 deploy/.installed
 deploy/.env
 
+# ---- ACME HTTP-01 challenge webroot (SslService::ACME_WEBROOT) ----
+# 运行时目录，sshd/acme.sh 写入。必须忽略，否则 update.sh 的 git clean -fd 会删掉它，
+# 导致证书续期时 challenge 文件无处落盘
+acme/
+
 # ---- 部署状态（断点续装进度、临时文件，不应被 git reset 删除）----
 .deploy/
 backend/storage/apk_uploads/
