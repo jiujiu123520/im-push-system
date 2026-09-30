@@ -370,16 +370,24 @@ class PushKeyController
             if ($fdCount <= 0) {
                 $fdCount = (int)$redis->sCard('ws:device:' . $deviceId);
             }
-            $isOnline = $fdCount > 0;
-            if ($isOnline) {
-                $onlineCount++;
-            }
 
             $inRedis        = isset($redisIds[$deviceId]);
             $inDb           = isset($dbIds[$deviceId]);
             $inDeviceKey    = isset($deviceKeyHashIds[$deviceId]);
             $inWsConn       = isset($wsConnIds[$deviceId]);
             $inWebPush      = isset($webPushIds[$deviceId]);
+
+            $isOnline = $fdCount > 0;
+            // PWA 设备：无 WebSocket 连接，用「订阅有效」表示在线（能收到推送）
+            if (!$isOnline && $inWebPush) {
+                $wpRow = $webPushInfo[$deviceId] ?? null;
+                if ($wpRow !== null && (int)($wpRow['status'] ?? 0) === 1) {
+                    $isOnline = true;
+                }
+            }
+            if ($isOnline) {
+                $onlineCount++;
+            }
 
             // 来源 tag：哪些映射来源认定它属于这个 Key
             $sources = [];
