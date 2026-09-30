@@ -25,11 +25,13 @@
       │         │  聚合窗口 / 订阅关系 / 计数    └──────────┘
       └────┬────┘
            │
-           ├──► Web Push 网关（Apple / Edge / Chrome）  → PWA 通知
-           └──► APNS（HTTP/2 + JWT + 熔断）             → 自建 iOS App
+           └──► Web Push 网关（Apple / Edge / Chrome）  → PWA 通知
 ```
 
-消息投递优先级：**在线走 WebSocket 直推 → 离线存 Redis 待上线补发 → PWA 设备走 Web Push → 自建 iOS App 走 APNS**。
+消息投递优先级：**在线走 WebSocket 直推 → 离线存 Redis 待上线补发 → PWA 设备走 Web Push**。
+
+> 代码中保留了一套 APNS 通道实现（`ApnsService` / `AlertAggregator` / `bin/apns_test.php`），
+> 但后台配置入口与 iOS 客户端模板已移除，当前未配置也未启用，不影响现有推送链路。
 
 ## 核心功能
 
@@ -38,7 +40,6 @@
 * **实时推送** — WebSocket 长连接毫秒级送达，消息正文无字数限制
 * **PWA + Web Push** — 免安装原生 App，iOS / Edge / Chrome「添加到主屏幕」即可收推送（VAPID RFC 8292 + 消息加密 RFC 8291）
 * **Web Push 聚合推送** — 同一设备 3 秒窗口内多条消息合并为 1 条，多条目时显示「收到 N 条消息」
-* **APNS 推送（可选）** — 面向自建 iOS App，HTTP/2 + JWT 鉴权，含连续失败熔断与 token 黑名单，防 APNS 封号
 * **离线消息补发** — 设备离线时消息落 Redis，上线后自动下发
 * **Key 订阅推送** — 一个 Key 可多设备订阅，支持单设备 / 多设备 / 按 Key 批量推送
 
@@ -75,7 +76,7 @@
 
 ### 管理后台
 
-仪表盘（在线趋势 / 今日推送 / Key 分布 / 设备平台 / 最近推送）、用户管理、Key 管理、设备管理、僵尸连接、推送记录（含详情 / 重推 / 导出 CSV·JSON）、测试推送、黑名单、管理员管理、登录日志、开放 API 管理、域名与 SSL、音频管理、用户公告、系统设置（邮件 / APNS / 路径 / 安全 / 用户端 APP）。
+仪表盘（在线趋势 / 今日推送 / Key 分布 / 设备平台 / 最近推送）、用户管理、Key 管理、设备管理、僵尸连接、推送记录（含详情 / 重推 / 导出 CSV·JSON）、测试推送、黑名单、管理员管理、登录日志、开放 API 管理、域名与 SSL、音频管理、用户公告、系统设置（邮件 / 路径 / 安全 / 用户端 APP）。
 
 ### 用户端控制台
 
@@ -83,7 +84,7 @@
 
 ### 安全
 
-* **敏感字段 AES-256-CBC 加密** — SMTP 密码、APNS 私钥、Web Push VAPID 私钥、飞鸡盘凭据等以 `ENC:` 前缀密文入库，附 `bin/migrate_encrypt.php` 迁移工具
+* **敏感字段 AES-256-CBC 加密** — SMTP 密码、Web Push VAPID 私钥、飞鸡盘凭据等以 `ENC:` 前缀密文入库，附 `bin/migrate_encrypt.php` 迁移工具
 * **JWT 鉴权** — 管理端与用户端两套独立身份体系
 * **管理后台路径混淆** — 后台入口路径可在系统设置中自定义（非固定 `/admin/`）
 * **登录失败次数限制** — Redis 计数，超限锁定（上限默认 5 次，30 分钟窗口，可在系统设置中调整）
@@ -96,7 +97,6 @@
 | --- | --- |
 | 后端 | PHP 8.2+ + Swoole（HTTP / WebSocket 双服务） |
 | Web Push | minishlink/web-push（VAPID RFC 8292 + 加密 RFC 8291） |
-| APNS | HTTP/2 + JWT（ES256），含熔断与 token 黑名单 |
 | 数据库 / 缓存 | MySQL 8.0 / Redis 7.x |
 | 反向代理 | Nginx（SSL 终止 + `/webpush/` 静态托管） |
 | 管理后台 / 用户端 | Vue 3 + Element Plus + Vite + TypeScript |
@@ -189,10 +189,6 @@ bash backend/deploy/update.sh --yes [--gh-proxy] [--skip-build] [--skip-migratio
 | POST | `/api/web-push/unsubscribe` | 取消订阅 |
 | POST | `/api/web-push/send-test` | 测试推送 |
 
-### APNS（自建 iOS App，可选）
-
-后台「系统设置 → APNS」配置 `.p8` 密钥 ID、Team ID、Bundle ID 后即可启用；提供配置自检、连通性测试、熔断状态查看与手动重置熔断。iOS 客户端需调用 `/api/device/register-token` 上报 device token。
-
 ## 开放 API
 
 | 方法 | 路径 | 鉴权 | 说明 |
@@ -268,9 +264,6 @@ sudo php bin/migrate_sql.php
 php bin/migrate_encrypt.php --status   # 仅检查
 php bin/migrate_encrypt.php            # 干跑预览
 php bin/migrate_encrypt.php --apply    # 实际写入
-
-# APNS 通道自检（需 sudo：.env 属主 www-data 600）
-sudo php bin/apns_test.php
 ```
 
 ## 故障排查
