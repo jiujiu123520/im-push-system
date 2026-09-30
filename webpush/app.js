@@ -10,6 +10,8 @@
   var CLAMP_LIMIT = 140;     // 正文超过该长度即折叠
   var TOMBSTONE_MAX = 500;   // 删除墓碑最多保留条数
   var SEARCH_DEBOUNCE = 180;
+  var FOREGROUND_SYNC_GAP = 5000;  // 两次同步的最短间隔，避免手动刷新与回前台重复触发
+  var lastSyncAt = 0;              // 上次发起同步的时间戳
 
   // IndexedDB config 键名（与 sw.js 共用同一套键）
   var CFG = {
@@ -286,6 +288,21 @@
     applyPendingHighlight();
   }
 
+  // 列表是在顶部插入新消息的，整页高度会向下增长。若用户已经往下滚在看旧消息，
+  // 直接重渲染会把他"顶走"。这里按内容高度差补回滚动偏移，保持视觉位置不变。
+  // 打开页面与回到前台都会自动拉取，若不补偿会明显打断阅读。
+  function renderKeepingScroll() {
+    var prevHeight = document.body.scrollHeight;
+    var prevY = window.scrollY;
+
+    render();
+
+    if (prevY > 0) {
+      var delta = document.body.scrollHeight - prevHeight;
+      if (delta !== 0) { window.scrollTo(0, prevY + delta); }
+    }
+  }
+
   // 通知里的 message_id 是业务字符串（如 msg_xxx / test_xxx），不是数据库自增 id，
   // 所以要先在本地归档里按 message_id 反查，找不到就留待下一轮 render（同步到之后自然会命中）
   function resolveHighlightId() {
@@ -362,6 +379,7 @@
   function syncLatest(silent) {
     if (state.loading || !getPushKey()) { return Promise.resolve(); }
     state.loading = true;
+    lastSyncAt = Date.now();
     renderFooter();
 
     return fetchMessages(0).then(function (res) {
@@ -382,13 +400,29 @@
       });
     }).then(function () {
       state.loading = false;
-      render();
+      renderKeepingScroll();
       if (!silent) { setStatus('消息已刷新'); }
     }).catch(function () {
       state.loading = false;
       renderFooter();
       if (!silent) { setStatus('刷新失败，请检查网络'); }
     });
+  }
+
+  // 拉取最新一页（PAGE_SIZE 条）。触发时机只有两个：打开页面、回到前台。
+  // 不做定时轮询：iOS 会冻结非前台页面的 JS，定时器在后台本就无效；
+  // 在前台则持续唤醒网络，收益与耗电不成正比。
+  function autoSync() {
+    if (document.visibilityState !== 'visible') { return; }
+    if (Date.now() - lastSyncAt < FOREGROUND_SYNC_GAP) { return; }
+    syncLatest(true);
+  }
+
+  // 回到前台：刷新订阅活跃时间 + 拉一次最新消息
+  function onForeground() {
+    if (document.visibilityState !== 'visible') { return; }
+    heartbeat();
+    autoSync();
   }
 
   // 上拉加载更早的一页
@@ -734,16 +768,8 @@
       io.observe(loadSentinel);
     }
 
-    // 回到前台：刷新活跃时间；若上一次同步已超过 60 秒则顺带拉一次最新消息
-    var lastSyncAt = 0;
-    document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState !== 'visible') { return; }
-      heartbeat();
-      if (Date.now() - lastSyncAt > 60000) {
-        lastSyncAt = Date.now();
-        syncLatest(true);
-      }
-    });
+    // 回到前台：刷新活跃时间 + 拉一次最新消息
+    document.addEventListener('visibilitychange', onForeground);
   }
 
   // ---------- 启动 ----------
