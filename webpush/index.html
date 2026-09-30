@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#4a90d9">
+  <meta name="theme-color" content="#4a90d9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1d4e7d" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -14,14 +15,31 @@
   <link rel="apple-touch-icon" href="/webpush/icon.svg">
   <style>
     :root {
+      /* 浅色主题 */
       --bg: #f2f3f7;
       --card: #ffffff;
+      --msg-bg: #f8f9fb;
+      --input-bg: #fafafa;
+      --input-bg-focus: #ffffff;
+      --ghost-bg: #eef1f6;
       --primary: #4a90d9;
       --primary-dark: #357abd;
+      /* 按钮底色与 --primary 分开：按钮上是白字，必须满足 4.5:1 对比度 */
+      --primary-btn: #357abd;
+      --danger: #c8432f;
       --text: #1c1c1e;
       --text-sub: #6b7280;
-      --danger: #e0533d;
+      --text-muted: #6b7280;
       --border: #e5e7eb;
+      --tip-bg: #fff7e6;
+      --tip-text: #8a6d1a;
+      --tip-border: #f0d79a;
+      --shadow: 0 1px 3px rgba(0, 0, 0, .06);
+      --app-bar-bg: linear-gradient(180deg, #4a90d9 0%, #357abd 100%);
+      --app-bar-border: transparent;
+      --highlight: rgba(74, 144, 217, .18);
+      color-scheme: light;
+
       /* 安全区：iPhone 14 Pro 及以后的「灵动岛」机型 safe-area-inset-top 约 59px，
          带刘海机型约 47px，普通机型 0。旧系统不支持 env() 时回退到合理值。 */
       --safe-top: env(safe-area-inset-top, 20px);
@@ -29,6 +47,36 @@
       --safe-bottom: env(safe-area-inset-bottom, 0px);
       --safe-left: env(safe-area-inset-left, 0px);
     }
+
+    /* 深色主题：所有前景/背景色成对覆盖，逐项做过对比度校验（正文 ≥ 7:1，次要文字 ≥ 4.5:1），
+       避免出现「深底深字」或「浅底浅字」这类看不清的冲突。 */
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #000000;
+        --card: #1c1c1e;
+        --msg-bg: #2c2c2e;
+        --input-bg: #2c2c2e;
+        --input-bg-focus: #3a3a3c;
+        --ghost-bg: #2c2c2e;
+        --primary: #4a9eff;        /* 用于链接/强调文字：对 #1c1c1e 约 6.2:1 */
+        --primary-dark: #3d8ae0;
+        --primary-btn: #0a6ed1;    /* 白字按钮底色：对白字约 5.0:1 */
+        --danger: #c8432f;         /* 白字按钮底色：对白字约 4.9:1 */
+        --text: #f2f2f7;           /* 正文：对 #1c1c1e 约 16:1 */
+        --text-sub: #a1a1aa;       /* 次要文字：对 #1c1c1e 约 7.4:1 */
+        --text-muted: #a0a0a8;     /* 时间戳：对 #2c2c2e 约 5.4:1 */
+        --border: #3a3a3c;
+        --tip-bg: #33280d;
+        --tip-text: #f0d79a;
+        --tip-border: #5c4a1a;
+        --shadow: none;
+        --app-bar-bg: linear-gradient(180deg, #1d4e7d 0%, #16395c 100%);
+        --app-bar-border: #000000;
+        --highlight: rgba(74, 158, 255, .22);
+        color-scheme: dark;
+      }
+    }
+
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body { margin: 0; padding: 0; }
     body {
@@ -46,7 +94,8 @@
       position: sticky;
       top: 0;
       z-index: 10;
-      background: linear-gradient(180deg, #4a90d9 0%, #357abd 100%);
+      background: var(--app-bar-bg);
+      border-bottom: 1px solid var(--app-bar-border);
       padding: calc(var(--safe-top) + 10px) max(16px, var(--safe-right)) 14px max(16px, var(--safe-left));
     }
     .app-bar-inner { max-width: 560px; margin: 0 auto; }
@@ -59,42 +108,71 @@
       padding: 16px max(16px, var(--safe-right)) calc(16px + var(--safe-bottom)) max(16px, var(--safe-left));
     }
     .tip {
-      background: #fff7e6; color: #8a6d1a; border: 1px solid #f0d79a;
+      background: var(--tip-bg); color: var(--tip-text); border: 1px solid var(--tip-border);
       border-radius: 10px; padding: 12px; font-size: 13px; line-height: 1.5; margin-bottom: 12px;
     }
     .card {
       background: var(--card); border-radius: 14px; padding: 16px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 12px;
+      box-shadow: var(--shadow); margin-bottom: 12px;
     }
     .device-id { font-size: 12px; color: var(--text-sub); word-break: break-all; margin-bottom: 12px; text-align: center; }
     label { display: block; font-size: 13px; color: var(--text-sub); margin-bottom: 6px; }
-    input[type="text"] {
+    input[type="text"], input[type="search"] {
       width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 10px;
-      font-size: 15px; outline: none; background: #fafafa;
+      font-size: 15px; outline: none; background: var(--input-bg); color: var(--text);
+      -webkit-appearance: none; appearance: none;
     }
-    input[type="text"]:focus { border-color: var(--primary); background: #fff; }
+    input[type="text"]:focus, input[type="search"]:focus { border-color: var(--primary); background: var(--input-bg-focus); }
+    input::placeholder { color: var(--text-sub); opacity: 1; }
     button {
       border: none; border-radius: 10px; padding: 13px 16px; font-size: 15px;
       cursor: pointer; transition: opacity .15s; width: 100%;
     }
     button:active { opacity: .7; }
     button:disabled { opacity: .45; cursor: not-allowed; }
-    .btn-primary { background: var(--primary); color: #fff; }
-    .btn-ghost { background: #eef1f6; color: var(--text); }
+    .btn-primary { background: var(--primary-btn); color: #fff; }
+    .btn-ghost { background: var(--ghost-bg); color: var(--text); }
     .btn-danger { background: var(--danger); color: #fff; }
     .btn-row { display: flex; gap: 10px; }
     .btn-row button { flex: 1; }
     .mt { margin-top: 10px; }
     .status { font-size: 13px; color: var(--text-sub); text-align: center; margin: 10px 0; min-height: 18px; word-break: break-all; }
-    .section-title { font-size: 15px; font-weight: 600; margin: 0 0 10px; }
+    .section-title { font-size: 15px; font-weight: 600; margin: 0; color: var(--text); }
+
+    .msg-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .link-btn {
+      width: auto; background: none; border: none; padding: 4px 6px;
+      color: var(--primary); font-size: 14px; line-height: 1.2;
+    }
+    .link-btn:active { opacity: .6; }
+    .search-wrap { margin-bottom: 10px; }
+    #search-input { padding: 10px 12px; font-size: 14px; }
+
     .message-list { display: flex; flex-direction: column; gap: 10px; }
     .message-item {
-      background: #f8f9fb; border-radius: 10px; padding: 12px; border-left: 3px solid var(--primary);
+      background: var(--msg-bg); border-radius: 10px; padding: 12px;
+      border-left: 3px solid var(--primary); transition: background .3s;
     }
-    .message-title { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
-    .message-content { font-size: 13px; color: var(--text); word-break: break-word; }
-    .message-time { font-size: 11px; color: #9ca3af; margin-top: 6px; }
-    .empty { text-align: center; color: #9ca3af; font-size: 13px; padding: 24px 0; }
+    .message-item.highlight { background: var(--highlight); }
+    .message-head { display: flex; align-items: flex-start; gap: 8px; }
+    .message-title { flex: 1; font-size: 14px; font-weight: 600; margin-bottom: 4px; color: var(--text); word-break: break-word; }
+    .message-del {
+      flex: none; width: 26px; height: 26px; padding: 0; border-radius: 50%;
+      background: none; color: var(--text-sub); font-size: 18px; line-height: 1;
+    }
+    .message-del:active { opacity: .5; }
+    .message-content { font-size: 13px; color: var(--text); word-break: break-word; white-space: pre-wrap; line-height: 1.45; }
+    /* 长文折叠：超过 3 行截断，点「展开」看全文 */
+    .message-content.clamped {
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .message-toggle { margin-top: 2px; padding: 2px 0; font-size: 13px; }
+    .message-time { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+    .empty { text-align: center; color: var(--text-sub); font-size: 13px; padding: 24px 0; }
+    .list-footer { margin-top: 12px; text-align: center; }
+    .list-footer button { width: auto; padding: 9px 22px; font-size: 14px; }
+    .foot-text { font-size: 12px; color: var(--text-sub); }
+    .sentinel { height: 1px; }
   </style>
 </head>
 <body>
@@ -109,6 +187,7 @@
     <div id="ios-tip" class="tip" style="display:none">
       检测到 iOS 设备：请先通过 Safari 分享菜单选择「添加到主屏幕」，再从主屏幕图标打开本页，即可启用推送通知。
     </div>
+    <div id="sub-warn" class="tip" style="display:none"></div>
 
     <div class="device-id">设备ID：<span id="device-id"></span></div>
 
@@ -128,10 +207,20 @@
     </div>
 
     <div class="card">
-      <div class="section-title">消息列表</div>
+      <div class="msg-header">
+        <div class="section-title">消息列表</div>
+        <button id="clear-btn" class="link-btn">清空</button>
+      </div>
+      <div class="search-wrap">
+        <input id="search-input" type="text" inputmode="search" enterkeyhint="search"
+               placeholder="搜索标题或内容" autocomplete="off">
+      </div>
       <div id="message-list" class="message-list"><div class="empty">暂无消息</div></div>
+      <div id="list-footer" class="list-footer"></div>
+      <div id="load-sentinel" class="sentinel"></div>
     </div>
   </div>
+  <script src="/webpush/shared.js"></script>
   <script src="/webpush/app.js"></script>
 </body>
 </html>
