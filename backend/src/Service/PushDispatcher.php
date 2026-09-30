@@ -577,6 +577,14 @@ class PushDispatcher
         try {
             $messageId = (string)($message['message_id'] ?? '');
             $pushKeyId = (int)($message['push_key_id'] ?? 0);
+
+            // 设备维度推送（如管理后台按设备 ID 测试推送）调用方拿不到 Key，会漏传
+            // push_key_id，而该字段正是 /api/device/messages 的归属过滤条件，写 0 会让
+            // 这条消息在客户端列表里永远查不到。这里按设备反查补全。
+            if ($pushKeyId <= 0) {
+                $pushKeyId = $this->resolvePushKeyId($deviceId);
+            }
+
             $title     = (string)($message['title'] ?? '');
             $content   = (string)($message['content'] ?? '');
             $payload   = isset($message['payload']) && is_array($message['payload'])
@@ -594,6 +602,37 @@ class PushDispatcher
             // 常见原因：数据库连接断开、Packets out of order、表不存在、字段超长
             $this->logPush("[storeMessage] 持久化失败 device_id={$deviceId} msg_id=" . ($message['message_id'] ?? '') . " err=" . $e->getMessage());
         }
+    }
+
+    /**
+     * 按设备反查其归属的推送 Key ID
+     *
+     * 仅用于消息体里没带 push_key_id 的场景（设备维度推送）。优先取仍有效的记录：
+     * 实时连接的设备在 devices 表，PWA 设备在 web_push_subscriptions 表。
+     *
+     * @param string $deviceId 设备ID
+     * @return int 查不到时返回 0
+     */
+    private function resolvePushKeyId(string $deviceId): int
+    {
+        $tables = ['devices', 'web_push_subscriptions'];
+        foreach ($tables as $table) {
+            try {
+                $row = Database::fetch(
+                    "SELECT push_key_id FROM {$table}
+                     WHERE device_id = ? AND push_key_id > 0
+                     ORDER BY id DESC LIMIT 1",
+                    [$deviceId]
+                );
+                if ($row && (int)$row['push_key_id'] > 0) {
+                    return (int)$row['push_key_id'];
+                }
+            } catch (\Throwable $e) {
+                $this->logPush("[resolvePushKeyId] 查询 {$table} 失败 device_id={$deviceId} err=" . $e->getMessage());
+            }
+        }
+
+        return 0;
     }
 
     /**
