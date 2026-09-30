@@ -288,16 +288,19 @@ class DashboardController
      * GET /admin/dashboard/device-platform
      * 设备平台分布
      *
-     * 说明：devices 表没有 platform 字段，通过 device_model / os_version
-     *       关键词粗略判断平台（Android/iOS/Web/其他）。
-     *       如需精确统计，建议在 devices 表新增 platform 字段。
+     * 数据来源 = 原生 App 设备（devices 表）+ PWA / Web Push 设备（web_push_subscriptions 表）。
+     * PWA 设备不写 devices 表，只统计 devices 会漏掉 iPhone / iPad 这类 Web Push 设备，
+     * 导致仪表盘上永远看不到 iOS。同一 device_id 同时存在于两张表时以 devices 表为准，
+     * 避免重复计数。
+     *
+     * 平台优先取 platform 列（android/ios/web/harmony/edge/chrome），
+     * 存量设备该列为空时退回 os_version / ua 关键词粗略判断。
      *
      * 返回：
      *   {
      *     "data": [
-     *       { "name": "Android", "value": 1200 },
-     *       { "name": "iOS", "value": 800 },
-     *       ...
+     *       { "name": "Android", "value": 1 },
+     *       { "name": "iOS", "value": 2 }
      *     ]
      *   }
      */
@@ -308,50 +311,107 @@ class DashboardController
             return false;
         }
 
-        // 统计总设备数
-        $totalRow = Database::fetch("SELECT COUNT(*) as cnt FROM devices");
-        $total = (int)($totalRow['cnt'] ?? 0);
-
-        // 粗略按 os_version 关键词估算
-        // Android: 包含 Android
-        $androidRow = Database::fetch(
-            "SELECT COUNT(*) as cnt FROM devices WHERE os_version LIKE '%Android%'"
+        // 1) 按 platform 列分组（NOT EXISTS 保证同一 device_id 不重复计数）
+        $rows = Database::fetchAll(
+            "SELECT t.platform AS platform, COUNT(*) AS cnt FROM (
+                 SELECT COALESCE(d.platform, '') AS platform
+                 FROM devices d
+                 UNION ALL
+                 SELECT COALESCE(w.platform, '') AS platform
+                 FROM web_push_subscriptions w
+                 WHERE NOT EXISTS (SELECT 1 FROM devices d2 WHERE d2.device_id = w.device_id)
+             ) t
+             WHERE t.platform <> ''
+             GROUP BY t.platform"
         );
-        $android = (int)($androidRow['cnt'] ?? 0);
 
-        // iOS: 包含 iOS 或 iPhone 或 iPad
-        $iosRow = Database::fetch(
-            "SELECT COUNT(*) as cnt FROM devices
-             WHERE os_version LIKE '%iOS%' OR os_version LIKE '%iPhone%' OR os_version LIKE '%iPad%'"
-        );
-        $ios = (int)($iosRow['cnt'] ?? 0);
-
-        // Web: UA 包含 Mozilla/WebKit 等浏览器特征（从 ua 字段判断）
-        $webRow = Database::fetch(
-            "SELECT COUNT(*) as cnt FROM devices
-             WHERE ua LIKE '%Mozilla%' AND ua LIKE '%WebKit%'
-             AND os_version NOT LIKE '%Android%'
-             AND os_version NOT LIKE '%iOS%'"
-        );
-        $web = (int)($webRow['cnt'] ?? 0);
-
-        // 其他
-        $other = max(0, $total - $android - $ios - $web);
-
-        $data = [];
-        if ($android > 0) $data[] = ['name' => 'Android', 'value' => $android];
-        if ($ios > 0)     $data[] = ['name' => 'iOS', 'value' => $ios];
-        if ($web > 0)     $data[] = ['name' => 'Web', 'value' => $web];
-        if ($other > 0)   $data[] = ['name' => '其他', 'value' => $other];
-
-        if (empty($data)) {
-            $data = [
-                ['name' => 'Android', 'value' => 0],
-                ['name' => 'iOS', 'value' => 0],
-            ];
+        $counts = [];
+        foreach ($rows as $row) {
+            $name = self::platformDisplayName((string)$row['platform']);
+            $counts[$name] = ($counts[$name] ?? 0) + (int)$row['cnt'];
         }
 
+        // 2) 存量设备 platform 为空时，用 os_version / ua 关键词兜底判断
+        //    （platform 列由 migration 012 引入，此前的老设备该列为空）
+        $legacyRows = Database::fetchAll(
+            "SELECT t.os_version AS os_version, t.ua AS ua FROM (
+                 SELECT COALESCE(d.platform, '') AS platform,
+                        COALESCE(d.os_version, '') AS os_version,
+                        COALESCE(d.ua, '') AS ua
+                 FROM devices d
+                 UNION ALL
+                 SELECT COALESCE(w.platform, '') AS platform,
+                        COALESCE(w.os_version, '') AS os_version,
+                        COALESCE(w.user_agent, '') AS ua
+                 FROM web_push_subscriptions w
+                 WHERE NOT EXISTS (SELECT 1 FROM devices d2 WHERE d2.device_id = w.device_id)
+             ) t
+             WHERE t.platform = ''"
+        );
+
+        foreach ($legacyRows as $row) {
+            $name = self::platformNameFromHint((string)$row['os_version'] . ' ' . (string)$row['ua']);
+            $counts[$name] = ($counts[$name] ?? 0) + 1;
+        }
+
+        // 3) 按数量降序输出（不再硬编码兜底项：没有数据就返回空，避免凭空出现 iOS 图例）
+        $data = [];
+        foreach ($counts as $name => $value) {
+            if ($value > 0) {
+                $data[] = ['name' => $name, 'value' => $value];
+            }
+        }
+        usort($data, fn($a, $b) => $b['value'] <=> $a['value']);
+
         return ['data' => $data];
+    }
+
+    /**
+     * platform 列取值 → 展示名
+     *
+     * @param string $platform devices.platform / web_push_subscriptions.platform
+     * @return string
+     */
+    private static function platformDisplayName(string $platform): string
+    {
+        $map = [
+            'android'  => 'Android',
+            'ios'      => 'iOS',
+            'harmony'  => 'HarmonyOS',
+            'harmonyos'=> 'HarmonyOS',
+            'web'      => 'Web',
+            'edge'      => 'Edge',
+            'chrome'   => 'Chrome',
+        ];
+        $key = strtolower(trim($platform));
+        return $map[$key] ?? '其他';
+    }
+
+    /**
+     * platform 列为空时的兜底判断：用 os_version / ua 关键词粗略识别平台
+     *
+     * @param string $hint os_version + ua 拼接串
+     * @return string
+     */
+    private static function platformNameFromHint(string $hint): string
+    {
+        $h = strtolower($hint);
+        if ($h === ' ' || trim($h) === '') {
+            return '其他';
+        }
+        if (str_contains($h, 'ios') || str_contains($h, 'iphone') || str_contains($h, 'ipad')) {
+            return 'iOS';
+        }
+        if (str_contains($h, 'android')) {
+            return 'Android';
+        }
+        if (str_contains($h, 'harmony') || str_contains($h, 'openharmony')) {
+            return 'HarmonyOS';
+        }
+        if (str_contains($h, 'mozilla') || str_contains($h, 'webkit')) {
+            return 'Web';
+        }
+        return '其他';
     }
 
     /**

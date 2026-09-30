@@ -461,11 +461,15 @@ const keyDistOption = computed(() => ({
 }))
 
 // 设备平台分布颜色映射
+// 原生 App 取 devices.platform（android/ios/harmony），
+// PWA 取 web_push_subscriptions.platform（ios/edge/chrome），故两套取值都要覆盖
 const platformColors: Record<string, string> = {
   'Android': '#6d5cff',
   'iOS': '#5cb8ff',
   'Web': '#18c29c',
   'HarmonyOS': '#ffb547',
+  'Edge': '#0aa5c4',
+  'Chrome': '#f0a020',
   '其他': '#909399'
 }
 
