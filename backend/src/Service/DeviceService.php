@@ -133,54 +133,107 @@ class DeviceService
         $perPage = self::PER_PAGE;
         $offset  = ($page - 1) * $perPage;
 
-        // 构造 WHERE 条件
-        $where  = ' WHERE 1=1';
-        $params = [];
+        // 构造 WHERE 条件（devices 表用 d 别名，web_push_subscriptions 表用 w 别名）
+        $devWhere  = ' WHERE 1=1';
+        $devParams = [];
+        $wpWhere   = ' WHERE 1=1';
+        $wpParams  = [];
 
         if ($keyword !== '') {
-            $where .= ' AND (device_id LIKE ? OR device_name LIKE ? OR device_model LIKE ? OR ip LIKE ?)';
             $kw = "%{$keyword}%";
-            array_push($params, $kw, $kw, $kw, $kw);
+            $devWhere .= ' AND (d.device_id LIKE ? OR d.device_name LIKE ? OR d.device_model LIKE ? OR d.ip LIKE ?)';
+            array_push($devParams, $kw, $kw, $kw, $kw);
+            $wpWhere .= ' AND (w.device_id LIKE ? OR w.device_name LIKE ? OR w.device_model LIKE ? OR w.ip LIKE ?)';
+            array_push($wpParams, $kw, $kw, $kw, $kw);
         }
 
         // 平台筛选
         $platform = (string)($filters['platform'] ?? '');
         if ($platform !== '') {
-            $where .= ' AND platform = ?';
-            $params[] = $platform;
+            $devWhere .= ' AND d.platform = ?';
+            $devParams[] = $platform;
+            $wpWhere .= ' AND w.platform = ?';
+            $wpParams[] = $platform;
         }
 
-        // 状态筛选（1=启用 2=禁用）
+        // 状态筛选（1=启用 2=禁用）；web_push_subscriptions 用 1=有效 0=失效 表示
         $statusFilter = (int)($filters['status'] ?? 0);
         if ($statusFilter > 0) {
-            $where .= ' AND status = ?';
-            $params[] = $statusFilter;
+            $devWhere .= ' AND d.status = ?';
+            $devParams[] = $statusFilter;
+            $wpWhere .= ' AND w.status = ?';
+            $wpParams[] = $statusFilter === 2 ? 0 : 1;
         }
 
-        $devices = Database::fetchAll(
-            "SELECT * FROM devices{$where} ORDER BY last_connect_at DESC, id DESC LIMIT {$perPage} OFFSET {$offset}",
-            $params
-        );
+        // 合并两表：原生 App 设备（devices）+ PWA/Web Push 设备（web_push_subscriptions）
+        // source：app=原生 App，web_push=PWA 浏览器订阅设备
+        $unionSql = "
+            SELECT * FROM (
+                SELECT d.id AS id, d.device_id AS device_id, d.push_key_id AS push_key_id,
+                       d.user_id AS user_id, d.device_name AS device_name, d.device_model AS device_model,
+                       d.os_version AS os_version, d.platform AS platform, d.app_version AS app_version,
+                       d.ip AS ip, d.status AS status, d.last_connect_at AS last_connect_at,
+                       d.last_active_at AS last_active_at, 'app' AS source, 0 AS sub_id
+                FROM devices d
+                {$devWhere}
+                UNION ALL
+                SELECT 0 AS id, w.device_id AS device_id, w.push_key_id AS push_key_id,
+                       0 AS user_id, w.device_name AS device_name, w.device_model AS device_model,
+                       w.os_version AS os_version, w.platform AS platform, w.app_version AS app_version,
+                       w.ip AS ip,
+                       CASE WHEN w.status = 1 THEN 1 ELSE 2 END AS status,
+                       w.updated_at AS last_connect_at, w.last_active_at AS last_active_at,
+                       'web_push' AS source, w.id AS sub_id
+                FROM web_push_subscriptions w
+                {$wpWhere}
+                  AND NOT EXISTS (SELECT 1 FROM devices d2 WHERE d2.device_id = w.device_id)
+            ) t
+            ORDER BY t.last_active_at DESC, t.id DESC
+            LIMIT {$perPage} OFFSET {$offset}
+        ";
 
-        $total = (int)(Database::fetch("SELECT COUNT(*) AS total FROM devices{$where}", $params)['total'] ?? 0);
+        $countSql = "
+            SELECT COUNT(*) AS total FROM (
+                SELECT d.device_id AS device_id FROM devices d {$devWhere}
+                UNION ALL
+                SELECT w.device_id AS device_id FROM web_push_subscriptions w {$wpWhere}
+                  AND NOT EXISTS (SELECT 1 FROM devices d2 WHERE d2.device_id = w.device_id)
+            ) t
+        ";
+
+        $params = array_merge($devParams, $wpParams);
+
+        $devices = Database::fetchAll($unionSql, $params);
+        $total   = (int)(Database::fetch($countSql, $params)['total'] ?? 0);
 
         // 查询 Redis 获取在线设备集合，补充 online 字段
         $redis = Redis::getInstance();
         foreach ($devices as &$row) {
             $deviceId = (string)$row['device_id'];
-            // ws:device:{deviceId} 是 SET，存储该设备所有在线 fd
-            $fdCount = $redis->sCard('ws:device:' . $deviceId);
-            $row['online'] = ($fdCount !== false && (int)$fdCount > 0) ? 1 : 0;
+            $isWebPush = (string)($row['source'] ?? 'app') === 'web_push';
+
+            if ($isWebPush) {
+                // PWA 设备无 WebSocket 长连接，用「订阅有效」表示在线（能收到推送）
+                $row['online'] = (int)$row['status'] === 1 ? 1 : 0;
+            } else {
+                // ws:device:{deviceId} 是 SET，存储该设备所有在线 fd
+                $fdCount = $redis->sCard('ws:device:' . $deviceId);
+                $row['online'] = ($fdCount !== false && (int)$fdCount > 0) ? 1 : 0;
+            }
+
             // 字段映射：device_model -> model（前端使用 model 字段）
             $row['model'] = (string)$row['device_model'];
+            // 标记是否为 Web Push 订阅设备，供前端区分展示与操作
+            $row['in_web_push'] = $isWebPush ? 1 : 0;
         }
         unset($row);
 
-        // 在线状态筛选（需要在 PHP 层过滤，因为 online 来自 Redis）
+        // 在线状态筛选（1=在线 2=离线）；online 来自 Redis，需在 PHP 层过滤
         $onlineFilter = (int)($filters['online'] ?? 0);
-        if ($onlineFilter > 0) {
-            $devices = array_values(array_filter($devices, function ($row) use ($onlineFilter) {
-                return (int)$row['online'] === $onlineFilter;
+        if ($onlineFilter === 1 || $onlineFilter === 2) {
+            $expect = $onlineFilter === 1 ? 1 : 0;
+            $devices = array_values(array_filter($devices, function ($row) use ($expect) {
+                return (int)$row['online'] === $expect;
             }));
             // 在线筛选后总数需要重新计算
             $total = count($devices);
@@ -298,6 +351,75 @@ class DeviceService
         $this->notifyDisconnectDevice((string)$device['device_id']);
 
         Database::execute('DELETE FROM devices WHERE id = ?', [$id]);
+        return true;
+    }
+
+    /**
+     * 切换 Web Push（PWA）订阅设备状态（禁用/启用）
+     *
+     * PWA 设备不在 devices 表，status 存于 web_push_subscriptions：
+     *   1=有效（启用，可接收推送） 0=失效（禁用）
+     *
+     * @param string $deviceId 设备唯一标识
+     * @return array|null 切换后的状态，null 表示设备不存在
+     */
+    public function toggleWebPushStatus(string $deviceId): ?array
+    {
+        $rows = Database::fetchAll(
+            'SELECT id, status FROM web_push_subscriptions WHERE device_id = ?',
+            [$deviceId]
+        );
+        if (empty($rows)) {
+            return null;
+        }
+
+        $current   = (int)$rows[0]['status'] === 1 ? 1 : 2;
+        $newStatus = $current === 2 ? 1 : 2;
+
+        Database::execute(
+            'UPDATE web_push_subscriptions SET status = ?, updated_at = NOW() WHERE device_id = ?',
+            [$newStatus === 2 ? 0 : 1, $deviceId]
+        );
+
+        return ['device_id' => $deviceId, 'status' => $newStatus];
+    }
+
+    /**
+     * 删除 Web Push（PWA）订阅设备
+     *
+     * 删除订阅记录，并清理 Redis 订阅关系（key:subscribe / device:key），
+     * 避免订阅设备明细里留下僵尸订阅。
+     *
+     * @param string $deviceId 设备唯一标识
+     * @return bool true 删除成功，false 设备不存在
+     */
+    public function deleteWebPushDevice(string $deviceId): bool
+    {
+        $rows = Database::fetchAll(
+            'SELECT push_key_id FROM web_push_subscriptions WHERE device_id = ?',
+            [$deviceId]
+        );
+        if (empty($rows)) {
+            return false;
+        }
+
+        try {
+            $redis = Redis::getInstance();
+            $redis->hDel('device:key', $deviceId);
+            foreach ($rows as $row) {
+                $keyRow = Database::fetch(
+                    'SELECT key_value FROM push_keys WHERE id = ? LIMIT 1',
+                    [(int)$row['push_key_id']]
+                );
+                if ($keyRow !== false && (string)$keyRow['key_value'] !== '') {
+                    $redis->sRem('key:subscribe:' . $keyRow['key_value'], $deviceId);
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('[DeviceService] 清理 Web Push 订阅关系失败: ' . $e->getMessage());
+        }
+
+        Database::execute('DELETE FROM web_push_subscriptions WHERE device_id = ?', [$deviceId]);
         return true;
     }
 

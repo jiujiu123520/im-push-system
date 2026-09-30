@@ -284,6 +284,9 @@ $router->put('/admin/keys/{id}/subscribers/{device_id}/repair', [\App\Controller
         // ============================================================
         $router->get('/admin/devices',                  [\App\Controller\DeviceController::class, 'index']);
         $router->get('/admin/devices/by-key',           [\App\Controller\DeviceController::class, 'getByKey']);
+        // Web Push（PWA）订阅设备：不在 devices 表，按 device_id 操作
+        $router->put('/admin/devices/web-push/{device_id}/status', [\App\Controller\DeviceController::class, 'toggleWebPushStatus']);
+        $router->delete('/admin/devices/web-push/{device_id}',     [\App\Controller\DeviceController::class, 'destroyWebPush']);
         $router->get('/admin/devices/{id}',             [\App\Controller\DeviceController::class, 'show']);
         $router->put('/admin/devices/{id}/status',      [\App\Controller\DeviceController::class, 'toggleStatus']);
         $router->post('/admin/devices/{id}/kick',       [\App\Controller\DeviceController::class, 'kick']);

@@ -39,6 +39,16 @@ export function toggleDeviceStatusApi(id: number, status: number) {
   return put(`/admin/devices/${id}/status`, { status })
 }
 
+// 切换 Web Push（PWA）设备状态
+export function toggleWebPushDeviceStatusApi(deviceId: string, status: number) {
+  return put(`/admin/devices/web-push/${encodeURIComponent(deviceId)}/status`, { status })
+}
+
+// 删除 Web Push（PWA）设备
+export function deleteWebPushDeviceApi(deviceId: string) {
+  return del(`/admin/devices/web-push/${encodeURIComponent(deviceId)}`)
+}
+
 // 强制断开设备连接（踢出）
 export function kickDeviceApi(id: number) {
   return post<{ id: number; kicked: number; message: string }>(`/admin/devices/${id}/kick`)

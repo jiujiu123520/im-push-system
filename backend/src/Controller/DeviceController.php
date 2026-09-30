@@ -159,6 +159,73 @@ class DeviceController
     }
 
     /**
+     * 切换 Web Push（PWA）订阅设备状态（禁用/启用）
+     * 路由：PUT /admin/devices/web-push/{device_id}/status
+     *
+     * PWA 设备不在 devices 表，状态存于 web_push_subscriptions。
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function toggleWebPushStatus(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $deviceId = (string)($params['device_id'] ?? '');
+        if ($deviceId === '') {
+            Response::fail($context['response'], '参数错误：缺少设备 ID', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        $service = new DeviceService();
+        $result = $service->toggleWebPushStatus($deviceId);
+        if ($result === null) {
+            Response::fail($context['response'], '设备不存在', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+
+        return [
+            'device_id' => $deviceId,
+            'status'    => (int)$result['status'],
+            'message'   => (int)$result['status'] === 2 ? '设备已禁用' : '设备已启用'
+        ];
+    }
+
+    /**
+     * 删除 Web Push（PWA）订阅设备
+     * 路由：DELETE /admin/devices/web-push/{device_id}
+     *
+     * @param array $context
+     * @param array $params
+     * @return array|false
+     */
+    public function destroyWebPush(array $context, array $params)
+    {
+        $admin = AdminAuth::authenticate($context);
+        if ($admin === null) {
+            return false;
+        }
+
+        $deviceId = (string)($params['device_id'] ?? '');
+        if ($deviceId === '') {
+            Response::fail($context['response'], '参数错误：缺少设备 ID', Response::CODE_BAD_REQUEST, 400);
+            return false;
+        }
+
+        $service = new DeviceService();
+        if (!$service->deleteWebPushDevice($deviceId)) {
+            Response::fail($context['response'], '设备不存在', Response::CODE_NOT_FOUND, 404);
+            return false;
+        }
+
+        return ['device_id' => $deviceId, 'message' => '删除成功'];
+    }
+
+    /**
      * 按 Key 值查询设备列表（含在线状态）
      * 路由：GET /admin/devices/by-key?key=xxx
      *

@@ -72,6 +72,8 @@
         <el-option label="iOS" value="ios" />
         <el-option label="Web" value="web" />
         <el-option label="HarmonyOS" value="harmony" />
+        <el-option label="Edge" value="edge" />
+        <el-option label="Chrome" value="chrome" />
       </el-select>
       <!-- 设备模块：在线状态筛选 -->
       <el-select
@@ -94,7 +96,7 @@
         </template>
         <template v-else>
           <el-option label="启用" :value="1" />
-          <el-option label="禁用" :value="0" />
+          <el-option label="禁用" :value="2" />
         </template>
       </el-select>
       <!-- 推送记录：目标类型筛选 -->
@@ -227,6 +229,11 @@
           <template v-else-if="col.slot === 'deviceText'" #default="{ row }">
             <span v-if="row[col.prop]" :title="String(row[col.prop])">{{ row[col.prop] }}</span>
             <span v-else style="color: var(--el-text-color-secondary); font-size: 12px;">未知</span>
+          </template>
+          <!-- 设备模块：来源（原生 App / Web Push PWA） -->
+          <template v-else-if="col.slot === 'deviceSource'" #default="{ row }">
+            <el-tag v-if="row.in_web_push" type="primary" effect="plain" round size="small">Web Push</el-tag>
+            <el-tag v-else type="info" effect="plain" round size="small">原生 App</el-tag>
           </template>
           <!-- 推送记录：目标类型 -->
           <template v-else-if="col.slot === 'targetType'" #default="{ row }">
@@ -492,8 +499,9 @@
             <template v-else>
               <el-button v-if="currentModule !== 'devices' && currentModule !== 'zombie-connections'" text type="primary" :icon="EditIcon" @click="openDialog(row)">编辑</el-button>
               <el-button
-                v-if="currentModule === 'devices' && row.online === 1"
-                text type="warning"
+                v-if="currentModule === 'devices' && row.online === 1 && !row.in_web_push"
+                text
+                type="warning"
                 :icon="SwitchButtonIcon"
                 :loading="kickingDeviceId === row.id"
                 @click="handleKickDevice(row)"
@@ -1113,7 +1121,7 @@ import {
 import { exportPushLogsApi, getPushLogListApi, sendPushApi, retryPushApi, getPushLogDetailApi, deletePushLogApi } from '@/api/push'
 import { getZombieConnectionsApi, deleteZombieConnectionApi, cleanupZombieConnectionsApi } from '@/api/connection'
 import { getKeyListApi, createKeyApi, updateKeyApi, deleteKeyApi, getKeySubscribersApi, removeKeySubscriberApi, repairKeySubscriberApi } from '@/api/key'
-import { getDeviceListApi, deleteDeviceApi, toggleDeviceStatusApi, kickDeviceApi } from '@/api/device'
+import { getDeviceListApi, deleteDeviceApi, toggleDeviceStatusApi, kickDeviceApi, deleteWebPushDeviceApi, toggleWebPushDeviceStatusApi } from '@/api/device'
 import {
   getBlacklistApi,
   createBlacklistApi,
@@ -1152,7 +1160,7 @@ interface ColumnConfig {
   slot?: 'status' | 'tag' | 'online' | 'platform'
         | 'targetType' | 'targetValue' | 'count' | 'email' | 'phone' | 'qq'
         | 'notifyEnabled' | 'notifyEmail' | 'notifyInterval' | 'notifyOfflineMinutes'
-        | 'failReason' | 'elapsedMs' | 'deviceText'
+        | 'failReason' | 'elapsedMs' | 'deviceText' | 'deviceSource'
         | 'idleSeconds' | 'userBind'
 }
 
@@ -1234,6 +1242,7 @@ const moduleConfigs: Record<string, {
     title: '设备',
     columns: [
       { prop: 'device_id', label: '设备ID', width: 220 },
+      { prop: 'in_web_push', label: '来源', width: 100, slot: 'deviceSource' },
       { prop: 'platform', label: '平台', width: 110, slot: 'platform' },
       { prop: 'model', label: '型号', slot: 'deviceText' },
       { prop: 'app_version', label: 'App版本', width: 110, slot: 'deviceText' },
@@ -1247,7 +1256,9 @@ const moduleConfigs: Record<string, {
         { label: 'Android', value: 'android' },
         { label: 'iOS', value: 'ios' },
         { label: 'Web', value: 'web' },
-        { label: 'HarmonyOS', value: 'harmony' }
+        { label: 'HarmonyOS', value: 'harmony' },
+        { label: 'Edge', value: 'edge' },
+        { label: 'Chrome', value: 'chrome' }
       ] },
       { prop: 'model', label: '型号', type: 'input' }
     ],
@@ -2038,7 +2049,9 @@ function platformTagType(platform: string): 'success' | 'warning' | 'info' | 'pr
     android: 'success',
     ios: 'primary',
     web: 'warning',
-    harmony: 'danger'
+    harmony: 'danger',
+    edge: 'primary',
+    chrome: 'warning'
   }
   return map[platform] || 'info'
 }
@@ -2168,7 +2181,11 @@ async function handleDelete(row: Record<string, any>) {
     } else if (mod === 'admins') {
       await deleteAdminApi(row.id)
     } else if (mod === 'devices') {
-      await deleteDeviceApi(row.id)
+      if (row.in_web_push) {
+        await deleteWebPushDeviceApi(row.device_id)
+      } else {
+        await deleteDeviceApi(row.id)
+      }
     } else if (mod === 'push-logs') {
       await deletePushLogApi(row.id)
     } else if (mod === 'zombie-connections') {
@@ -2328,7 +2345,7 @@ async function handleToggleDeviceStatus(row: Record<string, any>) {
     const next = current === 2 ? 1 : 2
     const action = next === 2 ? '禁用' : '启用'
     await ElMessageBox.confirm(
-      `确定要${action}该设备吗？禁用后设备将断开连接并无法接收推送。`,
+      `确定要${action}该设备吗？${row.in_web_push ? '禁用后该 PWA 设备将无法接收推送。' : '禁用后设备将断开连接并无法接收推送。'}`,
       `${action}设备`,
       {
         confirmButtonText: action,
@@ -2337,7 +2354,11 @@ async function handleToggleDeviceStatus(row: Record<string, any>) {
         center: true
       }
     )
-    await toggleDeviceStatusApi(row.id, next)
+    if (row.in_web_push) {
+      await toggleWebPushDeviceStatusApi(row.device_id, next)
+    } else {
+      await toggleDeviceStatusApi(row.id, next)
+    }
     ElMessage.success(`${action}成功`)
     fetchData()
   } catch {
