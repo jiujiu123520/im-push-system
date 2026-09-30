@@ -4,6 +4,7 @@
   var API_BASE = location.origin;
   var DEVICE_ID_KEY = 'pwa_device_id';
   var PUSH_KEY_KEY = 'pwa_push_key';
+  var APP_VERSION = '1.0.0';
 
   // ---------- 稳定设备 ID（localStorage 持久化，非随机） ----------
   function getDeviceId() {
@@ -65,6 +66,37 @@
     return 'ios';
   }
 
+  function getDeviceInfo() {
+    var ua = navigator.userAgent || '';
+    var platform = detectPlatform();
+    var model = '';
+    var osVersion = '';
+
+    if (platform === 'ios') {
+      if (/iPad/.test(ua)) model = 'iPad';
+      else if (/iPhone/.test(ua)) model = 'iPhone';
+      else if (/iPod/.test(ua)) model = 'iPod';
+      else model = 'iOS 设备';
+      var m = ua.match(/CPU (?:iPhone )?OS (\d+)[_](\d+)/);
+      if (m) osVersion = 'iOS ' + m[1] + '.' + m[2];
+    } else if (platform === 'edge') {
+      model = 'Edge';
+      var em = ua.match(/Edg\/([\d.]+)/);
+      if (em) osVersion = 'Edge ' + em[1];
+    } else {
+      model = 'Chrome';
+      var cm = ua.match(/Chrome\/([\d.]+)/);
+      if (cm) osVersion = 'Chrome ' + cm[1];
+    }
+
+    return {
+      platform: platform,
+      deviceName: model + ' PWA',
+      model: model,
+      osVersion: osVersion
+    };
+  }
+
   function init() {
     document.getElementById('device-id').textContent = getDeviceId();
     keyInput.value = getPushKey();
@@ -96,6 +128,10 @@
     subscribeBtn.addEventListener('click', onSubscribe);
     testBtn.addEventListener('click', onTest);
     refreshBtn.addEventListener('click', refreshMessages);
+
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') { heartbeat(); }
+    });
   }
 
   function updateSubscribeState() {
@@ -104,6 +140,7 @@
       subscribeBtn.className = 'btn-danger';
       testBtn.disabled = false;
       refreshMessages();
+      heartbeat();
     } else {
       subscribeBtn.textContent = '启用推送';
       subscribeBtn.className = 'btn-primary';
@@ -147,16 +184,7 @@
       })
       .then(function (sub) {
         subscription = sub;
-        return fetch(API_BASE + '/api/web-push/subscribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            push_key: key,
-            device_id: getDeviceId(),
-            subscription: sub.toJSON(),
-            platform: detectPlatform()
-          })
-        });
+        return postSubscription(sub, key);
       })
       .then(function (resp) { return resp.json(); })
       .then(function (json) {
@@ -167,6 +195,31 @@
       .catch(function (err) {
         setStatus('订阅失败: ' + err.message);
       });
+  }
+
+  function postSubscription(sub, key) {
+    var info = getDeviceInfo();
+    return fetch(API_BASE + '/api/web-push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        push_key: key,
+        device_id: getDeviceId(),
+        subscription: sub.toJSON(),
+        platform: info.platform,
+        device_name: info.deviceName,
+        device_model: info.model,
+        os_version: info.osVersion,
+        app_version: APP_VERSION
+      })
+    });
+  }
+
+  // 心跳：已订阅时刷新「最后活跃」时间，并同步设备信息
+  function heartbeat() {
+    var key = getPushKey();
+    if (!subscription || !key) { return; }
+    postSubscription(subscription, key).catch(function () { /* 静默失败 */ });
   }
 
   function doUnsubscribe() {

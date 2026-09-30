@@ -79,15 +79,24 @@ class WebPushController
 
         $pushKeyId = (int)$keyRow['id'];
         $ua        = (string)($context['header']['user-agent'] ?? '');
+        $ip        = \App\Middleware\AdminAuth::getClientIp($context);
+
+        $deviceName  = (string)($body['device_name'] ?? '');
+        $deviceModel = (string)($body['device_model'] ?? '');
+        $osVersion   = (string)($body['os_version'] ?? '');
+        $appVersion  = (string)($body['app_version'] ?? '');
 
         try {
             Database::execute(
-                'INSERT INTO web_push_subscriptions (device_id, push_key_id, endpoint, p256dh, auth, platform, user_agent, status)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                'INSERT INTO web_push_subscriptions (device_id, push_key_id, endpoint, p256dh, auth, platform, user_agent, device_name, device_model, os_version, app_version, ip, last_active_at, status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 1)
                  ON DUPLICATE KEY UPDATE endpoint = VALUES(endpoint), p256dh = VALUES(p256dh), auth = VALUES(auth),
                                          platform = VALUES(platform), user_agent = VALUES(user_agent),
+                                         device_name = VALUES(device_name), device_model = VALUES(device_model),
+                                         os_version = VALUES(os_version), app_version = VALUES(app_version),
+                                         ip = VALUES(ip), last_active_at = NOW(),
                                          status = 1, updated_at = NOW()',
-                [$deviceId, $pushKeyId, $endpoint, $p256dh, $auth, $platform, $ua]
+                [$deviceId, $pushKeyId, $endpoint, $p256dh, $auth, $platform, $ua, $deviceName, $deviceModel, $osVersion, $appVersion, $ip]
             );
         } catch (\Throwable $e) {
             error_log('[WebPushController] subscribe 保存失败: ' . $e->getMessage());

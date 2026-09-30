@@ -2025,7 +2025,9 @@ function platformLabel(platform: string): string {
     android: 'Android',
     ios: 'iOS',
     web: 'Web',
-    harmony: 'HarmonyOS'
+    harmony: 'HarmonyOS',
+    edge: 'Edge',
+    chrome: 'Chrome'
   }
   return map[platform] || platform || '-'
 }

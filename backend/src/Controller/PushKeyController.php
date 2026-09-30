@@ -308,7 +308,7 @@ class PushKeyController
         $webPushInfo = [];
         try {
             $wpRows = Database::fetchAll(
-                'SELECT device_id, platform, user_agent, status, created_at, updated_at
+                'SELECT device_id, platform, user_agent, status, device_name, device_model, os_version, app_version, ip, last_active_at, created_at, updated_at
                  FROM web_push_subscriptions WHERE push_key_id = ?',
                 [$pushKeyId]
             );
@@ -425,19 +425,40 @@ class PushKeyController
                 $sourceStatus = 'partial';
             }
 
+            // PWA 设备：devices 表无记录，从 web_push_subscriptions 表补全设备信息
+            $wpInfo = $webPushInfo[$deviceId] ?? null;
+
             $ip = (string)($dbRow['ip'] ?? '');
             if ($ip === '' && $fallbackIp !== '') $ip = $fallbackIp;
+            if ($ip === '' && $wpInfo !== null) $ip = (string)($wpInfo['ip'] ?? '');
             $lastConnectAt = $dbRow['last_connect_at'] ?? $fallbackConnectAt;
 
-            // PWA 设备：devices 表无记录，从 web_push_subscriptions 表补 platform/name
-            $wpInfo = $webPushInfo[$deviceId] ?? null;
             $platform = (string)($dbRow['platform'] ?? '');
             if ($platform === '' && $wpInfo !== null) {
                 $platform = (string)($wpInfo['platform'] ?? '');
             }
             $deviceName = (string)($dbRow['device_name'] ?? '');
             if ($deviceName === '' && $wpInfo !== null) {
+                $deviceName = (string)($wpInfo['device_name'] ?? '');
+            }
+            if ($deviceName === '' && $wpInfo !== null) {
                 $deviceName = $platform === 'ios' ? 'iOS PWA' : ($platform === 'edge' ? 'Edge PWA' : 'PWA 设备');
+            }
+            $deviceModel = (string)($dbRow['device_model'] ?? '');
+            if ($deviceModel === '' && $wpInfo !== null) {
+                $deviceModel = (string)($wpInfo['device_model'] ?? '');
+            }
+            $osVersion = (string)($dbRow['os_version'] ?? '');
+            if ($osVersion === '' && $wpInfo !== null) {
+                $osVersion = (string)($wpInfo['os_version'] ?? '');
+            }
+            $appVersion = (string)($dbRow['app_version'] ?? '');
+            if ($appVersion === '' && $wpInfo !== null) {
+                $appVersion = (string)($wpInfo['app_version'] ?? '');
+            }
+            $lastActiveAt = $dbRow['last_active_at'] ?? $lastConnectAt;
+            if (empty($lastActiveAt) && $wpInfo !== null) {
+                $lastActiveAt = $wpInfo['last_active_at'] ?? null;
             }
 
             $list[] = [
@@ -452,14 +473,14 @@ class PushKeyController
                 'sources'          => $sources,
                 'source_status'    => $sourceStatus,
                 'device_name'      => $deviceName,
-                'device_model'     => (string)($dbRow['device_model'] ?? ''),
+                'device_model'     => $deviceModel,
                 'platform'         => $platform,
-                'os_version'       => (string)($dbRow['os_version'] ?? ''),
-                'app_version'      => (string)($dbRow['app_version'] ?? ''),
+                'os_version'       => $osVersion,
+                'app_version'      => $appVersion,
                 'ip'               => $ip,
                 'status'           => (int)($dbRow['status'] ?? ($isOnline ? 1 : 0)),
                 'last_connect_at'  => $lastConnectAt,
-                'last_active_at'   => $dbRow['last_active_at'] ?? $lastConnectAt,
+                'last_active_at'   => $lastActiveAt,
                 'user_id'          => (int)($dbRow['user_id'] ?? 0),
                 'db_device_id'     => (int)($dbRow['id'] ?? 0),
             ];
