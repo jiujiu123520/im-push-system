@@ -168,12 +168,11 @@ im-push-system/
 ├── user/               # 用户端前端（Vue3 + Vite + TS，独立权限体系）
 ├── webpush/            # PWA + Web Push 前端（index.html + app.js + sw.js）
 ├── build/
-│   ├── hbuilderx/      # Android APP 源码（uni-app）
-│   └── queue/          # APK 云端构建队列（BuildQueue）
+│   └── hbuilderx/      # Android APP 源码模板（uni-app，HBuilderX 云打包用）
 ├── app/                # Android 原生源码模板（Compose）
 ├── deploy/             # 唯一入口：setup.sh + 配置模板（nginx/systemd/sudoers/ssl/apk）
 ├── scripts/            # 辅助脚本（pre-push hook 等）
-└── .github/workflows/  # CI / 自动部署 / APK 云端构建
+└── .github/workflows/  # CI / 自动部署
 ```
 
 ## 常用运维
@@ -211,6 +210,7 @@ php bin/migrate_encrypt.php --apply         # 实际写入数据库
 | 端口 9501/9502 占用  | `lsof -i :9501` 查进程，`systemctl restart` 自动清理；Swoole package\_max\_length 已设 250MB                |
 | 推送失败             | 后台推送记录页查看 `fail_reason` 和 `payload_size`（push\_logs 表）                                           |
 | WebSocket 鉴权循环断开 | 检查连接 idempotency / 定时器守卫（build/hbuilderx/js/ws.js）                                               |
+| 部署/重启时客户端断连 | Swoole 无法向客户端发送 1001（going away）关闭帧——`disconnect()` 只断 TCP，主 worker 要等满 `max_wait_time` 才回调 `onWorkerStop`，此时拆连接已开始，客户端最终只收到裸 EOF。客户端表现为「异常断开」后自动重连，属预期行为，无需处理；退出耗时由 `max_wait_time`（5s）决定，必须小于 systemd `TimeoutStopSec`（30s）否则被 SIGKILL |
 
 ## 默认账号
 
