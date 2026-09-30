@@ -86,6 +86,18 @@ class WebPushController
         $osVersion   = (string)($body['os_version'] ?? '');
         $appVersion  = (string)($body['app_version'] ?? '');
 
+        // iOS 的系统版本以请求头 User-Agent 为准在服务端重新推导，不采信客户端上报值。
+        // 原因：Safari 的 UA 里 "CPU iPhone OS 18_7" 被 Apple 冻结在旧版本（系统升到
+        // iOS 26 后该段仍显示 18_7），真实版本在 "Version/" 里。若客户端缓存了旧版
+        // app.js（iOS 主屏幕 PWA 常驻后台，不会自动重载脚本），心跳会持续把错误版本
+        // 写回数据库，覆盖服务端修正。放在服务端推导可让存量设备无需重载即自动纠正。
+        if ($platform === 'ios') {
+            $derivedOsVersion = self::deriveIOSVersion($ua);
+            if ($derivedOsVersion !== '') {
+                $osVersion = $derivedOsVersion;
+            }
+        }
+
         try {
             Database::execute(
                 'INSERT INTO web_push_subscriptions (device_id, push_key_id, endpoint, p256dh, auth, platform, user_agent, device_name, device_model, os_version, app_version, ip, last_active_at, status)
@@ -220,6 +232,28 @@ class WebPushController
         }
 
         return ['sent' => true, 'endpoint' => substr((string)$sub['endpoint'], 0, 60) . '...'];
+    }
+
+    /**
+     * 从 User-Agent 推导 iOS 系统版本
+     *
+     * 优先取 "Version/x.y.z" —— iOS 上 Safari 版本号与系统版本号一致
+     * （iOS 26.x ⇄ Safari 26.x），且该段会随系统升级正常变化。
+     * "CPU iPhone OS x_y" 仅作兜底：Apple 为降低指纹追踪把它冻结在旧值，
+     * 系统升级后不会更新，这也是历史数据把 iOS 26 记成 iOS 18.7 的原因。
+     *
+     * @param string $ua 请求头 User-Agent
+     * @return string 形如 "iOS 26.6.1"；无法识别时返回空串
+     */
+    private static function deriveIOSVersion(string $ua): string
+    {
+        if (preg_match('/Version\/(\d+(?:[._]\d+)*)/', $ua, $m)) {
+            return 'iOS ' . str_replace('_', '.', $m[1]);
+        }
+        if (preg_match('/CPU (?:iPhone )?OS (\d+(?:[._]\d+)*)/', $ua, $m)) {
+            return 'iOS ' . str_replace('_', '.', $m[1]);
+        }
+        return '';
     }
 
     /**
