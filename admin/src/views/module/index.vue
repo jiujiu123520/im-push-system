@@ -688,7 +688,14 @@
           <template #default="{ row }">
             <div style="display: flex; flex-wrap: wrap; gap: 4px;">
               <el-tag
-                v-if="row.source_status === 'zombie' || row.exists_in_db === 0"
+                v-if="row.in_web_push"
+                type="primary"
+                effect="plain"
+                round
+                size="small"
+              >Web Push 订阅</el-tag>
+              <el-tag
+                v-else-if="row.source_status === 'zombie' || row.exists_in_db === 0"
                 type="danger"
                 effect="light"
                 round
@@ -1600,7 +1607,9 @@ const subscriberDialogKey = ref<{ id: number; key_value: string; name: string } 
 const subscriberDebug = ref<Record<string, any> | null>(null)
 const subscriberTotal = computed(() => subscriberList.value.length)
 const subscriberOnlineCount = computed(() => subscriberList.value.filter((s) => s.online === 1).length)
-const subscriberZombieCount = computed(() => subscriberList.value.filter((s) => s.exists_in_db === 0).length)
+const subscriberZombieCount = computed(() =>
+  subscriberList.value.filter((s) => s.exists_in_db === 0 && !s.in_web_push).length
+)
 const subscriberMappingMissingCount = computed(() =>
   subscriberList.value.filter((s) => s.source_status === 'mapping_missing').length
 )
