@@ -95,6 +95,15 @@ class WebPushController
             return false;
         }
 
+        // 写入 Redis 订阅关系（让后台按 Key 推送能覆盖 PWA 设备，并正确写入消息）
+        try {
+            $redis = \App\Service\Redis::getInstance();
+            $redis->sAdd("key:subscribe:{$pushKey}", $deviceId);
+            $redis->hSet('device:key', $deviceId, $pushKey);
+        } catch (\Throwable $e) {
+            error_log('[WebPushController] subscribe 写订阅关系失败: ' . $e->getMessage());
+        }
+
         return ['device_id' => $deviceId, 'subscribed' => true];
     }
 
@@ -176,12 +185,22 @@ class WebPushController
             return false;
         }
 
-        $result = WebPushService::send(
-            $sub,
-            '测试推送',
-            '这是一条 Web Push 测试消息',
-            ['message_id' => uniqid('test_', true)]
-        );
+        $messageId = uniqid('test_', true);
+        $title   = '测试推送';
+        $content = '这是一条 Web Push 测试消息';
+
+        // 写 messages 表（让消息列表能显示测试消息）
+        try {
+            Database::insert(
+                'INSERT INTO messages (message_id, push_key_id, device_id, title, content, payload, is_read)
+                 VALUES (?, ?, ?, ?, ?, ?, 0)',
+                [$messageId, (int)$keyRow['id'], $deviceId, $title, $content, json_encode(['is_test' => true], JSON_UNESCAPED_UNICODE)]
+            );
+        } catch (\Throwable $e) {
+            error_log('[WebPushController] sendTest 写消息失败: ' . $e->getMessage());
+        }
+
+        $result = WebPushService::send($sub, $title, $content, ['message_id' => $messageId]);
 
         if (!$result['success']) {
             if (!empty($result['expired'])) {
