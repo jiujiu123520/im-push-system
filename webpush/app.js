@@ -127,6 +127,20 @@
     return 'ios';
   }
 
+  // 读取 iOS 系统版本
+  //
+  // 注意：不能用 UA 里的 "CPU iPhone OS 18_7" —— Apple 为降低指纹追踪把这一段
+  // 冻结在了旧版本，系统升到 iOS 26 后它依然是 18_7，永远读不到真实版本。
+  // 真正跟随系统升级的是 "Version/26.6.1"，且 iOS 上 Safari 版本号与系统版本号
+  // 一致（iOS 26.x ⇄ Safari 26.x），故优先取 Version，UA 段仅作兜底。
+  function detectIOSVersion(ua) {
+    var vm = ua.match(/Version\/(\d+(?:[._]\d+)*)/);
+    if (vm) { return vm[1].replace(/_/g, '.'); }
+    var om = ua.match(/CPU (?:iPhone )?OS (\d+(?:[._]\d+)*)/);
+    if (om) { return om[1].replace(/_/g, '.'); }
+    return '';
+  }
+
   function getDeviceInfo() {
     var ua = navigator.userAgent || '';
     var platform = detectPlatform();
@@ -138,8 +152,8 @@
       else if (/iPhone/.test(ua)) { model = 'iPhone'; }
       else if (/iPod/.test(ua)) { model = 'iPod'; }
       else { model = 'iOS 设备'; }
-      var m = ua.match(/CPU (?:iPhone )?OS (\d+)[_](\d+)/);
-      if (m) { osVersion = 'iOS ' + m[1] + '.' + m[2]; }
+      var iosVer = detectIOSVersion(ua);
+      if (iosVer) { osVersion = 'iOS ' + iosVer; }
     } else if (platform === 'edge') {
       model = 'Edge';
       var em = ua.match(/Edg\/([\d.]+)/);
