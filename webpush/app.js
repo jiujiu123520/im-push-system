@@ -49,6 +49,16 @@
   }
 
   function detectPlatform() {
+    // 优先用 Client Hints 品牌识别（User-Agent Switcher 只改 UA 字符串，不改 brands）
+    if (navigator.userAgentData && navigator.userAgentData.brands && navigator.userAgentData.brands.length) {
+      var brands = navigator.userAgentData.brands;
+      for (var i = 0; i < brands.length; i++) {
+        var brand = brands[i].brand;
+        if (brand === 'Microsoft Edge') return 'edge';
+        if (brand === 'Google Chrome') return 'chrome';
+      }
+    }
+    // 回退到 UA 字符串检测
     var ua = navigator.userAgent;
     if (/Edg\//.test(ua)) return 'edge';
     if (/Chrome\//.test(ua) && !/Edg\//.test(ua)) return 'chrome';
