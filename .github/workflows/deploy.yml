@@ -104,8 +104,15 @@ jobs:
             echo ""
 
             # 6. Fix dist ownership for nginx
+            #    注意：步骤 1 把整个项目 chown 成 ubuntu，Swoole 进程以 www-data 运行，
+            #    必须把 runtime/storage 一起还原，否则每次部署后 www-data 无法写日志与 pid 文件
+            #    （journalctl 会出现 Logger::open() Permission denied[13]）
             echo "=== 6. Fix dist ownership ==="
             sudo chown -R www-data:www-data "$PROJECT/admin/dist" "$PROJECT/user/dist" 2>/dev/null || true
+            sudo mkdir -p "$PROJECT/backend/runtime/logs" "$PROJECT/backend/storage" 2>/dev/null || true
+            sudo chown -R www-data:www-data "$PROJECT/backend/runtime" "$PROJECT/backend/storage" 2>/dev/null || true
+            sudo find "$PROJECT/backend/runtime" "$PROJECT/backend/storage" -type d -exec chmod 775 {} \; 2>/dev/null || true
+            sudo find "$PROJECT/backend/runtime" "$PROJECT/backend/storage" -type f -exec chmod 664 {} \; 2>/dev/null || true
             echo "✅ dist ownership fixed"
             echo ""
 
