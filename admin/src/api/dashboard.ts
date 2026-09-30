@@ -2,8 +2,14 @@ import { get } from '@/utils/request'
 
 // 仪表盘概览数据
 export interface DashboardOverview {
+  /** 在线设备总数 = online_ws_devices + online_webpush_devices */
   online_devices: number
-  online_connections?: number
+  /** 其中：WebSocket 实时在线设备（已按 device_id 去重） */
+  online_ws_devices: number
+  /** 其中：Web Push 有效订阅设备（PWA，不含已有实时连接的） */
+  online_webpush_devices: number
+  /** 在线连接（fd）数，仅 WebSocket 计入 */
+  online_connections: number
   today_push: number
   yesterday_push: number
   active_keys: number

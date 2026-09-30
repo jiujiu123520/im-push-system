@@ -31,14 +31,17 @@ class DashboardController
      *
      * 返回：
      *   {
-     *     "online_devices": int,      // 当前在线设备数（Redis 实时）
-     *     "today_push": int,          // 今日推送总数
-     *     "yesterday_push": int,      // 昨日推送总数（用于计算趋势）
-     *     "active_keys": int,         // 活跃 Key 数（status=1）
-     *     "total_keys": int,          // Key 总数
-     *     "total_users": int,         // 注册用户总数
-     *     "today_new_users": int,     // 今日新增用户
-     *     "today_new_devices": int    // 今日新增设备
+     *     "online_devices": int,          // 在线设备总数 = online_ws_devices + online_webpush_devices
+     *     "online_ws_devices": int,       // 其中：WebSocket 实时在线设备（已按 device_id 去重）
+     *     "online_webpush_devices": int,  // 其中：Web Push 有效订阅设备（PWA，不含已有实时连接的）
+     *     "online_connections": int,      // 在线连接（fd）数，仅 WebSocket 计入
+     *     "today_push": int,              // 今日推送总数
+     *     "yesterday_push": int,          // 昨日推送总数（用于计算趋势）
+     *     "active_keys": int,             // 活跃 Key 数（status=1）
+     *     "total_keys": int,              // Key 总数
+     *     "total_users": int,             // 注册用户总数
+     *     "today_new_users": int,         // 今日新增用户
+     *     "today_new_devices": int        // 今日新增设备
      *   }
      */
     public function overview(array $context, array $params)
@@ -50,25 +53,55 @@ class DashboardController
 
         $redis = Redis::getInstance();
 
-        // 1. 在线设备数（从 Redis 实时统计）
+        // 1. 在线设备数
         // 注意：device:key 是"订阅关系"（设备离线时不清理，用于存离线消息），
         // 不能用 hLen('device:key') 统计在线设备数，否则会把历史离线设备都算上。
-        // 正确方式：遍历 ws:fd:device（fd → device_id 映射），对 device_id 去重计数；
-        // 同时把在线连接数（fd 数）一并返回给前端展示。
-        $onlineDevices = 0;
+        // 正确方式：遍历 ws:fd:device（fd → device_id 映射）对 device_id 去重，
+        // 再并入 web_push_subscriptions 中 status = 1 的 PWA 设备
+        // （PWA 不走 WebSocket，不并入会导致卡片数比「在线设备列表」少）。
+        $wsDeviceIds = [];
         $onlineConnections = 0;
         try {
             $fdToDevice = $redis->hGetAll('ws:fd:device');
             if (is_array($fdToDevice)) {
                 $onlineConnections = count($fdToDevice);
-                $uniqueDevices = array_values(array_unique(array_map('strval', $fdToDevice)));
-                $onlineDevices = count($uniqueDevices);
+                foreach ($fdToDevice as $deviceId) {
+                    $deviceId = trim((string)$deviceId);
+                    if ($deviceId !== '') {
+                        $wsDeviceIds[$deviceId] = true;
+                    }
+                }
             }
         } catch (\Throwable $e) {
             // Redis 不可用时降级到数据库查询（仅做近似估算，因为 status 不实时）
-            $onlineDevicesRow = Database::fetch("SELECT COUNT(*) as cnt FROM devices WHERE status = 1");
-            $onlineDevices = (int)($onlineDevicesRow['cnt'] ?? 0);
+            try {
+                foreach (Database::fetchAll('SELECT device_id FROM devices WHERE status = 1') as $row) {
+                    $deviceId = trim((string)$row['device_id']);
+                    if ($deviceId !== '') {
+                        $wsDeviceIds[$deviceId] = true;
+                    }
+                }
+            } catch (\Throwable $e2) {
+                // 保持为空，不阻断其余统计
+            }
         }
+
+        $onlineWsDevices = count($wsDeviceIds);
+
+        // Web Push（PWA）设备：订阅仍有效即视为可达；已建立实时连接的不重复计数
+        $onlineWebPushDevices = 0;
+        try {
+            foreach (Database::fetchAll('SELECT device_id FROM web_push_subscriptions WHERE status = 1') as $row) {
+                $deviceId = trim((string)$row['device_id']);
+                if ($deviceId !== '' && !isset($wsDeviceIds[$deviceId])) {
+                    $onlineWebPushDevices++;
+                }
+            }
+        } catch (\Throwable $e) {
+            $onlineWebPushDevices = 0;
+        }
+
+        $onlineDevices = $onlineWsDevices + $onlineWebPushDevices;
 
         // 2. 今日推送量 & 昨日推送量
         $today = date('Y-m-d');
@@ -117,15 +150,17 @@ class DashboardController
         $todayNewDevices = (int)($todayNewDevicesRow['cnt'] ?? 0);
 
         return [
-            'online_devices'    => $onlineDevices,
-            'online_connections'=> $onlineConnections,
-            'today_push'        => $todayPush,
-            'yesterday_push'    => $yesterdayPush,
-            'active_keys'       => $activeKeys,
-            'total_keys'        => $totalKeys,
-            'total_users'       => $totalUsers,
-            'today_new_users'   => $todayNewUsers,
-            'today_new_devices' => $todayNewDevices,
+            'online_devices'         => $onlineDevices,
+            'online_ws_devices'      => $onlineWsDevices,
+            'online_webpush_devices' => $onlineWebPushDevices,
+            'online_connections'     => $onlineConnections,
+            'today_push'             => $todayPush,
+            'yesterday_push'         => $yesterdayPush,
+            'active_keys'            => $activeKeys,
+            'total_keys'             => $totalKeys,
+            'total_users'            => $totalUsers,
+            'today_new_users'        => $todayNewUsers,
+            'today_new_devices'      => $todayNewDevices,
         ];
     }
 

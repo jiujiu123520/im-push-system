@@ -40,14 +40,17 @@
             <span v-if="card.unit" class="unit">{{ card.unit }}</span>
           </div>
           <div class="stat-trend">
-            <el-icon :class="card.trend >= 0 ? 'up' : 'down'">
-              <CaretTopIcon v-if="card.trend >= 0" />
-              <CaretBottomIcon v-else />
-            </el-icon>
-            <span :class="card.trend >= 0 ? 'up' : 'down'">
-              {{ Math.abs(card.trend) }}%
-            </span>
-            <span class="trend-label">较昨日</span>
+            <!-- 日累计量类指标：展示真实环比 -->
+            <template v-if="card.trendDirection">
+              <el-icon :class="card.trendDirection">
+                <CaretTopIcon v-if="card.trendDirection === 'up'" />
+                <CaretBottomIcon v-else />
+              </el-icon>
+              <span :class="card.trendDirection">{{ card.trendText }}</span>
+              <span class="trend-label">较昨日</span>
+            </template>
+            <!-- 实时快照类指标：环比无意义，展示补充说明 -->
+            <span v-else class="trend-label">{{ card.hint }}</span>
           </div>
         </div>
         <div class="stat-spark"></div>
@@ -220,7 +223,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, markRaw, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, markRaw, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart, BarChart, PieChart } from 'echarts/charts'
@@ -302,6 +305,8 @@ const greeting = computed(() => {
 // 概览数据
 const overview = ref<DashboardOverview>({
   online_devices: 0,
+  online_ws_devices: 0,
+  online_webpush_devices: 0,
   online_connections: 0,
   today_push: 0,
   yesterday_push: 0,
@@ -312,28 +317,52 @@ const overview = ref<DashboardOverview>({
   today_new_devices: 0
 })
 
+// 卡片模型：环比（较昨日）只对"日累计量"类指标有意义，
+// 在线设备 / 在线连接 / 活跃 Key 数 都是实时快照值，改为展示补充说明（hint）
+interface StatCard {
+  title: string
+  value: number
+  unit: string
+  /** 环比方向；null 表示该指标是快照值，不展示"较昨日" */
+  trendDirection: 'up' | 'down' | null
+  /** 环比百分比文案，如 "39.7%" */
+  trendText: string
+  /** 无环比时展示的补充说明 */
+  hint: string
+  icon: Component
+  iconBg: string
+}
+
 // 数据卡片（根据概览数据动态生成）
-const statCards = computed(() => {
-  const todayPush = overview.value.today_push
-  const yesterdayPush = overview.value.yesterday_push
-  const pushTrend = yesterdayPush > 0
+const statCards = computed<StatCard[]>(() => {
+  const o = overview.value
+  const todayPush = o.today_push
+  const yesterdayPush = o.yesterday_push
+
+  // 昨日推送量为 0 时环比会除零，此时退化为展示昨日的绝对值
+  const hasPushBaseline = yesterdayPush > 0
+  const pushPercent = hasPushBaseline
     ? Math.round(((todayPush - yesterdayPush) / yesterdayPush) * 1000) / 10
     : 0
 
   return [
     {
       title: '在线设备',
-      value: overview.value.online_devices,
+      value: o.online_devices,
       unit: '台',
-      trend: overview.value.today_new_devices > 0 ? 5.2 : 0,
+      trendDirection: null,
+      trendText: '',
+      hint: `WebSocket ${o.online_ws_devices} · Web Push ${o.online_webpush_devices}`,
       icon: markRaw(CellphoneIcon),
       iconBg: 'bg-primary'
     },
     {
       title: '在线连接',
-      value: overview.value.online_connections || 0,
+      value: o.online_connections,
       unit: '个',
-      trend: 0,
+      trendDirection: null,
+      trendText: '',
+      hint: `来自 ${o.online_ws_devices} 台设备`,
       icon: markRaw(LinkIcon),
       iconBg: 'bg-purple'
     },
@@ -341,23 +370,29 @@ const statCards = computed(() => {
       title: '今日推送量',
       value: todayPush,
       unit: '条',
-      trend: pushTrend,
+      trendDirection: hasPushBaseline ? (pushPercent >= 0 ? 'up' : 'down') : null,
+      trendText: hasPushBaseline ? `${Math.abs(pushPercent)}%` : '',
+      hint: `昨日 ${yesterdayPush} 条`,
       icon: markRaw(BellIcon),
       iconBg: 'bg-cyan'
     },
     {
       title: '活跃 Key 数',
-      value: overview.value.active_keys,
+      value: o.active_keys,
       unit: '个',
-      trend: 0,
+      trendDirection: null,
+      trendText: '',
+      hint: `共 ${o.total_keys} 个 Key`,
       icon: markRaw(KeyIcon),
       iconBg: 'bg-success'
     },
     {
       title: '注册用户',
-      value: overview.value.total_users,
+      value: o.total_users,
       unit: '人',
-      trend: overview.value.today_new_users > 0 ? 2.1 : 0,
+      trendDirection: null,
+      trendText: '',
+      hint: `今日新增 ${o.today_new_users} 人`,
       icon: markRaw(UserIcon),
       iconBg: 'bg-warm'
     }
@@ -808,6 +843,7 @@ onBeforeUnmount(() => {
   &.stat-1::before { background: $color-info; }
   &.stat-2::before { background: $color-success; }
   &.stat-3::before { background: $color-warning; }
+  &.stat-4::before { background: $color-danger; }
 
   &:hover::before {
     transform: translate(30px, -30px) scale(1.2);
@@ -857,7 +893,10 @@ onBeforeUnmount(() => {
     .down { color: $color-danger; }
     .trend-label {
       color: var(--text-secondary);
-      margin-left: 4px;
+      // 仅在紧跟环比数值时留间距；作为唯一子元素（快照类指标的补充说明）时左对齐
+      &:not(:first-child) {
+        margin-left: 4px;
+      }
     }
   }
 }

@@ -116,6 +116,7 @@
   color: #fff;
   font-size: 22px;
   &.bg-primary { background: $gradient-primary; box-shadow: $shadow-primary; }
+  &.bg-purple { background: $gradient-primary-soft; }
   &.bg-cyan { background: $gradient-cyan; }
   &.bg-warm { background: $gradient-warm; }
   &.bg-success { background: $gradient-success; }
