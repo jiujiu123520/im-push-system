@@ -303,12 +303,32 @@ class PushKeyController
             error_log('[PushKey] subscribers 扫描 ws:conn:* 异常: ' . $e->getMessage());
         }
 
-        // ====== 合并四方 device_id ======
+        // ====== 5) 从 web_push_subscriptions 表取 PWA 订阅设备 ======
+        $webPushIds = [];
+        $webPushInfo = [];
+        try {
+            $wpRows = Database::fetchAll(
+                'SELECT device_id, platform, user_agent, status, created_at, updated_at
+                 FROM web_push_subscriptions WHERE push_key_id = ?',
+                [$pushKeyId]
+            );
+            foreach ($wpRows as $row) {
+                $did = (string)$row['device_id'];
+                if ($did === '') continue;
+                $webPushIds[$did] = true;
+                $webPushInfo[$did] = $row;
+            }
+        } catch (\Throwable $e) {
+            error_log('[PushKey] subscribers 查询 web_push_subscriptions 异常: ' . $e->getMessage());
+        }
+
+        // ====== 合并五方 device_id ======
         $allDeviceIds = array_unique(array_merge(
             array_keys($redisIds),
             array_keys($dbIds),
             array_keys($deviceKeyHashIds),
-            array_keys($wsConnIds)
+            array_keys($wsConnIds),
+            array_keys($webPushIds)
         ));
 
         if (empty($allDeviceIds)) {
@@ -359,6 +379,7 @@ class PushKeyController
             $inDb           = isset($dbIds[$deviceId]);
             $inDeviceKey    = isset($deviceKeyHashIds[$deviceId]);
             $inWsConn       = isset($wsConnIds[$deviceId]);
+            $inWebPush      = isset($webPushIds[$deviceId]);
 
             // 来源 tag：哪些映射来源认定它属于这个 Key
             $sources = [];
@@ -366,6 +387,7 @@ class PushKeyController
             if ($inDeviceKey)    $sources[] = 'device:key';
             if ($inDb)           $sources[] = 'devices表';
             if ($inWsConn)       $sources[] = '在线会话';
+            if ($inWebPush)      $sources[] = 'web_push';
             if (empty($sources)) $sources[] = 'unknown';
 
             $dbRow = $deviceMap[$deviceId] ?? null;
@@ -381,7 +403,10 @@ class PushKeyController
             //   online_mapping_missing = 在线会话存在（一定有设备），但集合 + device:key 都没有
             //   zombie                 = 只有 Redis 映射，DB/会话都没记录
             //   partial                = 其它不完整组合
-            if ($inDb && $inRedis && $inDeviceKey) {
+            if ($inWebPush) {
+                // PWA 设备（Web Push 订阅）
+                $sourceStatus = $inDb ? 'normal' : 'web_push';
+            } elseif ($inDb && $inRedis && $inDeviceKey) {
                 $sourceStatus = 'normal';
             } elseif (($inDb || $inWsConn) && !$inRedis) {
                 // 有设备登记 / 有在线连接，但 key:subscribe 没它 → 推送肯定漏发
@@ -396,6 +421,17 @@ class PushKeyController
             if ($ip === '' && $fallbackIp !== '') $ip = $fallbackIp;
             $lastConnectAt = $dbRow['last_connect_at'] ?? $fallbackConnectAt;
 
+            // PWA 设备：devices 表无记录，从 web_push_subscriptions 表补 platform/name
+            $wpInfo = $webPushInfo[$deviceId] ?? null;
+            $platform = (string)($dbRow['platform'] ?? '');
+            if ($platform === '' && $wpInfo !== null) {
+                $platform = (string)($wpInfo['platform'] ?? '');
+            }
+            $deviceName = (string)($dbRow['device_name'] ?? '');
+            if ($deviceName === '' && $wpInfo !== null) {
+                $deviceName = $platform === 'ios' ? 'iOS PWA' : ($platform === 'edge' ? 'Edge PWA' : 'PWA 设备');
+            }
+
             $list[] = [
                 'device_id'        => $deviceId,
                 'fd_count'         => $fdCount,
@@ -404,11 +440,12 @@ class PushKeyController
                 'in_redis_sub'     => $inRedis ? 1 : 0,
                 'in_device_key'    => $inDeviceKey ? 1 : 0,
                 'in_ws_conn'       => $inWsConn ? 1 : 0,
+                'in_web_push'      => $inWebPush ? 1 : 0,
                 'sources'          => $sources,
                 'source_status'    => $sourceStatus,
-                'device_name'      => (string)($dbRow['device_name'] ?? ''),
+                'device_name'      => $deviceName,
                 'device_model'     => (string)($dbRow['device_model'] ?? ''),
-                'platform'         => (string)($dbRow['platform'] ?? ''),
+                'platform'         => $platform,
                 'os_version'       => (string)($dbRow['os_version'] ?? ''),
                 'app_version'      => (string)($dbRow['app_version'] ?? ''),
                 'ip'               => $ip,
@@ -424,8 +461,9 @@ class PushKeyController
         $statusRank = [
             'mapping_missing' => 0,
             'normal'          => 1,
-            'partial'         => 2,
-            'zombie'          => 3,
+            'web_push'        => 2,
+            'partial'         => 3,
+            'zombie'          => 4,
         ];
         usort($list, function ($a, $b) use ($statusRank) {
             if ($a['online'] !== $b['online']) return $b['online'] <=> $a['online'];
@@ -450,6 +488,7 @@ class PushKeyController
                 'device_key_hash_total'      => $deviceKeyTotal,
                 'ws_online_conn_match_count' => count($wsConnIds),
                 'ws_online_total_fd'         => is_array($redis->sMembers('ws:online')) ? count($redis->sMembers('ws:online')) : 0,
+                'web_push_count'             => count($webPushIds),
             ],
         ];
     }
