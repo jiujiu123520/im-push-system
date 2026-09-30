@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Middleware\AdminAuth;
+use App\Service\ConnectionManager;
 use App\Service\Database;
 use App\Service\Redis;
 use App\Service\Response;
@@ -13,6 +14,7 @@ use App\Service\Response;
  *
  * 提供管理后台首页所需的聚合统计数据：
  *   - 概览卡片（在线设备、今日推送、Key 数、用户数）
+ *   - 在线设备列表（实时，按 device_id 聚合）
  *   - 在线设备趋势（近7天/30天）
  *   - 今日推送量（按小时）
  *   - Key 状态分布
@@ -125,6 +127,181 @@ class DashboardController
             'today_new_users'   => $todayNewUsers,
             'today_new_devices' => $todayNewDevices,
         ];
+    }
+
+    /**
+     * GET /admin/dashboard/online-devices
+     * 在线设备列表（实时）
+     *
+     * 数据来源为 Redis 连接表（ws:online + ws:conn:*），按 device_id 聚合
+     * —— 同一台设备可能存在多条 WebSocket 连接（多实例 / 重连残留），
+     * 聚合后 connections 即为该设备当前连接数。
+     *
+     * 原始连接记录里只有 device_id / key_value / IP，展示所需的平台、型号、
+     * 系统版本需回查 devices（原生 App）或 web_push_subscriptions（PWA），
+     * 同一 device_id 同时存在时以 devices 为准。
+     *
+     * 返回：
+     *   {
+     *     "list": [
+     *       {
+     *         "device_id": "app-71e82d8d244f",
+     *         "key_value": "sQhrg...",
+     *         "key_name": "默认 Key",
+     *         "platform": "Android",
+     *         "device_name": "小米手机",
+     *         "device_model": "2311DRK48C",
+     *         "os_version": "Android 16",
+     *         "app_version": "1.0.0",
+     *         "connections": 1,
+     *         "connect_at": 1790764258,
+     *         "last_active": 1790764258,
+     *         "idle_seconds": 3,
+     *         "ip": "1.2.3.4"
+     *       }
+     *     ],
+     *     "total": 1
+     *   }
+     */
+    public function onlineDevices(array $context, array $params)
+    {
+        $payload = AdminAuth::authenticate($context);
+        if ($payload === null) {
+            return false;
+        }
+
+        try {
+            $connections = (new ConnectionManager())->getAllConnections();
+        } catch (\Throwable $e) {
+            // Redis 不可用时降级为空列表，不影响仪表盘其余卡片
+            $connections = [];
+        }
+
+        // 1) 按 device_id 聚合
+        $grouped = [];
+        foreach ($connections as $conn) {
+            $deviceId = trim((string)($conn['device_id'] ?? ''));
+            if ($deviceId === '') {
+                continue;
+            }
+            if (!isset($grouped[$deviceId])) {
+                $grouped[$deviceId] = [
+                    'device_id'    => $deviceId,
+                    'key_value'    => '',
+                    'connections'  => 0,
+                    'connect_at'   => 0,
+                    'last_active'  => 0,
+                    'idle_seconds' => 0,
+                    'ip'           => '',
+                ];
+            }
+
+            $item = &$grouped[$deviceId];
+            $item['connections']++;
+
+            if ($item['key_value'] === '' && (string)($conn['key_value'] ?? '') !== '') {
+                $item['key_value'] = (string)$conn['key_value'];
+            }
+
+            // connect_at 取最早（该设备最早建立连接的时间）
+            $connectAt = (int)($conn['connect_at'] ?? 0);
+            if ($connectAt > 0 && ($item['connect_at'] === 0 || $connectAt < $item['connect_at'])) {
+                $item['connect_at'] = $connectAt;
+            }
+
+            // last_active 取最新，IP 跟随最近活跃的那条连接
+            $lastActive = (int)($conn['last_active'] ?? 0);
+            if ($lastActive >= $item['last_active']) {
+                $item['last_active']  = $lastActive;
+                $item['idle_seconds'] = (int)($conn['idle_seconds'] ?? 0);
+                $item['ip']           = (string)($conn['ip'] ?? '');
+            }
+            unset($item);
+        }
+
+        if (empty($grouped)) {
+            return ['list' => [], 'total' => 0];
+        }
+
+        $deviceIds = array_keys($grouped);
+
+        // 2) 补齐设备元信息（devices 优先，PWA 设备回退到 web_push_subscriptions）
+        $metaMap = [];
+        try {
+            $placeholders = implode(',', array_fill(0, count($deviceIds), '?'));
+            $metaRows = Database::fetchAll(
+                "SELECT t.device_id AS device_id, t.platform AS platform,
+                        t.device_name AS device_name, t.device_model AS device_model,
+                        t.os_version AS os_version, t.app_version AS app_version
+                 FROM (
+                     SELECT d.device_id,
+                            COALESCE(d.platform, '') AS platform,
+                            COALESCE(d.device_name, '') AS device_name,
+                            COALESCE(d.device_model, '') AS device_model,
+                            COALESCE(d.os_version, '') AS os_version,
+                            COALESCE(d.app_version, '') AS app_version
+                     FROM devices d
+                     WHERE d.device_id IN ($placeholders)
+                     UNION ALL
+                     SELECT w.device_id,
+                            COALESCE(w.platform, '') AS platform,
+                            COALESCE(w.device_name, '') AS device_name,
+                            COALESCE(w.device_model, '') AS device_model,
+                            COALESCE(w.os_version, '') AS os_version,
+                            COALESCE(w.app_version, '') AS app_version
+                     FROM web_push_subscriptions w
+                     WHERE w.device_id IN ($placeholders)
+                       AND NOT EXISTS (SELECT 1 FROM devices d2 WHERE d2.device_id = w.device_id)
+                 ) t",
+                array_merge($deviceIds, $deviceIds)
+            );
+            foreach ($metaRows as $row) {
+                $did = (string)$row['device_id'];
+                if (!isset($metaMap[$did])) {
+                    $metaMap[$did] = $row;
+                }
+            }
+        } catch (\Throwable $e) {
+            $metaMap = [];
+        }
+
+        // 3) Key 名称映射（Key 数量少，直接全量取）
+        $keyNames = [];
+        try {
+            foreach (Database::fetchAll('SELECT key_value, name FROM push_keys') as $row) {
+                $keyNames[strtolower((string)$row['key_value'])] = (string)$row['name'];
+            }
+        } catch (\Throwable $e) {
+            $keyNames = [];
+        }
+
+        // 4) 组装输出
+        $list = [];
+        foreach ($grouped as $deviceId => $item) {
+            $meta = $metaMap[$deviceId] ?? [];
+            $keyValue = (string)$item['key_value'];
+
+            $list[] = [
+                'device_id'    => $deviceId,
+                'key_value'    => $keyValue,
+                'key_name'     => $keyNames[strtolower($keyValue)] ?? '',
+                'platform'     => self::platformDisplayName((string)($meta['platform'] ?? '')),
+                'device_name'  => (string)($meta['device_name'] ?? ''),
+                'device_model' => (string)($meta['device_model'] ?? ''),
+                'os_version'   => (string)($meta['os_version'] ?? ''),
+                'app_version'  => (string)($meta['app_version'] ?? ''),
+                'connections'  => (int)$item['connections'],
+                'connect_at'   => (int)$item['connect_at'],
+                'last_active'  => (int)$item['last_active'],
+                'idle_seconds' => (int)$item['idle_seconds'],
+                'ip'           => (string)$item['ip'],
+            ];
+        }
+
+        // 最近活跃的排前面
+        usort($list, fn($a, $b) => $b['last_active'] <=> $a['last_active']);
+
+        return ['list' => $list, 'total' => count($list)];
     }
 
     /**

@@ -107,6 +107,60 @@
       </div>
     </div>
 
+    <!-- 在线设备列表 -->
+    <div class="recent-card online-card">
+      <div class="chart-header">
+        <div>
+          <h3 class="chart-title">在线设备</h3>
+          <p class="chart-sub">
+            当前实时在线设备（同一设备多条连接已合并，共 {{ onlineDevices.length }} 台）
+          </p>
+        </div>
+        <el-tag type="success" effect="light" round size="small">实时</el-tag>
+      </div>
+      <el-table :data="onlineDevices" style="width: 100%" empty-text="当前没有在线设备">
+        <el-table-column label="设备" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">
+            <div class="dev-cell">
+              <span class="dev-name">{{ row.device_name || row.device_model || '未知设备' }}</span>
+              <span class="dev-id">{{ row.device_id }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="平台" width="120">
+          <template #default="{ row }">
+            <span class="plat">
+              <i class="dot" :style="{ background: platformColors[row.platform] || '#909399' }"></i>
+              {{ row.platform }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="型号 / 系统" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ [row.device_model, row.os_version].filter(Boolean).join(' / ') || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="推送 Key" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.key_name || '未知 Key' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="连接数" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag type="info" effect="plain" round size="small">{{ row.connections }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="IP" width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.ip || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="最后活跃" width="120">
+          <template #default="{ row }">
+            <span :title="formatTime(row.last_active)">{{ idleLabel(row.idle_seconds) }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
     <!-- 最新推送记录 -->
     <div class="recent-card">
       <div class="chart-header">
@@ -180,11 +234,13 @@ import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
 import {
   getDashboardOverviewApi,
+  getOnlineDevicesApi,
   getOnlineTrendApi,
   getTodayPushApi,
   getKeyDistributionApi,
   getDevicePlatformApi,
   getRecentPushApi,
+  type OnlineDeviceItem,
   type RecentPushItem,
   type DashboardOverview
 } from '@/api/dashboard'
@@ -504,12 +560,28 @@ const platformOption = computed(() => ({
   ]
 }))
 
+// 在线设备列表（实时）
+const onlineDevices = ref<OnlineDeviceItem[]>([])
+
 // 最新推送记录
 const recentPush = ref<RecentPushItem[]>([])
 
 // 工具函数
 function formatNum(n: number): string {
   return n.toLocaleString('zh-CN')
+}
+
+function formatTime(ts: number): string {
+  if (!ts) return '-'
+  return new Date(ts * 1000).toLocaleString('zh-CN', { hour12: false })
+}
+
+function idleLabel(seconds: number): string {
+  if (seconds < 0) return '未知'
+  if (seconds < 60) return `${seconds} 秒前`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`
+  return `${Math.floor(seconds / 86400)} 天前`
 }
 
 type TagType = 'primary' | 'success' | 'warning' | 'info' | 'danger'
@@ -558,8 +630,9 @@ function goPush() {
 async function loadAllData(showError = false) {
   refreshing.value = true
   try {
-    const [overviewRes, trendRes, todayPushRes, keyDistRes, platformRes, recentRes] = await Promise.all([
+    const [overviewRes, onlineDevicesRes, trendRes, todayPushRes, keyDistRes, platformRes, recentRes] = await Promise.all([
       getDashboardOverviewApi(),
+      getOnlineDevicesApi(),
       getOnlineTrendApi(Number(onlineRange.value)),
       getTodayPushApi(),
       getKeyDistributionApi(),
@@ -572,6 +645,9 @@ async function loadAllData(showError = false) {
       appStore.setSystemStatus({
         onlineDevices: overviewRes.data.online_devices
       })
+    }
+    if (onlineDevicesRes.data?.list) {
+      onlineDevices.value = onlineDevicesRes.data.list
     }
     if (trendRes.data) {
       onlineTrendData.value = trendRes.data
@@ -826,6 +902,40 @@ onBeforeUnmount(() => {
   }
   .muted {
     color: var(--text-secondary);
+  }
+}
+
+// 在线设备列表
+.online-card {
+  margin-bottom: 18px;
+
+  .dev-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    .dev-name {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+    .dev-id {
+      font-size: 12px;
+      font-family: $font-family-mono;
+      color: var(--text-secondary);
+    }
+  }
+
+  .plat {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
   }
 }
 

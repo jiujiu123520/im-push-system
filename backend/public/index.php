@@ -290,6 +290,7 @@ $router->put('/admin/keys/{id}/subscribers/{device_id}/repair', [\App\Controller
         // 仪表盘统计（管理员鉴权）
         // ============================================================
         $router->get('/admin/dashboard/overview',        [\App\Controller\DashboardController::class, 'overview']);
+        $router->get('/admin/dashboard/online-devices',  [\App\Controller\DashboardController::class, 'onlineDevices']);
         $router->get('/admin/dashboard/online-trend',    [\App\Controller\DashboardController::class, 'onlineTrend']);
         $router->get('/admin/dashboard/today-push',      [\App\Controller\DashboardController::class, 'todayPush']);
         $router->get('/admin/dashboard/key-distribution',[\App\Controller\DashboardController::class, 'keyDistribution']);

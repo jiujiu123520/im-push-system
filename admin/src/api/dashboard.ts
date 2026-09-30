@@ -17,6 +17,27 @@ export function getDashboardOverviewApi() {
   return get<DashboardOverview>('/admin/dashboard/overview')
 }
 
+// 在线设备列表（实时）
+export interface OnlineDeviceItem {
+  device_id: string
+  key_value: string
+  key_name: string
+  platform: string
+  device_name: string
+  device_model: string
+  os_version: string
+  app_version: string
+  connections: number
+  connect_at: number
+  last_active: number
+  idle_seconds: number
+  ip: string
+}
+
+export function getOnlineDevicesApi() {
+  return get<{ list: OnlineDeviceItem[]; total: number }>('/admin/dashboard/online-devices')
+}
+
 // 在线设备趋势
 export interface TrendData {
   dates: string[]
