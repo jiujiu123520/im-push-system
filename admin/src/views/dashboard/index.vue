@@ -15,6 +15,9 @@
         <el-button :icon="MonitorIcon" round @click="testPushVisible = true">
           测试推送
         </el-button>
+        <el-button :icon="PromotionIcon" round @click="concurrentTestVisible = true">
+          并发压测
+        </el-button>
         <el-button type="primary" :icon="PromotionIcon" round @click="goPush">
           发起推送
         </el-button>
@@ -219,6 +222,9 @@
 
     <!-- 测试推送对话框 -->
     <TestPushDialog v-model="testPushVisible" />
+
+    <!-- 并发压测对话框 -->
+    <ConcurrentTestDialog v-model="concurrentTestVisible" />
   </div>
 </template>
 
@@ -264,6 +270,7 @@ import {
   type DashboardOverview
 } from '@/api/dashboard'
 import TestPushDialog from './TestPushDialog.vue'
+import ConcurrentTestDialog from './ConcurrentTestDialog.vue'
 
 // 注册 ECharts
 use([
@@ -289,6 +296,8 @@ const AUTO_REFRESH_INTERVAL = 60000 // 60秒自动刷新一次
 
 // 测试推送对话框
 const testPushVisible = ref(false)
+// 并发压测对话框
+const concurrentTestVisible = ref(false)
 const onlineRange = ref<'7' | '30'>('7')
 
 // 问候语
