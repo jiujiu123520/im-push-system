@@ -107,6 +107,7 @@ export function checkOnlineApi(params: { type: 'device' | 'key'; value: string }
 }
 
 // 并发压测推送
+// 批量压测耗时会超过全局 15s 超时，这里单独放宽到 120s
 export function concurrentTestPushApi(data: ConcurrentTestParams) {
-  return post<ConcurrentTestResult>('/admin/test-push/concurrent', data)
+  return post<ConcurrentTestResult>('/admin/test-push/concurrent', data, { timeout: 120000 })
 }

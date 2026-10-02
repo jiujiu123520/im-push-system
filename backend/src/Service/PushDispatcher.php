@@ -85,11 +85,15 @@ class PushDispatcher
      *
      * 链路：HTTP 入口 -> storeMessage -> getFdsByDevice -> pushToFds(入队/直推)
      *
-     * @param string $deviceId 设备唯一标识
-     * @param array  $message  消息体
+     * @param string $deviceId      设备唯一标识
+     * @param array  $message       消息体
+     * @param bool   $waitForResult HTTP 上下文下是否等待 WS 进程回传真实投递结果。
+     *                              true（默认）= 业务推送，需要准确的成功/失败数；
+     *                              false = 压测等只关心"服务端受理能力"的场景，入队即返回，
+     *                              否则每条都要阻塞最多 800ms，批量压测必然超时。
      * @return array
      */
-    public function pushToDevice(string $deviceId, array $message): array
+    public function pushToDevice(string $deviceId, array $message, bool $waitForResult = true): array
     {
         // 补充消息 ID（用于串联整条推送链路日志）
         $message['message_id'] = $message['message_id'] ?? uniqid('msg_', true);
@@ -138,7 +142,7 @@ class PushDispatcher
             ];
         }
 
-        return $this->pushToFds($fds, $message, $deviceId);
+        return $this->pushToFds($fds, $message, $deviceId, null, $waitForResult);
     }
 
     /**
@@ -146,9 +150,10 @@ class PushDispatcher
      *
      * @param array  $deviceIds 设备 ID 数组
      * @param array  $message   消息体
+     * @param bool   $waitForResult 是否等待 WS 投递结果，见 pushToDevice()
      * @return array
      */
-    public function pushToDevices(array $deviceIds, array $message): array
+    public function pushToDevices(array $deviceIds, array $message, bool $waitForResult = true): array
     {
         $message['message_id'] = $message['message_id'] ?? uniqid('msg_', true);
 
@@ -168,7 +173,7 @@ class PushDispatcher
             if ($deviceId === '') {
                 continue;
             }
-            $r = $this->pushToDevice($deviceId, $message);
+            $r = $this->pushToDevice($deviceId, $message, $waitForResult);
             $result['success_count'] += $r['success_count'];
             $result['fail_count']    += $r['fail_count'];
             $result['detail']         = array_merge($result['detail'], $r['detail']);
@@ -196,9 +201,10 @@ class PushDispatcher
      *
      * @param string $keyValue 推送 Key 值
      * @param array  $message  消息体
+     * @param bool   $waitForResult 是否等待 WS 投递结果，见 pushToDevice()
      * @return array
      */
-    public function pushByKey(string $keyValue, array $message): array
+    public function pushByKey(string $keyValue, array $message, bool $waitForResult = true): array
     {
         $message['message_id'] = $message['message_id'] ?? uniqid('msg_', true);
         $msgId = $message['message_id'];
@@ -271,7 +277,7 @@ class PushDispatcher
             foreach ($onlineDeviceIds as $did) {
                 $this->storeMessage($did, $message);
             }
-            $fdResult = $this->pushToFds($fds, $message, implode(',', $onlineDeviceIds), $keyValue);
+            $fdResult = $this->pushToFds($fds, $message, implode(',', $onlineDeviceIds), $keyValue, $waitForResult);
             $success += (int)($fdResult['success_count'] ?? 0);
             $fail += (int)($fdResult['fail_count'] ?? 0);
             $detail = array_merge($detail, $fdResult['detail'] ?? []);
@@ -523,13 +529,34 @@ class PushDispatcher
         //   多条消息 → 3 秒后发送「收到 N 条消息」，不显示具体内容
         $aggResult = WebPushAggregator::add($deviceId, $title, $content, $payload);
 
-        $this->logPush("[tryWebPush] 已聚合 device_id={$deviceId} msg_id={$msgId} count={$aggResult['count']}");
+        $this->logPush("[tryWebPush] 已聚合 device_id={$deviceId} msg_id={$msgId} count=" . ($aggResult['count'] ?? 0));
 
-        // 聚合成功：消息已暂存，3 秒后由 Timer 触发 flush 发送（非失败）
+        if (empty($aggResult['aggregated'])) {
+            // 聚合入队失败（Redis 异常等）：消息未进入窗口，算失败
+            $reason = 'Web Push 聚合入队失败';
+            return [
+                'success_count'  => 0,
+                'fail_count'     => 1,
+                'stored_offline' => false,
+                'detail'         => [
+                    [
+                        'device_id' => $deviceId,
+                        'status'    => 'webpush_failed',
+                        'message'   => $reason,
+                    ],
+                ],
+                'fail_detail' => [['target' => $deviceId, 'reason' => $reason]],
+                'fail_reason' => $reason,
+            ];
+        }
+
+        // 聚合成功：消息已暂存，3 秒后由 Timer 触发 flush 发送。
+        // 计为"已受理成功"而不是 0：PWA 设备本身不会有 WS fd，走的一直是这条通道，
+        // 若恒返回 success=0，后台会显示"成功 0 条"并且状态被判成失败，看起来像坏了。
         return [
-            'success_count'  => 0,
+            'success_count'  => 1,
             'fail_count'     => 0,
-            'stored_offline' => true,
+            'stored_offline' => false,
             'detail'         => [
                 [
                     'device_id' => $deviceId,
@@ -692,7 +719,7 @@ class PushDispatcher
      * @param string|null $keyValue 用于日志
      * @return array
      */
-    private function pushToFds(array $fds, array $message, ?string $deviceId = null, ?string $keyValue = null): array
+    private function pushToFds(array $fds, array $message, ?string $deviceId = null, ?string $keyValue = null, bool $waitForResult = true): array
     {
         $success = 0;
         $fail    = 0;
@@ -845,21 +872,30 @@ class PushDispatcher
                     'count'   => $fdCount,
                     'message' => '已加入推送队列，等待 WS 进程投递',
                 ];
-                $this->logPush("[pushToFds·HTTP] 已入队 fds=" . json_encode($fds) . " msg_id={$msgId} key=" . ($keyValue ?? 'null') . " size={$payloadSize} 等待 WS 投递结果...");
+                $this->logPush("[pushToFds·HTTP] 已入队 fds=" . json_encode($fds) . " msg_id={$msgId} key=" . ($keyValue ?? 'null') . " size={$payloadSize} wait=" . ($waitForResult ? '1' : '0'));
 
-                // 等待 WS 进程消费队列并写入真实投递结果
-                $realResult = $this->waitForPushResult($resultKey, [$queuedDetail], $fdCount);
+                if ($waitForResult) {
+                    // 等待 WS 进程消费队列并写入真实投递结果
+                    $realResult = $this->waitForPushResult($resultKey, [$queuedDetail], $fdCount);
 
-                $success   = (int)$realResult['success_count'];
-                $fail      = (int)$realResult['fail_count'];
-                $detail    = $realResult['detail'];
-                $failDetail= $realResult['fail_detail'] ?? [];
-                $failReasons = [];
-                if (!empty($realResult['fail_reason'])) {
-                    $failReasons[$realResult['fail_reason']] = $fail;
+                    $success   = (int)$realResult['success_count'];
+                    $fail      = (int)$realResult['fail_count'];
+                    $detail    = $realResult['detail'];
+                    $failDetail= $realResult['fail_detail'] ?? [];
+                    $failReasons = [];
+                    if (!empty($realResult['fail_reason'])) {
+                        $failReasons[$realResult['fail_reason']] = $fail;
+                    }
+                    // 继承 WS 进程的 stored_offline 标记
+                    $httpStoredOffline = !empty($realResult['stored_offline']);
+                } else {
+                    // 不等待模式（压测）：指令已可靠入队即视为受理成功。
+                    // 逐条等待会把每条压测都拉长到 800ms，批量压测必然超时，
+                    // 而压测关心的是服务端受理吞吐，投递结果由 WS 进程异步完成。
+                    $success = $fdCount;
+                    $detail  = [$queuedDetail];
+                    $this->logPush("[pushToFds·HTTP] 不等待投递结果 msg_id={$msgId} fds={$fdCount}");
                 }
-                // 继承 WS 进程的 stored_offline 标记
-                $httpStoredOffline = !empty($realResult['stored_offline']);
             } else {
                 $fail = $fdCount;
                 $reason = '入队失败：Redis 写入异常，推送指令丢失';

@@ -984,7 +984,7 @@
                 <el-option label="低（low）" value="low" />
               </el-select>
             </el-form-item>
-            <el-form-item label="并发数（1-1000）">
+            <el-form-item label="每批条数（1-1000）">
               <el-input-number
                 v-model="concurrentForm.concurrency"
                 :min="1"
@@ -1023,9 +1023,10 @@
             <template #title>
               <div class="concurrent-tip-content">
                 <strong>注意事项：</strong>
-                <div>· 总次数 = 并发数 × 批次数，建议从小到大逐步加压</div>
+                <div>· 总次数 = 每批条数 × 批次数，建议从小到大逐步加压</div>
                 <div>· 压测会真实推送消息到目标设备/Key，请注意影响</div>
                 <div>· 间隔毫秒数越大对服务器冲击越小，建议初始 100ms</div>
+                <div>· 「受理成功」指服务端已把指令可靠投进推送队列，真实投递由推送进程异步完成</div>
               </div>
             </template>
           </el-alert>
@@ -1054,7 +1055,7 @@
             </div>
             <div class="result-grid">
               <div class="result-item">
-                <span class="result-label">并发数</span>
+                <span class="result-label">每批条数</span>
                 <span class="result-value mono">{{ concurrentResult.concurrency }}</span>
               </div>
               <div class="result-item">
@@ -1062,7 +1063,7 @@
                 <span class="result-value mono">{{ concurrentResult.total_sent }}</span>
               </div>
               <div class="result-item">
-                <span class="result-label">成功数</span>
+                <span class="result-label">受理成功</span>
                 <span class="result-value mono success">{{ concurrentResult.success_count }}</span>
               </div>
               <div class="result-item">

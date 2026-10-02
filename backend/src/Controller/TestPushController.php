@@ -357,10 +357,13 @@ class TestPushController
      *     "title":        "可选自定义标题",
      *     "content":      "可选自定义内容",
      *     "priority":     "high" | "normal" | "low",
-     *     "concurrency":  int, 并发数（1-1000，默认 10）
+     *     "concurrency":  int, 每批条数（1-1000，默认 10），批次之间用 interval_ms 间隔
      *     "total":        int, 总推送次数（1-10000，默认 100，0=只按并发数发一批）
      *     "interval_ms":  int, 每批之间的间隔毫秒数（默认 0，不间隔）
      *   }
+     *
+     * 说明：HTTP 端只统计"指令受理（入队）"能力，不等 WS 进程回传逐条投递结果，
+     *      否则每条要阻塞最多 800ms，批量压测必然超时。真实投递由 push-websocket 异步完成。
      *
      * 返回：
      *   {
@@ -412,6 +415,19 @@ class TestPushController
         $actualTotal = $total > 0 ? $total : $concurrency;
         $batches = (int)ceil($actualTotal / $concurrency);
 
+        // 批次间隔是串行等待，累计超过 60 秒必然把 HTTP 连接拖死（前端 15s、nginx 60s 都会断），
+        // 这里提前拦掉，避免出现"点了没反应/超时"。
+        $waitMs = $batches > 1 ? ($batches - 1) * $intervalMs : 0;
+        if ($waitMs > 60000) {
+            Response::fail(
+                $response,
+                '批次等待时间合计 ' . round($waitMs / 1000) . ' 秒，超过 60 秒上限，请调小 total 或 interval_ms',
+                Response::CODE_BAD_REQUEST,
+                400
+            );
+            return false;
+        }
+
         $testTitle = $title !== '' ? $title : '【并发压测】';
         $baseContent = $content !== '' ? $content : '并发压测消息';
 
@@ -447,8 +463,10 @@ class TestPushController
                 break;
             }
 
-            // 使用 swoole 协程并发推送（如果在 Swoole HTTP 上下文中）
-            // 这里简化为同步循环推送，因为 PushDispatcher 内部已通过 Redis 队列异步处理
+            // 压测走"不等待投递结果"模式：HTTP 端只负责把指令可靠投进队列。
+            // 若每条都等 WS 进程回传结果（最多 800ms），100 条就要 80 秒，
+            // 前端 15 秒超时、nginx 60 秒超时，压测根本跑不完。
+            // 真实投递由 push-websocket 的 processQueue 异步并发完成。
             for ($i = 0; $i < $currentBatchSize; $i++) {
                 $seq = $totalSent + 1;
                 $message = [
@@ -474,9 +492,9 @@ class TestPushController
 
                 try {
                     if ($targetType === 'device') {
-                        $r = $dispatcher->pushToDevices([$targetValue], $message);
+                        $r = $dispatcher->pushToDevices([$targetValue], $message, false);
                     } else {
-                        $r = $dispatcher->pushByKey($targetValue, $message);
+                        $r = $dispatcher->pushByKey($targetValue, $message, false);
                     }
                     $totalSuccess += $r['success_count'];
                     $totalFail    += $r['fail_count'];
