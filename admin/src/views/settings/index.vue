@@ -959,9 +959,26 @@
               </el-select>
             </el-form-item>
             <el-form-item label="目标值" required>
-              <el-input
+              <el-select
+                v-if="concurrentForm.targetType === 'key'"
                 v-model="concurrentForm.targetValue"
-                :placeholder="concurrentForm.targetType === 'key' ? '请输入推送 Key' : '请输入设备 ID'"
+                placeholder="请选择推送 Key"
+                filterable
+                clearable
+                :loading="keyOptionsLoading"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="k in keyOptions"
+                  :key="k.value"
+                  :label="k.label"
+                  :value="k.value"
+                />
+              </el-select>
+              <el-input
+                v-else
+                v-model="concurrentForm.targetValue"
+                placeholder="请输入设备 ID"
                 clearable
               />
             </el-form-item>
@@ -1285,7 +1302,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 // 图标重命名导入（避免与 unplugin-vue-components 自动导入的组件名冲突）
 import {
@@ -1337,6 +1354,7 @@ import {
   type SettingsUserApp
 } from '@/api/settings'
 import { concurrentTestPushApi } from '@/api/push'
+import { getKeyListApi } from '@/api/key'
 import type { ConcurrentTestResult } from '@/api/types'
 
 const loading = ref(false)
@@ -1870,6 +1888,37 @@ const concurrentForm = reactive({
 })
 const concurrentResult = ref<ConcurrentTestResult | null>(null)
 
+// Key 下拉选项：按 Key 压测时从后台拉取，避免手抄 Key 出错
+const keyOptions = ref<{ label: string; value: string }[]>([])
+const keyOptionsLoading = ref(false)
+
+async function loadKeyOptions() {
+  if (keyOptions.value.length > 0) return
+  keyOptionsLoading.value = true
+  try {
+    const res = await getKeyListApi({ page: 1, pageSize: 100 })
+    // 后端 /admin/keys 实际返回 name / key_value，types.ts 里的 KeyRecord 字段名与之不符，这里按真实结构取值
+    const list = (res.data.list || []) as unknown as Array<{ name?: string; key_value: string }>
+    keyOptions.value = list.map((k) => ({
+      label: `${k.name || '未命名'}（${k.key_value}）`,
+      value: k.key_value
+    }))
+  } catch {
+    // 拉取失败不阻塞压测，用户仍可在下拉框内手动输入
+  } finally {
+    keyOptionsLoading.value = false
+  }
+}
+
+watch(
+  () => concurrentForm.targetType,
+  (type) => {
+    // 设备 ID 与 Key 值互不通用，切换目标类型时清空，避免误用上一次的选择
+    concurrentForm.targetValue = ''
+    if (type === 'key') loadKeyOptions()
+  }
+)
+
 async function runConcurrentTest() {
   if (!concurrentForm.targetValue.trim()) {
     ElMessage.warning('请输入目标设备 ID 或推送 Key')
@@ -2361,6 +2410,8 @@ onMounted(async () => {
   await fetchSettings()
   fetchMailConfig()
   fetchSystemInfo()
+  // 并发压测默认按 Key 推送，进页面就把 Key 下拉列表备好
+  loadKeyOptions()
   // 专用接口兜底加载：如果统一接口没返回 settings_paths/settings_security/settings_user_app，则通过专用接口加载
   fetchPathsConfig()
   fetchSecurityExtConfig()
