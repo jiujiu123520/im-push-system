@@ -862,6 +862,9 @@ else
         # 若失败（通常是 TypeScript 类型警告）则降级为直接 vite build（跳过类型检查）
         # 这样避免因类型不兼容阻断部署，类型问题可在开发时用 npm run type-check 单独排查
         info "构建管理后台 (npm run build)..."
+        # dist 可能因历史操作属主是 Web 用户，普通用户删不掉，vite 清空 outDir 会报 EACCES，
+        # 这里先把 dist 交回当前用户，构建产物权限位仍是 755/644，nginx 照常可读
+        _sudo chown -R "$(id -u):$(id -g)" "${PROJECT_DIR}/admin/dist" 2>/dev/null || true
         if ! npm run build; then
             warn "标准构建失败（可能是 TypeScript 类型检查不通过），降级为直接 vite build（跳过类型检查）..."
             if npx vite build; then
@@ -914,6 +917,8 @@ else
                 fi
 
                 info "构建用户端 (npm run build)..."
+                # 同管理后台：dist 属主若是 Web 用户，vite 清空 outDir 会报 EACCES 导致构建失败
+                _sudo chown -R "$(id -u):$(id -g)" "${PROJECT_DIR}/user/dist" 2>/dev/null || true
                 if ! npm run build; then
                     warn "用户端标准构建失败，降级为直接 vite build（跳过类型检查）..."
                     if npx vite build; then
