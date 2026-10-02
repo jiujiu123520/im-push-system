@@ -8,9 +8,9 @@ namespace App\Service;
  *
  * 核心机制：
  *   1. 时间窗口聚合：在 3 秒窗口内收集同一设备的所有消息
- *   2. 窗口结束时（3 秒后）只发送 1 条推送：
- *        - 1 条消息：显示具体标题与内容
- *        - 多条消息：显示「收到 N 条消息」，不显示具体内容
+ *   2. 窗口结束时（3 秒后）按窗口内的消息条数决定怎么发：
+ *        - 不足 5 条：逐条原样推送，每条显示自己的标题与内容
+ *        - 达到 5 条：合并为 1 条「收到 N 条消息」，不显示具体内容
  *
  * 与 APNS 的 AlertAggregator 机制一致，但窗口为 3 秒，且只针对 Web Push（PWA）。
  *
@@ -18,7 +18,7 @@ namespace App\Service;
  *   tryWebPush → WebPushAggregator::add()
  *     → 窗口内累积消息（Redis List）
  *     → 3 秒后（Swoole\Timer::after）触发 flush()
- *     → WebPushService::send(汇总消息)
+ *     → WebPushService::send(逐条原样 / 汇总消息)
  *
  * Redis 数据结构：
  *   - webpush:window:{deviceId}    → List，窗口内的消息条目（JSON）
@@ -29,6 +29,9 @@ class WebPushAggregator
 {
     /** 聚合窗口（秒），窗口内的消息合并为一条推送 */
     private const WINDOW_SECONDS = 3;
+
+    /** 聚合阈值：窗口内消息达到该条数才合并为「收到 N 条消息」，不足则逐条原样推送 */
+    private const AGGREGATE_THRESHOLD = 5;
 
     /** Redis Key 前缀 */
     private const WINDOW_LIST_KEY = 'webpush:window:';
@@ -90,11 +93,11 @@ class WebPushAggregator
     }
 
     /**
-     * 刷新窗口：合并窗口内所有消息，发送一条汇总推送
+     * 刷新窗口：按窗口内消息条数决定逐条推送还是合并推送
      *
-     * 汇总策略：
-     *   - 1 条消息：发送原始标题与内容
-     *   - 多条消息：发送「收到 N 条消息」，不显示具体内容
+     * 发送策略：
+     *   - 不足 AGGREGATE_THRESHOLD 条：逐条原样推送，每条显示自己的标题与内容
+     *   - 达到 AGGREGATE_THRESHOLD 条：合并为 1 条「收到 N 条消息」，不显示具体内容
      *
      * @param string $deviceId
      * @return array ['sent' => bool, 'count' => int, 'message' => string]
@@ -132,21 +135,36 @@ class WebPushAggregator
                 return ['sent' => false, 'count' => $count, 'message' => '订阅不存在或已失效'];
             }
 
-            if ($count === 1) {
-                // 单条消息：显示具体内容
-                $first = json_decode($items[0], true) ?: [];
-                $summaryTitle = (string)($first['title'] ?? '新消息');
-                $summaryBody  = (string)($first['body'] ?? '');
-                $payload      = is_array($first['payload'] ?? null) ? $first['payload'] : [];
-            } else {
-                // 多条消息：显示「收到 N 条消息」，不显示具体内容
-                $summaryTitle = '收到 ' . $count . ' 条消息';
-                $summaryBody  = '';
-                $payload      = [
-                    'alert_count' => $count,
-                    'device_id'   => $deviceId,
+            if ($count < self::AGGREGATE_THRESHOLD) {
+                // 不足阈值：逐条原样推送，用户能看到每条的具体内容
+                $sentAll = true;
+                $lastMsg = '';
+                foreach ($items as $item) {
+                    $one = json_decode((string)$item, true) ?: [];
+                    $r = WebPushService::send(
+                        $sub,
+                        (string)($one['title'] ?? '新消息'),
+                        (string)($one['body'] ?? ''),
+                        is_array($one['payload'] ?? null) ? $one['payload'] : []
+                    );
+                    $sentAll = $sentAll && !empty($r['success']);
+                    $lastMsg = (string)($r['message'] ?? '');
+                }
+
+                return [
+                    'sent'    => $sentAll,
+                    'count'   => $count,
+                    'message' => '逐条推送 ' . $count . ' 条：' . $lastMsg,
                 ];
             }
+
+            // 达到阈值：合并为 1 条「收到 N 条消息」，不显示具体内容
+            $summaryTitle = '收到 ' . $count . ' 条消息';
+            $summaryBody  = '';
+            $payload      = [
+                'alert_count' => $count,
+                'device_id'   => $deviceId,
+            ];
 
             $result = WebPushService::send($sub, $summaryTitle, $summaryBody, $payload);
 
@@ -170,7 +188,10 @@ class WebPushAggregator
     {
         return [
             'window_seconds' => self::WINDOW_SECONDS,
-            'description'    => '同一设备在 ' . self::WINDOW_SECONDS . ' 秒内的多条消息合并为 1 条推送，多条时显示「收到 N 条消息」',
+            'threshold'      => self::AGGREGATE_THRESHOLD,
+            'description'    => '同一设备在 ' . self::WINDOW_SECONDS . ' 秒内的消息：不足 ' .
+                self::AGGREGATE_THRESHOLD . ' 条逐条原样推送，达到 ' . self::AGGREGATE_THRESHOLD .
+                ' 条合并为 1 条「收到 N 条消息」',
         ];
     }
 }
