@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <el-dialog
     v-model="visible"
     title="测试调试推送"
@@ -17,12 +17,44 @@
 
       <el-form-item :label="form.target_type === 'device' ? '设备 ID' : 'Key 值'">
         <div style="display: flex; gap: 8px; width: 100%">
-          <el-input
+          <el-select
+            v-if="form.target_type === 'key'"
             v-model="form.target_value"
-            :placeholder="form.target_type === 'device' ? '请输入设备 ID' : '请输入 Key 值'"
+            placeholder="请选择推送 Key"
+            filterable
+            allow-create
+            default-first-option
             clearable
-            @keyup.enter="checkOnline"
-          />
+            :loading="keyLoading"
+            style="flex: 1"
+          >
+            <el-option
+              v-for="k in keyOptions"
+              :key="k.value"
+              :label="k.label"
+              :value="k.value"
+            />
+          </el-select>
+          <el-select
+            v-else
+            v-model="form.target_value"
+            placeholder="输入设备 ID 或设备名搜索"
+            filterable
+            remote
+            allow-create
+            default-first-option
+            clearable
+            :remote-method="searchDevices"
+            :loading="deviceLoading"
+            style="flex: 1"
+          >
+            <el-option
+              v-for="d in deviceOptions"
+              :key="d.value"
+              :label="d.label"
+              :value="d.value"
+            />
+          </el-select>
           <el-button :loading="checking" @click="checkOnline">
             <el-icon><SearchIcon /></el-icon>
             检查在线
@@ -224,7 +256,8 @@ import {
   CopyDocument as CopyDocumentIcon,
 } from '@element-plus/icons-vue'
 import { sendTestPushApi, checkOnlineApi } from '@/api/push'
-import { kickDeviceApi, toggleDeviceStatusApi } from '@/api/device'
+import { kickDeviceApi, toggleDeviceStatusApi, getDeviceListApi } from '@/api/device'
+import { getKeyListApi } from '@/api/key'
 import type { TestPushResult } from '@/api/types'
 
 const props = defineProps<{ modelValue: boolean }>()
@@ -256,6 +289,61 @@ const result = ref<TestPushResult | null>(null)
 const kickingId = ref(0)
 const disablingId = ref(0)
 
+// Key / 设备下拉选项：避免手抄长串 Key 或设备 ID 出错
+const keyOptions = ref<{ label: string; value: string }[]>([])
+const keyLoading = ref(false)
+const deviceOptions = ref<{ label: string; value: string }[]>([])
+const deviceLoading = ref(false)
+
+async function loadKeyOptions() {
+  if (keyOptions.value.length > 0) return
+  keyLoading.value = true
+  try {
+    const res = await getKeyListApi({ page: 1, pageSize: 100 })
+    // 后端 /admin/keys 实际返回 name / key_value，types.ts 里的 KeyRecord 字段名与之不符，这里按真实结构取值
+    const list = (res.data.list || []) as unknown as Array<{ name?: string; key_value: string }>
+    keyOptions.value = list.map((k) => ({
+      label: `${k.name || '未命名'}（${k.key_value}）`,
+      value: k.key_value,
+    }))
+  } catch {
+    // 拉取失败不阻塞使用，下拉框仍可直接输入
+  } finally {
+    keyLoading.value = false
+  }
+}
+
+// 设备总量可能很大，用远程搜索按关键词查，关键词匹配 device_id / 设备名 / 型号
+async function searchDevices(keyword = '') {
+  deviceLoading.value = true
+  try {
+    const res = await getDeviceListApi({ page: 1, pageSize: 20, keyword })
+    const list = (res.data.list || []) as unknown as Array<{
+      device_id?: string
+      device_name?: string
+      device_model?: string
+      online?: number
+    }>
+    deviceOptions.value = list
+      .filter((d) => d.device_id)
+      .map((d) => ({
+        label: `${d.device_name || d.device_model || '未命名设备'}（${d.device_id}）${d.online ? ' · 在线' : ''}`,
+        value: String(d.device_id),
+      }))
+  } catch {
+    // 搜索失败保持原选项，用户仍可直接输入
+  } finally {
+    deviceLoading.value = false
+  }
+}
+
+// 打开弹窗时把两组选项备好
+watch(visible, (v) => {
+  if (!v) return
+  loadKeyOptions()
+  searchDevices('')
+})
+
 // 切换目标类型时重置检查状态
 watch(() => form.target_type, () => {
   onlineChecked.value = false
@@ -266,6 +354,8 @@ watch(() => form.target_type, () => {
   onlineDetail.value = null
   onlineDeviceDetails.value = []
   result.value = null
+  // 设备 ID 与 Key 值互不通用，切换后清空避免误用
+  form.target_value = ''
 })
 
 const onlineAlertText = computed(() => {

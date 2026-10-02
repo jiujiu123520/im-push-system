@@ -418,9 +418,11 @@ const keyOptions = ref<{ label: string; value: string }[]>([])
 async function fetchKeyOptions() {
   try {
     const res = await getKeyListApi({ page: 1, pageSize: 100 })
-    keyOptions.value = (res.data.list || []).map((k) => ({
-      label: `${k.title} (${k.appKey.slice(0, 12)}...)`,
-      value: k.appKey
+    // 后端 /admin/keys 实际返回 name / key_value，types.ts 里的 KeyRecord 字段名与之不符，这里按真实结构取值
+    const list = (res.data.list || []) as unknown as Array<{ name?: string; key_value: string }>
+    keyOptions.value = list.map((k) => ({
+      label: `${k.name || '未命名'}（${String(k.key_value ?? '').slice(0, 12)}…）`,
+      value: k.key_value
     }))
     // 自动填充第一个 Key（如果 defaultKey 为空）
     if (!form.defaultKey && keyOptions.value.length > 0) {
