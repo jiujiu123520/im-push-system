@@ -274,25 +274,22 @@ trap restore_owner EXIT
 # push-http/push-websocket 以 Web 用户启动时读不到 .env 会直接 exit 255。
 # 正常流程下 step[4/5] 会再次修正，但只要那次之前中断（例如拉代码失败退出），
 # 线上服务就会一直起不来，故每次 chown -R 之后立即调用本函数兜底。
+#
+# ⚠️ 只处理 .env，不要动 storage/runtime：
+#   这两个目录在 step[4/5] 才改成 Web 用户，若在此处提前改掉，
+#   紧接着的 git checkout/reset 会因为无权删除其中的文件而失败
+#   （error: unable to unlink old 'backend/storage/...': Permission denied）。
 restore_web_user_files() {
     local web_user
     web_user="$(detect_web_user)"
     id -u "${web_user}" >/dev/null 2>&1 || return 0
-
-    local web_uid_gid
-    web_uid_gid="$(id -u "${web_user}"):$(id -g "${web_user}")"
 
     if [[ -f "${PROJECT_DIR}/backend/.env" ]]; then
         _sudo chown "root:${web_user}" "${PROJECT_DIR}/backend/.env" 2>/dev/null || true
         _sudo chmod 640 "${PROJECT_DIR}/backend/.env" 2>/dev/null || true
     fi
     [[ -f "${PROJECT_DIR}/deploy/.env" ]] && \
-        _sudo chown "${web_uid_gid}" "${PROJECT_DIR}/deploy/.env" 2>/dev/null || true
-
-    for d in backend/storage backend/runtime; do
-        [[ -d "${PROJECT_DIR}/${d}" ]] && \
-            _sudo chown -R "${web_uid_gid}" "${PROJECT_DIR}/${d}" 2>/dev/null || true
-    done
+        _sudo chown "${web_user}:${web_user}" "${PROJECT_DIR}/deploy/.env" 2>/dev/null || true
 }
 
 # 清除进度记录
