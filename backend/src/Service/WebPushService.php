@@ -6,6 +6,7 @@ namespace App\Service;
 use Minishlink\WebPush\WebPush;
 use Minishlink\WebPush\Subscription;
 use Minishlink\WebPush\VAPID;
+use Minishlink\WebPush\Encryption;
 
 /**
  * Web Push 推送服务（PWA + iOS Safari 主屏幕）
@@ -32,6 +33,17 @@ class WebPushService
 
     /** VAPID subject 默认值 */
     private const DEFAULT_SUBJECT = 'mailto:admin@example.com';
+
+    /**
+     * 单条通知 payload 的字节上限
+     *
+     * 直接取 minishlink/web-push 的常量，避免两边数值漂移：超过该值
+     * queueNotification() 会抛「Size of payload must not be greater than 4078 octets」。
+     */
+    private const MAX_PAYLOAD_BYTES = Encryption::MAX_PAYLOAD_LENGTH;
+
+    /** 正文/标题被截断后追加的省略号 */
+    private const TRUNCATED_MARK = '…';
 
     /**
      * 获取（必要时自动生成）VAPID 公钥
@@ -75,6 +87,15 @@ class WebPushService
         if (!empty($payload)) {
             $notification['data'] = $payload;
         }
+
+        // Web Push 对单条 payload 有 4078 字节硬上限，超出时 queueNotification() 直接抛异常，
+        // 整条通知发不出去；且这种失败不属于「订阅失效」（expired=false），订阅不会被标记异常，
+        // 用户端表现为静默丢消息——这正是长正文消息（4KB+）一直收不到的原因。
+        // 这里把正文/标题裁到上限内，保证通知一定发得出去：手机上看摘要，
+        // 全文仍可在 PWA 消息列表里查看。data 不参与裁剪，它带着 message_id，
+        // 丢了会导致点通知跳不到对应消息。
+        $notification = self::fitPayload($notification);
+
         $bodyJson = json_encode($notification, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($bodyJson === false) {
             return ['success' => false, 'message' => '通知内容 JSON 编码失败', 'expired' => false];
@@ -124,6 +145,87 @@ class WebPushService
             'message' => $reason !== '' ? $reason : 'Web Push 推送失败',
             'expired' => $expired,
         ];
+    }
+
+    /**
+     * 把通知内容裁剪到 Web Push 单条上限之内
+     *
+     * 优先保留 data（携带 message_id，丢失会导致点击通知跳转失败），先压正文，正文压到
+     * 空仍超限时再压标题。
+     *
+     * @param array $notification ['title' => string, 'body' => string, 'data' => array]
+     * @return array 裁剪后的通知内容
+     */
+    private static function fitPayload(array $notification): array
+    {
+        if (self::payloadBytes($notification) <= self::MAX_PAYLOAD_BYTES) {
+            return $notification;
+        }
+
+        $overflow = self::payloadBytes($notification) - self::MAX_PAYLOAD_BYTES;
+
+        // 正文是最占空间的部分，先裁它；多裁一个省略号的宽度
+        $notification['body'] = self::cutTail(
+            (string)($notification['body'] ?? ''),
+            $overflow + strlen(self::TRUNCATED_MARK)
+        );
+
+        if (self::payloadBytes($notification) <= self::MAX_PAYLOAD_BYTES) {
+            return $notification;
+        }
+
+        // 正文已清空仍超限：只能再裁标题
+        $notification['title'] = self::cutTail(
+            (string)($notification['title'] ?? ''),
+            self::payloadBytes($notification) - self::MAX_PAYLOAD_BYTES + strlen(self::TRUNCATED_MARK)
+        );
+
+        return $notification;
+    }
+
+    /**
+     * 计算通知内容序列化后的字节数
+     *
+     * @param array $notification
+     * @return int
+     */
+    private static function payloadBytes(array $notification): int
+    {
+        $json = json_encode($notification, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return $json === false ? 0 : strlen($json);
+    }
+
+    /**
+     * 从尾部裁掉若干字节，并补上省略号
+     *
+     * 按字节裁切但不切断 UTF-8 字符（中文一个字 3 字节，切在字符中间会得到乱码）。
+     *
+     * @param string $text     原文本
+     * @param int    $cutBytes 需要裁掉的字节数
+     * @return string
+     */
+    private static function cutTail(string $text, int $cutBytes): string
+    {
+        $keep = strlen($text) - $cutBytes;
+        if ($keep <= 0) {
+            return '';
+        }
+        if ($keep >= strlen($text)) {
+            return $text;
+        }
+
+        $cut = substr($text, 0, $keep);
+
+        // 去掉末尾残留的 UTF-8 续字节（10xxxxxx）
+        while ($cut !== '' && (ord($cut[strlen($cut) - 1]) & 0xC0) === 0x80) {
+            $cut = substr($cut, 0, -1);
+        }
+        // 末尾若是多字节字符的首字节（11xxxxxx），说明该字符被切断了，一并去掉
+        if ($cut !== '' && ord($cut[strlen($cut) - 1]) >= 0xC0) {
+            $cut = substr($cut, 0, -1);
+        }
+
+        return $cut . self::TRUNCATED_MARK;
     }
 
     /**
