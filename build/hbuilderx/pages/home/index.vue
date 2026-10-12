@@ -343,7 +343,8 @@ export default {
             // 🔴 降噪：自动重试类的临时错误（connect_timeout/auth_timeout/zombie_probe）
             //   不再弹 Toast——重连循环里会反复触发，之前每次都弹"连接超时"轰炸用户。
             //   状态栏本来就显示"重连中"，这类信息走 wsErrorMsg 即可；
-            //   只有需要用户行动的错误（网络不可用/鉴权失败/放弃重连等）才弹 Toast
+            //   只有需要用户知晓的错误（网络不可用/鉴权失败/已切换低频重试等）才弹 Toast
+            //   （注：重连不再熔断，"多次重连失败"只是一次性告知已降频，不会重复弹）
             if (type === 'connect_timeout' || type === 'auth_timeout' || type === 'zombie_probe') {
                 console.warn('[Home] 自动重试类错误（不弹Toast）：', type, msg)
                 return

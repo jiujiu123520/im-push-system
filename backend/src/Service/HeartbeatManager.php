@@ -12,7 +12,7 @@ use Swoole\WebSocket\Server;
  * 基于 Swoole Timer 实现服务端主动心跳检测：
  *   - 为每个连接启动定时器，周期性发送 ping
  *   - 客户端需回复 pong，收到 pong 时重置未响应计数
- *   - 连续 3 次未收到 pong 则主动断开连接
+ *   - 连续未收到 pong 的时长超过 DEATH_WINDOW_SECONDS 才主动断开连接
  *
  * 注意：Swoole Timer 为进程级，每个 fd 的所有事件由同一个 Worker 处理，
  *       因此各 Worker 内部以 PHP 数组维护定时器 ID 即可。
@@ -28,8 +28,22 @@ class HeartbeatManager
     /** 默认心跳间隔（秒） */
     private const DEFAULT_INTERVAL = 30;
 
-    /** 连续未收到 pong 的最大次数，超过则断开 */
-    private const MAX_MISSED_PONG = 3;
+    /**
+     * 判定连接死亡的时间窗口（秒）
+     *
+     * 语义：连续「未收到 pong」的时长达到该值才断开，与心跳间隔解耦。
+     *
+     * 为什么不再是「固定丢 3 次」：
+     *   原实现 = interval × 3，Android 客户端上报 interval=15 → 45 秒即判死。
+     *   但手机息屏/切后台时，uni-app 的 JS 线程会被系统冻结，应用层 pong 根本发不出来，
+     *   实测「连上 59 秒就被 4002 掐断」，与 4 × 15s = 60s 完全吻合 ——
+     *   也就是说不管网络好坏，只要 JS 冻结超过 45 秒就必然掉线。
+     *   冻结是系统行为（Doze / 厂商省电），客户端无法规避，只能在服务端放宽容忍窗口。
+     *
+     * 300 秒的依据：远小于离线通知阈值（notify_offline_minutes 默认 30 分钟），
+     * 因此放宽不会让「真离线」的判定明显滞后；同时能扛住常规的后台冻结窗口。
+     */
+    private const DEATH_WINDOW_SECONDS = 300;
 
     /**
      * @var Server|null Swoole WebSocket Server 实例
@@ -160,12 +174,19 @@ class HeartbeatManager
         // 先发送 ping（如果还有未响应的 ping，递增计数）
         // 注意：首次 tick 时 pendingPongs=0，先发第 1 个 ping
         // 第 2 次 tick 时若还没收到 pong，pendingPongs=1，发第 2 个 ping
-        // 第 3 次 tick 时若还没收到 pong，pendingPongs=2，发第 3 个 ping
-        // 第 4 次 tick 时若还没收到 pong，pendingPongs=3，达到阈值，断开
+        // ……直到累计未响应次数达到该连接的容忍上限（= DEATH_WINDOW_SECONDS / interval），
+        // 此时才判死断开。
         $missed = ($this->pendingPongs[$fd] ?? 0);
+        $limit  = $this->maxMissedPongs($this->intervals[$fd] ?? self::DEFAULT_INTERVAL);
 
         // 如果已经有未响应的 ping，再发一个之前先检查是否达到上限
-        if ($missed >= self::MAX_MISSED_PONG) {
+        if ($missed >= $limit) {
+            // 留痕：以前这里静默断开，服务端看不到「谁在什么时候因心跳被掐」，
+            // 排查「APP 掉线」只能靠翻 Redis 历史 + 猜，这次就是因此绕了很久。
+            error_log('[HeartbeatManager] 心跳超时断开 fd=' . $fd
+                . ' interval=' . ($this->intervals[$fd] ?? 0) . 's'
+                . ' missed=' . $missed
+                . ' 判死窗口≈' . ($missed * ($this->intervals[$fd] ?? self::DEFAULT_INTERVAL)) . 's');
             $this->server->disconnect($fd, 4002, 'heartbeat timeout');
             $this->stopHeartbeat($fd);
             return;
@@ -182,6 +203,21 @@ class HeartbeatManager
 
         // 发送后递增未响应计数
         $this->pendingPongs[$fd] = $missed + 1;
+    }
+
+    /**
+     * 按心跳间隔换算出该连接的容忍次数，使判死窗口恒为 DEATH_WINDOW_SECONDS。
+     *
+     * 用「窗口/间隔」而不是固定次数，是因为各端上报的 interval 不同
+     * （Android 15s、Web 30s、桌面端可能 300s）：固定次数会导致间隔越大判死越慢、
+     * 间隔越小判死越快，同一套阈值在不同端上表现完全不一致。
+     *
+     * 次数下限 3：间隔本身已经很大时（如 300s），不至于因为单次丢包就被判死。
+     */
+    private function maxMissedPongs(int $interval): int
+    {
+        $interval = max(1, $interval);
+        return max(3, (int)ceil(self::DEATH_WINDOW_SECONDS / $interval));
     }
 
     /**

@@ -25,6 +25,26 @@ let _tmpAlarmWakeLock = null
 const BATTERY_CHECK_INTERVAL = 24 * 60 * 60 * 1000
 
 // ============================================================
+// ApplicationContext 缓存
+//
+// 🔴 广播接收器必须注册在 ApplicationContext 而不是 Activity 上：
+//   Activity 销毁（用户退出页面 / 系统回收）时会连带注销注册在其上的 receiver，
+//   AlarmManager 心跳与屏幕广播会同时失效——且不抛任何异常、日志上也看不出来，
+//   表现为"后台放久了再也不心跳、不重连"。Application 的生命周期与进程一致，不受影响。
+// ============================================================
+let _appCtx = null
+function _getAppContext(main) {
+    if (_appCtx) return _appCtx
+    try {
+        _appCtx = main.getApplicationContext()
+    } catch (e) {
+        console.warn('[KeepAlive] 获取 ApplicationContext 失败，回退 Activity', e)
+        _appCtx = main
+    }
+    return _appCtx
+}
+
+// ============================================================
 // 导出：获取 APP 自定义图标（移植老版 getNotificationSmallIcon）
 // ============================================================
 export function getNotificationSmallIcon(main) {
@@ -233,7 +253,9 @@ export function stopKeepAlive() {
 
         if (_screenReceiver && _screenReceiverRegistered) {
             try {
-                main.unregisterReceiver(_screenReceiver)
+                // 必须用注册时的同一个 Context 注销（注册在 ApplicationContext 上）
+                const ctx = _getAppContext(main)
+                ctx.unregisterReceiver(_screenReceiver)
                 _screenReceiver = null
                 _screenReceiverRegistered = false
             } catch (e) {}
@@ -331,9 +353,10 @@ export function setupAlarmHeartbeat(main, Context, Build) {
             const IntentFilter = plus.android.importClass('android.content.IntentFilter')
             const intentFilter = new IntentFilter()
             intentFilter.addAction(alarmAction)
-            main.registerReceiver(_alarmReceiver, intentFilter)
+            const appCtx = _getAppContext(main)
+            appCtx.registerReceiver(_alarmReceiver, intentFilter)
             _alarmReceiverRegistered = true
-            console.log('[KeepAlive] AlarmManager 心跳广播接收器已注册')
+            console.log('[KeepAlive] AlarmManager 心跳广播接收器已注册（ApplicationContext）')
         }
     } catch (e) {
         console.error('[KeepAlive] 设置 AlarmManager 心跳失败', e)
@@ -356,7 +379,9 @@ export function stopAlarmHeartbeat() {
         }
         if (_alarmReceiver && _alarmReceiverRegistered) {
             try {
-                main.unregisterReceiver(_alarmReceiver)
+                // 必须用注册时的同一个 Context 注销（注册在 ApplicationContext 上）
+                const ctx = _getAppContext(main)
+                ctx.unregisterReceiver(_alarmReceiver)
                 _alarmReceiver = null
                 _alarmReceiverRegistered = false
             } catch (e) {}
@@ -432,9 +457,14 @@ export function _registerScreenReceiver(main, Context, Build) {
         filter.addAction('android.intent.action.SCREEN_ON')
         filter.addAction('android.intent.action.SCREEN_OFF')
         try {
-            main.registerReceiver(_screenReceiver, filter)
+            // 同 Alarm 接收器：注册到 ApplicationContext，避免 Activity 销毁后失效
+            const appCtx = _getAppContext(main)
+            appCtx.registerReceiver(_screenReceiver, filter)
         } catch (e) {
-            try { main.registerReceiver(_screenReceiver, filter, 4) } catch (e2) {}
+            try {
+                const appCtx2 = _getAppContext(main)
+                appCtx2.registerReceiver(_screenReceiver, filter, 4)
+            } catch (e2) {}
         }
         _screenReceiverRegistered = true
         console.log('[KeepAlive] 屏幕广播接收器已注册')

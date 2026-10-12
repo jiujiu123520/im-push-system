@@ -72,12 +72,14 @@ setAlarmHandler(function() {
             console.warn('[Ws] alarm heartbeat send fail', e)
             _onSocketLost()
         }
-    } else if (shouldReconnect && currentUrl && currentKey) {
+    } else if (shouldReconnect && autoReconnect && currentUrl && currentKey) {
         // 🔴 定时器守卫（不能用 state 判断！）：connectTimer/authTimeoutTimer/manualReconnectTimer
         //   活跃 = 真有连接在进行（TCP握手/鉴权中/手动重连已排程），此时 alarm 强制 _doConnect
         //   会打断鉴权中的连接（老连接 seq 作废、泄漏的 authTimeoutTimer 杀死新连接）。
         //   ⚠️ 而 state='reconnecting' 可能是"退避等待"或"卡死"态——alarm 此刻必须能抢跑救人
         //   （上一版用 state 判断导致状态机卡死后 alarm 永远跳过 → 设备永久离线无法自救）。
+        //   同时带上 autoReconnect：尊重用户在设置里关掉「自动重连」的意图，alarm 不越权。
+        //   （熔断不再置 shouldReconnect=false，所以息屏久置后这个兜底依然生效）
         if (connectTimer || authTimeoutTimer || manualReconnectTimer) {
             console.log('[Ws] ⏰ alarm 跳过：连接进行中（定时器活跃）')
             return
@@ -171,6 +173,10 @@ const MAX_MISSED_PONG = 2
 //   手动重连的 1.5s 缓冲已验证有效，自动重连对齐。
 const RECONNECT_BASE = 1500
 const RECONNECT_MAX = 60000
+// 🔴 重连次数上限只用于「降频提示」，不再用于「放弃重连」。
+//   见 _onSocketLost：超过该次数后仍按 RECONNECT_MAX 持续重试，绝不置 shouldReconnect=false。
+//   原实现到 10 次就彻底停止重连，是「后台待一会儿就永久失联」的根因之一。
+const MAX_RECONNECT_ATTEMPTS = 10
 const AUTH_TIMEOUT_MS = 10000
 const PROBE_TIMEOUT_MS = 2000
 const CONNECT_TIMEOUT_MS = 12000  // 🔴 TCP 连接级超时：弱网/代理下 connectSocket 可能无限卡。
@@ -182,6 +188,8 @@ let heartbeatTimer = null
 let reconnectTimer = null
 let authTimeoutTimer = null
 let reconnectAttempts = 0
+// 「已切换为低频重试」的提示只推一次，避免每次重连都弹 Toast；连接成功时复位
+let maxReconnectNotified = false
 let pendingPongs = 0
 let latency = -1
 let pendingPingAt = 0
@@ -550,6 +558,7 @@ function _handleMessage(text) {
         if (env.success || env.code === 0) {
             console.log('[Ws] ✅ auth ok (type=auth_result)')
             reconnectAttempts = 0
+            maxReconnectNotified = false
             state = 'connected'
             events.emit('state', state)
             _startHeartbeat()
@@ -595,6 +604,7 @@ function _handleMessage(text) {
         if (authTimeoutTimer) { clearTimeout(authTimeoutTimer); authTimeoutTimer = null }
         console.log('[Ws] ✅ auth ok (fallback: code=0, type=', t, 'msg=', env.message, ')')
         reconnectAttempts = 0
+        maxReconnectNotified = false
         state = 'connected'
         events.emit('state', state)
         try {
@@ -729,13 +739,16 @@ function _onSocketLost() {
     console.log('[Ws] socket lost, shouldReconnect=', shouldReconnect, 'autoReconnect=', autoReconnect, 'attempt=', reconnectAttempts)
     lostProcessing = false
     if (!shouldReconnect || !autoReconnect) return
-    if (reconnectAttempts >= 10) {
-        console.warn('[Ws] too many reconnect attempts (' + reconnectAttempts + '), giving up')
-        shouldReconnect = false
-        state = 'error'
-        events.emit('state', state)
-        events.emit('error', { type: 'max_reconnect', message: '连接失败次数过多，请检查网络或手动重连' })
-        return
+    // 🔴 取消「重连熔断」（原实现：达到 10 次就 shouldReconnect=false + state='error' 永久放弃）。
+    //   为什么必须取消：锁屏/后台时 JS 线程被系统冻结、Doze 又切断网络，退避
+    //   1.5s→3s→6s→…→60s 累计约 5.6 分钟就耗光 10 次额度 → 熔断 → 之后即使网络恢复也永不重连。
+    //   更致命的是 alarm 兜底回调的条件包含 shouldReconnect，熔断把它置 false 后
+    //   下层唯一自救通道同时失效，只能等用户亮屏（SCREEN_ON 回调会重置标志）或手动重连。
+    //   现在超过上限只做一次降频提示，重连照常继续（_scheduleReconnect 的 delay 已封顶 RECONNECT_MAX）。
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS && !maxReconnectNotified) {
+        maxReconnectNotified = true
+        console.warn('[Ws] 重连已达 ' + reconnectAttempts + ' 次，切换为 ' + Math.round(RECONNECT_MAX / 1000) + 's 低频持续重试')
+        events.emit('error', { type: 'max_reconnect', message: '多次重连失败，已改为低频自动重试，网络恢复后会自动连上' })
     }
     _scheduleReconnect()
 }
