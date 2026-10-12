@@ -156,13 +156,20 @@ class DeviceService
             $wpParams[] = $platform;
         }
 
-        // 状态筛选（1=启用 2=禁用）；web_push_subscriptions 用 1=有效 0=失效 表示
+        // 状态筛选（devices 表：1=启用 2=禁用）
+        // web_push_subscriptions 表语义不同：1=有效 2=管理员禁用 0=网关判定失效；
+        // 下面的 CASE 把非 1 一律展示为「禁用」，所以筛选口径必须跟着走，
+        // 否则管理员禁用的 PWA 设备（status=2）在「禁用」筛选下会一条都看不到。
+        // 这里用字面量而非占位符：UNION 与 countSql 共用同一份 $wpParams，增删参数会导致两边错位。
         $statusFilter = (int)($filters['status'] ?? 0);
         if ($statusFilter > 0) {
             $devWhere .= ' AND d.status = ?';
             $devParams[] = $statusFilter;
-            $wpWhere .= ' AND w.status = ?';
-            $wpParams[] = $statusFilter === 2 ? 0 : 1;
+            if ($statusFilter === 2) {
+                $wpWhere .= ' AND w.status IN (0, 2)';
+            } else {
+                $wpWhere .= ' AND w.status = 1';
+            }
         }
 
         // 合并两表：原生 App 设备（devices）+ PWA/Web Push 设备（web_push_subscriptions）
