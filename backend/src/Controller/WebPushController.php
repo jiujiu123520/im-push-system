@@ -99,6 +99,9 @@ class WebPushController
         }
 
         try {
+            // status 语义：1=有效 2=管理员禁用 0=网关判定失效
+            //   - 2 必须保持不动：否则后台把某台 PWA 禁用后，它一打开页面发心跳就被改回启用，禁用形同虚设
+            //   - 0 可以恢复为 1：网关判定失效后设备重新订阅/心跳上来，属于合法的自愈
             Database::execute(
                 'INSERT INTO web_push_subscriptions (device_id, push_key_id, endpoint, p256dh, auth, platform, user_agent, device_name, device_model, os_version, app_version, ip, last_active_at, status)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 1)
@@ -107,7 +110,7 @@ class WebPushController
                                          device_name = VALUES(device_name), device_model = VALUES(device_model),
                                          os_version = VALUES(os_version), app_version = VALUES(app_version),
                                          ip = VALUES(ip), last_active_at = NOW(),
-                                         status = 1, updated_at = NOW()',
+                                         status = IF(status = 2, 2, 1), updated_at = NOW()',
                 [$deviceId, $pushKeyId, $endpoint, $p256dh, $auth, $platform, $ua, $deviceName, $deviceModel, $osVersion, $appVersion, $ip]
             );
         } catch (\Throwable $e) {
@@ -196,7 +199,7 @@ class WebPushController
         }
 
         $sub = Database::fetch(
-            'SELECT endpoint, p256dh, auth FROM web_push_subscriptions
+            'SELECT id, device_id, endpoint, p256dh, auth FROM web_push_subscriptions
              WHERE device_id = ? AND push_key_id = ? AND status = 1 LIMIT 1',
             [$deviceId, (int)$keyRow['id']]
         );
@@ -223,10 +226,9 @@ class WebPushController
 
         $result = WebPushService::send($sub, $title, $content, ['message_id' => $messageId]);
 
+        // 订阅失效由 WebPushService::send() 统一判定并置为无效（它拿得到 id，
+        // 定位比在这里用 endpoint 反查更准），这里只负责把失败原因回给页面
         if (!$result['success']) {
-            if (!empty($result['expired'])) {
-                WebPushService::markSubscriptionInvalid((string)$sub['endpoint']);
-            }
             Response::fail($response, '测试推送失败：' . $result['message'], Response::CODE_ERROR, 200);
             return false;
         }

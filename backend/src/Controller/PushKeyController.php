@@ -571,14 +571,24 @@ class PushKeyController
         )['c'] ?? 0);
         $inDb = $dbCount > 0;
 
-        if (!$inSubscribe && !$inDeviceKey && !$inDb) {
-            Response::fail($context['response'], '此设备未订阅该 Key（三个来源均无记录）', Response::CODE_NOT_FOUND, 404);
+        // PWA 设备既不在 devices 表、也没有 WebSocket 订阅集合，唯一记录就在 web_push_subscriptions。
+        // 订阅列表页（subscribers）第五个来源就是这张表，若这里不做同样的判定，
+        // 列表里能看到的 PWA 设备一点"移除"就报 404，等于永远删不掉。
+        $webPushCount = (int)(Database::fetch(
+            'SELECT COUNT(*) AS c FROM web_push_subscriptions WHERE push_key_id = ? AND device_id = ? LIMIT 1',
+            [$id, $deviceId]
+        )['c'] ?? 0);
+        $inWebPush = $webPushCount > 0;
+
+        if (!$inSubscribe && !$inDeviceKey && !$inDb && !$inWebPush) {
+            Response::fail($context['response'], '此设备未订阅该 Key（四个来源均无记录）', Response::CODE_NOT_FOUND, 404);
             return false;
         }
 
         $removedSubscribe = 0;
         $removedDeviceKey = 0;
         $removedDb = 0;
+        $removedWebPush = 0;
 
         // 1. 清理 key:subscribe（含大小写不匹配的 key_value——如果 device:key 里存的是其它大小写版本，也要把那个集合里的删掉）
         if ($keyValue !== '') {
@@ -625,13 +635,28 @@ class PushKeyController
             $removedDb = 0;
         }
 
+        // 5. 清理 web_push_subscriptions（PWA 订阅记录）
+        // 不删的话"移除"是假动作：pushByKey 组装目标时会把这张表里的设备重新捞回来
+        // （PushDispatcher::pushByKey 第 2 步读 web_push_subscriptions WHERE push_key_id=? AND status=1），
+        // 后台显示已移除，实际下次推送照样发给它。
+        try {
+            $delWp = Database::execute(
+                'DELETE FROM web_push_subscriptions WHERE push_key_id = ? AND device_id = ?',
+                [$id, $deviceId]
+            );
+            $removedWebPush = is_numeric($delWp) ? (int)$delWp : 0;
+        } catch (\Throwable $e) {
+            $removedWebPush = 0;
+        }
+
         return [
             'removed'              => true,
             'disconnected'         => $fdCount,
             'redis_subscribe_rm'   => $removedSubscribe,
             'redis_device_key_rm'  => $removedDeviceKey,
             'db_rows_removed'      => $removedDb,
-            'message'              => "设备 {$deviceId} 已移除（断开连接 {$fdCount} 个，集合 {$removedSubscribe}，哈希 {$removedDeviceKey}，表 {$removedDb} 行）",
+            'web_push_rows_removed' => $removedWebPush,
+            'message'              => "设备 {$deviceId} 已移除（断开连接 {$fdCount} 个，集合 {$removedSubscribe}，哈希 {$removedDeviceKey}，表 {$removedDb} 行，PWA订阅 {$removedWebPush} 行）",
         ];
     }
 

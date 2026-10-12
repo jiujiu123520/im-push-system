@@ -357,8 +357,11 @@ class DeviceService
     /**
      * 切换 Web Push（PWA）订阅设备状态（禁用/启用）
      *
-     * PWA 设备不在 devices 表，status 存于 web_push_subscriptions：
-     *   1=有效（启用，可接收推送） 0=失效（禁用）
+     * PWA 设备不在 devices 表，状态存于 web_push_subscriptions：
+     *   1=有效（启用，可接收推送） 2=管理员禁用 0=网关判定失效
+     *
+     * 禁用必须写 2 而不是 0：心跳（POST /api/web-push/subscribe）只在 status=2 时保持不动，
+     * 若写 0，设备下次打开页面发心跳就会被改回 1，后台的禁用形同虚设。
      *
      * @param string $deviceId 设备唯一标识
      * @return array|null 切换后的状态，null 表示设备不存在
@@ -378,7 +381,7 @@ class DeviceService
 
         Database::execute(
             'UPDATE web_push_subscriptions SET status = ?, updated_at = NOW() WHERE device_id = ?',
-            [$newStatus === 2 ? 0 : 1, $deviceId]
+            [$newStatus, $deviceId]
         );
 
         return ['device_id' => $deviceId, 'status' => $newStatus];

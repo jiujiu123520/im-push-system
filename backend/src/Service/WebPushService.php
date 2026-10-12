@@ -131,6 +131,14 @@ class WebPushService
                     $expired = $report->isSubscriptionExpired();
                 }
             }
+
+            // 网关明确回 404/410 = 订阅已过期/被撤销：立刻置为无效。
+            // 这里（而非各调用方）统一处理，是因为本方法就是所有 Web Push 的唯一出口；
+            // 以前只有 PWA 页的「测试推送」会标记失效，正常投递链路把 expired 丢掉，
+            // 结果订阅早就死了、status 却一直是 1，服务端持续向死 endpoint 推且无人察觉。
+            if ($expired) {
+                self::markSubscriptionInvalid($subscription);
+            }
         } catch (\Throwable $e) {
             error_log('[WebPushService] 发送异常: ' . $e->getMessage());
             return ['success' => false, 'message' => 'Web Push 发送异常: ' . $e->getMessage(), 'expired' => false];
@@ -231,19 +239,37 @@ class WebPushService
     /**
      * 标记订阅失效（网关返回 404/410 表示订阅已过期/取消）
      *
-     * @param string $endpoint
+     * 定位顺序：主键 id → endpoint → device_id。
+     * 优先用 id 是因为唯一键是 (device_id, push_key_id)，浏览器轮换 endpoint 时是
+     * 原地更新同一行，拿旧 endpoint 反查会定位不到目标行。
+     *
+     * @param array $subscription 订阅信息，可含 id / endpoint / device_id
      * @return void
      */
-    public static function markSubscriptionInvalid(string $endpoint): void
+    public static function markSubscriptionInvalid(array $subscription): void
     {
-        if ($endpoint === '') {
+        $id       = (int)($subscription['id'] ?? 0);
+        $endpoint = trim((string)($subscription['endpoint'] ?? ''));
+        $deviceId = trim((string)($subscription['device_id'] ?? ''));
+
+        if ($id <= 0 && $endpoint === '' && $deviceId === '') {
             return;
         }
+
         try {
-            Database::execute(
-                'UPDATE web_push_subscriptions SET status = 0 WHERE endpoint = ?',
-                [$endpoint]
-            );
+            if ($id > 0) {
+                Database::execute('UPDATE web_push_subscriptions SET status = 0 WHERE id = ?', [$id]);
+            } elseif ($endpoint !== '') {
+                Database::execute('UPDATE web_push_subscriptions SET status = 0 WHERE endpoint = ?', [$endpoint]);
+            } else {
+                Database::execute('UPDATE web_push_subscriptions SET status = 0 WHERE device_id = ?', [$deviceId]);
+            }
+
+            // 必须留痕：死订阅被静默跳过时，后台看不出「哪台设备什么时候失联」，
+            // 现场只能靠翻 nginx 日志，这也是之前排查「PWA 疑似被取消订阅」最费时的地方。
+            error_log('[WebPushService] 订阅已失效并置为无效: id=' . $id
+                . ' device_id=' . $deviceId
+                . ' endpoint=' . substr($endpoint, 0, 60));
         } catch (\Throwable $e) {
             error_log('[WebPushService] 标记订阅失效失败: ' . $e->getMessage());
         }

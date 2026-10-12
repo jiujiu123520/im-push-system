@@ -618,10 +618,19 @@
   // 每次打开页面自检：订阅丢了就重建，endpoint 变了就重新登记。
   // iOS 上 pushsubscriptionchange 触发并不总是可靠，这里是最终兜底。
   function healSubscription() {
-    if (!state.wasSubscribed || !getPushKey() || !swRegistration) { return Promise.resolve(); }
+    if (!getPushKey() || !swRegistration) { return Promise.resolve(); }
 
     return swRegistration.pushManager.getSubscription().then(function (sub) {
       if (!sub) {
+        // 本地已无订阅。只有「之前登记过」或「通知权限已授予」时才自动重建：
+        // 全新安装时 iOS 必须由用户手势触发授权，无条件重建会白白弹一次框。
+        //
+        // 这里不再只看 state.wasSubscribed：该标记和订阅同存于本地存储，iOS 清除
+        // 站点数据时两者一起消失，会导致自愈永远不执行，用户以为「订阅被取消了」。
+        // 通知权限是系统级的、不会跟着站点数据被清，用它兜住这种情况。
+        if (!state.wasSubscribed && Notification.permission !== 'granted') {
+          return Promise.resolve();
+        }
         return Promise.resolve()
           .then(function () { return Notification.requestPermission(); })
           .then(function (permission) {
