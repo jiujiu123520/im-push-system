@@ -61,15 +61,66 @@
   var clearBtn = document.getElementById('clear-btn');
   var iosTip = document.getElementById('ios-tip');
   var subWarn = document.getElementById('sub-warn');
+  var permStateEl = document.getElementById('perm-state');
 
   // ---------- 基础工具 ----------
 
   function setStatus(msg) { statusEl.textContent = msg; }
 
-  function showSubWarn(msg) {
+  var warnTimer = null;
+
+  // sticky=true 的消息不自动消失：权限类提示是让用户照着去操作的，
+  // 10 秒一闪而过等于没提示（之前那条「可在下方点启用推送」就是一闪就没）。
+  function showSubWarn(msg, sticky) {
     subWarn.textContent = msg;
     subWarn.style.display = 'block';
-    setTimeout(function () { subWarn.style.display = 'none'; }, 10000);
+    if (warnTimer) { clearTimeout(warnTimer); warnTimer = null; }
+    if (sticky) { return; }
+    warnTimer = setTimeout(function () {
+      subWarn.style.display = 'none';
+      warnTimer = null;
+    }, 10000);
+  }
+
+  // ---------- 通知权限状态 ----------
+  // iOS 上 Notification.permission 的三种取值对应三种完全不同的处理方式，
+  // 混成一句话提示会把用户引到死路上：权限已是 denied 时 iOS 不会再弹授权框，
+  // 让用户去点「启用推送」是白点（点了同样失败），必须直接引导到系统设置。
+  var PERM_TEXT = {
+    granted: { text: '已允许', cls: 'perm-ok' },
+    denied: { text: '已拒绝', cls: 'perm-bad' },
+    default: { text: '未授权', cls: 'perm-warn' }
+  };
+
+  function currentPermission() {
+    return (typeof Notification !== 'undefined' && Notification.permission) || 'unknown';
+  }
+
+  function renderPermission() {
+    if (!permStateEl) { return; }
+    var p = currentPermission();
+    var info = PERM_TEXT[p] || { text: '不可用', cls: 'perm-bad' };
+    permStateEl.textContent = info.text;
+    permStateEl.className = 'perm ' + info.cls;
+  }
+
+  // 按权限状态给出「唯一有效」的下一步：
+  //   denied  → 只能去系统设置，脚本再调 requestPermission 也不会弹框
+  //   default → 必须由用户点击触发（iOS 不允许脚本主动弹框）
+  function permissionHint() {
+    var p = currentPermission();
+    if (p === 'denied') {
+      return '通知权限已被系统拒绝。iOS 不会再弹出授权框，页面无法自动恢复：'
+        + '请到「设置 → 通知 → 找到本应用（推送接收）→ 打开允许通知」，然后重新打开本页。';
+    }
+    if (p === 'default') {
+      return '通知权限尚未授权。iOS 要求由用户点击触发授权：'
+        + '请点下方「启用推送」并在弹框中选「允许」。';
+    }
+    if (p === 'granted') {
+      return '通知权限正常，但本地订阅未建立，请点下方「启用推送」重试。';
+    }
+    return '当前环境不支持推送通知（Notification API 不可用），请改用 Safari 打开并添加到主屏幕。';
   }
 
   function escapeHtml(s) {
@@ -421,6 +472,9 @@
   // 回到前台：刷新订阅活跃时间 + 拉一次最新消息
   function onForeground() {
     if (document.visibilityState !== 'visible') { return; }
+    // 用户可能刚按提示去「设置 → 通知」里改过权限，回来后重新读一次，
+    // 免得页面还显示着旧状态让人以为没生效
+    renderPermission();
     heartbeat();
     autoSync();
   }
@@ -573,11 +627,20 @@
     var key = getPushKey();
     if (!key) { setStatus('请先输入并保存推送 Key'); return; }
 
+    // 权限已是 denied 就不必再试：iOS 不会再弹授权框，
+    // requestPermission() 只会原样返回 denied，徒增一次「订阅失败」误导用户。
+    if (currentPermission() === 'denied') {
+      renderPermission();
+      setStatus(permissionHint());
+      return;
+    }
+
     Promise.resolve()
       .then(function () { return Notification.requestPermission(); })
       .then(function (permission) {
+        renderPermission();
         if (permission !== 'granted') {
-          throw new Error('通知权限被拒绝，请在系统设置中允许通知');
+          throw new Error(permissionHint());
         }
         return createSubscription(key);
       })
@@ -591,7 +654,7 @@
         return syncLatest(true);
       })
       .catch(function (err) {
-        setStatus('订阅失败: ' + err.message);
+        setStatus('订阅失败：' + err.message);
       });
   }
 
@@ -622,21 +685,26 @@
 
     return swRegistration.pushManager.getSubscription().then(function (sub) {
       if (!sub) {
-        // 本地已无订阅。只有「之前登记过」或「通知权限已授予」时才自动重建：
-        // 全新安装时 iOS 必须由用户手势触发授权，无条件重建会白白弹一次框。
-        //
-        // 这里不再只看 state.wasSubscribed：该标记和订阅同存于本地存储，iOS 清除
-        // 站点数据时两者一起消失，会导致自愈永远不执行，用户以为「订阅被取消了」。
-        // 通知权限是系统级的、不会跟着站点数据被清，用它兜住这种情况。
-        if (!state.wasSubscribed && Notification.permission !== 'granted') {
+        // 本地已无订阅。先看权限状态再决定怎么做——这里过去是无条件调
+        // Notification.requestPermission()，但自检是页面加载时自动跑的、没有用户手势，
+        // 而 iOS 要求该调用必须由手势触发，所以权限不是 granted 时必然失败，
+        // 结果弹出一句「通知权限已关闭（可在下方点启用推送手动恢复）」，用户真去点
+        // 按钮同样失败，白折腾一圈。现在按权限状态给出唯一有效的出路。
+        var perm = currentPermission();
+
+        if (perm !== 'granted') {
+          // 全新安装（从未订阅过）不打扰用户：iOS 首次授权本来就得由用户主动点按钮。
+          // 不再只看 state.wasSubscribed：该标记和订阅同存本地存储，iOS 清站点数据时
+          // 会一起消失；而通知权限是系统级的、不会跟着被清，用它兜住这种情况。
+          if (!state.wasSubscribed) { return Promise.resolve(); }
+          renderPermission();
+          showSubWarn(permissionHint(), true);
           return Promise.resolve();
         }
+
+        // 权限已允许 → 不必再问一次，直接重建订阅
         return Promise.resolve()
-          .then(function () { return Notification.requestPermission(); })
-          .then(function (permission) {
-            if (permission !== 'granted') { throw new Error('通知权限已关闭'); }
-            return createSubscription(getPushKey());
-          })
+          .then(function () { return createSubscription(getPushKey()); })
           .then(function () {
             updateSubscribeState();
             showSubWarn('检测到推送订阅已失效，已自动重新登记，消息不会再漏收。');
@@ -653,7 +721,12 @@
         }
       });
     }).catch(function (err) {
-      showSubWarn('推送订阅自检失败：' + err.message + '（可在下方点「启用推送」手动恢复）');
+      renderPermission();
+      // 权限不是「已允许」时，真正的病因是权限，不是这次报错的字面原因，
+      // 提示里以权限说明为主，免得用户被 err.message 带偏去反复重试
+      showSubWarn(currentPermission() === 'granted'
+        ? ('推送订阅自检失败：' + err.message + '。请点下方「启用推送」重试。')
+        : permissionHint(), true);
     });
   }
 
@@ -792,6 +865,7 @@
     }
 
     document.getElementById('device-id').textContent = getDeviceId();
+    renderPermission();
     keyInput.value = getPushKey();
 
     if (isIOS() && !window.navigator.standalone) {

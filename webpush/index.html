@@ -27,6 +27,8 @@
       /* 按钮底色与 --primary 分开：按钮上是白字，必须满足 4.5:1 对比度 */
       --primary-btn: #357abd;
       --danger: #c8432f;
+      /* 「通知权限：已允许」用的绿色。深浅主题各自给值，否则深底绿字看不清 */
+      --ok: #1a7f37;
       --text: #1c1c1e;
       --text-sub: #6b7280;
       --text-muted: #6b7280;
@@ -62,6 +64,7 @@
         --primary-dark: #3d8ae0;
         --primary-btn: #0a6ed1;    /* 白字按钮底色：对白字约 5.0:1 */
         --danger: #c8432f;         /* 白字按钮底色：对白字约 4.9:1 */
+        --ok: #4ade80;             /* 深色下的「已允许」绿色：对 #000 约 12:1 */
         --text: #f2f2f7;           /* 正文：对 #1c1c1e 约 16:1 */
         --text-sub: #a1a1aa;       /* 次要文字：对 #1c1c1e 约 7.4:1 */
         --text-muted: #a0a0a8;     /* 时间戳：对 #2c2c2e 约 5.4:1 */
@@ -116,6 +119,12 @@
       box-shadow: var(--shadow); margin-bottom: 12px;
     }
     .device-id { font-size: 12px; color: var(--text-sub); word-break: break-all; margin-bottom: 12px; text-align: center; }
+    /* 通知权限状态：一眼区分「已允许 / 未授权 / 已拒绝」。
+       之前页面上完全不显示这个值，排查「订阅被取消」时要靠猜，这里补上。 */
+    .perm { font-weight: 600; }
+    .perm-ok { color: var(--ok); }
+    .perm-warn { color: var(--tip-text); }
+    .perm-bad { color: var(--danger); }
     label { display: block; font-size: 13px; color: var(--text-sub); margin-bottom: 6px; }
     input[type="text"], input[type="search"] {
       width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 10px;
@@ -191,7 +200,11 @@
     </div>
     <div id="sub-warn" class="tip" style="display:none"></div>
 
-    <div class="device-id">设备ID：<span id="device-id"></span></div>
+    <div class="device-id">
+      设备ID：<span id="device-id"></span>
+      <br>
+      通知权限：<span id="perm-state" class="perm">检测中…</span>
+    </div>
 
     <div class="card">
       <label for="key-input">推送 Key</label>
