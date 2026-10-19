@@ -114,6 +114,22 @@
       background: var(--tip-bg); color: var(--tip-text); border: 1px solid var(--tip-border);
       border-radius: 10px; padding: 12px; font-size: 13px; line-height: 1.5; margin-bottom: 12px;
     }
+    /* 红色告警条：权限正常但订阅断了时用，区别于黄色 tip。
+       背景取 --danger 的低透明度，保证文字对比度 ≥ 4.5:1（浅色底红字、深色底深红字）。 */
+    .alert-urgent {
+      background: rgba(200, 67, 47, .12); color: var(--danger);
+      border: 1px solid rgba(200, 67, 47, .35);
+      border-radius: 10px; padding: 12px; font-size: 13px; line-height: 1.5; margin-bottom: 12px;
+      font-weight: 500;
+    }
+    /* 深色下 #c8432f 对 #000 对比度仅 ~2.5:1，远低于 WCAG 4.5:1。
+       改用更亮的 #ff6b5a（对 #000 约 7.3:1）+ 更深半透明背景，保证可读性。 */
+    @media (prefers-color-scheme: dark) {
+      .alert-urgent {
+        background: rgba(200, 67, 47, .25); color: #ff6b5a;
+        border: 1px solid rgba(200, 67, 47, .55);
+      }
+    }
     .card {
       background: var(--card); border-radius: 14px; padding: 16px;
       box-shadow: var(--shadow); margin-bottom: 12px;

@@ -71,13 +71,16 @@
 
   // sticky=true 的消息不自动消失：权限类提示是让用户照着去操作的，
   // 10 秒一闪而过等于没提示（之前那条「可在下方点启用推送」就是一闪就没）。
-  function showSubWarn(msg, sticky) {
+  // variant: 'tip'（默认黄色提示）/ 'urgent'（红色告警，权限允许但订阅断了时用）
+  function showSubWarn(msg, sticky, variant) {
     subWarn.textContent = msg;
     subWarn.style.display = 'block';
+    subWarn.className = variant === 'urgent' ? 'alert-urgent' : 'tip';
     if (warnTimer) { clearTimeout(warnTimer); warnTimer = null; }
     if (sticky) { return; }
     warnTimer = setTimeout(function () {
       subWarn.style.display = 'none';
+      subWarn.className = 'tip';
       warnTimer = null;
     }, 10000);
   }
@@ -118,7 +121,7 @@
         + '请点下方「启用推送」并在弹框中选「允许」。';
     }
     if (p === 'granted') {
-      return '通知权限正常，但本地订阅未建立，请点下方「启用推送」重试。';
+      return '通知权限正常，但推送订阅已断开。请点下方「启用推送」重建订阅，否则会漏收消息。';
     }
     return '当前环境不支持推送通知（Notification API 不可用），请改用 Safari 打开并添加到主屏幕。';
   }
@@ -724,9 +727,14 @@
       renderPermission();
       // 权限不是「已允许」时，真正的病因是权限，不是这次报错的字面原因，
       // 提示里以权限说明为主，免得用户被 err.message 带偏去反复重试
-      showSubWarn(currentPermission() === 'granted'
-        ? ('推送订阅自检失败：' + err.message + '。请点下方「启用推送」重试。')
-        : permissionHint(), true);
+      // 权限是 granted 但自愈失败 → 红色告警：用户必须手动点「启用推送」重建
+      var perm = currentPermission();
+      if (perm === 'granted') {
+        showSubWarn('通知权限正常，但推送订阅已断开且自动恢复失败（' + err.message + '）。'
+          + '请点下方「启用推送」重建订阅，否则会漏收消息。', true, 'urgent');
+      } else {
+        showSubWarn(permissionHint(), true);
+      }
     });
   }
 
@@ -906,6 +914,14 @@
       .then(function () {
         if (subscription) { syncLatest(true); }
         heartbeat();
+        // 启动兜底：权限已允许、有 Key、但订阅最终还是没了 → 红色告警。
+        // 覆盖 healSubscription 之外的所有路径（SW 更新打断、createSubscription 超时等）。
+        // guard：如果 healSubscription 的 catch 已经显示了更详细的提示（带具体错误信息），
+        // 就不要覆盖，让用户看到最精准的失败原因。
+        if (!subscription && currentPermission() === 'granted' && getPushKey()
+            && subWarn.style.display !== 'block') {
+          showSubWarn('通知权限正常，但推送订阅已断开。请点下方「启用推送」重建订阅，否则会漏收消息。', true, 'urgent');
+        }
       })
       .catch(function (err) {
         setStatus('Service Worker 注册失败: ' + err.message);
