@@ -18,6 +18,11 @@ self.addEventListener('push', (event) => {
     data = { title: '新消息', body: event.data ? event.data.text() : '' };
   }
 
+  // 巡检 ping 通知：服务端每天发一条空 payload 用来探测 endpoint 活性，
+  // 网关一定会转发（Web Push 协议不支持真正的静默推送），
+  // 但 SW 收到后直接 return，不让它在通知栏弹出来——用户完全看不到。
+  if (data.data && data.data.is_ping) { return; }
+
   const title = data.title || '推送通知';
   const options = {
     body: data.body || '',

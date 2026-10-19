@@ -62,6 +62,7 @@
   var iosTip = document.getElementById('ios-tip');
   var subWarn = document.getElementById('sub-warn');
   var permStateEl = document.getElementById('perm-state');
+  var hbStateEl = document.getElementById('hb-state');
 
   // ---------- 基础工具 ----------
 
@@ -105,6 +106,61 @@
     var info = PERM_TEXT[p] || { text: '不可用', cls: 'perm-bad' };
     permStateEl.textContent = info.text;
     permStateEl.className = 'perm ' + info.cls;
+  }
+
+  // ---------- 心跳/订阅状态可视化 ----------
+  // 用户自己能看出「推送是不是在工作」——排查订阅失效最快的方式：
+  // 权限是「已允许」但心跳状态红色 → 订阅断了；直接点「启用推送」重建就行。
+
+  var LS_HB_TS = 'pwa_last_hb_ts';
+
+  // 把毫秒时间戳转成可读的「多久前」
+  function formatAgo(ts) {
+    if (!ts) { return '—'; }
+    var diff = Math.floor((Date.now() - ts) / 1000); // 秒
+    if (diff < 60) { return '刚刚'; }
+    if (diff < 3600) { return Math.floor(diff / 60) + ' 分钟前'; }
+    if (diff < 86400) { return Math.floor(diff / 3600) + ' 小时前'; }
+    if (diff < 604800) { return Math.floor(diff / 86400) + ' 天前'; }
+    return Math.floor(diff / 86400) + ' 天前（长时间未通信）';
+  }
+
+  function renderHeartbeat() {
+    if (!hbStateEl) { return; }
+
+    if (!subscription) {
+      hbStateEl.textContent = '推送状态：⚠️ 无订阅';
+      hbStateEl.className = 'hb-state hb-bad';
+      return;
+    }
+
+    var ts = parseInt(localStorage.getItem(LS_HB_TS) || '0', 10);
+    if (!ts || ts > Date.now()) {
+      // 订阅刚建立还没 heartbeat
+      hbStateEl.textContent = '推送状态：✅ 已订阅';
+      hbStateEl.className = 'hb-state hb-ok';
+      return;
+    }
+
+    var diffMin = Math.floor((Date.now() - ts) / 60000);
+    var ago = formatAgo(ts);
+
+    if (diffMin < 10) {
+      hbStateEl.textContent = '推送状态：✅ 正常（' + ago + '）';
+      hbStateEl.className = 'hb-state hb-ok';
+    } else if (diffMin < 60) {
+      hbStateEl.textContent = '推送状态：⚠️ 较久未通信（' + ago + '）';
+      hbStateEl.className = 'hb-state hb-warn';
+    } else {
+      hbStateEl.textContent = '推送状态：❌ 长时间未通信（' + ago + '）';
+      hbStateEl.className = 'hb-state hb-bad';
+    }
+  }
+
+  // 更新心跳时间戳（heartbeat() 成功时调用）
+  function markHeartbeatOk() {
+    localStorage.setItem(LS_HB_TS, String(Date.now()));
+    renderHeartbeat();
   }
 
   // 按权限状态给出「唯一有效」的下一步：
@@ -748,14 +804,18 @@
       subscribeBtn.className = 'btn-primary';
       testBtn.disabled = true;
     }
+    // 订阅状态变了，心跳状态显示也要跟着刷新
+    renderHeartbeat();
   }
 
   // ---------- 心跳 / 测试推送 ----------
 
   function heartbeat() {
     var key = getPushKey();
-    if (!subscription || !key) { return; }
-    postSubscription(subscription, key).catch(function () { /* 静默失败 */ });
+    if (!subscription || !key) { renderHeartbeat(); return; }
+    postSubscription(subscription, key)
+      .then(markHeartbeatOk)
+      .catch(function () { /* 静默失败，不更新心跳时间 */ });
   }
 
   function onTest() {

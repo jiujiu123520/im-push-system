@@ -141,6 +141,11 @@
     .perm-ok { color: var(--ok); }
     .perm-warn { color: var(--tip-text); }
     .perm-bad { color: var(--danger); }
+    /* 心跳/订阅状态：跟通知权限状态同级，一眼看出推送通道是否在工作 */
+    .hb-state { display: block; margin-top: 4px; }
+    .hb-ok { color: var(--ok); font-weight: 600; }
+    .hb-warn { color: var(--tip-text); font-weight: 600; }
+    .hb-bad { color: var(--danger); font-weight: 600; }
     label { display: block; font-size: 13px; color: var(--text-sub); margin-bottom: 6px; }
     input[type="text"], input[type="search"] {
       width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 10px;
@@ -220,6 +225,7 @@
       设备ID：<span id="device-id"></span>
       <br>
       通知权限：<span id="perm-state" class="perm">检测中…</span>
+      <span id="hb-state" class="hb-state"></span>
     </div>
 
     <div class="card">
