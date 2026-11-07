@@ -393,11 +393,13 @@ class SslService
         $domains = is_array($domains) ? $domains : [];
 
         // 先清理所有位置的旧配置（防止旧 push.conf 在 conf.d 生效导致冲突）
+        // 注意：绝不能把 $confPath（sites-available/push-system.conf）放进清理列表——
+        // 那是本方法稍后要写入的目标文件。历史上它被当作"旧配置"清理过，
+        // 一旦后续 sudo 写入失败，nginx 就只剩一个死链，且 reload 永久失败。
         $legacyFiles = [
             // Debian/Ubuntu 风格
             '/etc/nginx/sites-available/push.conf',
             '/etc/nginx/sites-enabled/push.conf',
-            '/etc/nginx/sites-available/push-system.conf',
             '/etc/nginx/sites-enabled/default',
             // RHEL/CentOS 风格
             '/etc/nginx/conf.d/push.conf',
@@ -421,8 +423,21 @@ class SslService
 
         $tmpFile = tempnam(sys_get_temp_dir(), 'push-nginx-');
         file_put_contents($tmpFile, $config);
-        shell_exec(sprintf('sudo cp %s %s 2>&1', escapeshellarg($tmpFile), escapeshellarg($confPath)));
+        // 用 sudo tee 写入而不是 sudo cp：sudoers 只授权了
+        // "www-data NOPASSWD: /usr/bin/tee /etc/nginx/sites-available/*"，
+        // sudo cp 不在授权列表里会被静默拒绝，导致配置文件被清后写不回去
+        shell_exec(sprintf('sudo tee %s < %s > /dev/null 2>&1', escapeshellarg($confPath), escapeshellarg($tmpFile)));
         @unlink($tmpFile);
+
+        // 写入校验：写失败立刻报错，绝不留下"死链 + nginx 无法 reload"的暗伤
+        if (!file_exists($confPath) || filesize($confPath) === 0) {
+            return [
+                'success' => false,
+                'message' => 'Nginx 配置写入失败（sudoers 可能未授权 tee ' . $confPath . '）',
+                'config'  => $config,
+                'conf_path' => $confPath,
+            ];
+        }
 
         $link = self::NGINX_ENABLED . '/push-system.conf';
         shell_exec(sprintf('sudo ln -sf %s %s 2>&1', escapeshellarg($confPath), escapeshellarg($link)));
