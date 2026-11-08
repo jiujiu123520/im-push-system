@@ -10,7 +10,19 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="推送">
   <title>推送接收</title>
-  <link rel="manifest" href="/webpush/manifest.webmanifest">
+  <script>
+    // 在解析器到达 manifest link 之前就确定地址（iOS 加载页面时会立即预取 manifest，
+    // app.js 运行时再改 href 赶不上预取）。优先取 URL 里的 key，其次取本地已存的 Key。
+    // 这样「添加到主屏幕」拿到的 start_url 带 Key，主屏图标打开即专属推送页面。
+    (function () {
+      var key = '';
+      var m = /[?&]key=([^&]+)/.exec(location.search);
+      if (m) { key = decodeURIComponent(m[1]); }
+      if (!key) { try { key = localStorage.getItem('pwa_push_key') || ''; } catch (e) {} }
+      var href = '/webpush/manifest.webmanifest' + (key ? '?key=' + encodeURIComponent(key) : '');
+      document.write('<link rel="manifest" href="' + href + '">');
+    })();
+  </script>
   <link rel="icon" href="/webpush/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/webpush/icon.svg">
   <style>
