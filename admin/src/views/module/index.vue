@@ -479,7 +479,7 @@
           currentModule === 'push-logs' ? 230 :
           currentModule === 'users' ? 380 :
           currentModule === 'devices' ? 280 :
-          currentModule === 'keys' ? 200 :
+          currentModule === 'keys' ? 280 :
           currentModule === 'zombie-connections' ? 100 :
           180
         )" fixed="right">
@@ -519,6 +519,14 @@
             </template>
             <!-- 其他模块：编辑/禁用 + 删除 -->
             <template v-else>
+              <el-button
+                v-if="currentModule === 'keys'"
+                text type="primary"
+                :icon="LinkIcon"
+                @click="copyKeySubscribeLink(row)"
+              >
+                订阅链接
+              </el-button>
               <el-button v-if="currentModule !== 'devices' && currentModule !== 'zombie-connections'" text type="primary" :icon="EditIcon" @click="openDialog(row)">编辑</el-button>
               <el-button
                 v-if="currentModule === 'devices' && row.online === 1 && !row.in_web_push"
@@ -1138,7 +1146,8 @@ import {
   Refresh as RefreshIcon,
   SwitchButton as SwitchButtonIcon,
   User as UserIcon,
-  Avatar as AvatarIcon
+  Avatar as AvatarIcon,
+  Link as LinkIcon
 } from '@element-plus/icons-vue'
 import { exportPushLogsApi, getPushLogListApi, sendPushApi, retryPushApi, getPushLogDetailApi, deletePushLogApi } from '@/api/push'
 import { getZombieConnectionsApi, deleteZombieConnectionApi, getZombieSubscriptionsApi, deleteZombieSubscriptionApi, cleanupZombieConnectionsApi } from '@/api/connection'
@@ -2180,6 +2189,15 @@ function isExpireSoon(expireAt: string): boolean {
   if (Number.isNaN(ts)) return false
   const diff = ts - Date.now()
   return diff > 0 && diff < 7 * 24 * 3600 * 1000
+}
+
+// 复制 Key 的专属订阅链接（打开即直接接收推送，无需输 Key，支持多人）
+function copyKeySubscribeLink(row: Record<string, any>) {
+  if (!row.key_value) {
+    ElMessage.warning('该 Key 为空，无法生成订阅链接')
+    return
+  }
+  copyToClipboard(`${location.origin}/webpush/?key=${encodeURIComponent(row.key_value)}`)
 }
 
 // 复制到剪贴板（兼容HTTP环境）
