@@ -1030,6 +1030,16 @@
     // 链接模式下隐藏整个 KEY 输入卡片：打开页面 = 独立推送页面，无需任何配置
     if (urlKeyMode && keyCard) { keyCard.style.display = 'none'; }
 
+    // 链接模式下把 manifest 换成带 Key 的动态版本：
+    // iOS「添加到主屏幕」会按 manifest 的 start_url 生成图标入口，
+    // start_url 带 Key 后，从主屏图标打开也直接是本 Key 的专属推送页面（免输 KEY）
+    if (urlKeyMode) {
+      var manifestLink = document.querySelector('link[rel="manifest"]');
+      if (manifestLink) {
+        manifestLink.setAttribute('href', '/webpush/manifest.webmanifest?key=' + encodeURIComponent(getPushKey()));
+      }
+    }
+
     if (isIOS() && !window.navigator.standalone) {
       iosTip.style.display = 'block';
     }
