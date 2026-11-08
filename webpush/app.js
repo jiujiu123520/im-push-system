@@ -63,6 +63,10 @@
   var subWarn = document.getElementById('sub-warn');
   var permStateEl = document.getElementById('perm-state');
   var hbStateEl = document.getElementById('hb-state');
+  var keyCard = document.getElementById('key-card');
+  var shareCard = document.getElementById('share-card');
+  var shareUrl = document.getElementById('share-url');
+  var copyLinkBtn = document.getElementById('copy-link-btn');
 
   // ---------- 基础工具 ----------
 
@@ -218,6 +222,67 @@
 
   function getPushKey() { return localStorage.getItem(LS_PUSH_KEY) || ''; }
   function setPushKey(k) { localStorage.setItem(LS_PUSH_KEY, k); }
+
+  // ---------- 专属订阅链接 ----------
+  // 链接格式：/webpush/?key=<push_key>。打开即为独立推送页面：
+  // 自动填 Key（页面不出现 KEY 输入）→ 自动订阅 → 直接看消息。
+  // 同一链接发给多人，每人各自生成独立设备，互不影响，天然防单点订阅失效。
+
+  var urlKeyMode = false;   // 本次打开是否通过专属链接进来
+  var autoSubscribePending = false;
+
+  function cleanKey(raw) {
+    return (raw || '').trim().replace(/^[`'"]+|[`'"]+$/g, '');
+  }
+
+  // 解析 URL 里的 key 参数。返回清洗后的 key 或空串
+  function parseUrlKey() {
+    var m = location.search.match(/[?&]key=([^&]+)/);
+    if (!m) { return ''; }
+    var raw = m[1];
+    try { raw = decodeURIComponent(raw); } catch (e) { /* 保持原值 */ }
+    return cleanKey(raw);
+  }
+
+  function getShareUrl() {
+    var key = getPushKey();
+    if (!key) { return ''; }
+    return location.origin + '/webpush/?key=' + encodeURIComponent(key);
+  }
+
+  // 根据 KEY 有无显示「专属订阅链接」卡片（两种模式都显示：手动模式生成链接、链接模式继续分享）
+  function renderShare() {
+    if (!shareCard) { return; }
+    var url = getShareUrl();
+    if (!url) { shareCard.style.display = 'none'; return; }
+    shareUrl.value = url;
+    shareCard.style.display = 'block';
+  }
+
+  function copyShareLink() {
+    var url = getShareUrl();
+    if (!url) { return; }
+    var okMsg = function () { setStatus('专属链接已复制，发给对方打开即可直接接收推送'); };
+    var failMsg = function () { setStatus('复制失败，请长按上方链接手动复制'); };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(url).then(okMsg).catch(function () { fallbackCopy(url, okMsg, failMsg); });
+    } else {
+      fallbackCopy(url, okMsg, failMsg);
+    }
+  }
+
+  function fallbackCopy(text, onOk, onFail) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    if (ok && onOk) { onOk(); } else if (onFail) { onFail(); }
+  }
 
   function isIOS() {
     return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -383,6 +448,7 @@
   }
 
   function render() {
+    renderShare();  // KEY 变化（保存/链接填入）后同步刷新专属链接卡片
     var list = visibleMessages();
 
     if (!list.length) {
@@ -874,6 +940,7 @@
 
   function bindEvents() {
     saveKeyBtn.addEventListener('click', onSaveKey);
+    copyLinkBtn.addEventListener('click', copyShareLink);
     subscribeBtn.addEventListener('click', function () {
       if (subscription) { doUnsubscribe(); } else { doSubscribe(); }
     });
@@ -934,7 +1001,34 @@
 
     document.getElementById('device-id').textContent = getDeviceId();
     renderPermission();
+
+    // 专属链接模式：/webpush/?key=<push_key> → 打开即直接读推送，页面不出现 KEY 输入
+    var urlKey = parseUrlKey();
+    if (urlKey) {
+      urlKeyMode = true;
+      autoSubscribePending = true;
+      if (urlKey !== getPushKey()) {
+        var oldKey = getPushKey();
+        setPushKey(urlKey);
+        PushDB.Config.set(CFG.PUSH_KEY, urlKey).catch(function () { });
+        // 换 Key 等于换账号，清旧归档（与 onSaveKey 同一套逻辑）
+        if (oldKey) {
+          state.messages = [];
+          state.deletedIds = {};
+          state.clearedBeforeId = 0;
+          state.maxSeenId = 0;
+          state.nextBeforeId = 0;
+          state.hasMore = true;
+          state.expanded = {};
+          PushDB.Messages.clear().catch(function () { });
+        }
+      }
+    }
+
     keyInput.value = getPushKey();
+    renderShare();
+    // 链接模式下隐藏整个 KEY 输入卡片：打开页面 = 独立推送页面，无需任何配置
+    if (urlKeyMode && keyCard) { keyCard.style.display = 'none'; }
 
     if (isIOS() && !window.navigator.standalone) {
       iosTip.style.display = 'block';
@@ -981,6 +1075,19 @@
         if (!subscription && currentPermission() === 'granted' && getPushKey()
             && subWarn.style.display !== 'block') {
           showSubWarn('通知权限正常，但推送订阅已断开。请点下方「启用推送」重建订阅，否则会漏收消息。', true, 'urgent');
+        }
+
+        // 专属链接模式：打开即自动订阅，用户无需任何操作，订阅完直接看消息
+        if (autoSubscribePending) {
+          autoSubscribePending = false;
+          if (!subscription && getPushKey()) {
+            if (currentPermission() === 'granted') {
+              doSubscribe();
+            } else if (currentPermission() === 'default') {
+              setStatus('点击「启用推送」并允许通知，即可开始接收推送');
+            }
+            // denied 的情况 healSubscription 已给出引导文案，这里不重复
+          }
         }
       })
       .catch(function (err) {

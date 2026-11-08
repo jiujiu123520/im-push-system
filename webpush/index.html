@@ -228,10 +228,16 @@
       <span id="hb-state" class="hb-state"></span>
     </div>
 
-    <div class="card">
+    <div id="key-card" class="card">
       <label for="key-input">推送 Key</label>
       <input id="key-input" type="text" placeholder="输入推送 Key" autocomplete="off">
       <button id="save-key-btn" class="btn-ghost mt">保存 Key</button>
+    </div>
+
+    <div id="share-card" class="card" style="display:none">
+      <label for="share-url">专属订阅链接（发给其他人，打开即可订阅本 Key 的推送，无需输入 Key）</label>
+      <input id="share-url" type="text" readonly onclick="this.select()">
+      <button id="copy-link-btn" class="btn-primary mt">复制专属链接</button>
     </div>
 
     <div class="card">

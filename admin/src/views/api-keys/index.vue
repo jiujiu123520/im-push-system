@@ -136,7 +136,7 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="340" fixed="right">
           <template #default="{ row }">
             <el-button
               link
@@ -145,6 +145,14 @@
               @click="copyKey(row.key_value)"
             >
               复制
+            </el-button>
+            <el-button
+              link
+              type="primary"
+              :icon="LinkIcon"
+              @click="copySubscribeLink(row.key_value)"
+            >
+              订阅链接
             </el-button>
             <el-button
               link
@@ -708,6 +716,24 @@ async function copyKey(text: string) {
     ElMessage.success('AccessKey 已复制到剪贴板')
   } else {
     ElMessage.error('复制失败，请手动选择文本后 Ctrl+C 复制')
+  }
+}
+
+// 专属订阅链接：发给对方打开即为独立推送页面（自动订阅、直接看消息），支持多人各自订阅
+function subscribeUrl(keyValue: string) {
+  return `${location.origin}/webpush/?key=${encodeURIComponent(keyValue)}`
+}
+
+async function copySubscribeLink(keyValue: string) {
+  if (!keyValue) {
+    ElMessage.warning('该 Key 为空，无法生成订阅链接')
+    return
+  }
+  const ok = await copy(subscribeUrl(keyValue))
+  if (ok) {
+    ElMessage.success('专属订阅链接已复制：对方打开即可直接接收推送，支持多人')
+  } else {
+    ElMessage.error('复制失败，请手动拼接 /webpush/?key=xxx 链接')
   }
 }
 
