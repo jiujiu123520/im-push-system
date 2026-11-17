@@ -35,11 +35,46 @@
           db.createObjectStore(S_CONFIG, { keyPath: 'k' });
         }
       };
-      req.onsuccess = function () { resolve(req.result); };
+      req.onsuccess = function () {
+        var db = req.result;
+        // iOS 冻结后台 PWA 时系统会直接关闭 IndexedDB 连接（WebKit 已知行为）。
+        // 连接被系统关闭时清掉缓存句柄，下次操作自动重开新连接。
+        if (typeof db.onclose !== 'undefined') {
+          db.onclose = function () { _dbPromise = null; };
+        }
+        resolve(db);
+      };
       req.onerror = function () { reject(req.error || new Error('打开 IndexedDB 失败')); };
       req.onblocked = function () { reject(new Error('IndexedDB 被其它页面占用')); };
     });
     return _dbPromise;
+  }
+
+  // iOS 恢复页面后旧连接已失效，请求会抛这类错误（WebKit bug）：
+  //   "Attempt to get a record from database without an in-progress transaction"
+  //   "The database connection is closing" 等
+  function isStaleConn(err) {
+    var m = (err && err.message) || String(err || '');
+    return m.indexOf('in-progress transaction') !== -1
+      || m.indexOf('connection is closing') !== -1
+      || m.indexOf('Connection to IndexedDB was lost') !== -1
+      || m.indexOf(' IndexedDB ') !== -1 && (err && err.name) === 'InvalidStateError';
+  }
+
+  function resetConn() {
+    if (_dbPromise) {
+      _dbPromise.then(function (db) { try { db.close(); } catch (e) { } }).catch(function () { });
+      _dbPromise = null;
+    }
+  }
+
+  // 所有 DB 操作统一走这里：命中失效连接错误时重开连接并重试一次
+  function withStaleRetry(attempt) {
+    return attempt().catch(function (err) {
+      if (!isStaleConn(err)) { throw err; }
+      resetConn();
+      return attempt();
+    });
   }
 
   function request(req) {
@@ -51,33 +86,42 @@
 
   // 在事务内执行 fn(store)，事务提交后再 resolve（保证写入落盘）
   function run(storeName, mode, fn) {
-    return openDB().then(function (db) {
-      return new Promise(function (resolve, reject) {
-        var t = db.transaction(storeName, mode);
-        var out;
-        try {
-          out = fn(t.objectStore(storeName));
-        } catch (e) {
-          reject(e);
-          return;
-        }
-        t.oncomplete = function () { resolve(out); };
-        t.onerror = function () { reject(t.error); };
-        t.onabort = function () { reject(t.error); };
+    function attempt() {
+      return openDB().then(function (db) {
+        return new Promise(function (resolve, reject) {
+          var t = db.transaction(storeName, mode);
+          var out;
+          try {
+            out = fn(t.objectStore(storeName));
+          } catch (e) {
+            reject(e);
+            return;
+          }
+          t.oncomplete = function () { resolve(out); };
+          t.onerror = function () { reject(t.error); };
+          t.onabort = function () { reject(t.error); };
+        });
       });
-    });
+    }
+    return withStaleRetry(attempt);
   }
 
   var Messages = {
     all: function () {
-      return openDB().then(function (db) {
-        return request(db.transaction(S_MESSAGES, 'readonly').objectStore(S_MESSAGES).getAll());
-      });
+      function attempt() {
+        return openDB().then(function (db) {
+          return request(db.transaction(S_MESSAGES, 'readonly').objectStore(S_MESSAGES).getAll());
+        });
+      }
+      return withStaleRetry(attempt);
     },
     count: function () {
-      return openDB().then(function (db) {
-        return request(db.transaction(S_MESSAGES, 'readonly').objectStore(S_MESSAGES).count());
-      });
+      function attempt() {
+        return openDB().then(function (db) {
+          return request(db.transaction(S_MESSAGES, 'readonly').objectStore(S_MESSAGES).count());
+        });
+      }
+      return withStaleRetry(attempt);
     },
     putMany: function (list) {
       if (!list || !list.length) { return Promise.resolve(0); }
@@ -96,22 +140,28 @@
 
   var Config = {
     get: function (k) {
-      return openDB()
-        .then(function (db) {
-          return request(db.transaction(S_CONFIG, 'readonly').objectStore(S_CONFIG).get(k));
-        })
-        .then(function (row) { return row ? row.v : undefined; });
+      function attempt() {
+        return openDB()
+          .then(function (db) {
+            return request(db.transaction(S_CONFIG, 'readonly').objectStore(S_CONFIG).get(k));
+          })
+          .then(function (row) { return row ? row.v : undefined; });
+      }
+      return withStaleRetry(attempt);
     },
     getMany: function (keys) {
       var out = {};
-      return openDB()
-        .then(function (db) {
-          return Promise.all(keys.map(function (k) {
-            return request(db.transaction(S_CONFIG, 'readonly').objectStore(S_CONFIG).get(k))
-              .then(function (row) { out[k] = row ? row.v : undefined; });
-          }));
-        })
-        .then(function () { return out; });
+      function attempt() {
+        return openDB()
+          .then(function (db) {
+            return Promise.all(keys.map(function (k) {
+              return request(db.transaction(S_CONFIG, 'readonly').objectStore(S_CONFIG).get(k))
+                .then(function (row) { out[k] = row ? row.v : undefined; });
+            }));
+          })
+          .then(function () { return out; });
+      }
+      return withStaleRetry(attempt);
     },
     set: function (k, v) {
       return run(S_CONFIG, 'readwrite', function (store) { store.put({ k: k, v: v }); return 1; });
